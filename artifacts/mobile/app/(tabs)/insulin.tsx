@@ -1,8 +1,10 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
+  Dimensions,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -16,11 +18,21 @@ import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import type { GlucoseEntry } from "@/context/GlucoseContext";
-import { CGMChart, RANGE_MS, TIME_RANGES, glucoseColor } from "@/components/CGMChart";
-import type { TimeRange } from "@/components/CGMChart";
+import { glucoseColor } from "@/components/CGMChart";
 
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
+const Y_MIN = 40;
+const Y_MAX = 400;
+const Y_RANGE = Y_MAX - Y_MIN;
+const Y_LABELS = [400, 300, 250, 200, 180, 100, 70, 40];
+const CHART_H = 230;
+const Y_AXIS_W = 38;
+const WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function yPct(glucose: number) {
+  return 1 - (Math.max(Y_MIN, Math.min(Y_MAX, glucose)) - Y_MIN) / Y_RANGE;
+}
 
 interface Suggestion {
   icon: string;
@@ -163,6 +175,386 @@ function analyzeReadings(readings: GlucoseEntry[], targetGlucose: number, isMino
   return suggestions.sort((a, b) => a.priority - b.priority).slice(0, 4);
 }
 
+interface AlertDot {
+  x: number;
+  y: number;
+  glucose: number;
+  timestamp: string;
+  alertColor: string;
+}
+
+function ZoomableChart({
+  readings,
+  targetGlucose,
+}: {
+  readings: GlucoseEntry[];
+  targetGlucose: number;
+}) {
+  const screenW = Dimensions.get("window").width;
+  const containerW = screenW - 40; // paddingHorizontal * 2 = 40
+  const plotW = containerW - Y_AXIS_W - 5; // 5 = gap between plot and y-axis
+
+  const zoomScaleRef = useRef(1);
+  const [zoomScale, setZoomScaleRaw] = useState(1);
+  const lastPinchDist = useRef<number | null>(null);
+  const [selectedAlert, setSelectedAlert] = useState<AlertDot | null>(null);
+
+  function applyZoom(newScale: number) {
+    const clamped = Math.max(1, Math.min(6, newScale));
+    zoomScaleRef.current = clamped;
+    setZoomScaleRaw(clamped);
+  }
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponderCapture: (evt) =>
+        evt.nativeEvent.touches.length === 2,
+      onMoveShouldSetPanResponderCapture: (evt) =>
+        evt.nativeEvent.touches.length === 2,
+      onPanResponderGrant: (evt) => {
+        if (evt.nativeEvent.touches.length === 2) {
+          const [t1, t2] = evt.nativeEvent.touches;
+          lastPinchDist.current = Math.hypot(
+            t2.pageX - t1.pageX,
+            t2.pageY - t1.pageY,
+          );
+        }
+      },
+      onPanResponderMove: (evt) => {
+        if (evt.nativeEvent.touches.length === 2) {
+          const [t1, t2] = evt.nativeEvent.touches;
+          const dist = Math.hypot(t2.pageX - t1.pageX, t2.pageY - t1.pageY);
+          if (lastPinchDist.current !== null && lastPinchDist.current > 0) {
+            const ratio = dist / lastPinchDist.current;
+            const newScale = Math.max(
+              1,
+              Math.min(6, zoomScaleRef.current * ratio),
+            );
+            zoomScaleRef.current = newScale;
+            setZoomScaleRaw(newScale);
+            lastPinchDist.current = dist;
+          }
+        }
+      },
+      onPanResponderRelease: () => {
+        lastPinchDist.current = null;
+      },
+    }),
+  ).current;
+
+  const now = Date.now();
+  const windowStart = now - WINDOW_MS;
+
+  const filtered = readings
+    .filter((r) => new Date(r.timestamp).getTime() >= windowStart)
+    .sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    );
+
+  const contentW = plotW * zoomScale;
+
+  const points = filtered.map((r) => ({
+    x: Math.max(
+      0,
+      Math.min(
+        contentW,
+        ((new Date(r.timestamp).getTime() - windowStart) / WINDOW_MS) *
+          contentW,
+      ),
+    ),
+    y: yPct(r.glucose) * CHART_H,
+    glucose: r.glucose,
+    timestamp: r.timestamp,
+    isAlert: r.glucose < LOW_THRESH || r.glucose > HIGH_THRESH,
+    alertColor:
+      r.glucose < LOW_THRESH ? COLORS.danger : COLORS.warning,
+  }));
+
+  const lowLineY = yPct(LOW_THRESH) * CHART_H;
+  const highLineY = yPct(HIGH_THRESH) * CHART_H;
+  const targetLineY =
+    yPct(Math.max(LOW_THRESH, Math.min(HIGH_THRESH, targetGlucose))) * CHART_H;
+
+  const xLabels = [0, 1 / 4, 1 / 2, 3 / 4, 1].map((frac) => ({
+    x: frac * contentW,
+    label:
+      frac === 1
+        ? "Now"
+        : new Date(windowStart + frac * WINDOW_MS).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          }),
+  }));
+
+  const isZoomed = zoomScale > 1.05;
+
+  return (
+    <View {...panResponder.panHandlers}>
+      <View style={chartStyles.toolbar}>
+        <Text style={chartStyles.toolbarHint}>
+          {isZoomed
+            ? `${zoomScale.toFixed(1)}× — scroll to pan`
+            : "Pinch or + / − to zoom  ·  tap ⚠ dots for tips"}
+        </Text>
+        <View style={chartStyles.zoomBtns}>
+          <Pressable
+            style={({ pressed }) => [chartStyles.zoomBtn, { opacity: pressed ? 0.6 : 1 }]}
+            onPress={() => applyZoom(zoomScaleRef.current - 0.5)}
+          >
+            <Text style={chartStyles.zoomBtnText}>−</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [chartStyles.zoomBtn, { opacity: pressed ? 0.6 : 1 }]}
+            onPress={() => applyZoom(zoomScaleRef.current + 0.5)}
+          >
+            <Text style={chartStyles.zoomBtnText}>+</Text>
+          </Pressable>
+          {isZoomed && (
+            <Pressable
+              style={({ pressed }) => [chartStyles.zoomBtn, chartStyles.resetBtn, { opacity: pressed ? 0.6 : 1 }]}
+              onPress={() => applyZoom(1)}
+            >
+              <Text style={[chartStyles.zoomBtnText, { fontSize: 11 }]}>Reset</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+
+      <View style={chartStyles.chartRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          scrollEnabled={true}
+          style={{ width: plotW }}
+          contentContainerStyle={{ width: contentW }}
+        >
+          <View
+            style={{
+              width: contentW,
+              height: CHART_H,
+              backgroundColor: "#1a2540",
+              borderRadius: 6,
+              overflow: "hidden",
+              position: "relative",
+            }}
+          >
+            <View style={[czs.zoneLow, { height: CHART_H - lowLineY, bottom: 0 }]} />
+            <View style={[czs.zoneTarget, { top: highLineY, height: lowLineY - highLineY }]} />
+            <View style={[czs.zoneHigh, { height: highLineY, top: 0 }]} />
+
+            <View style={[czs.line, { top: lowLineY, backgroundColor: "#EF444488" }]} />
+            <View style={[czs.line, { top: highLineY, backgroundColor: "#F59E0B55" }]} />
+            <View style={[czs.line, { top: targetLineY, backgroundColor: "rgba(99,102,241,0.45)" }]} />
+
+            {filtered.length === 0 ? (
+              <View style={czs.empty}>
+                <Text style={czs.emptyText}>No readings in the last 24 hours</Text>
+              </View>
+            ) : (
+              <>
+                {points.map((p, i) => {
+                  if (i >= points.length - 1) return null;
+                  const next = points[i + 1];
+                  const dx = next.x - p.x;
+                  const dy = next.y - p.y;
+                  const len = Math.sqrt(dx * dx + dy * dy);
+                  if (len < 0.5) return null;
+                  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+                  const col = glucoseColor((p.glucose + next.glucose) / 2);
+                  return (
+                    <View
+                      key={`seg-${i}`}
+                      style={{
+                        position: "absolute",
+                        width: len,
+                        left: p.x,
+                        top: p.y - 1.5,
+                        height: 3,
+                        backgroundColor: col + "CC",
+                        transform: [{ rotate: `${angle}deg` }],
+                        transformOrigin: "left center",
+                      }}
+                    />
+                  );
+                })}
+
+                {points.map((p, i) => {
+                  if (p.isAlert) return null;
+                  const isLatest = i === points.length - 1;
+                  const sz = isLatest ? 11 : 5;
+                  return (
+                    <View
+                      key={`ndot-${i}`}
+                      style={{
+                        position: "absolute",
+                        left: p.x - sz / 2,
+                        top: p.y - sz / 2,
+                        width: sz,
+                        height: sz,
+                        borderRadius: sz / 2,
+                        backgroundColor: glucoseColor(p.glucose),
+                        borderWidth: isLatest ? 2 : 0,
+                        borderColor: "#fff",
+                        opacity: isLatest ? 1 : 0.75,
+                      }}
+                    />
+                  );
+                })}
+
+                {points.map((p, i) => {
+                  if (!p.isAlert) return null;
+                  const isSelected = selectedAlert?.timestamp === p.timestamp;
+                  return (
+                    <Pressable
+                      key={`adot-${i}`}
+                      style={{
+                        position: "absolute",
+                        left: p.x - 12,
+                        top: p.y - 12,
+                        width: 24,
+                        height: 24,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setSelectedAlert(
+                          isSelected ? null : {
+                            x: p.x, y: p.y,
+                            glucose: p.glucose,
+                            timestamp: p.timestamp,
+                            alertColor: p.alertColor,
+                          },
+                        );
+                      }}
+                    >
+                      <View
+                        style={{
+                          position: "absolute",
+                          width: 28,
+                          height: 28,
+                          borderRadius: 14,
+                          backgroundColor: p.alertColor + (isSelected ? "35" : "22"),
+                          borderWidth: 1.5,
+                          borderColor: p.alertColor + "70",
+                        }}
+                      />
+                      <View
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: 7,
+                          backgroundColor: p.alertColor,
+                          borderWidth: 2,
+                          borderColor: "#fff",
+                        }}
+                      />
+                    </Pressable>
+                  );
+                })}
+
+                {selectedAlert && (() => {
+                  const isLow = selectedAlert.glucose < LOW_THRESH;
+                  const tooltipW = 148;
+                  const leftPos = Math.max(4, Math.min(contentW - tooltipW - 4, selectedAlert.x - tooltipW / 2));
+                  const showBelow = selectedAlert.y < CHART_H / 2;
+                  return (
+                    <Pressable
+                      key="tooltip"
+                      style={{
+                        position: "absolute",
+                        left: leftPos,
+                        top: showBelow ? selectedAlert.y + 18 : selectedAlert.y - 78,
+                        width: tooltipW,
+                        backgroundColor: selectedAlert.alertColor,
+                        borderRadius: 12,
+                        padding: 10,
+                        shadowColor: "#000",
+                        shadowOpacity: 0.35,
+                        shadowRadius: 6,
+                        shadowOffset: { width: 0, height: 3 },
+                        zIndex: 200,
+                      }}
+                      onPress={() => setSelectedAlert(null)}
+                    >
+                      <Text style={{ color: "#fff", fontSize: 15, fontFamily: "Inter_700Bold", lineHeight: 19 }}>
+                        {selectedAlert.glucose} mg/dL
+                      </Text>
+                      <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 10, fontFamily: "Inter_400Regular", marginBottom: 4 }}>
+                        {new Date(selectedAlert.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </Text>
+                      <Text style={{ color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" }}>
+                        {isLow
+                          ? "⬇ Low — treat with fast carbs"
+                          : "⬆ High — hydrate & check dose"}
+                      </Text>
+                      <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 2 }}>
+                        Tap to dismiss
+                      </Text>
+                    </Pressable>
+                  );
+                })()}
+              </>
+            )}
+
+            <View style={[czs.xAxisRow, { width: contentW }]}>
+              {xLabels.map((l, i) => (
+                <Text key={i} style={czs.xLabel}>{l.label}</Text>
+              ))}
+            </View>
+          </View>
+        </ScrollView>
+
+        <View style={{ width: Y_AXIS_W, height: CHART_H, position: "relative", marginLeft: 5 }}>
+          {Y_LABELS.map((v) => {
+            const top = yPct(v) * CHART_H - 7;
+            if (top < -8 || top > CHART_H - 6) return null;
+            return (
+              <Text
+                key={v}
+                style={{
+                  position: "absolute",
+                  top,
+                  right: 0,
+                  width: 33,
+                  textAlign: "right",
+                  fontSize: 9,
+                  fontFamily: "Inter_400Regular",
+                  color: "rgba(255,255,255,0.35)",
+                }}
+              >
+                {v}
+              </Text>
+            );
+          })}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const czs = StyleSheet.create({
+  zoneLow: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(239,68,68,0.10)" },
+  zoneTarget: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(34,197,94,0.07)" },
+  zoneHigh: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(245,158,11,0.07)" },
+  line: { position: "absolute", left: 0, right: 0, height: 1 },
+  empty: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
+  emptyText: { color: "rgba(255,255,255,0.3)", fontSize: 13, fontFamily: "Inter_400Regular" },
+  xAxisRow: { position: "absolute", bottom: 5, flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 6 },
+  xLabel: { color: "rgba(255,255,255,0.35)", fontSize: 9, fontFamily: "Inter_400Regular" },
+});
+
+const chartStyles = StyleSheet.create({
+  toolbar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8, paddingHorizontal: 2 },
+  toolbarHint: { color: "rgba(255,255,255,0.45)", fontSize: 10, fontFamily: "Inter_500Medium", flex: 1, flexWrap: "wrap" },
+  zoomBtns: { flexDirection: "row", gap: 6, marginLeft: 8 },
+  zoomBtn: { backgroundColor: "rgba(255,255,255,0.14)", paddingHorizontal: 11, paddingVertical: 5, borderRadius: 8, minWidth: 32, alignItems: "center" },
+  resetBtn: { paddingHorizontal: 9 },
+  zoomBtnText: { color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  chartRow: { flexDirection: "row", alignItems: "flex-start" },
+});
+
 export default function InsulinScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
@@ -171,15 +563,13 @@ export default function InsulinScreen() {
   const { targetGlucose, history } = useGlucose();
   const { isMinor } = useAuth();
 
-  const [timeRange, setTimeRange] = useState<TimeRange>("6H");
-
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   const filteredReadings = useMemo(() => {
-    const cutoff = Date.now() - RANGE_MS[timeRange];
+    const cutoff = Date.now() - WINDOW_MS;
     return history.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
-  }, [history, timeRange]);
+  }, [history]);
 
   const stats = useMemo(() => {
     if (filteredReadings.length === 0) return null;
@@ -194,7 +584,7 @@ export default function InsulinScreen() {
 
   const suggestions = useMemo(
     () => analyzeReadings(filteredReadings, targetGlucose, isMinor),
-    [filteredReadings, targetGlucose, isMinor]
+    [filteredReadings, targetGlucose, isMinor],
   );
 
   const latest = history[history.length - 1];
@@ -214,7 +604,7 @@ export default function InsulinScreen() {
       <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
         {isMinor
           ? "See your sugar patterns and get helpful tips"
-          : "Analyze glucose patterns, time-in-range, and personalized recommendations"}
+          : "24-hour glucose pattern with alert markers and AI insights"}
       </Text>
 
       {latest && (
@@ -231,21 +621,14 @@ export default function InsulinScreen() {
             </Text>
             <TrendArrow trend={detectTrend(history)} />
             <Text style={[styles.rangeCount, { color: colors.textMuted }]}>
-              {filteredReadings.length} reading{filteredReadings.length !== 1 ? "s" : ""} in {timeRange}
+              {filteredReadings.length} reading{filteredReadings.length !== 1 ? "s" : ""} · last 24 hours
             </Text>
           </View>
         </View>
       )}
 
       <View style={[styles.chartCard, { backgroundColor: isDark ? "#0D1526" : "#0F172A" }]}>
-        <CGMChart
-          readings={history}
-          targetGlucose={targetGlucose}
-          chartHeight={200}
-          paddingHorizontal={32}
-          timeRange={timeRange}
-          onRangeChange={setTimeRange}
-        />
+        <ZoomableChart readings={history} targetGlucose={targetGlucose} />
       </View>
 
       {stats && (
