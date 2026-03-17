@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -59,7 +60,7 @@ export default function HomeScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, addReading } = useGlucose();
-  const { profile, cgmConnection } = useAuth();
+  const { profile, cgmConnection, emergencyContacts, alertPrefs } = useAuth();
   const [isSimulating, setIsSimulating] = useState(false);
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
@@ -292,6 +293,44 @@ export default function HomeScreen() {
               </Text>
             </View>
           )}
+
+          {latestReading && alertPrefs.emergencyAlertsEnabled && emergencyContacts.length > 0 &&
+            (latestReading.glucose < alertPrefs.lowThreshold || latestReading.glucose > alertPrefs.highThreshold) && (
+              <View style={[styles.emergencyBanner, { backgroundColor: COLORS.danger + "12", borderColor: COLORS.danger + "40" }]}>
+                <View style={styles.emergencyBannerTop}>
+                  <Feather name="phone-call" size={15} color={COLORS.danger} />
+                  <Text style={[styles.emergencyBannerTitle, { color: COLORS.danger }]}>Emergency Alert Ready</Text>
+                </View>
+                <Text style={[styles.emergencyBannerSub, { color: colors.textSecondary }]}>
+                  Glucose is {latestReading.glucose < alertPrefs.lowThreshold ? "critically low" : "critically high"} — tap to alert your emergency contact{emergencyContacts.length > 1 ? "s" : ""}.
+                </Text>
+                <View style={styles.emergencyContactList}>
+                  {emergencyContacts.map((c) => (
+                    <Pressable
+                      key={c.id}
+                      style={({ pressed }) => [
+                        styles.emergencyContactBtn,
+                        { backgroundColor: COLORS.danger, opacity: pressed ? 0.85 : 1 },
+                      ]}
+                      onPress={() => {
+                        const name = profile?.childName ?? "your child";
+                        const level = latestReading!.glucose;
+                        const status = level < alertPrefs.lowThreshold ? "DANGEROUSLY LOW" : "DANGEROUSLY HIGH";
+                        const msg = `🚨 GLUCO GUARDIAN ALERT: ${name}'s blood sugar is ${status} at ${level} mg/dL. Please check on them immediately!`;
+                        const url = Platform.OS === "ios"
+                          ? `sms:${c.phone}&body=${encodeURIComponent(msg)}`
+                          : `sms:${c.phone}?body=${encodeURIComponent(msg)}`;
+                        Linking.openURL(url).catch(() => Alert.alert("Could not open SMS", "Please check the phone number for " + c.name));
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                      }}
+                    >
+                      <Feather name="send" size={13} color="#fff" />
+                      <Text style={styles.emergencyContactBtnText}>Alert {c.name}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
         </View>
 
         <View style={styles.actionRow}>
@@ -475,4 +514,24 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
+  emergencyBanner: {
+    width: "100%",
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    gap: 8,
+  },
+  emergencyBannerTop: { flexDirection: "row", alignItems: "center", gap: 7 },
+  emergencyBannerTitle: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  emergencyBannerSub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  emergencyContactList: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  emergencyContactBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+  emergencyContactBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
 });

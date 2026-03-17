@@ -1,4 +1,4 @@
-# Workspace
+# Gluco Guardian — AI Diabetes Companion
 
 ## Overview
 
