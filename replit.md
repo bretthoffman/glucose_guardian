@@ -91,6 +91,28 @@ Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used b
 
 Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
 
+### `artifacts/mobile` (`@workspace/mobile`)
+
+Expo React Native app — "Gluco Guardian" diabetes companion for kids.
+
+Key screens:
+- `app/onboarding.tsx` — 3-step signup (name → date of birth → diabetes type). DOB determines `isMinor` (under 18).
+- `app/(tabs)/index.tsx` — Home: glucose gauge, CGM sync button, simulate reading, trend chart.
+- `app/(tabs)/food.tsx` — Food & Carbs: camera photo → AI carb analysis (OpenAI vision), search by name, insulin dose suggestion, log to food diary.
+- `app/(tabs)/dashboard.tsx` — Dashboard: stats, trend chart, insulin settings, doctor sharing, food diary. Age-gated: minors see all data but cannot edit settings, delete logs, or edit doctor info — they see "Guardian Permission Required" banners.
+- `app/(tabs)/insulin.tsx` — Insulin calculator.
+- `app/(tabs)/chat.tsx` — AI chat assistant.
+- `app/cgm-setup.tsx` — Connect Dexcom (Share API) or FreeStyle Libre (LibreLink Up).
+
+Contexts:
+- `context/AuthContext.tsx` — Profile (name, DOB, diabetesType, doctor info), CGM connection, food log. Computes `isMinor` and `ageYears` from DOB.
+- `context/GlucoseContext.tsx` — Glucose history, carb ratio, target glucose, correction factor (all persisted in AsyncStorage).
+
+Backend routes added:
+- `POST /api/food/analyze-photo` — OpenAI GPT vision analyzes base64 food photo, returns carbs + insulin recommendation.
+- `POST /api/cgm/dexcom/connect` + `POST /api/cgm/dexcom/readings` — Dexcom Share API proxy.
+- `POST /api/cgm/libre/connect` + `POST /api/cgm/libre/readings` — LibreLink Up API proxy.
+
 ### `scripts` (`@workspace/scripts`)
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.

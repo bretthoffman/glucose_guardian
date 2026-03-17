@@ -10,7 +10,7 @@ import React, {
 export interface UserProfile {
   childName: string;
   diabetesType: "type1" | "type2" | "other";
-  dateOfBirth?: string;
+  dateOfBirth: string;
   doctorName?: string;
   doctorEmail?: string;
 }
@@ -37,12 +37,12 @@ export interface AuthContextType {
   profile: UserProfile | null;
   isLoading: boolean;
   isLoggedIn: boolean;
-  dashboardPin: string | null;
+  isMinor: boolean;
+  ageYears: number | null;
   cgmConnection: CGMConnection;
   foodLog: FoodLogEntry[];
   setupProfile: (profile: UserProfile) => Promise<void>;
   updateProfile: (profile: Partial<UserProfile>) => Promise<void>;
-  setDashboardPin: (pin: string | null) => Promise<void>;
   setCGMConnection: (conn: CGMConnection) => Promise<void>;
   addFoodLogEntry: (entry: Omit<FoodLogEntry, "id">) => void;
   clearFoodLog: () => void;
@@ -52,28 +52,37 @@ export interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 const PROFILE_KEY = "@gluco_guardian_profile";
-const PIN_KEY = "@gluco_guardian_pin";
 const CGM_KEY = "@gluco_guardian_cgm";
 const FOOD_LOG_KEY = "@gluco_guardian_food_log";
+
+function computeAge(dateOfBirth: string): number | null {
+  if (!dateOfBirth) return null;
+  const dob = new Date(dateOfBirth);
+  if (isNaN(dob.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const monthDiff = now.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < dob.getDate())) {
+    age--;
+  }
+  return age;
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [dashboardPin, setDashboardPinState] = useState<string | null>(null);
   const [cgmConnection, setCGMConnectionState] = useState<CGMConnection>({ type: null });
   const [foodLog, setFoodLog] = useState<FoodLogEntry[]>([]);
 
   useEffect(() => {
     async function load() {
       try {
-        const [storedProfile, storedPin, storedCGM, storedFoodLog] = await Promise.all([
+        const [storedProfile, storedCGM, storedFoodLog] = await Promise.all([
           AsyncStorage.getItem(PROFILE_KEY),
-          AsyncStorage.getItem(PIN_KEY),
           AsyncStorage.getItem(CGM_KEY),
           AsyncStorage.getItem(FOOD_LOG_KEY),
         ]);
         if (storedProfile) setProfile(JSON.parse(storedProfile));
-        if (storedPin) setDashboardPinState(storedPin);
         if (storedCGM) setCGMConnectionState(JSON.parse(storedCGM));
         if (storedFoodLog) setFoodLog(JSON.parse(storedFoodLog));
       } catch {}
@@ -81,6 +90,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     load();
   }, []);
+
+  const ageYears = profile?.dateOfBirth ? computeAge(profile.dateOfBirth) : null;
+  const isMinor = ageYears !== null ? ageYears < 18 : false;
 
   const setupProfile = useCallback(async (p: UserProfile) => {
     setProfile(p);
@@ -94,15 +106,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(updated)).catch(() => {});
       return updated;
     });
-  }, []);
-
-  const setDashboardPin = useCallback(async (pin: string | null) => {
-    setDashboardPinState(pin);
-    if (pin) {
-      await AsyncStorage.setItem(PIN_KEY, pin);
-    } else {
-      await AsyncStorage.removeItem(PIN_KEY);
-    }
   }, []);
 
   const setCGMConnection = useCallback(async (conn: CGMConnection) => {
@@ -127,7 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     setProfile(null);
-    await AsyncStorage.multiRemove([PROFILE_KEY, PIN_KEY, CGM_KEY]);
+    await AsyncStorage.multiRemove([PROFILE_KEY, CGM_KEY]);
   }, []);
 
   return (
@@ -136,12 +139,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profile,
         isLoading,
         isLoggedIn: !!profile,
-        dashboardPin,
+        isMinor,
+        ageYears,
         cgmConnection,
         foodLog,
         setupProfile,
         updateProfile,
-        setDashboardPin,
         setCGMConnection,
         addFoodLogEntry,
         clearFoodLog,
