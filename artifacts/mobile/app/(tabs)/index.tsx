@@ -378,6 +378,10 @@ export default function HomeScreen() {
               targetGlucose={targetGlucose}
               chartHeight={300}
               paddingHorizontal={34}
+              urgentLowThreshold={alertPrefs.urgentLowThreshold}
+              lowThreshold={alertPrefs.lowThreshold}
+              highThreshold={alertPrefs.highThreshold}
+              urgentHighThreshold={alertPrefs.urgentHighThreshold}
             />
           </View>
         )}

@@ -33,9 +33,10 @@ export interface CGMReading {
   timestamp: string;
 }
 
-export function glucoseColor(val: number): string {
-  if (val < LOW_THRESH) return COLORS.danger;
-  if (val <= HIGH_THRESH) return COLORS.success;
+export function glucoseColor(val: number, low = LOW_THRESH, high = HIGH_THRESH, urgentLow = 55): string {
+  if (val < urgentLow) return COLORS.danger;
+  if (val < low) return "#F97316";
+  if (val <= high) return COLORS.success;
   if (val <= 300) return COLORS.warning;
   return COLORS.danger;
 }
@@ -53,6 +54,10 @@ interface CGMChartProps {
   darkBg?: string;
   timeRange?: TimeRange;
   onRangeChange?: (range: TimeRange) => void;
+  urgentLowThreshold?: number;
+  lowThreshold?: number;
+  highThreshold?: number;
+  urgentHighThreshold?: number;
 }
 
 export function CGMChart({
@@ -63,6 +68,10 @@ export function CGMChart({
   darkBg = "#0F172A",
   timeRange: controlledRange,
   onRangeChange,
+  urgentLowThreshold = 55,
+  lowThreshold = LOW_THRESH,
+  highThreshold = HIGH_THRESH,
+  urgentHighThreshold = 250,
 }: CGMChartProps) {
   const isControlled = controlledRange !== undefined;
   const [internalRange, setInternalRange] = useState<TimeRange>("6H");
@@ -96,9 +105,11 @@ export function CGMChart({
     glucose: r.glucose,
   }));
 
-  const lowLineY = yPct(LOW_THRESH) * CHART_INNER_H;
-  const highLineY = yPct(HIGH_THRESH) * CHART_INNER_H;
-  const targetLineY = yPct(Math.max(LOW_THRESH, Math.min(HIGH_THRESH, targetGlucose))) * CHART_INNER_H;
+  const urgentLowLineY = yPct(urgentLowThreshold) * CHART_INNER_H;
+  const lowLineY = yPct(lowThreshold) * CHART_INNER_H;
+  const highLineY = yPct(highThreshold) * CHART_INNER_H;
+  const urgentHighLineY = yPct(urgentHighThreshold) * CHART_INNER_H;
+  const targetLineY = yPct(Math.max(lowThreshold, Math.min(highThreshold, targetGlucose))) * CHART_INNER_H;
 
   const midTime = new Date(windowStart + windowMs / 2).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const startTime = new Date(windowStart).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -128,8 +139,10 @@ export function CGMChart({
           <View style={[styles.zoneTarget, { top: highLineY, height: lowLineY - highLineY }]} />
           <View style={[styles.zoneHigh, { height: highLineY }]} />
 
-          <View style={[styles.threshLine, { top: lowLineY, backgroundColor: "#EF4444CC" }]} />
+          <View style={[styles.threshLineDashed, { top: urgentLowLineY, borderColor: "#EF4444" }]} />
+          <View style={[styles.threshLine, { top: lowLineY, backgroundColor: "#F97316CC" }]} />
           <View style={[styles.threshLine, { top: highLineY, backgroundColor: "#F59E0BAA" }]} />
+          <View style={[styles.threshLineDashed, { top: urgentHighLineY, borderColor: "#EF4444" }]} />
           <View style={[styles.targetLine, { top: targetLineY }]} />
 
           {filtered.length === 0 ? (
@@ -146,7 +159,7 @@ export function CGMChart({
                 const len = Math.sqrt(dx * dx + dy * dy);
                 if (len < 0.5) return null;
                 const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-                const col = glucoseColor((p.glucose + next.glucose) / 2);
+                const col = glucoseColor((p.glucose + next.glucose) / 2, lowThreshold, highThreshold, urgentLowThreshold);
                 const midY = (p.y + next.y) / 2;
                 return (
                   <React.Fragment key={`seg-${i}`}>
@@ -180,7 +193,7 @@ export function CGMChart({
 
               {points.map((p, i) => {
                 const isLatest = i === points.length - 1;
-                const col = glucoseColor(p.glucose);
+                const col = glucoseColor(p.glucose, lowThreshold, highThreshold, urgentLowThreshold);
                 const sz = isLatest ? 14 : 8;
                 return (
                   <React.Fragment key={`dot-${i}`}>
@@ -296,6 +309,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 2,
+  },
+  threshLineDashed: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 0,
+    borderTopWidth: 1.5,
+    borderStyle: "dashed",
   },
   targetLine: {
     position: "absolute",

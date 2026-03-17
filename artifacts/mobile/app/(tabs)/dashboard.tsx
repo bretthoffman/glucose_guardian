@@ -168,6 +168,12 @@ export default function DashboardScreen() {
   const [pinError, setPinError] = useState("");
   const [pinShake, setPinShake] = useState(false);
 
+  const [editingThresholds, setEditingThresholds] = useState(false);
+  const [editUrgentLow, setEditUrgentLow] = useState(String(alertPrefs.urgentLowThreshold));
+  const [editLow, setEditLow] = useState(String(alertPrefs.lowThreshold));
+  const [editHigh, setEditHigh] = useState(String(alertPrefs.highThreshold));
+  const [editUrgentHigh, setEditUrgentHigh] = useState(String(alertPrefs.urgentHighThreshold));
+
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -178,6 +184,28 @@ export default function DashboardScreen() {
   const maxGlucose = values.length > 0 ? Math.max(...values) : 0;
   const inRangePercent = history.length > 0 ? Math.round((inRange / history.length) * 100) : 0;
   const anomalyCount = history.filter((h) => h.anomaly.warning).length;
+
+  function saveThresholds() {
+    const ul = parseInt(editUrgentLow, 10);
+    const lo = parseInt(editLow, 10);
+    const hi = parseInt(editHigh, 10);
+    const uh = parseInt(editUrgentHigh, 10);
+    if (isNaN(ul) || isNaN(lo) || isNaN(hi) || isNaN(uh)) {
+      Alert.alert("Invalid Values", "Please enter whole numbers for all thresholds.");
+      return;
+    }
+    if (!(ul < lo && lo < hi && hi < uh)) {
+      Alert.alert("Invalid Order", "Thresholds must be: Urgent Low < Low < High < Urgent High");
+      return;
+    }
+    if (ul < 40 || uh > 400) {
+      Alert.alert("Out of Range", "Values must be between 40 and 400 mg/dL.");
+      return;
+    }
+    updateAlertPrefs({ urgentLowThreshold: ul, lowThreshold: lo, highThreshold: hi, urgentHighThreshold: uh });
+    setEditingThresholds(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }
 
   function saveSettings() {
     const cr = parseFloat(editCarbRatio);
@@ -468,7 +496,7 @@ export default function DashboardScreen() {
           </Text>
           <ToggleRow
             label="Glucose Alerts"
-            description={`Notify when below ${alertPrefs.lowThreshold} or above ${alertPrefs.highThreshold} mg/dL`}
+            description={`Alerts when outside ${alertPrefs.lowThreshold}–${alertPrefs.highThreshold} mg/dL range`}
             value={alertPrefs.notificationsEnabled}
             onToggle={(v) => updateAlertPrefs({ notificationsEnabled: v })}
             colors={colors}
@@ -481,6 +509,99 @@ export default function DashboardScreen() {
             colors={colors}
             last
           />
+        </View>
+
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.cardHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>Glucose Alert Thresholds</Text>
+              <Text style={[styles.cardSub, { color: colors.textSecondary }]}>
+                Customize each alert level (mg/dL)
+              </Text>
+            </View>
+            {!isGuarded && !editingThresholds && (
+              <Pressable
+                style={({ pressed }) => [styles.addContactBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  setEditUrgentLow(String(alertPrefs.urgentLowThreshold));
+                  setEditLow(String(alertPrefs.lowThreshold));
+                  setEditHigh(String(alertPrefs.highThreshold));
+                  setEditUrgentHigh(String(alertPrefs.urgentHighThreshold));
+                  setEditingThresholds(true);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+              >
+                <Feather name="edit-2" size={13} color="#fff" />
+                <Text style={styles.addContactBtnText}>Edit</Text>
+              </Pressable>
+            )}
+          </View>
+
+          {isGuarded ? (
+            <GuardianLock colors={colors} />
+          ) : (
+            <>
+              <View style={styles.thresholdGrid}>
+                <ThresholdCell
+                  label="URGENT LOW"
+                  value={editingThresholds ? editUrgentLow : String(alertPrefs.urgentLowThreshold)}
+                  color="#EF4444"
+                  editing={editingThresholds}
+                  onChangeText={setEditUrgentLow}
+                  colors={colors}
+                />
+                <ThresholdCell
+                  label="LOW"
+                  value={editingThresholds ? editLow : String(alertPrefs.lowThreshold)}
+                  color="#F97316"
+                  editing={editingThresholds}
+                  onChangeText={setEditLow}
+                  colors={colors}
+                />
+                <ThresholdCell
+                  label="HIGH"
+                  value={editingThresholds ? editHigh : String(alertPrefs.highThreshold)}
+                  color="#F59E0B"
+                  editing={editingThresholds}
+                  onChangeText={setEditHigh}
+                  colors={colors}
+                />
+                <ThresholdCell
+                  label="URGENT HIGH"
+                  value={editingThresholds ? editUrgentHigh : String(alertPrefs.urgentHighThreshold)}
+                  color="#EF4444"
+                  editing={editingThresholds}
+                  onChangeText={setEditUrgentHigh}
+                  colors={colors}
+                />
+              </View>
+              {editingThresholds && (
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+                  <Pressable
+                    style={({ pressed }) => [styles.threshSaveBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.75 : 1 }]}
+                    onPress={saveThresholds}
+                  >
+                    <Feather name="check" size={14} color="#fff" />
+                    <Text style={styles.threshSaveBtnText}>Save</Text>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [styles.threshCancelBtn, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+                    onPress={() => setEditingThresholds(false)}
+                  >
+                    <Text style={[styles.threshCancelBtnText, { color: colors.textSecondary }]}>Cancel</Text>
+                  </Pressable>
+                </View>
+              )}
+              {!editingThresholds && (
+                <View style={[styles.threshLegend, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+                  <Feather name="info" size={12} color={colors.textMuted} />
+                  <Text style={[styles.threshLegendText, { color: colors.textMuted }]}>
+                    These levels control chart lines, alert triggers, and dot colors throughout the app.
+                  </Text>
+                </View>
+              )}
+            </>
+          )}
         </View>
 
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -870,6 +991,27 @@ function RangeItem({ label, value, unit, colors }: { label: string; value: numbe
   );
 }
 
+function ThresholdCell({ label, value, color, editing, onChangeText, colors }: { label: string; value: string; color: string; editing: boolean; onChangeText: (v: string) => void; colors: (typeof Colors)["light"] }) {
+  return (
+    <View style={[styles.thresholdCell, { backgroundColor: color + "12", borderColor: color + "40" }]}>
+      <Text style={[styles.thresholdCellLabel, { color }]}>{label}</Text>
+      {editing ? (
+        <TextInput
+          style={[styles.thresholdCellInput, { color: colors.text, borderColor: color + "60", backgroundColor: color + "08" }]}
+          value={value}
+          onChangeText={onChangeText}
+          keyboardType="numeric"
+          maxLength={3}
+          selectTextOnFocus
+        />
+      ) : (
+        <Text style={[styles.thresholdCellValue, { color: colors.text }]}>{value}</Text>
+      )}
+      <Text style={[styles.thresholdCellUnit, { color }]}>mg/dL</Text>
+    </View>
+  );
+}
+
 function SettingRow({ label, description, value, onChange, editing, displayValue, colors, last }: { label: string; description: string; value: string; onChange: (v: string) => void; editing: boolean; displayValue: string; colors: (typeof Colors)["light"]; last?: boolean }) {
   return (
     <View style={[styles.settingRow, !last && { borderBottomWidth: 1, borderBottomColor: colors.separator }]}>
@@ -941,6 +1083,19 @@ const styles = StyleSheet.create({
 
   alertNote: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 10, borderWidth: 1, marginTop: 4 },
   alertNoteText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+
+  thresholdGrid: { flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" },
+  thresholdCell: { flex: 1, minWidth: "44%", borderRadius: 12, borderWidth: 1, padding: 12, alignItems: "center", gap: 4 },
+  thresholdCellLabel: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
+  thresholdCellValue: { fontSize: 26, fontFamily: "Inter_700Bold", lineHeight: 30 },
+  thresholdCellInput: { fontSize: 24, fontFamily: "Inter_700Bold", width: 70, textAlign: "center", borderWidth: 1.5, borderRadius: 8, paddingVertical: 4 },
+  thresholdCellUnit: { fontSize: 10, fontFamily: "Inter_400Regular" },
+  threshSaveBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 11, borderRadius: 11 },
+  threshSaveBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  threshCancelBtn: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 11, borderRadius: 11, borderWidth: 1 },
+  threshCancelBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  threshLegend: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, marginTop: 12 },
+  threshLegendText: { flex: 1, fontSize: 11, fontFamily: "Inter_400Regular", lineHeight: 16 },
 
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 },
   statCard: { width: "48%", borderRadius: 14, borderWidth: 1, padding: 14, gap: 4 },

@@ -50,8 +50,10 @@ export interface EmergencyContact {
 export interface AlertPreferences {
   notificationsEnabled: boolean;
   emergencyAlertsEnabled: boolean;
+  urgentLowThreshold: number;
   lowThreshold: number;
   highThreshold: number;
+  urgentHighThreshold: number;
 }
 
 export interface AuthContextType {
@@ -99,8 +101,10 @@ const SESSION_KEY = "@gluco_guardian_session";
 const DEFAULT_ALERT_PREFS: AlertPreferences = {
   notificationsEnabled: false,
   emergencyAlertsEnabled: false,
+  urgentLowThreshold: 55,
   lowThreshold: 70,
-  highThreshold: 250,
+  highThreshold: 180,
+  urgentHighThreshold: 250,
 };
 
 function hashPassword(password: string): string {
