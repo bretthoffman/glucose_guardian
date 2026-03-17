@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -124,9 +125,11 @@ export default function AuthScreen() {
       >
         <View style={styles.hero}>
           <View style={styles.logoWrap}>
-            <View style={[styles.logoBg, { backgroundColor: COLORS.primary + "28" }]}>
-              <Feather name="shield" size={40} color={COLORS.primary} />
-            </View>
+            <Image
+              source={require("../assets/images/logo.png")}
+              style={styles.logoImg}
+              resizeMode="contain"
+            />
           </View>
           <Text style={[styles.appName, { color: textColor }]}>Glucose Guardian</Text>
           <Text style={[styles.tagline, { color: subtextColor }]}>
@@ -307,13 +310,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 32,
   },
-  logoWrap: { marginBottom: 16 },
-  logoBg: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
+  logoWrap: { marginBottom: 16, alignItems: "center" },
+  logoImg: {
+    width: 110,
+    height: 110,
   },
   appName: {
     fontSize: 28,

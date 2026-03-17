@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -207,9 +208,11 @@ export default function OnboardingScreen() {
       >
         {step === "welcome" && (
           <View style={styles.stepContainer}>
-            <View style={[styles.logoCircle, { backgroundColor: COLORS.primary + "20" }]}>
-              <Feather name="shield" size={56} color={COLORS.primary} />
-            </View>
+            <Image
+              source={require("../assets/images/logo.png")}
+              style={styles.logoImg}
+              resizeMode="contain"
+            />
             <Text style={[styles.bigTitle, { color: colors.text }]}>Glucose Guardian</Text>
             <Text style={[styles.bigSubtitle, { color: colors.textSecondary }]}>
               Your AI-powered diabetes companion
@@ -634,6 +637,11 @@ const styles = StyleSheet.create({
     borderRadius: 55,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 8,
+  },
+  logoImg: {
+    width: 130,
+    height: 130,
     marginBottom: 8,
   },
   bigTitle: { fontSize: 34, fontFamily: "Inter_700Bold", textAlign: "center" },
