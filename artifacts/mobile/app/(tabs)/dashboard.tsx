@@ -7,6 +7,7 @@ import React, { useState } from "react";
 import {
   Alert,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -33,7 +34,7 @@ function GuardianLock({ colors }: { colors: (typeof Colors)["light"] }) {
       <View style={{ flex: 1 }}>
         <Text style={[guardianStyles.title, { color: colors.text }]}>Guardian Permission Required</Text>
         <Text style={[guardianStyles.sub, { color: colors.textMuted }]}>
-          A parent or guardian must manage this section.
+          Use the Guardian Access section to unlock and edit this.
         </Text>
       </View>
     </View>
@@ -45,6 +46,71 @@ const guardianStyles = StyleSheet.create({
   iconWrap: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   title: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 3 },
   sub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+});
+
+function PinDots({ entered, total = 4, shake }: { entered: number; total?: number; shake?: boolean }) {
+  return (
+    <View style={pinStyles.dotsRow}>
+      {Array.from({ length: total }).map((_, i) => (
+        <View
+          key={i}
+          style={[
+            pinStyles.dot,
+            i < entered ? pinStyles.dotFilled : pinStyles.dotEmpty,
+            shake ? { borderColor: COLORS.danger } : undefined,
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+function PinKeypad({
+  onPress,
+  onDelete,
+  colors,
+}: {
+  onPress: (digit: string) => void;
+  onDelete: () => void;
+  colors: (typeof Colors)["light"];
+}) {
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
+  return (
+    <View style={pinStyles.keypad}>
+      {keys.map((k, i) =>
+        k === "" ? (
+          <View key={i} style={pinStyles.keyEmpty} />
+        ) : k === "del" ? (
+          <Pressable
+            key={i}
+            style={({ pressed }) => [pinStyles.key, { backgroundColor: colors.card, opacity: pressed ? 0.6 : 1 }]}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onDelete(); }}
+          >
+            <Feather name="delete" size={22} color={colors.text} />
+          </Pressable>
+        ) : (
+          <Pressable
+            key={i}
+            style={({ pressed }) => [pinStyles.key, { backgroundColor: colors.card, opacity: pressed ? 0.6 : 1 }]}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(k); }}
+          >
+            <Text style={[pinStyles.keyText, { color: colors.text }]}>{k}</Text>
+          </Pressable>
+        )
+      )}
+    </View>
+  );
+}
+
+const pinStyles = StyleSheet.create({
+  dotsRow: { flexDirection: "row", gap: 20, justifyContent: "center", marginVertical: 12 },
+  dot: { width: 18, height: 18, borderRadius: 9, borderWidth: 2 },
+  dotFilled: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  dotEmpty: { backgroundColor: "transparent", borderColor: COLORS.accent + "60" },
+  keypad: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 14, width: "100%", maxWidth: 300, alignSelf: "center", marginTop: 8 },
+  key: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center" },
+  keyEmpty: { width: 76, height: 76 },
+  keyText: { fontSize: 26, fontFamily: "Inter_600SemiBold" },
 });
 
 export default function DashboardScreen() {
@@ -76,7 +142,13 @@ export default function DashboardScreen() {
     addEmergencyContact,
     removeEmergencyContact,
     updateAlertPrefs,
+    guardianPin,
+    isGuardianUnlocked,
+    unlockGuardian,
+    lockGuardian,
   } = useAuth();
+
+  const isGuarded = isMinor && !isGuardianUnlocked;
 
   const [editing, setEditing] = useState(false);
   const [editCarbRatio, setEditCarbRatio] = useState(String(carbRatio));
@@ -90,6 +162,11 @@ export default function DashboardScreen() {
   const [newContactName, setNewContactName] = useState("");
   const [newContactPhone, setNewContactPhone] = useState("");
   const [newContactRelation, setNewContactRelation] = useState("");
+
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinEntry, setPinEntry] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [pinShake, setPinShake] = useState(false);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -241,6 +318,40 @@ export default function DashboardScreen() {
     }
   }
 
+  function handlePinDigit(digit: string) {
+    if (pinEntry.length >= 4) return;
+    const next = pinEntry + digit;
+    setPinEntry(next);
+    setPinError("");
+    if (next.length === 4) {
+      setTimeout(() => {
+        const ok = unlockGuardian(next);
+        if (ok) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setShowPinModal(false);
+          setPinEntry("");
+          setPinError("");
+        } else {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          setPinShake(true);
+          setTimeout(() => { setPinShake(false); setPinEntry(""); setPinError("Incorrect PIN — try again"); }, 600);
+        }
+      }, 200);
+    }
+  }
+
+  function handlePinDelete() {
+    setPinEntry((p) => p.slice(0, -1));
+    setPinError("");
+  }
+
+  function closePinModal() {
+    setShowPinModal(false);
+    setPinEntry("");
+    setPinError("");
+    setPinShake(false);
+  }
+
   const diabetesLabel: Record<string, string> = { type1: "Type 1", type2: "Type 2", other: "Other" };
 
   return (
@@ -268,8 +379,59 @@ export default function DashboardScreen() {
           <View style={[styles.childBanner, { backgroundColor: COLORS.primary + "10", borderColor: COLORS.primary + "30" }]}>
             <Feather name="info" size={16} color={COLORS.primary} />
             <Text style={[styles.childBannerText, { color: colors.textSecondary }]}>
-              You can view all your health data. Some sections require a parent or guardian to edit.
+              You can view all your health data. Some sections require guardian access to edit.
             </Text>
+          </View>
+        )}
+
+        {isMinor && guardianPin && (
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: isGuardianUnlocked ? COLORS.success + "50" : colors.border }]}>
+            <View style={styles.guardianAccessHeader}>
+              <View style={[styles.guardianAccessIcon, { backgroundColor: isGuardianUnlocked ? COLORS.success + "18" : COLORS.warning + "18" }]}>
+                <Feather
+                  name={isGuardianUnlocked ? "unlock" : "lock"}
+                  size={20}
+                  color={isGuardianUnlocked ? COLORS.success : COLORS.warning}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Guardian Access</Text>
+                <Text style={[styles.guardianAccessSub, { color: isGuardianUnlocked ? COLORS.success : colors.textMuted }]}>
+                  {isGuardianUnlocked ? "Unlocked — settings are editable" : "Locked — enter PIN to unlock"}
+                </Text>
+              </View>
+              {isGuardianUnlocked ? (
+                <Pressable
+                  style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.success + "18", opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => {
+                    lockGuardian();
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  }}
+                >
+                  <Feather name="lock" size={14} color={COLORS.success} />
+                  <Text style={[styles.guardianBtnText, { color: COLORS.success }]}>Lock</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.warning + "18", opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setShowPinModal(true);
+                  }}
+                >
+                  <Feather name="unlock" size={14} color={COLORS.warning} />
+                  <Text style={[styles.guardianBtnText, { color: COLORS.warning }]}>Unlock</Text>
+                </Pressable>
+              )}
+            </View>
+            {isGuardianUnlocked && (
+              <View style={[styles.unlockedNote, { backgroundColor: COLORS.success + "10", borderColor: COLORS.success + "30" }]}>
+                <Feather name="check-circle" size={13} color={COLORS.success} />
+                <Text style={[styles.unlockedNoteText, { color: COLORS.success }]}>
+                  Guardian mode is active. Tap Lock when you're done to protect these settings again.
+                </Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -430,7 +592,7 @@ export default function DashboardScreen() {
               <RangeItem label="In Range" value={inRange} unit="readings" colors={colors} />
             </View>
             <TrendChart readings={history} height={130} />
-            {isMinor ? (
+            {isGuarded ? (
               <GuardianLock colors={colors} />
             ) : (
               <Pressable
@@ -447,7 +609,7 @@ export default function DashboardScreen() {
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.cardHeader}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>Insulin Settings</Text>
-            {!isMinor && (
+            {!isGuarded && (
               <Pressable
                 onPress={() => {
                   if (editing) { saveSettings(); } else {
@@ -468,15 +630,15 @@ export default function DashboardScreen() {
               </Pressable>
             )}
           </View>
-          <SettingRow label="Carb Ratio" description="grams of carbs per unit of insulin" displayValue={`1:${carbRatio} g/unit`} editing={editing && !isMinor} value={editCarbRatio} onChange={setEditCarbRatio} colors={colors} />
-          <SettingRow label="Target Glucose" description="desired blood glucose level" displayValue={`${targetGlucose} mg/dL`} editing={editing && !isMinor} value={editTarget} onChange={setEditTarget} colors={colors} />
-          <SettingRow label="Correction Factor (ISF)" description="points glucose drops per unit" displayValue={`1:${correctionFactor}`} editing={editing && !isMinor} value={editISF} onChange={setEditISF} colors={colors} last />
-          {isMinor && <GuardianLock colors={colors} />}
+          <SettingRow label="Carb Ratio" description="grams of carbs per unit of insulin" displayValue={`1:${carbRatio} g/unit`} editing={editing && !isGuarded} value={editCarbRatio} onChange={setEditCarbRatio} colors={colors} />
+          <SettingRow label="Target Glucose" description="desired blood glucose level" displayValue={`${targetGlucose} mg/dL`} editing={editing && !isGuarded} value={editTarget} onChange={setEditTarget} colors={colors} />
+          <SettingRow label="Correction Factor (ISF)" description="points glucose drops per unit" displayValue={`1:${correctionFactor}`} editing={editing && !isGuarded} value={editISF} onChange={setEditISF} colors={colors} last />
+          {isGuarded && <GuardianLock colors={colors} />}
         </View>
 
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor Sharing</Text>
-          {!isMinor && (
+          {!isGuarded && (
             <>
               {editingProfile ? (
                 <View style={{ gap: 10 }}>
@@ -530,9 +692,9 @@ export default function DashboardScreen() {
             <Feather name="share-2" size={16} color="#fff" />
             <Text style={styles.shareBtnText}>{isSharing ? "Generating..." : "Share Report with Doctor"}</Text>
           </Pressable>
-          {isMinor && (
+          {isGuarded && (
             <Text style={[styles.shareNote, { color: colors.textMuted }]}>
-              Doctor info can be managed by your parent or guardian.
+              Doctor info can be managed by unlocking Guardian Access above.
             </Text>
           )}
         </View>
@@ -556,7 +718,7 @@ export default function DashboardScreen() {
             {foodLog.length > 5 && (
               <Text style={[styles.foodLogMore, { color: colors.textMuted }]}>+{foodLog.length - 5} more in report</Text>
             )}
-            {isMinor ? (
+            {isGuarded ? (
               <GuardianLock colors={colors} />
             ) : (
               <Pressable
@@ -577,9 +739,61 @@ export default function DashboardScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={showPinModal}
+        transparent
+        animationType="slide"
+        onRequestClose={closePinModal}
+      >
+        <View style={modalStyles.overlay}>
+          <Pressable style={modalStyles.backdrop} onPress={closePinModal} />
+          <View style={[modalStyles.sheet, { backgroundColor: colors.card }]}>
+            <View style={modalStyles.handle} />
+
+            <View style={[modalStyles.iconCircle, { backgroundColor: COLORS.warning + "18" }]}>
+              <Feather name="shield" size={28} color={COLORS.warning} />
+            </View>
+
+            <Text style={[modalStyles.title, { color: colors.text }]}>Guardian Access</Text>
+            <Text style={[modalStyles.sub, { color: colors.textSecondary }]}>
+              Enter the 4-digit guardian PIN to unlock settings
+            </Text>
+
+            <PinDots entered={pinEntry.length} shake={pinShake} />
+
+            {pinError ? (
+              <View style={[modalStyles.errorBadge, { backgroundColor: COLORS.danger + "15" }]}>
+                <Feather name="alert-circle" size={13} color={COLORS.danger} />
+                <Text style={[modalStyles.errorText, { color: COLORS.danger }]}>{pinError}</Text>
+              </View>
+            ) : null}
+
+            <PinKeypad onPress={handlePinDigit} onDelete={handlePinDelete} colors={colors} />
+
+            <Pressable style={modalStyles.cancelBtn} onPress={closePinModal}>
+              <Text style={[modalStyles.cancelBtnText, { color: colors.textMuted }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
+
+const modalStyles = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" },
+  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingBottom: 40, paddingTop: 16, alignItems: "center", gap: 12 },
+  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#ccc", marginBottom: 8 },
+  iconCircle: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center" },
+  title: { fontSize: 22, fontFamily: "Inter_700Bold", textAlign: "center" },
+  sub: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20, marginTop: -4 },
+  errorBadge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  errorText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  cancelBtn: { paddingVertical: 12, paddingHorizontal: 24, marginTop: 4 },
+  cancelBtnText: { fontSize: 15, fontFamily: "Inter_500Medium" },
+});
 
 function ToggleRow({
   label, description, value, onToggle, colors, last,
@@ -684,6 +898,15 @@ const styles = StyleSheet.create({
   ageBadgeText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   childBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 16 },
   childBannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+
+  guardianAccessHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  guardianAccessIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  guardianAccessTitle: { fontSize: 15, fontFamily: "Inter_700Bold", marginBottom: 2 },
+  guardianAccessSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  guardianBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
+  guardianBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  unlockedNote: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1 },
+  unlockedNoteText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
 
   profileTop: { flexDirection: "row", alignItems: "center", gap: 14 },
   avatarCircle: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },

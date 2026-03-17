@@ -58,6 +58,8 @@ export interface AuthContextType {
   foodLog: FoodLogEntry[];
   emergencyContacts: EmergencyContact[];
   alertPrefs: AlertPreferences;
+  guardianPin: string | null;
+  isGuardianUnlocked: boolean;
   setupProfile: (profile: UserProfile) => Promise<void>;
   updateProfile: (profile: Partial<UserProfile>) => Promise<void>;
   setCGMConnection: (conn: CGMConnection) => Promise<void>;
@@ -67,6 +69,9 @@ export interface AuthContextType {
   addEmergencyContact: (contact: Omit<EmergencyContact, "id">) => Promise<void>;
   removeEmergencyContact: (id: string) => Promise<void>;
   updateAlertPrefs: (prefs: Partial<AlertPreferences>) => Promise<void>;
+  setGuardianPin: (pin: string) => Promise<void>;
+  unlockGuardian: (pin: string) => boolean;
+  lockGuardian: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -76,6 +81,7 @@ const CGM_KEY = "@gluco_guardian_cgm";
 const FOOD_LOG_KEY = "@gluco_guardian_food_log";
 const EMERGENCY_CONTACTS_KEY = "@gluco_guardian_emergency_contacts";
 const ALERT_PREFS_KEY = "@gluco_guardian_alert_prefs";
+const GUARDIAN_PIN_KEY = "@gluco_guardian_pin";
 
 const DEFAULT_ALERT_PREFS: AlertPreferences = {
   notificationsEnabled: false,
@@ -104,22 +110,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [foodLog, setFoodLog] = useState<FoodLogEntry[]>([]);
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [alertPrefs, setAlertPrefsState] = useState<AlertPreferences>(DEFAULT_ALERT_PREFS);
+  const [guardianPin, setGuardianPinState] = useState<string | null>(null);
+  const [isGuardianUnlocked, setIsGuardianUnlocked] = useState(false);
 
   useEffect(() => {
     async function load() {
       try {
-        const [storedProfile, storedCGM, storedFoodLog, storedContacts, storedAlertPrefs] = await Promise.all([
+        const [storedProfile, storedCGM, storedFoodLog, storedContacts, storedAlertPrefs, storedPin] = await Promise.all([
           AsyncStorage.getItem(PROFILE_KEY),
           AsyncStorage.getItem(CGM_KEY),
           AsyncStorage.getItem(FOOD_LOG_KEY),
           AsyncStorage.getItem(EMERGENCY_CONTACTS_KEY),
           AsyncStorage.getItem(ALERT_PREFS_KEY),
+          AsyncStorage.getItem(GUARDIAN_PIN_KEY),
         ]);
         if (storedProfile) setProfile(JSON.parse(storedProfile));
         if (storedCGM) setCGMConnectionState(JSON.parse(storedCGM));
         if (storedFoodLog) setFoodLog(JSON.parse(storedFoodLog));
         if (storedContacts) setEmergencyContacts(JSON.parse(storedContacts));
         if (storedAlertPrefs) setAlertPrefsState({ ...DEFAULT_ALERT_PREFS, ...JSON.parse(storedAlertPrefs) });
+        if (storedPin) setGuardianPinState(storedPin);
       } catch {}
       setIsLoading(false);
     }
@@ -169,12 +179,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setFoodLog([]);
     setEmergencyContacts([]);
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
+    setGuardianPinState(null);
+    setIsGuardianUnlocked(false);
     await AsyncStorage.multiRemove([
       PROFILE_KEY,
       CGM_KEY,
       FOOD_LOG_KEY,
       EMERGENCY_CONTACTS_KEY,
       ALERT_PREFS_KEY,
+      GUARDIAN_PIN_KEY,
     ]);
   }, []);
 
@@ -206,6 +219,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const setGuardianPin = useCallback(async (pin: string) => {
+    setGuardianPinState(pin);
+    await AsyncStorage.setItem(GUARDIAN_PIN_KEY, pin);
+  }, []);
+
+  const unlockGuardian = useCallback((pin: string): boolean => {
+    if (pin === guardianPin) {
+      setIsGuardianUnlocked(true);
+      return true;
+    }
+    return false;
+  }, [guardianPin]);
+
+  const lockGuardian = useCallback(() => {
+    setIsGuardianUnlocked(false);
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -218,6 +248,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         foodLog,
         emergencyContacts,
         alertPrefs,
+        guardianPin,
+        isGuardianUnlocked,
         setupProfile,
         updateProfile,
         setCGMConnection,
@@ -227,6 +259,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         addEmergencyContact,
         removeEmergencyContact,
         updateAlertPrefs,
+        setGuardianPin,
+        unlockGuardian,
+        lockGuardian,
       }}
     >
       {children}
