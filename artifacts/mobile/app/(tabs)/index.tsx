@@ -423,7 +423,7 @@ export default function HomeScreen() {
             <CGMChart
               readings={history}
               targetGlucose={targetGlucose}
-              chartHeight={260}
+              chartHeight={300}
               paddingHorizontal={34}
             />
           </View>

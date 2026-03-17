@@ -128,8 +128,8 @@ export function CGMChart({
           <View style={[styles.zoneTarget, { top: highLineY, height: lowLineY - highLineY }]} />
           <View style={[styles.zoneHigh, { height: highLineY }]} />
 
-          <View style={[styles.threshLine, { top: lowLineY, backgroundColor: "#EF444488" }]} />
-          <View style={[styles.threshLine, { top: highLineY, backgroundColor: "#F59E0B55" }]} />
+          <View style={[styles.threshLine, { top: lowLineY, backgroundColor: "#EF4444CC" }]} />
+          <View style={[styles.threshLine, { top: highLineY, backgroundColor: "#F59E0BAA" }]} />
           <View style={[styles.targetLine, { top: targetLineY }]} />
 
           {filtered.length === 0 ? (
@@ -147,43 +147,70 @@ export function CGMChart({
                 if (len < 0.5) return null;
                 const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
                 const col = glucoseColor((p.glucose + next.glucose) / 2);
+                const midY = (p.y + next.y) / 2;
                 return (
-                  <View
-                    key={`seg-${i}`}
-                    style={[
-                      styles.segment,
-                      {
-                        width: len,
-                        left: p.x,
-                        top: p.y - 1.5,
-                        backgroundColor: col + "CC",
-                        transform: [{ rotate: `${angle}deg` }],
-                      },
-                    ]}
-                  />
+                  <React.Fragment key={`seg-${i}`}>
+                    <View
+                      style={[
+                        styles.segmentGlow,
+                        {
+                          width: len + 4,
+                          left: p.x - 2,
+                          top: midY - 6,
+                          backgroundColor: col + "38",
+                          transform: [{ rotate: `${angle}deg` }],
+                        },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.segment,
+                        {
+                          width: len,
+                          left: p.x,
+                          top: midY - 2.5,
+                          backgroundColor: col,
+                          transform: [{ rotate: `${angle}deg` }],
+                        },
+                      ]}
+                    />
+                  </React.Fragment>
                 );
               })}
 
               {points.map((p, i) => {
                 const isLatest = i === points.length - 1;
                 const col = glucoseColor(p.glucose);
-                const sz = isLatest ? 11 : 6;
+                const sz = isLatest ? 14 : 8;
                 return (
-                  <View
-                    key={`dot-${i}`}
-                    style={{
-                      position: "absolute",
-                      left: p.x - sz / 2,
-                      top: p.y - sz / 2,
-                      width: sz,
-                      height: sz,
-                      borderRadius: sz / 2,
-                      backgroundColor: col,
-                      borderWidth: isLatest ? 2 : 0,
-                      borderColor: "#fff",
-                      opacity: isLatest ? 1 : 0.82,
-                    }}
-                  />
+                  <React.Fragment key={`dot-${i}`}>
+                    {isLatest && (
+                      <View
+                        style={{
+                          position: "absolute",
+                          left: p.x - 11,
+                          top: p.y - 11,
+                          width: 22,
+                          height: 22,
+                          borderRadius: 11,
+                          backgroundColor: col + "33",
+                        }}
+                      />
+                    )}
+                    <View
+                      style={{
+                        position: "absolute",
+                        left: p.x - sz / 2,
+                        top: p.y - sz / 2,
+                        width: sz,
+                        height: sz,
+                        borderRadius: sz / 2,
+                        backgroundColor: col,
+                        borderWidth: isLatest ? 2.5 : 1.5,
+                        borderColor: isLatest ? "#fff" : col + "99",
+                      }}
+                    />
+                  </React.Fragment>
                 );
               })}
             </>
@@ -268,19 +295,26 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    height: 1,
+    height: 2,
   },
   targetLine: {
     position: "absolute",
     left: 0,
     right: 0,
-    height: 1,
-    backgroundColor: "rgba(99,102,241,0.45)",
+    height: 1.5,
+    backgroundColor: "rgba(99,102,241,0.60)",
   },
 
+  segmentGlow: {
+    position: "absolute",
+    height: 12,
+    borderRadius: 6,
+    transformOrigin: "left center",
+  },
   segment: {
     position: "absolute",
-    height: 3,
+    height: 5,
+    borderRadius: 2.5,
     transformOrigin: "left center",
   },
 
