@@ -113,7 +113,7 @@ export default function ChatScreen() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { history, latestReading, carbRatio, targetGlucose } = useGlucose();
+  const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
   const { profile, ageYears } = useAuth();
   const { prompt } = useLocalSearchParams<{ prompt?: string }>();
   const promptSentRef = useRef(false);
@@ -191,6 +191,7 @@ export default function ChatScreen() {
           context: {
             childName: profile?.childName,
             ageYears: ageYears,
+            weightLbs: profile?.weightLbs,
             diabetesType: profile?.diabetesType,
             currentGlucose: glucose,
             trendArrow: trend.arrow,
@@ -201,6 +202,7 @@ export default function ChatScreen() {
             anomalyMessage: latestReading?.anomaly?.message,
             carbRatio,
             targetGlucose,
+            correctionFactor,
           },
         }),
       });

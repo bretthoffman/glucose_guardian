@@ -115,6 +115,7 @@ export default function OnboardingScreen() {
 
   const [step, setStep] = useState<Step>("welcome");
   const [childName, setChildName] = useState("");
+  const [weightLbs, setWeightLbs] = useState("");
   const [birthMonth, setBirthMonth] = useState("");
   const [birthDay, setBirthDay] = useState("");
   const [birthYear, setBirthYear] = useState("");
@@ -176,7 +177,13 @@ export default function OnboardingScreen() {
     setIsSaving(true);
     try {
       const dobStr = `${birthYear}-${birthMonth.padStart(2, "0")}-${birthDay.padStart(2, "0")}`;
-      await setupProfile({ childName: childName.trim(), diabetesType, dateOfBirth: dobStr });
+      const parsedWeight = parseFloat(weightLbs);
+      await setupProfile({
+        childName: childName.trim(),
+        diabetesType,
+        dateOfBirth: dobStr,
+        weightLbs: !isNaN(parsedWeight) && parsedWeight > 0 ? parsedWeight : undefined,
+      });
       if (pin) await setGuardianPin(pin);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)");
@@ -274,9 +281,26 @@ export default function OnboardingScreen() {
               placeholderTextColor={colors.textMuted}
               autoFocus
               returnKeyType="next"
-              onSubmitEditing={() => { if (childName.trim()) setStep("birthday"); }}
               maxLength={30}
             />
+
+            <View style={{ width: "100%", gap: 6 }}>
+              <Text style={[styles.dobLabel, { color: colors.textMuted }]}>Weight (lbs) — optional</Text>
+              <TextInput
+                style={[
+                  styles.nameInput,
+                  { backgroundColor: colors.card, borderColor: colors.border, color: colors.text },
+                ]}
+                value={weightLbs}
+                onChangeText={(v) => setWeightLbs(v.replace(/[^0-9.]/g, ""))}
+                placeholder="e.g. 85"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="decimal-pad"
+                returnKeyType="done"
+                onSubmitEditing={() => { if (childName.trim()) setStep("birthday"); }}
+                maxLength={6}
+              />
+            </View>
 
             <Pressable
               style={({ pressed }) => [

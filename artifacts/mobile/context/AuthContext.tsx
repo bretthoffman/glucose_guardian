@@ -11,6 +11,7 @@ export interface UserProfile {
   childName: string;
   diabetesType: "type1" | "type2" | "other";
   dateOfBirth: string;
+  weightLbs?: number;
   doctorName?: string;
   doctorEmail?: string;
 }
