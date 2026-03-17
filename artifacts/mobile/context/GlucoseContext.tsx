@@ -18,6 +18,7 @@ export interface GlucoseContextType {
   latestReading: GlucoseEntry | null;
   isLoading: boolean;
   addReading: (entry: GlucoseEntry) => void;
+  bulkAddReadings: (entries: GlucoseEntry[]) => void;
   clearHistory: () => void;
   resetGlucoseData: () => void;
   carbRatio: number;
@@ -63,6 +64,20 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
   const addReading = useCallback((entry: GlucoseEntry) => {
     setHistory((prev) => {
       const next = [...prev, entry].slice(-100);
+      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const bulkAddReadings = useCallback((entries: GlucoseEntry[]) => {
+    if (entries.length === 0) return;
+    setHistory((prev) => {
+      const existingTs = new Set(prev.map((e) => e.timestamp));
+      const newEntries = entries.filter((e) => !existingTs.has(e.timestamp));
+      if (newEntries.length === 0) return prev;
+      const combined = [...prev, ...newEntries];
+      combined.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      const next = combined.slice(-100);
       AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
@@ -129,6 +144,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
         latestReading,
         isLoading,
         addReading,
+        bulkAddReadings,
         clearHistory,
         resetGlucoseData,
         carbRatio,

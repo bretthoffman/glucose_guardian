@@ -60,18 +60,21 @@ export default function HomeScreen() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { history, latestReading, addReading, targetGlucose } = useGlucose();
+  const { history, latestReading, addReading, bulkAddReadings, targetGlucose } = useGlucose();
   const { profile, cgmConnection, emergencyContacts, alertPrefs } = useAuth();
   const [isSimulating, setIsSimulating] = useState(false);
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [cgmLatestReading, setCgmLatestReading] = useState<{ glucose: number; timestamp: string } | null>(null);
   const [, forceUpdate] = useState(0);
   const autoSyncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isSyncingRef = useRef(false);
 
-  const displayGlucose = latestReading?.glucose ?? 0;
+  const displayGlucose = isConnected && cgmLatestReading
+    ? cgmLatestReading.glucose
+    : latestReading?.glucose ?? 0;
   const recentHistory = [...history].reverse().slice(0, 10);
 
   const glucoseTrend: GlucoseTrend | undefined = (() => {
@@ -130,8 +133,15 @@ export default function HomeScreen() {
 
       const data = await res.json();
       const readings: any[] = data.readings ?? [];
-      for (const r of readings) {
-        addReading({ glucose: r.glucose, timestamp: r.timestamp, anomaly: r.anomaly });
+      const entries = readings.map((r) => ({
+        glucose: r.glucose,
+        timestamp: r.timestamp,
+        anomaly: r.anomaly,
+      }));
+      bulkAddReadings(entries);
+      if (entries.length > 0) {
+        const mostRecent = entries[entries.length - 1];
+        setCgmLatestReading({ glucose: mostRecent.glucose, timestamp: mostRecent.timestamp });
       }
       if (readings.length > 0) {
         setLastSyncTime(new Date());
@@ -154,7 +164,7 @@ export default function HomeScreen() {
       setIsSyncingCGM(false);
       setIsAutoSyncing(false);
     }
-  }, [cgmConnection, addReading]);
+  }, [cgmConnection, bulkAddReadings, setCgmLatestReading]);
 
   useEffect(() => {
     if (!isConnected) return;

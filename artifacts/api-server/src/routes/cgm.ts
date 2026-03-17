@@ -132,7 +132,9 @@ router.post("/dexcom/readings", async (req, res) => {
     const readings = data.map((item) => {
       let timestamp: string;
       try {
-        const ms = parseInt((item.ST ?? item.WT ?? "").replace(/\/Date\((\d+)\)\//, "$1"));
+        const raw = item.ST ?? item.WT ?? "";
+        const match = raw.match(/Date\((\d+)/);
+        const ms = match ? parseInt(match[1]) : NaN;
         timestamp = isNaN(ms) ? new Date().toISOString() : new Date(ms).toISOString();
       } catch {
         timestamp = new Date().toISOString();
@@ -152,6 +154,8 @@ router.post("/dexcom/readings", async (req, res) => {
         },
       };
     });
+
+    readings.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     res.json({ readings });
   } catch (err) {
