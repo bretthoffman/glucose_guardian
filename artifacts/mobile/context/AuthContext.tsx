@@ -15,6 +15,11 @@ export interface UserProfile {
   doctorEmail?: string;
 }
 
+export interface UserAccount {
+  email: string;
+  passwordHash: string;
+}
+
 export interface CGMConnection {
   type: "dexcom" | "libre" | null;
   sessionId?: string;
@@ -50,8 +55,10 @@ export interface AlertPreferences {
 
 export interface AuthContextType {
   profile: UserProfile | null;
+  account: UserAccount | null;
   isLoading: boolean;
   isLoggedIn: boolean;
+  isSignedIn: boolean;
   isMinor: boolean;
   ageYears: number | null;
   cgmConnection: CGMConnection;
@@ -66,6 +73,9 @@ export interface AuthContextType {
   addFoodLogEntry: (entry: Omit<FoodLogEntry, "id">) => void;
   clearFoodLog: () => void;
   logout: () => Promise<void>;
+  signOut: () => Promise<void>;
+  createAccount: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<boolean>;
   addEmergencyContact: (contact: Omit<EmergencyContact, "id">) => Promise<void>;
   removeEmergencyContact: (id: string) => Promise<void>;
   updateAlertPrefs: (prefs: Partial<AlertPreferences>) => Promise<void>;
@@ -82,6 +92,8 @@ const FOOD_LOG_KEY = "@gluco_guardian_food_log";
 const EMERGENCY_CONTACTS_KEY = "@gluco_guardian_emergency_contacts";
 const ALERT_PREFS_KEY = "@gluco_guardian_alert_prefs";
 const GUARDIAN_PIN_KEY = "@gluco_guardian_pin";
+const ACCOUNT_KEY = "@gluco_guardian_account";
+const SESSION_KEY = "@gluco_guardian_session";
 
 const DEFAULT_ALERT_PREFS: AlertPreferences = {
   notificationsEnabled: false,
@@ -89,6 +101,15 @@ const DEFAULT_ALERT_PREFS: AlertPreferences = {
   lowThreshold: 70,
   highThreshold: 250,
 };
+
+function hashPassword(password: string): string {
+  const salted = `gg::${password}::glucose_guardian_2025`;
+  let encoded = "";
+  for (let i = 0; i < salted.length; i++) {
+    encoded += salted.charCodeAt(i).toString(16).padStart(2, "0");
+  }
+  return encoded;
+}
 
 function computeAge(dateOfBirth: string): number | null {
   if (!dateOfBirth) return null;
@@ -105,6 +126,8 @@ function computeAge(dateOfBirth: string): number | null {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [account, setAccount] = useState<UserAccount | null>(null);
+  const [isSignedIn, setIsSignedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [cgmConnection, setCGMConnectionState] = useState<CGMConnection>({ type: null });
   const [foodLog, setFoodLog] = useState<FoodLogEntry[]>([]);
@@ -116,13 +139,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       try {
-        const [storedProfile, storedCGM, storedFoodLog, storedContacts, storedAlertPrefs, storedPin] = await Promise.all([
+        const [
+          storedProfile,
+          storedCGM,
+          storedFoodLog,
+          storedContacts,
+          storedAlertPrefs,
+          storedPin,
+          storedAccount,
+          storedSession,
+        ] = await Promise.all([
           AsyncStorage.getItem(PROFILE_KEY),
           AsyncStorage.getItem(CGM_KEY),
           AsyncStorage.getItem(FOOD_LOG_KEY),
           AsyncStorage.getItem(EMERGENCY_CONTACTS_KEY),
           AsyncStorage.getItem(ALERT_PREFS_KEY),
           AsyncStorage.getItem(GUARDIAN_PIN_KEY),
+          AsyncStorage.getItem(ACCOUNT_KEY),
+          AsyncStorage.getItem(SESSION_KEY),
         ]);
         if (storedProfile) setProfile(JSON.parse(storedProfile));
         if (storedCGM) setCGMConnectionState(JSON.parse(storedCGM));
@@ -130,6 +164,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (storedContacts) setEmergencyContacts(JSON.parse(storedContacts));
         if (storedAlertPrefs) setAlertPrefsState({ ...DEFAULT_ALERT_PREFS, ...JSON.parse(storedAlertPrefs) });
         if (storedPin) setGuardianPinState(storedPin);
+        if (storedAccount) {
+          const acc = JSON.parse(storedAccount) as UserAccount;
+          setAccount(acc);
+          if (storedSession === "true") {
+            setIsSignedIn(true);
+          }
+        }
       } catch {}
       setIsLoading(false);
     }
@@ -138,6 +179,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const ageYears = profile?.dateOfBirth ? computeAge(profile.dateOfBirth) : null;
   const isMinor = ageYears !== null ? ageYears < 18 : false;
+
+  const createAccount = useCallback(async (email: string, password: string) => {
+    const acc: UserAccount = { email: email.trim().toLowerCase(), passwordHash: hashPassword(password) };
+    setAccount(acc);
+    setIsSignedIn(true);
+    await AsyncStorage.multiSet([
+      [ACCOUNT_KEY, JSON.stringify(acc)],
+      [SESSION_KEY, "true"],
+    ]);
+  }, []);
+
+  const signIn = useCallback(async (email: string, password: string): Promise<boolean> => {
+    const storedRaw = await AsyncStorage.getItem(ACCOUNT_KEY);
+    if (!storedRaw) return false;
+    const stored = JSON.parse(storedRaw) as UserAccount;
+    if (
+      stored.email === email.trim().toLowerCase() &&
+      stored.passwordHash === hashPassword(password)
+    ) {
+      setAccount(stored);
+      setIsSignedIn(true);
+      await AsyncStorage.setItem(SESSION_KEY, "true");
+      return true;
+    }
+    return false;
+  }, []);
+
+  const signOut = useCallback(async () => {
+    setIsSignedIn(false);
+    setIsGuardianUnlocked(false);
+    await AsyncStorage.removeItem(SESSION_KEY);
+  }, []);
 
   const setupProfile = useCallback(async (p: UserProfile) => {
     setProfile(p);
@@ -181,6 +254,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
     setGuardianPinState(null);
     setIsGuardianUnlocked(false);
+    setIsSignedIn(false);
     await AsyncStorage.multiRemove([
       PROFILE_KEY,
       CGM_KEY,
@@ -188,6 +262,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       EMERGENCY_CONTACTS_KEY,
       ALERT_PREFS_KEY,
       GUARDIAN_PIN_KEY,
+      SESSION_KEY,
+      ACCOUNT_KEY,
     ]);
   }, []);
 
@@ -240,8 +316,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         profile,
+        account,
         isLoading,
         isLoggedIn: !!profile,
+        isSignedIn,
         isMinor,
         ageYears,
         cgmConnection,
@@ -256,6 +334,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         addFoodLogEntry,
         clearFoodLog,
         logout,
+        signOut,
+        createAccount,
+        signIn,
         addEmergencyContact,
         removeEmergencyContact,
         updateAlertPrefs,

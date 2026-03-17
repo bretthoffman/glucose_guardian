@@ -136,7 +136,7 @@ export default function DashboardScreen() {
     foodLog,
     clearFoodLog,
     updateProfile,
-    logout,
+    signOut,
     emergencyContacts,
     alertPrefs,
     addEmergencyContact,
@@ -196,17 +196,15 @@ export default function DashboardScreen() {
 
   function confirmLogout() {
     Alert.alert(
-      "Log Out",
-      "Are you sure you want to log out?",
+      "Sign Out",
+      "Sign out of Glucose Guardian? Your data will be saved.",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Log Out",
+          text: "Sign Out",
           style: "destructive",
           onPress: async () => {
-            resetGlucoseData();
-            await logout();
-            router.replace("/onboarding");
+            await signOut();
           },
         },
       ]
@@ -459,7 +457,7 @@ export default function DashboardScreen() {
             onPress={confirmLogout}
           >
             <Feather name="log-out" size={16} color={COLORS.danger} />
-            <Text style={[styles.logoutBtnText, { color: COLORS.danger }]}>Log Out</Text>
+            <Text style={[styles.logoutBtnText, { color: COLORS.danger }]}>Sign Out</Text>
           </Pressable>
         </View>
 

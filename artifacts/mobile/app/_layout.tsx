@@ -22,22 +22,29 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootLayoutNav() {
-  const { isLoggedIn, isLoading } = useAuth();
+  const { isLoggedIn, isLoading, isSignedIn } = useAuth();
   const segments = useSegments();
 
   useEffect(() => {
     if (isLoading) return;
+
+    const inAuth = segments[0] === "auth";
     const inOnboarding = segments[0] === "onboarding";
-    if (!isLoggedIn && !inOnboarding) {
+    const inTabs = segments[0] === "(tabs)";
+
+    if (!isSignedIn && !inAuth) {
+      router.replace("/auth");
+    } else if (isSignedIn && !isLoggedIn && !inOnboarding) {
       router.replace("/onboarding");
-    } else if (isLoggedIn && inOnboarding) {
+    } else if (isSignedIn && isLoggedIn && (inAuth || inOnboarding)) {
       router.replace("/(tabs)");
     }
-  }, [isLoggedIn, isLoading, segments]);
+  }, [isSignedIn, isLoggedIn, isLoading, segments]);
 
   return (
     <Stack screenOptions={{ headerBackTitle: "Back" }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="auth" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen
         name="cgm-setup"

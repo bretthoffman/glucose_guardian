@@ -53,6 +53,7 @@ export default function HomeScreen() {
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [cgmLatestReading, setCgmLatestReading] = useState<{ glucose: number; timestamp: string } | null>(null);
   const [, forceUpdate] = useState(0);
+  const isConnected = !!cgmConnection.type;
   const autoSyncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isSyncingRef = useRef(false);
   const prevConnectedRef = useRef(isConnected);
@@ -86,7 +87,6 @@ export default function HomeScreen() {
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
   const childName = profile?.childName ?? "Glucose Guardian";
-  const isConnected = !!cgmConnection.type;
 
   const performSync = useCallback(async (silent: boolean) => {
     if (isSyncingRef.current || !cgmConnection.type) return false;
