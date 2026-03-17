@@ -17,8 +17,8 @@ function NativeTabLayout() {
         <Label>Glucose</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="insulin">
-        <Icon sf={{ default: "syringe", selected: "syringe.fill" }} />
-        <Label>Insulin</Label>
+        <Icon sf={{ default: "chart.line.uptrend.xyaxis", selected: "chart.line.uptrend.xyaxis.circle.fill" }} />
+        <Label>Predict</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="food">
         <Icon sf={{ default: "fork.knife", selected: "fork.knife" }} />
@@ -90,12 +90,12 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="insulin"
         options={{
-          title: "Insulin",
+          title: "Predict",
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="syringe" tintColor={color} size={22} />
+              <SymbolView name="chart.line.uptrend.xyaxis" tintColor={color} size={22} />
             ) : (
-              <Feather name="plus-circle" size={22} color={color} />
+              <Feather name="trending-up" size={22} color={color} />
             ),
         }}
       />

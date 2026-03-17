@@ -6,11 +6,17 @@ const DEXCOM_BASE = "https://share1.dexcom.com/ShareWebServices/Services";
 const DEXCOM_BASE_OUS = "https://shareous1.dexcom.com/ShareWebServices/Services";
 const LIBRE_BASE = "https://api.libreview.io";
 
+const DEXCOM_HEADERS = {
+  "Content-Type": "application/json",
+  "Accept": "application/json",
+  "User-Agent": "Dexcom Share/3.0.2.11 CFNetwork/978.0.7 Darwin/18.7.0",
+};
+
 const LIBRE_HEADERS = {
   "Content-Type": "application/json",
   "Accept-Encoding": "gzip",
   "Cache-Control": "no-cache",
-  Connection: "Keep-Alive",
+  "Connection": "Keep-Alive",
   "product": "llu.android",
   "version": "4.7.0",
 };
@@ -28,7 +34,7 @@ router.post("/dexcom/connect", async (req, res) => {
       `${base}/General/LoginPublisherAccountByName`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        headers: DEXCOM_HEADERS,
         body: JSON.stringify({
           accountName: username,
           password,
@@ -37,21 +43,36 @@ router.post("/dexcom/connect", async (req, res) => {
       }
     );
 
+    const rawText = await response.text();
+    console.log("Dexcom connect response:", response.status, rawText.slice(0, 200));
+
     if (!response.ok) {
-      res.status(401).json({ error: "Invalid Dexcom credentials. Check your username and password." });
+      let msg = "Invalid Dexcom credentials. Check your username and password.";
+      try {
+        const parsed = JSON.parse(rawText);
+        if (parsed?.Message) msg = parsed.Message;
+        else if (typeof parsed === "string") msg = parsed;
+      } catch {}
+      res.status(401).json({ error: msg });
       return;
     }
 
-    const sessionId = await response.json();
-    if (!sessionId || typeof sessionId !== "string") {
-      res.status(401).json({ error: "Invalid Dexcom credentials." });
+    let sessionId: string;
+    try {
+      sessionId = JSON.parse(rawText);
+    } catch {
+      sessionId = rawText.replace(/^"|"$/g, "");
+    }
+
+    if (!sessionId || typeof sessionId !== "string" || sessionId.length < 10) {
+      res.status(401).json({ error: "Invalid Dexcom session. Try again or check your credentials." });
       return;
     }
 
     res.json({ sessionId, outsideUS });
   } catch (err) {
     console.error("Dexcom connect error:", err);
-    res.status(500).json({ error: "Could not connect to Dexcom. Please try again." });
+    res.status(500).json({ error: "Could not reach Dexcom servers. Check your internet connection." });
   }
 });
 
@@ -64,37 +85,78 @@ router.post("/dexcom/readings", async (req, res) => {
     }
 
     const base = outsideUS ? DEXCOM_BASE_OUS : DEXCOM_BASE;
-    const url = `${base}/Publisher/ReadPublisherLatestGlucoseValues?sessionId=${sessionId}&minutes=1440&maxCount=${count}`;
+    const url = `${base}/Publisher/ReadPublisherLatestGlucoseValues?sessionId=${encodeURIComponent(sessionId)}&minutes=1440&maxCount=${count}`;
+
     const response = await fetch(url, {
       method: "GET",
-      headers: { "Accept": "application/json" },
+      headers: DEXCOM_HEADERS,
     });
 
+    const rawText = await response.text();
+    console.log("Dexcom readings response:", response.status, rawText.slice(0, 300));
+
     if (!response.ok) {
-      res.status(401).json({ error: "Session expired. Please reconnect Dexcom." });
+      let msg = "Session expired. Please reconnect Dexcom.";
+      try {
+        const parsed = JSON.parse(rawText);
+        if (parsed?.Message) msg = parsed.Message;
+        else if (typeof parsed === "string") {
+          if (parsed.includes("SessionNotValid") || parsed.includes("session")) {
+            msg = "Dexcom session expired. Please reconnect.";
+          } else {
+            msg = parsed;
+          }
+        }
+      } catch {}
+      res.status(401).json({ error: msg });
       return;
     }
 
-    const data: any[] = await response.json();
-    const readings = data.map((item) => ({
-      glucose: item.Value,
-      timestamp: new Date(parseInt(item.ST.replace(/\/Date\((\d+)\)\//, "$1"))).toISOString(),
-      trend: item.Trend,
-      anomaly: {
-        warning: item.Value < 70 || item.Value > 240,
-        message:
-          item.Value < 70
-            ? `Low glucose: ${item.Value} mg/dL`
-            : item.Value > 240
-            ? `High glucose: ${item.Value} mg/dL`
-            : undefined,
-      },
-    }));
+    let data: any[];
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      res.status(500).json({ error: "Unexpected response from Dexcom. Please try again." });
+      return;
+    }
+
+    if (!Array.isArray(data)) {
+      if (typeof data === "string" && (data.includes("SessionNotValid") || data.includes("session"))) {
+        res.status(401).json({ error: "Dexcom session expired. Please reconnect." });
+        return;
+      }
+      res.status(500).json({ error: "Unexpected Dexcom response format." });
+      return;
+    }
+
+    const readings = data.map((item) => {
+      let timestamp: string;
+      try {
+        const ms = parseInt((item.ST ?? item.WT ?? "").replace(/\/Date\((\d+)\)\//, "$1"));
+        timestamp = isNaN(ms) ? new Date().toISOString() : new Date(ms).toISOString();
+      } catch {
+        timestamp = new Date().toISOString();
+      }
+      return {
+        glucose: item.Value ?? item.value ?? 0,
+        timestamp,
+        trend: item.Trend ?? item.trend ?? 0,
+        anomaly: {
+          warning: (item.Value ?? 0) < 70 || (item.Value ?? 0) > 240,
+          message:
+            (item.Value ?? 0) < 70
+              ? `Low glucose: ${item.Value} mg/dL`
+              : (item.Value ?? 0) > 240
+              ? `High glucose: ${item.Value} mg/dL`
+              : undefined,
+        },
+      };
+    });
 
     res.json({ readings });
   } catch (err) {
     console.error("Dexcom readings error:", err);
-    res.status(500).json({ error: "Could not fetch Dexcom readings." });
+    res.status(500).json({ error: "Could not fetch Dexcom readings. Check your connection and try again." });
   }
 });
 

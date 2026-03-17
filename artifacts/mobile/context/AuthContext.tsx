@@ -31,6 +31,7 @@ export interface FoodLogEntry {
   insulinUnits: number;
   confidence: "high" | "medium" | "low";
   fromPhoto: boolean;
+  photoUri?: string;
 }
 
 export interface AuthContextType {

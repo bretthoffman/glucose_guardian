@@ -206,7 +206,7 @@ export default function ChatScreen() {
           {
             backgroundColor: colors.background,
             borderTopColor: colors.border,
-            paddingBottom: bottomPadding + 8,
+            paddingBottom: bottomPadding + 58,
           },
         ]}
       >
