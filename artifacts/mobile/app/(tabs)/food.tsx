@@ -103,7 +103,7 @@ export default function FoodScreen() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
-      quality: 0.7,
+      quality: 0.5,
       base64: false,
     });
 
@@ -154,8 +154,19 @@ export default function FoodScreen() {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        setError(err.error || "Could not analyze photo. Please try again.");
+        let errorMsg = "Could not analyze photo. Please try again.";
+        try {
+          const errBody = await res.json();
+          errorMsg = errBody.error || errorMsg;
+        } catch {
+          const text = await res.text().catch(() => "");
+          if (res.status === 413) {
+            errorMsg = "Photo is too large. Try taking a closer, smaller shot.";
+          } else if (text) {
+            errorMsg = `Server error (${res.status}). Please try again.`;
+          }
+        }
+        setError(errorMsg);
         setIsAnalyzingPhoto(false);
         return;
       }
@@ -163,8 +174,15 @@ export default function FoodScreen() {
       const data = await res.json();
       setResult({ ...data, fromPhoto: true });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {
-      setError("Could not analyze photo. Check your connection.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("Network") || message.includes("fetch")) {
+        setError("Network error. Make sure you have an internet connection.");
+      } else if (message.includes("FileSystem") || message.includes("read")) {
+        setError("Could not read the photo. Please try again.");
+      } else {
+        setError("Could not analyze photo. Please try again.");
+      }
     } finally {
       setIsAnalyzingPhoto(false);
     }
