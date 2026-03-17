@@ -1,10 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Platform,
   Pressable,
   RefreshControl,
@@ -21,6 +22,8 @@ import { TrendChart } from "@/components/TrendChart";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
+
+const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
 const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
   ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
@@ -42,6 +45,14 @@ async function simulateGlucoseReading(prevGlucose: number | null) {
   return res.json();
 }
 
+function formatLastSync(date: Date | null): string {
+  if (!date) return "";
+  const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  return `${Math.floor(diff / 3600)}h ago`;
+}
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
@@ -51,7 +62,12 @@ export default function HomeScreen() {
   const { profile, cgmConnection } = useAuth();
   const [isSimulating, setIsSimulating] = useState(false);
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
+  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [, forceUpdate] = useState(0);
+  const autoSyncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isSyncingRef = useRef(false);
 
   const displayGlucose = latestReading?.glucose ?? 0;
   const recentHistory = [...history].reverse().slice(0, 10);
@@ -59,6 +75,101 @@ export default function HomeScreen() {
 
   const childName = profile?.childName ?? "Gluco Guardian";
   const isConnected = !!cgmConnection.type;
+
+  const performSync = useCallback(async (silent: boolean) => {
+    if (isSyncingRef.current || !cgmConnection.type) return false;
+    isSyncingRef.current = true;
+    if (silent) {
+      setIsAutoSyncing(true);
+    } else {
+      setIsSyncingCGM(true);
+    }
+    try {
+      const endpoint =
+        cgmConnection.type === "dexcom" ? "/api/cgm/dexcom/readings" : "/api/cgm/libre/readings";
+      const body =
+        cgmConnection.type === "dexcom"
+          ? { sessionId: cgmConnection.sessionId, outsideUS: cgmConnection.outsideUS, count: 5 }
+          : { token: cgmConnection.token };
+
+      const res = await fetch(`${BASE_URL}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        if (!silent) {
+          const err = await res.json();
+          Alert.alert(
+            "Sync Failed",
+            err.error || "Could not fetch CGM readings.",
+            [
+              { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
+              { text: "OK", style: "cancel" },
+            ]
+          );
+        }
+        return false;
+      }
+
+      const data = await res.json();
+      const readings: any[] = data.readings ?? [];
+      for (const r of readings) {
+        addReading({ glucose: r.glucose, timestamp: r.timestamp, anomaly: r.anomaly });
+      }
+      if (readings.length > 0) {
+        setLastSyncTime(new Date());
+        if (!silent) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          Alert.alert(
+            "Synced!",
+            `${readings.length} readings imported from ${cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre"}.`
+          );
+        }
+      }
+      return true;
+    } catch {
+      if (!silent) {
+        Alert.alert("Error", "Could not sync CGM. Check your connection.");
+      }
+      return false;
+    } finally {
+      isSyncingRef.current = false;
+      setIsSyncingCGM(false);
+      setIsAutoSyncing(false);
+    }
+  }, [cgmConnection, addReading]);
+
+  useEffect(() => {
+    if (!isConnected) return;
+
+    performSync(true);
+
+    autoSyncTimerRef.current = setInterval(() => {
+      performSync(true);
+      forceUpdate((n) => n + 1);
+    }, AUTO_SYNC_INTERVAL_MS);
+
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        performSync(true);
+        forceUpdate((n) => n + 1);
+      }
+    });
+
+    const labelTimer = setInterval(() => forceUpdate((n) => n + 1), 30_000);
+
+    return () => {
+      if (autoSyncTimerRef.current) clearInterval(autoSyncTimerRef.current);
+      clearInterval(labelTimer);
+      sub.remove();
+    };
+  }, [isConnected, performSync]);
+
+  async function syncCGM() {
+    await performSync(false);
+  }
 
   async function handleSimulate() {
     if (isSimulating) return;
@@ -79,57 +190,6 @@ export default function HomeScreen() {
       Alert.alert("Error", "Could not get reading. Check your connection.");
     } finally {
       setIsSimulating(false);
-    }
-  }
-
-  async function syncCGM() {
-    if (isSyncingCGM || !cgmConnection.type) return;
-    setIsSyncingCGM(true);
-    try {
-      const endpoint =
-        cgmConnection.type === "dexcom" ? "/api/cgm/dexcom/readings" : "/api/cgm/libre/readings";
-      const body =
-        cgmConnection.type === "dexcom"
-          ? { sessionId: cgmConnection.sessionId, outsideUS: cgmConnection.outsideUS, count: 5 }
-          : { token: cgmConnection.token };
-
-      const res = await fetch(`${BASE_URL}${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        Alert.alert(
-          "Sync Failed",
-          err.error || "Could not fetch CGM readings.",
-          [
-            { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
-            { text: "OK", style: "cancel" },
-          ]
-        );
-        return;
-      }
-
-      const data = await res.json();
-      const readings: any[] = data.readings ?? [];
-
-      if (readings.length === 0) {
-        Alert.alert("No New Readings", "No recent CGM readings found.");
-        return;
-      }
-
-      for (const r of readings) {
-        addReading({ glucose: r.glucose, timestamp: r.timestamp, anomaly: r.anomaly });
-      }
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Synced!", `${readings.length} readings imported from ${cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre"}.`);
-    } catch {
-      Alert.alert("Error", "Could not sync CGM. Check your connection.");
-    } finally {
-      setIsSyncingCGM(false);
     }
   }
 
@@ -179,23 +239,30 @@ export default function HomeScreen() {
               },
             ]}
           >
-            <Feather
-              name={isConnected ? "wifi" : "wifi-off"}
-              size={16}
-              color={isConnected ? COLORS.success : colors.textMuted}
-            />
-            <Text
-              style={[
-                styles.cgmButtonText,
-                { color: isConnected ? COLORS.success : colors.textMuted },
-              ]}
-            >
-              {isConnected
-                ? cgmConnection.type === "dexcom"
-                  ? "Dexcom"
-                  : "Libre"
-                : "Connect CGM"}
-            </Text>
+            {isAutoSyncing ? (
+              <ActivityIndicator size={12} color={COLORS.success} />
+            ) : (
+              <View style={[styles.liveDot, { backgroundColor: isConnected ? COLORS.success : colors.textMuted }]} />
+            )}
+            <View>
+              <Text
+                style={[
+                  styles.cgmButtonText,
+                  { color: isConnected ? COLORS.success : colors.textMuted },
+                ]}
+              >
+                {isConnected
+                  ? cgmConnection.type === "dexcom"
+                    ? "Dexcom"
+                    : "Libre"
+                  : "Connect CGM"}
+              </Text>
+              {isConnected && lastSyncTime && (
+                <Text style={[styles.lastSyncText, { color: COLORS.success + "99" }]}>
+                  {formatLastSync(lastSyncTime)}
+                </Text>
+              )}
+            </View>
           </Pressable>
         </View>
 
@@ -235,16 +302,19 @@ export default function HomeScreen() {
                 { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1, flex: 1 },
               ]}
               onPress={syncCGM}
-              disabled={isSyncingCGM}
+              disabled={isSyncingCGM || isAutoSyncing}
             >
-              {isSyncingCGM ? (
+              {isSyncingCGM || isAutoSyncing ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
                 <Feather name="refresh-cw" size={18} color="#fff" />
               )}
-              <Text style={styles.actionBtnText}>
-                {isSyncingCGM ? "Syncing..." : "Sync CGM"}
-              </Text>
+              <View style={{ alignItems: "flex-start" }}>
+                <Text style={styles.actionBtnText}>
+                  {isSyncingCGM || isAutoSyncing ? "Syncing..." : "Sync Now"}
+                </Text>
+                <Text style={styles.syncSubText}>Auto every 5 min</Text>
+              </View>
             </Pressable>
           ) : null}
 
@@ -346,6 +416,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   cgmButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  lastSyncText: { fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 1 },
+  liveDot: { width: 8, height: 8, borderRadius: 4 },
+  syncSubText: { fontSize: 10, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.7)", marginTop: 1 },
   gaugeSection: { alignItems: "center", marginBottom: 24, gap: 14 },
   emptyGaugeBox: {
     width: 200,
