@@ -16,6 +16,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
+import { useAuth } from "@/context/AuthContext";
+
+const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
+  ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
+  : "";
 
 interface Message {
   id: string;
@@ -24,77 +29,121 @@ interface Message {
   timestamp: Date;
 }
 
-function getAIResponse(
-  question: string,
-  latestGlucose: number | null
-): string {
-  const q = question.toLowerCase();
-  const glucose = latestGlucose;
-
-  if (q.includes("low") || q.includes("dizzy") || q.includes("shaky")) {
-    return "Your blood sugar may be low. Try fast-acting carbs like 4oz of juice, regular soda, or 4 glucose tablets. Wait 15 minutes, then recheck. If symptoms continue, tell an adult right away!";
-  }
-  if (q.includes("high") || q.includes("thirsty") || q.includes("pee")) {
-    return "Those can be signs of high blood sugar. Drink water and check with your care team about a correction dose. Make sure to stay hydrated!";
-  }
-  if (q.includes("snack") || q.includes("eat") || q.includes("hungry")) {
-    return "Great time to think about carbs! Try to choose snacks you know the carb count for. Low-carb options like cheese, nuts, or veggies are great if your glucose is in range.";
-  }
-  if (q.includes("exercise") || q.includes("play") || q.includes("sport")) {
-    return "Exercise is amazing for your health! It can lower blood sugar. Check your glucose before and after activity, and keep a fast-acting carb snack nearby just in case.";
-  }
-  if (q.includes("insulin") || q.includes("dose") || q.includes("shot")) {
-    return "Always check with your parent or doctor before adjusting insulin. Use the Insulin tab to calculate your meal dose, but confirm with your care team!";
-  }
-  if (q.includes("normal") || q.includes("range") || q.includes("target")) {
-    return "For most kids, a blood sugar between 80-180 mg/dL is the target range. Your doctor may have set a specific range for you. Ask them if you're not sure!";
-  }
-  if (q.includes("feel") || q.includes("feeling")) {
-    if (glucose !== null) {
-      if (glucose < 70)
-        return `Your glucose reading of ${glucose} mg/dL is low. That could explain why you're not feeling great. Have some juice or fast-acting carbs right away!`;
-      if (glucose > 180)
-        return `Your glucose is ${glucose} mg/dL which is a bit high. Drink some water and let your parent know. It might be a good time for a correction.`;
-      return `Your last reading was ${glucose} mg/dL which looks good! If you're still feeling off, let an adult know.`;
-    }
-    return "How you're feeling is always important! If you feel strange, check your glucose and tell an adult. Don't ignore your symptoms.";
-  }
-  if (q.includes("what is") && q.includes("glucose")) {
-    return "Glucose is a type of sugar that gives your body energy. When you have diabetes, your body needs help managing glucose levels — that's what insulin does!";
-  }
-  if (q.includes("help") || q.includes("what can you")) {
-    return "I can help you understand your glucose readings, remind you about carb counting, answer questions about how you're feeling, and give tips on snacks and exercise. What would you like to know?";
-  }
-
-  return "That's a great question! Always talk to your parent or doctor for medical decisions. I'm here to help you understand diabetes basics and support your day-to-day management. Is there something specific I can help with?";
+function computeTrend(history: { glucose: number; timestamp: string }[]): {
+  arrow: string;
+  label: string;
+} {
+  if (history.length < 2) return { arrow: "→", label: "steady" };
+  const sorted = [...history].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+  const last = sorted[sorted.length - 1].glucose;
+  const prev = sorted[Math.max(0, sorted.length - 4)].glucose;
+  const delta = last - prev;
+  if (delta > 40) return { arrow: "↑↑", label: "rising fast" };
+  if (delta > 15) return { arrow: "↑", label: "rising" };
+  if (delta > 5) return { arrow: "↗", label: "trending up" };
+  if (delta < -40) return { arrow: "↓↓", label: "dropping fast" };
+  if (delta < -15) return { arrow: "↓", label: "dropping" };
+  if (delta < -5) return { arrow: "↘", label: "trending down" };
+  return { arrow: "→", label: "steady" };
 }
 
-const SUGGESTIONS = [
-  "My sugar feels low",
-  "What should I snack on?",
-  "Can I exercise now?",
-  "Am I in range?",
-];
+function glucoseColor(g: number): string {
+  if (g < 70 || g > 250) return COLORS.danger;
+  if (g < 80 || g > 180) return COLORS.warning;
+  return COLORS.success;
+}
+
+function glucoseLabel(g: number): string {
+  if (g < 55) return "Critically Low";
+  if (g < 70) return "Low";
+  if (g < 80) return "Below Range";
+  if (g <= 180) return "In Range";
+  if (g <= 250) return "High";
+  return "Very High";
+}
+
+function buildSuggestions(
+  glucose: number | null,
+  name: string
+): string[] {
+  if (glucose === null) {
+    return [
+      "How do I log a meal?",
+      "What's a good blood sugar?",
+      "Can I exercise with diabetes?",
+      "I'm not feeling great",
+    ];
+  }
+  if (glucose < 70) {
+    return [
+      "My sugar feels low right now",
+      "What should I eat quickly?",
+      "When will I feel better?",
+      "Should I tell someone?",
+    ];
+  }
+  if (glucose > 250) {
+    return [
+      "My sugar is really high",
+      "What should I drink?",
+      "When will it come down?",
+      "Do I need a correction?",
+    ];
+  }
+  if (glucose > 180) {
+    return [
+      "Why is my sugar high?",
+      "What can I do to bring it down?",
+      "Can I still exercise?",
+      "Will this affect how I feel?",
+    ];
+  }
+  return [
+    `My sugar feels low`,
+    "What should I snack on?",
+    "Can I exercise now?",
+    "How am I trending today?",
+  ];
+}
 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { latestReading } = useGlucose();
+  const { history, latestReading, carbRatio, targetGlucose } = useGlucose();
+  const { profile, ageYears } = useAuth();
   const { prompt } = useLocalSearchParams<{ prompt?: string }>();
   const promptSentRef = useRef(false);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "0",
-      role: "assistant",
-      text: "Hi! I'm your Gluco Guardian assistant. Ask me anything about your glucose, meals, or how you're feeling today!",
-      timestamp: new Date(),
-    },
-  ]);
+
+  const name = profile?.childName ?? "there";
+  const trend = computeTrend(history);
+  const glucose = latestReading?.glucose ?? null;
+  const suggestions = buildSuggestions(glucose, name);
+
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const greet = glucose != null
+      ? `Hey ${name}! Your glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${glucose >= 80 && glucose <= 180 ? "looking solid!" : glucose < 70 ? "let's get that up, okay?" : "let's keep an eye on it."} What's on your mind?`
+      : `Hey ${name}! I'm Gluco, your diabetes sidekick. I can see your glucose readings, help with carb counts, and just chat when you need someone who gets it. What's up?`;
+
+    return [
+      {
+        id: "0",
+        role: "assistant",
+        text: greet,
+        timestamp: new Date(),
+      },
+    ];
+  });
+
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const conversationRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
+
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -106,10 +155,13 @@ export default function ChatScreen() {
     }
   }, [prompt]);
 
-  function send(text?: string) {
+  async function send(text?: string) {
     const msg = (text ?? input).trim();
-    if (!msg) return;
+    if (!msg || isThinking) return;
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setError(null);
+
     const userMsg: Message = {
       id: Date.now().toString(),
       role: "user",
@@ -120,8 +172,48 @@ export default function ChatScreen() {
     setInput("");
     setIsThinking(true);
 
-    setTimeout(() => {
-      const reply = getAIResponse(msg, latestReading?.glucose ?? null);
+    conversationRef.current = [
+      ...conversationRef.current,
+      { role: "user", content: msg },
+    ];
+
+    try {
+      const recentHistory = [...history]
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        .slice(-10)
+        .map((h) => ({ glucose: h.glucose, timestamp: h.timestamp }));
+
+      const res = await fetch(`${BASE_URL}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: conversationRef.current.slice(-14),
+          context: {
+            childName: profile?.childName,
+            ageYears: ageYears,
+            diabetesType: profile?.diabetesType,
+            currentGlucose: glucose,
+            trendArrow: trend.arrow,
+            trendLabel: trend.label,
+            recentReadings: recentHistory,
+            targetRange: { low: 80, high: 180 },
+            anomalyWarning: latestReading?.anomaly?.warning ?? false,
+            anomalyMessage: latestReading?.anomaly?.message,
+            carbRatio,
+            targetGlucose,
+          },
+        }),
+      });
+
+      if (!res.ok) throw new Error("API error");
+      const data = await res.json();
+      const reply: string = data.reply ?? "Hmm, something went wrong on my end. Try again?";
+
+      conversationRef.current = [
+        ...conversationRef.current,
+        { role: "assistant", content: reply },
+      ];
+
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -129,9 +221,13 @@ export default function ChatScreen() {
         timestamp: new Date(),
       };
       setMessages((prev) => [aiMsg, ...prev]);
-      setIsThinking(false);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }, 900 + Math.random() * 400);
+    } catch {
+      setError("Couldn't reach Gluco right now. Check your connection and try again.");
+      conversationRef.current = conversationRef.current.slice(0, -1);
+    } finally {
+      setIsThinking(false);
+    }
   }
 
   return (
@@ -143,24 +239,25 @@ export default function ChatScreen() {
       <View
         style={[
           styles.header,
-          {
-            paddingTop: topPadding + 12,
-            backgroundColor: colors.background,
-            borderBottomColor: colors.border,
-          },
+          { paddingTop: topPadding + 12, backgroundColor: colors.background, borderBottomColor: colors.border },
         ]}
       >
         <View style={[styles.avatarSmall, { backgroundColor: COLORS.primary + "20" }]}>
-          <Feather name="message-circle" size={18} color={COLORS.primary} />
+          <Text style={styles.avatarEmoji}>🛡️</Text>
         </View>
-        <View>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>
-            Gluco Assistant
-          </Text>
-          <Text style={[styles.headerSub, { color: COLORS.success }]}>
-            Online
-          </Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Gluco</Text>
+          <Text style={[styles.headerSub, { color: COLORS.success }]}>Your diabetes companion</Text>
         </View>
+        {glucose != null && (
+          <View style={[styles.glucosePill, { backgroundColor: glucoseColor(glucose) + "18", borderColor: glucoseColor(glucose) + "40" }]}>
+            <Text style={[styles.glucosePillValue, { color: glucoseColor(glucose) }]}>
+              {glucose} <Text style={styles.glucosePillUnit}>mg/dL</Text>
+            </Text>
+            <Text style={[styles.glucosePillTrend, { color: glucoseColor(glucose) }]}>{trend.arrow}</Text>
+            <Text style={[styles.glucosePillLabel, { color: glucoseColor(glucose) }]}>{glucoseLabel(glucose)}</Text>
+          </View>
+        )}
       </View>
 
       <FlatList
@@ -168,44 +265,40 @@ export default function ChatScreen() {
         data={messages}
         keyExtractor={(m) => m.id}
         inverted
-        contentContainerStyle={[
-          styles.list,
-          { paddingBottom: 12 },
-        ]}
+        contentContainerStyle={[styles.list, { paddingBottom: 12 }]}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
-          isThinking ? (
-            <View style={[styles.bubble, styles.aiBubble, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <ThinkingDots colors={colors} />
-            </View>
-          ) : null
+          <>
+            {isThinking && (
+              <View style={[styles.bubble, styles.aiBubble, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <ThinkingDots colors={colors} />
+              </View>
+            )}
+            {error && (
+              <View style={[styles.errorBubble, { backgroundColor: COLORS.danger + "12", borderColor: COLORS.danger + "30" }]}>
+                <Feather name="wifi-off" size={13} color={COLORS.danger} />
+                <Text style={[styles.errorText, { color: COLORS.danger }]}>{error}</Text>
+              </View>
+            )}
+          </>
         }
         renderItem={({ item }) => <MessageBubble message={item} colors={colors} />}
       />
 
-      <View
-        style={[
-          styles.suggestionsRow,
-          { borderTopColor: colors.border },
-        ]}
-      >
+      <View style={[styles.suggestionsRow, { borderTopColor: colors.border }]}>
         <FlatList
           horizontal
-          data={SUGGESTIONS}
+          data={suggestions}
           keyExtractor={(s) => s}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
           renderItem={({ item }) => (
             <Pressable
-              style={[
-                styles.suggestionChip,
-                { backgroundColor: colors.backgroundTertiary, borderColor: colors.border },
-              ]}
+              style={[styles.suggestionChip, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}
               onPress={() => send(item)}
+              disabled={isThinking}
             >
-              <Text style={[styles.suggestionText, { color: colors.text }]}>
-                {item}
-              </Text>
+              <Text style={[styles.suggestionText, { color: colors.text }]}>{item}</Text>
             </Pressable>
           )}
         />
@@ -214,67 +307,43 @@ export default function ChatScreen() {
       <View
         style={[
           styles.inputRow,
-          {
-            backgroundColor: colors.background,
-            borderTopColor: colors.border,
-            paddingBottom: bottomPadding + 58,
-          },
+          { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: bottomPadding + 58 },
         ]}
       >
         <TextInput
-          style={[
-            styles.inputField,
-            { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
-          ]}
+          style={[styles.inputField, { backgroundColor: colors.card, color: colors.text, borderColor: colors.border }]}
           value={input}
           onChangeText={setInput}
-          placeholder="Ask about your glucose..."
+          placeholder={`Ask Gluco anything...`}
           placeholderTextColor={colors.textMuted}
           returnKeyType="send"
           onSubmitEditing={() => send()}
           multiline
-          maxLength={300}
+          maxLength={400}
+          editable={!isThinking}
         />
         <Pressable
           style={({ pressed }) => [
             styles.sendBtn,
-            {
-              backgroundColor: input.trim() ? COLORS.primary : colors.backgroundTertiary,
-              opacity: pressed ? 0.85 : 1,
-            },
+            { backgroundColor: input.trim() && !isThinking ? COLORS.primary : colors.backgroundTertiary, opacity: pressed ? 0.85 : 1 },
           ]}
           onPress={() => send()}
           disabled={!input.trim() || isThinking}
         >
-          <Feather
-            name="send"
-            size={18}
-            color={input.trim() ? "#fff" : colors.textMuted}
-          />
+          <Feather name="send" size={18} color={input.trim() && !isThinking ? "#fff" : colors.textMuted} />
         </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-function MessageBubble({
-  message,
-  colors,
-}: {
-  message: Message;
-  colors: (typeof Colors)["light"];
-}) {
+function MessageBubble({ message, colors }: { message: Message; colors: (typeof Colors)["light"] }) {
   const isUser = message.role === "user";
   return (
-    <View
-      style={[
-        styles.bubbleWrapper,
-        isUser ? styles.userBubbleWrapper : styles.aiBubbleWrapper,
-      ]}
-    >
+    <View style={[styles.bubbleWrapper, isUser ? styles.userBubbleWrapper : styles.aiBubbleWrapper]}>
       {!isUser && (
         <View style={[styles.avatarTiny, { backgroundColor: COLORS.primary + "20" }]}>
-          <Feather name="shield" size={12} color={COLORS.primary} />
+          <Text style={{ fontSize: 12 }}>🛡️</Text>
         </View>
       )}
       <View
@@ -282,19 +351,14 @@ function MessageBubble({
           styles.bubble,
           isUser
             ? [styles.userBubble, { backgroundColor: COLORS.primary }]
-            : [
-                styles.aiBubble,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ],
+            : [styles.aiBubble, { backgroundColor: colors.card, borderColor: colors.border }],
         ]}
       >
-        <Text
-          style={[
-            styles.bubbleText,
-            { color: isUser ? "#fff" : colors.text },
-          ]}
-        >
+        <Text style={[styles.bubbleText, { color: isUser ? "#fff" : colors.text }]}>
           {message.text}
+        </Text>
+        <Text style={[styles.bubbleTime, { color: isUser ? "rgba(255,255,255,0.55)" : colors.textMuted }]}>
+          {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </Text>
       </View>
     </View>
@@ -305,10 +369,7 @@ function ThinkingDots({ colors }: { colors: (typeof Colors)["light"] }) {
   return (
     <View style={styles.thinkingRow}>
       {[0, 1, 2].map((i) => (
-        <View
-          key={i}
-          style={[styles.thinkingDot, { backgroundColor: colors.textMuted }]}
-        />
+        <View key={i} style={[styles.thinkingDot, { backgroundColor: colors.textMuted }]} />
       ))}
     </View>
   );
@@ -320,7 +381,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingBottom: 14,
     borderBottomWidth: 1,
   },
@@ -331,82 +392,43 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: {
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-  },
-  headerSub: {
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
-  },
-  list: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    gap: 10,
-  },
-  bubbleWrapper: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-    marginBottom: 6,
-  },
-  userBubbleWrapper: {
-    justifyContent: "flex-end",
-  },
-  aiBubbleWrapper: {
-    justifyContent: "flex-start",
-  },
-  avatarTiny: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+  avatarEmoji: { fontSize: 20 },
+  headerTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  headerSub: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  glucosePill: {
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
+    minWidth: 70,
   },
-  bubble: {
-    maxWidth: "80%",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 18,
-  },
-  userBubble: {
-    borderBottomRightRadius: 4,
-  },
-  aiBubble: {
-    borderBottomLeftRadius: 4,
-    borderWidth: 1,
-  },
-  bubbleText: {
-    fontSize: 15,
-    fontFamily: "Inter_400Regular",
-    lineHeight: 22,
-  },
-  thinkingRow: {
-    flexDirection: "row",
-    gap: 5,
-    paddingVertical: 4,
-  },
-  thinkingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    opacity: 0.6,
-  },
-  suggestionsRow: {
-    paddingVertical: 8,
-    borderTopWidth: 1,
-  },
-  suggestionChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  suggestionText: {
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
-  },
+  glucosePillValue: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  glucosePillUnit: { fontSize: 10, fontFamily: "Inter_400Regular" },
+  glucosePillTrend: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  glucosePillLabel: { fontSize: 10, fontFamily: "Inter_500Medium" },
+
+  list: { paddingHorizontal: 16, paddingTop: 12, gap: 10 },
+  bubbleWrapper: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginBottom: 4 },
+  userBubbleWrapper: { justifyContent: "flex-end" },
+  aiBubbleWrapper: { justifyContent: "flex-start" },
+  avatarTiny: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  bubble: { maxWidth: "80%", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, gap: 4 },
+  userBubble: { borderBottomRightRadius: 4 },
+  aiBubble: { borderBottomLeftRadius: 4, borderWidth: 1 },
+  bubbleText: { fontSize: 15, fontFamily: "Inter_400Regular", lineHeight: 22 },
+  bubbleTime: { fontSize: 10, fontFamily: "Inter_400Regular" },
+
+  thinkingRow: { flexDirection: "row", gap: 5, paddingVertical: 4 },
+  thinkingDot: { width: 8, height: 8, borderRadius: 4, opacity: 0.6 },
+
+  errorBubble: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 12, borderWidth: 1, marginBottom: 8 },
+  errorText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular" },
+
+  suggestionsRow: { paddingVertical: 8, borderTopWidth: 1 },
+  suggestionChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, borderWidth: 1 },
+  suggestionText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
