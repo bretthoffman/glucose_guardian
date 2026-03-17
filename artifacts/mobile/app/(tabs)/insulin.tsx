@@ -1,15 +1,14 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
   Dimensions,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
   useColorScheme,
 } from "react-native";
@@ -19,18 +18,17 @@ import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import type { GlucoseEntry } from "@/context/GlucoseContext";
 
-const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
-  ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
-  : "";
-
 const SCREEN_WIDTH = Dimensions.get("window").width;
-const CHART_H = 160;
-const CHART_INNER_H = CHART_H - 28;
+
+const CHART_H = 180;
+const CHART_INNER_H = 150;
+const CHART_W = SCREEN_WIDTH - 72;
+const Y_MIN = 40;
+const Y_MAX = 320;
+const Y_RANGE = Y_MAX - Y_MIN;
+
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
-const CHART_MIN = 40;
-const CHART_MAX = 320;
-const CHART_RANGE = CHART_MAX - CHART_MIN;
 
 type TimeRange = "3H" | "6H" | "12H" | "24H";
 const TIME_RANGES: TimeRange[] = ["3H", "6H", "12H", "24H"];
@@ -41,49 +39,16 @@ const RANGE_MS: Record<TimeRange, number> = {
   "24H": 24 * 60 * 60 * 1000,
 };
 
-interface PredictionResult {
-  carbs: number;
-  insulinDose: number;
-  currentGlucose: number;
-  predictedPeak30: number;
-  predicted60WithInsulin: number;
-  predicted60WithoutInsulin: number;
-  targetGlucose: number;
-  inRange30: boolean;
-  inRange60: boolean;
-  timingAdvice: string;
-  timingEmoji: string;
-  friendlyMessage: string;
-  monsterMood: "happy" | "worried" | "danger";
-  trendDirection: string;
-  carbRatio: number;
-  correctionFactor: number;
-}
+const Y_LABELS = [300, 250, 200, 180, 100, 70, 40];
 
 interface Suggestion {
   icon: string;
-  feather: string;
   title: string;
   body: string;
   color: string;
   priority: number;
+  chatPrompt: string;
 }
-
-const MONSTER_FACE: Record<string, string> = {
-  happy: "😊",
-  worried: "😟",
-  danger: "😨",
-};
-const MONSTER_MSG: Record<string, string> = {
-  happy: "Sugar Monster is happy!",
-  worried: "Sugar Monster is a little worried...",
-  danger: "Sugar Monster needs your help!",
-};
-const MONSTER_BG: Record<string, string> = {
-  happy: COLORS.success,
-  worried: COLORS.warning,
-  danger: COLORS.danger,
-};
 
 function glucoseColor(val: number): string {
   if (val < 70) return COLORS.danger;
@@ -92,9 +57,9 @@ function glucoseColor(val: number): string {
   return COLORS.danger;
 }
 
-function yPct(glucose: number): number {
-  const clamped = Math.max(CHART_MIN, Math.min(CHART_MAX, glucose));
-  return 1 - (clamped - CHART_MIN) / CHART_RANGE;
+function yPos(glucose: number): number {
+  const clamped = Math.max(Y_MIN, Math.min(Y_MAX, glucose));
+  return (1 - (clamped - Y_MIN) / Y_RANGE) * CHART_INNER_H;
 }
 
 function detectTrend(history: GlucoseEntry[]): string {
@@ -119,45 +84,50 @@ function analyzeReadings(readings: GlucoseEntry[], targetGlucose: number, isMino
   const timeInRange = Math.round((inRange.length / readings.length) * 100);
   const avg = Math.round(readings.reduce((s, r) => s + r.glucose, 0) / readings.length);
   const trend = detectTrend(readings);
-  const latest = readings[readings.length - 1]?.glucose ?? 0;
 
   if (lows.length > 0) {
     const worstLow = Math.min(...lows.map((r) => r.glucose));
     suggestions.push({
       icon: "🧃",
-      feather: "alert-triangle",
-      title: isMinor ? "Sugar went low! Drink juice!" : "Hypoglycemia detected",
+      title: isMinor ? "Sugar went low — drink juice!" : "Hypoglycemia detected",
       body: isMinor
-        ? `Your sugar dropped to ${worstLow} mg/dL. Drink 4 oz of juice or eat 4 glucose tablets right now! Tell an adult and wait 15 min then recheck.`
-        : `Glucose dropped to ${worstLow} mg/dL. Treat with 15–20g fast-acting carbs (juice, glucose tabs, or regular soda). Recheck in 15 min. Consider whether your last insulin dose was too large.`,
+        ? `Your sugar dropped to ${worstLow} mg/dL. Drink 4 oz of juice or eat 4 glucose tablets and tell an adult!`
+        : `Glucose reached ${worstLow} mg/dL. Treat with 15–20g fast-acting carbs. Consider whether your last dose was too large.`,
       color: COLORS.danger,
       priority: 1,
+      chatPrompt: isMinor
+        ? "I had a blood sugar low. What should I do and how can I stop it from happening again?"
+        : "I've been having hypoglycemia episodes. Can you help me understand the causes and how to prevent them? My last low was " + worstLow + " mg/dL.",
     });
   }
 
   if (trend === "rapidly_falling" || trend === "falling") {
     suggestions.push({
       icon: "🍎",
-      feather: "trending-down",
-      title: isMinor ? "Your sugar is dropping — eat a snack!" : "Falling glucose — act now",
+      title: isMinor ? "Sugar is dropping — eat a snack!" : "Falling glucose — act now",
       body: isMinor
-        ? "Your sugar is going down fast. Eat a small snack like an apple, crackers, or a few glucose tablets. Don't wait until you feel bad!"
-        : "Glucose is trending down. Have 15g of carbs (fruit, crackers, milk). If you recently took insulin, it may still be peaking — delay your next dose.",
+        ? "Your sugar is going down. Eat a small snack like an apple or crackers now!"
+        : "Glucose is trending down. Have 15g carbs. If you recently dosed, insulin may still be peaking — delay your next dose.",
       color: COLORS.warning,
       priority: 2,
+      chatPrompt: isMinor
+        ? "My blood sugar keeps dropping. What snacks should I eat and when?"
+        : "My glucose is falling quickly. Can you explain the best strategy for treating a falling trend and how to avoid going low?",
     });
   }
 
   if (trend === "rapidly_rising" || trend === "rising") {
     suggestions.push({
       icon: "🚶",
-      feather: "trending-up",
-      title: isMinor ? "Try a short walk to help!" : "Rising glucose — consider activity",
+      title: isMinor ? "Try a short walk to help!" : "Rising glucose — try activity",
       body: isMinor
-        ? "Your sugar is going up! A 10–15 minute walk or some active play can help bring it back down naturally. Ask a parent about a correction dose too."
-        : "Glucose is trending up. A brisk 10–15 min walk can reduce glucose 20–40 mg/dL naturally. If you're above 250, consider a correction dose per your insulin settings.",
+        ? "Your sugar is going up! A 10–15 min walk or active play can help bring it back down naturally."
+        : "Glucose is rising. A brisk 10–15 min walk can reduce glucose by 20–40 mg/dL without insulin.",
       color: COLORS.warning,
       priority: 3,
+      chatPrompt: isMinor
+        ? "My blood sugar keeps going up. Can walking really help? What else can I do?"
+        : "My glucose is rising and I want to know how exercise affects blood sugar. When should I walk vs when should I take a correction dose?",
     });
   }
 
@@ -165,52 +135,60 @@ function analyzeReadings(readings: GlucoseEntry[], targetGlucose: number, isMino
     const worstHigh = Math.max(...highs.map((r) => r.glucose));
     suggestions.push({
       icon: "💧",
-      feather: "droplet",
       title: isMinor ? "High sugar — drink water!" : "Elevated glucose pattern",
       body: isMinor
-        ? `Your sugar got up to ${worstHigh} mg/dL. Drink a big glass of water and tell an adult. Staying hydrated helps your body manage sugar!`
-        : `Peak of ${worstHigh} mg/dL detected. Increase water intake (glucose is excreted in urine when high). If this pattern persists after meals, consider taking insulin 10–15 min earlier.`,
+        ? `Your sugar got up to ${worstHigh} mg/dL. Drink a big glass of water and tell an adult!`
+        : `Peak of ${worstHigh} mg/dL detected. Increase water intake. If this happens after meals, try pre-bolusing 10–15 min earlier.`,
       color: COLORS.warning,
       priority: 4,
+      chatPrompt: isMinor
+        ? "My blood sugar has been high. What can I drink or eat to help bring it down safely?"
+        : "I'm seeing an elevated glucose pattern, peaking around " + worstHigh + " mg/dL. Can you help me understand post-meal spikes and what pre-bolusing means?",
     });
   }
 
   if (timeInRange < 50 && readings.length >= 4) {
     suggestions.push({
       icon: "👨‍⚕️",
-      feather: "user",
       title: "Talk to your care team",
       body: isMinor
-        ? `You were only in your safe zone ${timeInRange}% of the time. Your doctor might want to look at your insulin settings. That's totally OK — they're here to help!`
-        : `Time-in-range is ${timeInRange}% over this period (target: 70%+). Review your carb ratio, correction factor, and meal timing with your endocrinologist.`,
+        ? `You were in your safe zone ${timeInRange}% of the time. Your doctor might want to look at your settings!`
+        : `Time-in-range is ${timeInRange}% (target: 70%+). Review your carb ratio and correction factor with your endocrinologist.`,
       color: COLORS.primary,
       priority: 5,
+      chatPrompt: isMinor
+        ? "I wasn't in my safe blood sugar zone very much today. What does that mean and what can my doctor do to help?"
+        : "My time-in-range is only " + timeInRange + "%. What questions should I ask my endocrinologist about adjusting my insulin settings?",
     });
   }
 
   if (avg > HIGH_THRESH && trend === "stable" && lows.length === 0) {
     suggestions.push({
       icon: "🍽️",
-      feather: "coffee",
       title: isMinor ? "Try smaller meal portions" : "Consistently elevated — meal timing",
       body: isMinor
-        ? "Your sugar has been a bit high. Eating smaller portions and not having too many sugary drinks can really help keep it in the safe zone!"
-        : `Average glucose ${avg} mg/dL suggests post-meal spikes or basal drift. Try smaller portions, more fiber-rich foods, and consider pre-bolusing insulin 10–15 min before meals.`,
+        ? "Your sugar has been a bit high. Smaller portions and fewer sugary drinks can really help!"
+        : `Average ${avg} mg/dL suggests post-meal drift. Try smaller portions, more fiber, and pre-bolusing 10–15 min before meals.`,
       color: COLORS.accent,
       priority: 6,
+      chatPrompt: isMinor
+        ? "My blood sugar has been high after meals. What kinds of foods help keep it lower?"
+        : "My average glucose is " + avg + " mg/dL. Can you explain how meal composition, portion size, and timing affect post-meal glucose spikes?",
     });
   }
 
   if (timeInRange >= 70 && lows.length === 0 && readings.length >= 3) {
     suggestions.push({
       icon: "🌟",
-      feather: "star",
-      title: isMinor ? "Great job managing your sugar!" : "Excellent glucose control",
+      title: isMinor ? "Amazing sugar control!" : "Excellent glucose control",
       body: isMinor
-        ? `You were in your safe zone ${timeInRange}% of the time — amazing work! Keep it up with your meals and insulin routine. You're a diabetes superstar! 🌟`
-        : `Time-in-range: ${timeInRange}%. Average: ${avg} mg/dL. Your diabetes management is on track. Continue your current meal and insulin routine.`,
+        ? `You were in your safe zone ${timeInRange}% of the time — incredible! Keep up your great routine!`
+        : `Time-in-range: ${timeInRange}%. Average: ${avg} mg/dL. Your management is on track.`,
       color: COLORS.success,
       priority: 7,
+      chatPrompt: isMinor
+        ? "I've been doing really well with my blood sugar! What else can I do to keep it up?"
+        : "I'm achieving " + timeInRange + "% time-in-range. What advanced strategies could help me optimize even further?",
     });
   }
 
@@ -222,17 +200,10 @@ export default function InsulinScreen() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { carbRatio, targetGlucose, correctionFactor, latestReading, history } = useGlucose();
+  const { targetGlucose, history } = useGlucose();
   const { isMinor } = useAuth();
 
   const [timeRange, setTimeRange] = useState<TimeRange>("6H");
-  const [carbs, setCarbs] = useState("");
-  const [currentGlucose, setCurrentGlucose] = useState(
-    latestReading ? String(latestReading.glucose) : ""
-  );
-  const [prediction, setPrediction] = useState<PredictionResult | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -258,287 +229,162 @@ export default function InsulinScreen() {
     [filteredReadings, targetGlucose, isMinor]
   );
 
-  const currentTrend = detectTrend(history);
+  const latest = history[history.length - 1];
 
-  async function predict() {
-    const carbsNum = parseFloat(carbs);
-    if (!carbs || isNaN(carbsNum) || carbsNum <= 0) {
-      setError("Enter how many carbs you plan to eat.");
-      return;
-    }
-    setError("");
-    setIsLoading(true);
-    setPrediction(null);
-    try {
-      const cgNum = parseFloat(currentGlucose);
-      const res = await fetch(`${BASE_URL}/api/insulin/predict`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          carbs: carbsNum,
-          currentGlucose: !isNaN(cgNum) && cgNum > 0 ? cgNum : null,
-          carbRatio,
-          targetGlucose,
-          correctionFactor,
-          trendDirection: currentTrend,
-          isMinor,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        setError(err.error || "Could not generate prediction. Please try again.");
-        return;
-      }
-      const data: PredictionResult = await res.json();
-      setPrediction(data);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {
-      setError("Could not connect. Check your internet connection.");
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  function reset() {
-    setCarbs("");
-    setCurrentGlucose(latestReading ? String(latestReading.glucose) : "");
-    setPrediction(null);
-    setError("");
+  function openChat(prompt: string) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push({ pathname: "/(tabs)/chat", params: { prompt } });
   }
-
-  const predLevels = prediction
-    ? [
-        { label: "Now", value: prediction.currentGlucose },
-        { label: "30 min\npeak", value: prediction.predictedPeak30 },
-        { label: "60 min\nw/ insulin", value: prediction.predicted60WithInsulin },
-      ]
-    : [];
-  const predMax = predLevels.length ? Math.max(...predLevels.map((l) => l.value), targetGlucose + 60) : 200;
-  const predMin = predLevels.length ? Math.min(...predLevels.map((l) => l.value), 60) : 60;
-  const predRange = Math.max(predMax - predMin, 60);
 
   return (
-    <KeyboardAvoidingView
+    <ScrollView
       style={[styles.root, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      contentContainerStyle={[
+        styles.scroll,
+        { paddingTop: topPadding + 12, paddingBottom: bottomPadding + 80 },
+      ]}
+      showsVerticalScrollIndicator={false}
     >
-      <ScrollView
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingTop: topPadding + 12, paddingBottom: bottomPadding + 80 },
-        ]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={[styles.pageTitle, { color: colors.text }]}>Glucose Trends</Text>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          {isMinor
-            ? "See your sugar patterns and get helpful tips"
-            : "Analyze glucose patterns, time-in-range, and AI-powered recommendations"}
-        </Text>
+      <Text style={[styles.pageTitle, { color: colors.text }]}>Glucose Trends</Text>
+      <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+        {isMinor
+          ? "See your sugar patterns and get helpful tips"
+          : "Analyze glucose patterns, time-in-range, and personalized recommendations"}
+      </Text>
 
-        <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.rangeRow}>
-            {TIME_RANGES.map((r) => (
-              <Pressable
-                key={r}
-                style={[
-                  styles.rangeTab,
-                  {
-                    backgroundColor: timeRange === r ? COLORS.primary : colors.backgroundTertiary,
-                    borderColor: timeRange === r ? COLORS.primary : colors.border,
-                  },
-                ]}
-                onPress={() => {
-                  setTimeRange(r);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-              >
-                <Text style={[styles.rangeTabText, { color: timeRange === r ? "#fff" : colors.textMuted }]}>
-                  {r}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <GlucoseLineChart
-            readings={filteredReadings}
-            colors={colors}
-            isDark={isDark}
-            targetGlucose={targetGlucose}
-          />
-
-          {stats && (
-            <View style={styles.statsRow}>
-              <StatChip
-                label="Avg"
-                value={`${stats.avg}`}
-                unit="mg/dL"
-                color={glucoseColor(stats.avg)}
-                colors={colors}
-              />
-              <StatChip
-                label="In Range"
-                value={`${stats.tir}%`}
-                unit="time"
-                color={stats.tir >= 70 ? COLORS.success : stats.tir >= 50 ? COLORS.warning : COLORS.danger}
-                colors={colors}
-              />
-              <StatChip
-                label="Lows"
-                value={`${stats.lows}`}
-                unit="events"
-                color={stats.lows > 0 ? COLORS.danger : COLORS.success}
-                colors={colors}
-              />
-              <StatChip
-                label="Highs"
-                value={`${stats.highs}`}
-                unit="events"
-                color={stats.highs > 0 ? COLORS.warning : COLORS.success}
-                colors={colors}
-              />
-            </View>
-          )}
-        </View>
-
-        {suggestions.length > 0 && (
-          <>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              {isMinor ? "Tips for You 💡" : "AI Suggestions"}
+      {latest && (
+        <View style={styles.latestRow}>
+          <View style={[styles.latestCircle, { borderColor: glucoseColor(latest.glucose) }]}>
+            <Text style={[styles.latestValue, { color: glucoseColor(latest.glucose) }]}>
+              {latest.glucose}
             </Text>
-            {suggestions.map((s, i) => (
-              <SuggestionCard key={i} suggestion={s} colors={colors} isMinor={isMinor} />
-            ))}
-          </>
-        )}
-
-        {filteredReadings.length === 0 && (
-          <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={styles.emptyIcon}>📊</Text>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No readings in this period</Text>
-            <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
-              {isMinor
-                ? "Sync your CGM or simulate a reading from the Glucose tab to see your trends here!"
-                : "Sync your CGM or add readings from the Glucose tab to see trend analysis."}
+            <Text style={[styles.latestUnit, { color: colors.textMuted }]}>mg/dL</Text>
+          </View>
+          <View style={styles.latestMeta}>
+            <Text style={[styles.latestTime, { color: colors.textSecondary }]}>
+              {new Date(latest.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </Text>
-          </View>
-        )}
-
-        <View style={[styles.dividerSection, { borderTopColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            {isMinor ? "What will my sugar do? 🔮" : "Meal Prediction"}
-          </Text>
-          <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>
-            {isMinor
-              ? "Tell me what you're eating and I'll show you what happens!"
-              : "Enter carbs to predict post-meal glucose and get an insulin recommendation"}
-          </Text>
-        </View>
-
-        <View style={[styles.inputCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.inputLabel, { color: colors.text }]}>Carbs to eat (g)</Text>
-          <TextInput
-            style={[
-              styles.input,
-              { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: error ? COLORS.danger : colors.border },
-            ]}
-            value={carbs}
-            onChangeText={setCarbs}
-            placeholder="e.g. 45"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="numeric"
-            returnKeyType="next"
-          />
-          {!!error && <Text style={styles.errorText}>{error}</Text>}
-
-          <Text style={[styles.inputLabel, { color: colors.text, marginTop: 14 }]}>
-            Current glucose{" "}
-            <Text style={[styles.optional, { color: colors.textMuted }]}>optional</Text>
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border },
-            ]}
-            value={currentGlucose}
-            onChangeText={setCurrentGlucose}
-            placeholder={`e.g. ${latestReading?.glucose ?? 120}`}
-            placeholderTextColor={colors.textMuted}
-            keyboardType="numeric"
-            returnKeyType="done"
-            onSubmitEditing={predict}
-          />
-
-          <View style={[styles.pillsRow, { borderTopColor: colors.separator }]}>
-            <SettingPill label="Carb Ratio" value={`1:${carbRatio}`} colors={colors} />
-            <SettingPill label="Target" value={`${targetGlucose}`} colors={colors} />
-            <SettingPill label="ISF" value={`1:${correctionFactor}`} colors={colors} />
+            <TrendArrow trend={detectTrend(history)} />
           </View>
         </View>
+      )}
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.predictBtn,
-            { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 },
-          ]}
-          onPress={predict}
-          disabled={isLoading}
-        >
-          <Feather name="trending-up" size={18} color="#fff" />
-          <Text style={styles.predictBtnText}>{isLoading ? "Predicting..." : "Predict Glucose"}</Text>
-        </Pressable>
-
-        {prediction && (
-          <>
-            {isMinor ? (
-              <KidResultView prediction={prediction} colors={colors} />
-            ) : (
-              <AdultResultView
-                prediction={prediction}
-                levels={predLevels}
-                minVal={predMin}
-                chartRange={predRange}
-                colors={colors}
-              />
-            )}
-
-            <View style={[styles.disclaimer, { backgroundColor: COLORS.warningLight }]}>
-              <Feather name="alert-circle" size={14} color={COLORS.warning} />
-              <Text style={[styles.disclaimerText, { color: "#92400E" }]}>
-                Estimates only. Always verify doses with your doctor or care team.
+      <View style={[styles.chartCard, { backgroundColor: isDark ? "#0D1526" : "#0F172A" }]}>
+        <View style={styles.rangeRow}>
+          {TIME_RANGES.map((r) => (
+            <Pressable
+              key={r}
+              style={[
+                styles.rangeTab,
+                { backgroundColor: timeRange === r ? "rgba(255,255,255,0.18)" : "transparent" },
+              ]}
+              onPress={() => {
+                setTimeRange(r);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+            >
+              <Text style={[styles.rangeTabText, { color: timeRange === r ? "#fff" : "rgba(255,255,255,0.45)" }]}>
+                {r}
               </Text>
-            </View>
-
-            <Pressable onPress={reset} style={[styles.resetBtn, { borderColor: colors.border }]}>
-              <Feather name="refresh-cw" size={15} color={colors.textMuted} />
-              <Text style={[styles.resetBtnText, { color: colors.textMuted }]}>New Prediction</Text>
             </Pressable>
-          </>
-        )}
-      </ScrollView>
-    </KeyboardAvoidingView>
+          ))}
+        </View>
+
+        <CGMChart readings={filteredReadings} targetGlucose={targetGlucose} />
+      </View>
+
+      {stats && (
+        <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <StatBox
+            label="Avg Glucose"
+            value={`${stats.avg}`}
+            unit="mg/dL"
+            color={glucoseColor(stats.avg)}
+            colors={colors}
+          />
+          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+          <StatBox
+            label="Time in Range"
+            value={`${stats.tir}%`}
+            unit={`${stats.tir >= 70 ? "On target" : "Below goal"}`}
+            color={stats.tir >= 70 ? COLORS.success : stats.tir >= 50 ? COLORS.warning : COLORS.danger}
+            colors={colors}
+          />
+          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+          <StatBox
+            label="Lows"
+            value={`${stats.lows}`}
+            unit="events"
+            color={stats.lows > 0 ? COLORS.danger : COLORS.success}
+            colors={colors}
+          />
+          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+          <StatBox
+            label="Highs"
+            value={`${stats.highs}`}
+            unit="events"
+            color={stats.highs > 0 ? COLORS.warning : COLORS.success}
+            colors={colors}
+          />
+        </View>
+      )}
+
+      {suggestions.length > 0 && (
+        <>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            {isMinor ? "Tips for You 💡" : "Insights & Recommendations"}
+          </Text>
+          {suggestions.map((s, i) => (
+            <SuggestionCard
+              key={i}
+              suggestion={s}
+              colors={colors}
+              onChat={() => openChat(s.chatPrompt)}
+            />
+          ))}
+        </>
+      )}
+
+      {filteredReadings.length === 0 && (
+        <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={styles.emptyIcon}>📊</Text>
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>No readings in this period</Text>
+          <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
+            {isMinor
+              ? "Sync your CGM or add a reading from the Glucose tab to see your trends here!"
+              : "Sync your CGM or add readings from the Glucose tab to see trend analysis."}
+          </Text>
+        </View>
+      )}
+    </ScrollView>
   );
 }
 
-function GlucoseLineChart({
+function CGMChart({
   readings,
-  colors,
-  isDark,
   targetGlucose,
 }: {
   readings: GlucoseEntry[];
-  colors: (typeof Colors)["light"];
-  isDark: boolean;
   targetGlucose: number;
 }) {
-  const CHART_W = SCREEN_WIDTH - 80;
+  const yAxisW = 36;
+  const plotW = CHART_W - yAxisW;
+
+  const lowBandH = yPos(Y_MIN) - yPos(LOW_THRESH);
+  const targetBandTop = yPos(HIGH_THRESH);
+  const targetBandH = yPos(LOW_THRESH) - yPos(HIGH_THRESH);
+  const highBandH = yPos(HIGH_THRESH);
 
   if (readings.length === 0) {
     return (
-      <View style={[styles.chartEmpty, { backgroundColor: colors.backgroundTertiary }]}>
-        <Text style={[styles.chartEmptyText, { color: colors.textMuted }]}>No data for this period</Text>
+      <View style={[styles.cgmOuter, { height: CHART_H + 24 }]}>
+        <View style={[styles.cgmPlotArea, { width: plotW, height: CHART_INNER_H, backgroundColor: "#1a2540" }]}>
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 13, fontFamily: "Inter_400Regular" }}>
+              No data for this period
+            </Text>
+          </View>
+        </View>
       </View>
     );
   }
@@ -550,116 +396,121 @@ function GlucoseLineChart({
   const endTime = new Date(sorted[sorted.length - 1].timestamp).getTime();
   const timeSpan = Math.max(endTime - startTime, 1);
 
-  const lowY = yPct(LOW_THRESH) * CHART_INNER_H;
-  const highY = yPct(HIGH_THRESH) * CHART_INNER_H;
-  const targetY = yPct(targetGlucose) * CHART_INNER_H;
+  const points = sorted.map((r) => ({
+    x: ((new Date(r.timestamp).getTime() - startTime) / timeSpan) * plotW,
+    y: yPos(r.glucose),
+    glucose: r.glucose,
+    timestamp: r.timestamp,
+  }));
 
-  const points = sorted.map((r) => {
-    const x = ((new Date(r.timestamp).getTime() - startTime) / timeSpan) * CHART_W;
-    const y = yPct(r.glucose) * CHART_INNER_H;
-    return { x, y, glucose: r.glucose, timestamp: r.timestamp };
-  });
-
-  const firstTs = sorted[0]?.timestamp ?? "";
-  const lastTs = sorted[sorted.length - 1]?.timestamp ?? "";
+  const midIdx = Math.floor(sorted.length / 2);
 
   return (
-    <View style={[styles.chartOuter, { height: CHART_H }]}>
-      <View style={[styles.chartArea, { width: CHART_W, height: CHART_INNER_H }]}>
-        <View
-          style={[
-            styles.zoneBand,
-            {
-              top: highY,
-              height: lowY - highY,
-              backgroundColor: COLORS.success + (isDark ? "18" : "12"),
-            },
-          ]}
-        />
-        <View
-          style={[
-            styles.threshLine,
-            { top: lowY - 1, backgroundColor: COLORS.danger + "60" },
-          ]}
-        />
-        <View
-          style={[
-            styles.threshLine,
-            { top: highY - 1, backgroundColor: COLORS.warning + "60" },
-          ]}
-        />
-        <View
-          style={[
-            styles.threshLine,
-            { top: targetY - 1, borderStyle: "dashed" as any, backgroundColor: COLORS.success + "80" },
-          ]}
-        />
+    <View style={styles.cgmWrapper}>
+      <View style={[styles.cgmOuter, { height: CHART_INNER_H }]}>
+        <View style={[styles.cgmPlotArea, { width: plotW, height: CHART_INNER_H }]}>
+          <View style={[styles.cgmZoneLow, { height: lowBandH, bottom: 0 }]} />
+          <View style={[styles.cgmZoneTarget, { top: targetBandTop, height: targetBandH }]} />
+          <View style={[styles.cgmZoneHigh, { top: 0, height: highBandH }]} />
 
-        {points.map((p, i) => {
-          const col = glucoseColor(p.glucose);
-          return (
-            <React.Fragment key={i}>
-              {i < points.length - 1 && (() => {
-                const next = points[i + 1];
-                const dx = next.x - p.x;
-                const dy = next.y - p.y;
-                const len = Math.sqrt(dx * dx + dy * dy);
-                const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-                const midColor = glucoseColor((p.glucose + next.glucose) / 2);
-                return (
-                  <View
-                    style={[
-                      styles.lineSegment,
-                      {
-                        width: len,
-                        left: p.x,
-                        top: p.y,
-                        backgroundColor: midColor,
-                        transform: [{ rotate: `${angle}deg` }],
-                      },
-                    ]}
-                  />
-                );
-              })()}
+          <View style={[styles.cgmThreshLine, { top: yPos(LOW_THRESH), backgroundColor: "#EF444488" }]} />
+          <View style={[styles.cgmThreshLine, { top: yPos(HIGH_THRESH), backgroundColor: "#F59E0B55" }]} />
+          {targetGlucose >= LOW_THRESH && targetGlucose <= HIGH_THRESH && (
+            <View style={[styles.cgmTargetLine, { top: yPos(targetGlucose) }]} />
+          )}
+
+          {points.map((p, i) => {
+            if (i >= points.length - 1) return null;
+            const next = points[i + 1];
+            const dx = next.x - p.x;
+            const dy = next.y - p.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+            const col = glucoseColor((p.glucose + next.glucose) / 2);
+            return (
               <View
+                key={`seg-${i}`}
                 style={[
-                  styles.dot,
+                  styles.cgmSegment,
                   {
-                    left: p.x - 4,
-                    top: p.y - 4,
-                    backgroundColor: col,
-                    borderColor: isDark ? "#1E293B" : "#fff",
+                    width: len,
+                    left: p.x,
+                    top: p.y - 1,
+                    backgroundColor: col + "AA",
+                    transform: [{ rotate: `${angle}deg` }],
                   },
                 ]}
               />
-            </React.Fragment>
-          );
-        })}
+            );
+          })}
 
-        <Text style={[styles.threshLabel, { top: lowY - 12, color: COLORS.danger + "CC" }]}>
-          70
-        </Text>
-        <Text style={[styles.threshLabel, { top: highY + 2, color: COLORS.warning + "CC" }]}>
-          180
-        </Text>
+          {points.map((p, i) => {
+            const isLatest = i === points.length - 1;
+            const col = glucoseColor(p.glucose);
+            return (
+              <View
+                key={`dot-${i}`}
+                style={[
+                  styles.cgmDot,
+                  {
+                    left: p.x - (isLatest ? 6 : 4),
+                    top: p.y - (isLatest ? 6 : 4),
+                    width: isLatest ? 12 : 8,
+                    height: isLatest ? 12 : 8,
+                    borderRadius: isLatest ? 6 : 4,
+                    backgroundColor: col,
+                    borderWidth: isLatest ? 2 : 1,
+                    borderColor: isLatest ? "#fff" : col + "80",
+                    opacity: isLatest ? 1 : 0.85,
+                  },
+                ]}
+              />
+            );
+          })}
+        </View>
+
+        <View style={[styles.cgmYAxis, { height: CHART_INNER_H, width: yAxisW }]}>
+          {Y_LABELS.map((v) => (
+            <Text
+              key={v}
+              style={[styles.cgmYLabel, { top: yPos(v) - 7 }]}
+            >
+              {v}
+            </Text>
+          ))}
+        </View>
       </View>
 
-      <View style={styles.timeLabels}>
-        <Text style={[styles.timeLabel, { color: colors.textMuted }]}>
-          {firstTs
-            ? new Date(firstTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      <View style={[styles.cgmXAxis, { width: plotW }]}>
+        <Text style={styles.cgmXLabel}>
+          {sorted[0]
+            ? new Date(sorted[0].timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
             : ""}
         </Text>
-        {sorted[Math.floor(sorted.length / 2)] && (
-          <Text style={[styles.timeLabel, { color: colors.textMuted }]}>
-            {new Date(sorted[Math.floor(sorted.length / 2)].timestamp).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+        {sorted[midIdx] && (
+          <Text style={styles.cgmXLabel}>
+            {new Date(sorted[midIdx].timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
           </Text>
         )}
-        <Text style={[styles.timeLabel, { color: colors.textMuted }]}>Now</Text>
+        <Text style={styles.cgmXLabel}>Now</Text>
       </View>
+    </View>
+  );
+}
+
+function TrendArrow({ trend }: { trend: string }) {
+  const map: Record<string, { icon: string; color: string; label: string }> = {
+    rapidly_rising: { icon: "↑↑", color: COLORS.danger, label: "Rising fast" },
+    rising: { icon: "↑", color: COLORS.warning, label: "Rising" },
+    stable: { icon: "→", color: COLORS.success, label: "Stable" },
+    falling: { icon: "↓", color: COLORS.accent, label: "Falling" },
+    rapidly_falling: { icon: "↓↓", color: COLORS.primary, label: "Falling fast" },
+  };
+  const info = map[trend] ?? map.stable;
+  return (
+    <View style={styles.trendArrowRow}>
+      <Text style={[styles.trendArrowIcon, { color: info.color }]}>{info.icon}</Text>
+      <Text style={[styles.trendArrowLabel, { color: info.color }]}>{info.label}</Text>
     </View>
   );
 }
@@ -667,34 +518,47 @@ function GlucoseLineChart({
 function SuggestionCard({
   suggestion,
   colors,
-  isMinor,
+  onChat,
 }: {
   suggestion: Suggestion;
   colors: (typeof Colors)["light"];
-  isMinor: boolean;
+  onChat: () => void;
 }) {
   return (
     <View
       style={[
-        styles.suggestionCard,
+        styles.suggCard,
         {
-          backgroundColor: suggestion.color + "10",
-          borderColor: suggestion.color + "35",
+          backgroundColor: suggestion.color + "0E",
+          borderColor: suggestion.color + "30",
         },
       ]}
     >
-      <View style={[styles.suggIconBg, { backgroundColor: suggestion.color + "20" }]}>
-        <Text style={styles.suggIconText}>{suggestion.icon}</Text>
+      <View style={styles.suggTop}>
+        <View style={[styles.suggIconBg, { backgroundColor: suggestion.color + "20" }]}>
+          <Text style={styles.suggIcon}>{suggestion.icon}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.suggTitle, { color: suggestion.color }]}>{suggestion.title}</Text>
+          <Text style={[styles.suggBody, { color: colors.text }]}>{suggestion.body}</Text>
+        </View>
       </View>
-      <View style={{ flex: 1, gap: 3 }}>
-        <Text style={[styles.suggTitle, { color: suggestion.color }]}>{suggestion.title}</Text>
-        <Text style={[styles.suggBody, { color: colors.text }]}>{suggestion.body}</Text>
-      </View>
+      <Pressable
+        style={({ pressed }) => [
+          styles.chatBtn,
+          { backgroundColor: suggestion.color + "18", opacity: pressed ? 0.7 : 1 },
+        ]}
+        onPress={onChat}
+      >
+        <Feather name="message-circle" size={13} color={suggestion.color} />
+        <Text style={[styles.chatBtnText, { color: suggestion.color }]}>Chat about this</Text>
+        <Feather name="chevron-right" size={13} color={suggestion.color} />
+      </Pressable>
     </View>
   );
 }
 
-function StatChip({
+function StatBox({
   label,
   value,
   unit,
@@ -708,189 +572,10 @@ function StatChip({
   colors: (typeof Colors)["light"];
 }) {
   return (
-    <View style={styles.statChip}>
-      <Text style={[styles.statChipValue, { color }]}>{value}</Text>
-      <Text style={[styles.statChipLabel, { color: colors.textMuted }]}>{label}</Text>
-    </View>
-  );
-}
-
-function KidResultView({
-  prediction,
-  colors,
-}: {
-  prediction: PredictionResult;
-  colors: (typeof Colors)["light"];
-}) {
-  const mood = prediction.monsterMood;
-  const monsterBg = MONSTER_BG[mood];
-  const spikePercent = Math.min(100, Math.max(0, ((prediction.predictedPeak30 - 70) / (350 - 70)) * 100));
-
-  return (
-    <View style={styles.kidResult}>
-      <View style={[styles.monsterCard, { backgroundColor: monsterBg + "18", borderColor: monsterBg + "40" }]}>
-        <Text style={styles.monsterFace}>{MONSTER_FACE[mood]}</Text>
-        <View style={{ flex: 1, gap: 4 }}>
-          <Text style={[styles.monsterMoodLabel, { color: monsterBg }]}>{MONSTER_MSG[mood]}</Text>
-          <Text style={[styles.friendlyMsg, { color: colors.text }]}>{prediction.friendlyMessage}</Text>
-        </View>
-      </View>
-
-      <View style={[styles.spikeSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Text style={[styles.spikeSectionTitle, { color: colors.text }]}>Sugar Spike Forecast</Text>
-        <View style={[styles.spikeBarBg, { backgroundColor: colors.backgroundTertiary }]}>
-          <View style={[styles.spikeBarFill, { width: `${spikePercent}%` as any, backgroundColor: monsterBg }]} />
-        </View>
-        <View style={styles.spikeLegend}>
-          <Text style={[styles.spikeLegendText, { color: colors.textMuted }]}>70</Text>
-          <Text style={[styles.spikePeakLabel, { color: monsterBg }]}>Peak: ~{prediction.predictedPeak30} mg/dL</Text>
-          <Text style={[styles.spikeLegendText, { color: colors.textMuted }]}>350</Text>
-        </View>
-      </View>
-
-      <View style={[styles.timingCard, { backgroundColor: COLORS.accent + "12", borderColor: COLORS.accent + "30" }]}>
-        <Text style={styles.timingEmoji}>{prediction.timingEmoji}</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.timingTitle, { color: COLORS.accent }]}>Timing Tip</Text>
-          <Text style={[styles.timingBody, { color: colors.text }]}>{prediction.timingAdvice}</Text>
-        </View>
-      </View>
-
-      <View style={[styles.doseCard, { backgroundColor: COLORS.primary + "12", borderColor: COLORS.primary + "30" }]}>
-        <Feather name="droplet" size={22} color={COLORS.primary} />
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.doseLabel, { color: COLORS.primary }]}>Suggested Insulin</Text>
-          <Text style={[styles.doseValue, { color: colors.text }]}>
-            {prediction.insulinDose} units{" "}
-            <Text style={[styles.doseNote, { color: colors.textMuted }]}>(1:{prediction.carbRatio} ratio)</Text>
-          </Text>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function AdultResultView({
-  prediction,
-  levels,
-  minVal,
-  chartRange,
-  colors,
-}: {
-  prediction: PredictionResult;
-  levels: { label: string; value: number }[];
-  minVal: number;
-  chartRange: number;
-  colors: (typeof Colors)["light"];
-}) {
-  return (
-    <View style={styles.adultResult}>
-      <View style={[styles.glucoseRangeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Text style={[styles.rangCardTitle, { color: colors.text }]}>Predicted Glucose Range</Text>
-        <View style={styles.glucoseChart}>
-          {levels.map((level, i) => {
-            const barH = Math.max(10, ((level.value - minVal) / chartRange) * 100);
-            const col = glucoseColor(level.value);
-            return (
-              <View key={i} style={styles.chartCol}>
-                <Text style={[styles.chartValue, { color: col }]}>{level.value}</Text>
-                <Text style={[styles.chartUnit, { color: colors.textMuted }]}>mg/dL</Text>
-                <View style={styles.barContainer}>
-                  <View style={[styles.bar, { height: barH, backgroundColor: col }]} />
-                </View>
-                <Text style={[styles.chartLabel, { color: colors.textMuted }]}>{level.label}</Text>
-              </View>
-            );
-          })}
-        </View>
-        <View style={[styles.targetRow, { borderTopColor: colors.separator }]}>
-          <View style={[styles.targetDot, { backgroundColor: COLORS.success }]} />
-          <Text style={[styles.targetRowText, { color: colors.textSecondary }]}>
-            Target: {prediction.targetGlucose} mg/dL
-          </Text>
-          <Text
-            style={[
-              styles.inRangeBadge,
-              {
-                color: prediction.inRange60 ? COLORS.success : COLORS.warning,
-                backgroundColor: prediction.inRange60 ? COLORS.success + "15" : COLORS.warning + "15",
-              },
-            ]}
-          >
-            {prediction.inRange60 ? "In range ✓" : "Above range"}
-          </Text>
-        </View>
-      </View>
-
-      <View style={[styles.timingCard, { backgroundColor: COLORS.accent + "12", borderColor: COLORS.accent + "30" }]}>
-        <Text style={styles.timingEmoji}>{prediction.timingEmoji}</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.timingTitle, { color: COLORS.accent }]}>Timing Recommendation</Text>
-          <Text style={[styles.timingBody, { color: colors.text }]}>{prediction.timingAdvice}</Text>
-        </View>
-      </View>
-
-      <View style={styles.adultStatRow}>
-        <View style={[styles.adultStatBox, { backgroundColor: COLORS.primary + "12", borderColor: COLORS.primary + "30" }]}>
-          <Text style={[styles.adultStatValue, { color: COLORS.primary }]}>{prediction.insulinDose}u</Text>
-          <Text style={[styles.adultStatLabel, { color: colors.textMuted }]}>Suggested dose</Text>
-        </View>
-        <View
-          style={[
-            styles.adultStatBox,
-            {
-              backgroundColor: glucoseColor(prediction.predicted60WithInsulin) + "12",
-              borderColor: glucoseColor(prediction.predicted60WithInsulin) + "30",
-            },
-          ]}
-        >
-          <Text style={[styles.adultStatValue, { color: glucoseColor(prediction.predicted60WithInsulin) }]}>
-            {prediction.predicted60WithInsulin}
-          </Text>
-          <Text style={[styles.adultStatLabel, { color: colors.textMuted }]}>Predicted @ 60 min</Text>
-        </View>
-      </View>
-
-      <View style={[styles.doseBreakdown, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Text style={[styles.breakdownTitle, { color: colors.text }]}>Dose Breakdown</Text>
-        <BreakdownRow
-          label="Meal dose"
-          value={`${prediction.insulinDose}u`}
-          sub={`${prediction.carbs}g ÷ 1:${prediction.carbRatio}`}
-          colors={colors}
-          color={COLORS.primary}
-        />
-        <BreakdownRow
-          label="ISF used"
-          value={`1:${prediction.correctionFactor}`}
-          sub="mg/dL per unit"
-          colors={colors}
-          color={colors.textSecondary}
-        />
-      </View>
-    </View>
-  );
-}
-
-function SettingPill({ label, value, colors }: { label: string; value: string; colors: (typeof Colors)["light"] }) {
-  return (
-    <View style={[styles.pill, { backgroundColor: colors.backgroundTertiary }]}>
-      <Text style={[styles.pillLabel, { color: colors.textMuted }]}>{label}</Text>
-      <Text style={[styles.pillValue, { color: colors.text }]}>{value}</Text>
-    </View>
-  );
-}
-
-function BreakdownRow({
-  label, value, sub, color, colors,
-}: { label: string; value: string; sub: string; color: string; colors: (typeof Colors)["light"] }) {
-  return (
-    <View style={styles.bRow}>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.bLabel, { color: colors.text }]}>{label}</Text>
-        <Text style={[styles.bSub, { color: colors.textMuted }]}>{sub}</Text>
-      </View>
-      <Text style={[styles.bValue, { color }]}>{value}</Text>
+    <View style={styles.statBox}>
+      <Text style={[styles.statValue, { color }]}>{value}</Text>
+      <Text style={[styles.statLabel, { color: colors.textMuted }]}>{label}</Text>
+      <Text style={[styles.statUnit, { color: colors.textMuted }]}>{unit}</Text>
     </View>
   );
 }
@@ -899,64 +584,127 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingHorizontal: 20 },
   pageTitle: { fontSize: 28, fontFamily: "Inter_700Bold", marginBottom: 6 },
-  subtitle: { fontSize: 15, fontFamily: "Inter_400Regular", marginBottom: 16, lineHeight: 22 },
+  subtitle: { fontSize: 15, fontFamily: "Inter_400Regular", marginBottom: 18, lineHeight: 22 },
 
-  chartCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 20, gap: 14 },
-  rangeRow: { flexDirection: "row", gap: 8 },
-  rangeTab: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: 10,
-    borderWidth: 1,
+  latestRow: { flexDirection: "row", alignItems: "center", gap: 18, marginBottom: 18 },
+  latestCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    borderWidth: 3,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  latestValue: { fontSize: 30, fontFamily: "Inter_700Bold", lineHeight: 34 },
+  latestUnit: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  latestMeta: { gap: 8 },
+  latestTime: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  trendArrowRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  trendArrowIcon: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  trendArrowLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+
+  chartCard: { borderRadius: 18, overflow: "hidden", marginBottom: 14 },
+  rangeRow: { flexDirection: "row", paddingHorizontal: 12, paddingTop: 12, paddingBottom: 8, gap: 4 },
+  rangeTab: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: "center",
   },
   rangeTabText: { fontSize: 13, fontFamily: "Inter_700Bold" },
 
-  chartOuter: { width: "100%" },
-  chartArea: { position: "relative", overflow: "hidden" },
-  chartEmpty: { height: CHART_INNER_H, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  chartEmptyText: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  zoneBand: { position: "absolute", left: 0, right: 0 },
-  threshLine: { position: "absolute", left: 0, right: 0, height: 1 },
-  threshLabel: { position: "absolute", left: 2, fontSize: 9, fontFamily: "Inter_600SemiBold" },
-  lineSegment: {
+  cgmWrapper: { paddingHorizontal: 12, paddingBottom: 10 },
+  cgmOuter: { flexDirection: "row", position: "relative" },
+  cgmPlotArea: { position: "relative", overflow: "hidden", borderRadius: 8, backgroundColor: "#111d35" },
+  cgmZoneLow: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(239,68,68,0.18)" },
+  cgmZoneTarget: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(16,185,129,0.10)" },
+  cgmZoneHigh: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(245,158,11,0.07)" },
+  cgmThreshLine: { position: "absolute", left: 0, right: 0, height: 1 },
+  cgmTargetLine: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: "rgba(16,185,129,0.55)",
+  },
+  cgmSegment: {
     position: "absolute",
     height: 2,
     borderRadius: 1,
     transformOrigin: "left center",
   },
-  dot: {
+  cgmDot: { position: "absolute" },
+  cgmYAxis: { position: "relative", marginLeft: 4 },
+  cgmYLabel: {
     position: "absolute",
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    borderWidth: 1.5,
+    right: 0,
+    fontSize: 9,
+    fontFamily: "Inter_400Regular",
+    color: "rgba(255,255,255,0.45)",
+    textAlign: "right",
+    width: 32,
   },
-  timeLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
-  timeLabel: { fontSize: 10, fontFamily: "Inter_400Regular" },
+  cgmXAxis: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 5,
+  },
+  cgmXLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_400Regular",
+    color: "rgba(255,255,255,0.4)",
+  },
 
-  statsRow: { flexDirection: "row", justifyContent: "space-between" },
-  statChip: { alignItems: "center", flex: 1 },
-  statChipValue: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  statChipLabel: { fontSize: 10, fontFamily: "Inter_500Medium", marginTop: 1 },
+  statsCard: {
+    flexDirection: "row",
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 20,
+    alignItems: "center",
+  },
+  statBox: { flex: 1, alignItems: "center", gap: 2 },
+  statValue: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  statLabel: { fontSize: 10, fontFamily: "Inter_600SemiBold", textAlign: "center" },
+  statUnit: { fontSize: 9, fontFamily: "Inter_400Regular", textAlign: "center" },
+  statDivider: { width: 1, height: 40, marginHorizontal: 4 },
 
   sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold", marginBottom: 10 },
-  sectionSub: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20, marginBottom: 14 },
 
-  suggestionCard: {
+  suggCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+  suggTop: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
     padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    marginBottom: 10,
   },
-  suggIconBg: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  suggIconText: { fontSize: 22 },
-  suggTitle: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 2 },
-  suggBody: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  suggIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  suggIcon: { fontSize: 22 },
+  suggTitle: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 3 },
+  suggBody: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
+  chatBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(0,0,0,0.06)",
+  },
+  chatBtnText: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold" },
 
   emptyCard: {
     borderRadius: 16,
@@ -964,86 +712,8 @@ const styles = StyleSheet.create({
     padding: 28,
     alignItems: "center",
     gap: 10,
-    marginBottom: 20,
   },
   emptyIcon: { fontSize: 40 },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", textAlign: "center" },
   emptySub: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
-
-  dividerSection: { borderTopWidth: 1, paddingTop: 20, marginBottom: 4 },
-  inputCard: { borderRadius: 16, borderWidth: 1, padding: 18, marginBottom: 16, gap: 4 },
-  inputLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold", marginBottom: 8 },
-  optional: { fontFamily: "Inter_400Regular", fontSize: 13 },
-  input: {
-    borderRadius: 12, borderWidth: 1, paddingHorizontal: 14,
-    paddingVertical: 12, fontSize: 16, fontFamily: "Inter_500Medium",
-  },
-  errorText: { color: COLORS.danger, fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 4 },
-  pillsRow: { flexDirection: "row", gap: 8, marginTop: 14, paddingTop: 14, borderTopWidth: 1 },
-  pill: { flex: 1, borderRadius: 10, padding: 10, alignItems: "center" },
-  pillLabel: { fontSize: 10, fontFamily: "Inter_500Medium", marginBottom: 2 },
-  pillValue: { fontSize: 13, fontFamily: "Inter_700Bold" },
-
-  predictBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 8, paddingVertical: 16, borderRadius: 16, marginBottom: 20,
-  },
-  predictBtnText: { color: "#fff", fontSize: 16, fontFamily: "Inter_600SemiBold" },
-
-  kidResult: { gap: 14, marginBottom: 16 },
-  monsterCard: { flexDirection: "row", alignItems: "flex-start", gap: 14, padding: 16, borderRadius: 16, borderWidth: 1 },
-  monsterFace: { fontSize: 52, lineHeight: 60 },
-  monsterMoodLabel: { fontSize: 13, fontFamily: "Inter_700Bold", marginBottom: 4 },
-  friendlyMsg: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
-  spikeSection: { padding: 16, borderRadius: 14, borderWidth: 1, gap: 8 },
-  spikeSectionTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", marginBottom: 4 },
-  spikeBarBg: { height: 14, borderRadius: 7, overflow: "hidden" },
-  spikeBarFill: { height: "100%", borderRadius: 7 },
-  spikeLegend: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  spikeLegendText: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  spikePeakLabel: { fontSize: 12, fontFamily: "Inter_700Bold" },
-  timingCard: { flexDirection: "row", alignItems: "flex-start", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1 },
-  timingEmoji: { fontSize: 22, lineHeight: 28 },
-  timingTitle: { fontSize: 12, fontFamily: "Inter_700Bold", marginBottom: 2 },
-  timingBody: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
-  doseCard: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderRadius: 14, borderWidth: 1 },
-  doseLabel: { fontSize: 12, fontFamily: "Inter_700Bold", marginBottom: 2 },
-  doseValue: { fontSize: 20, fontFamily: "Inter_700Bold" },
-  doseNote: { fontSize: 12, fontFamily: "Inter_400Regular" },
-
-  adultResult: { gap: 14, marginBottom: 16 },
-  glucoseRangeCard: { borderRadius: 16, borderWidth: 1, padding: 18, gap: 14 },
-  rangCardTitle: { fontSize: 15, fontFamily: "Inter_700Bold" },
-  glucoseChart: { flexDirection: "row", justifyContent: "space-around", alignItems: "flex-end", gap: 8 },
-  chartCol: { flex: 1, alignItems: "center", gap: 2 },
-  chartValue: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  chartUnit: { fontSize: 10, fontFamily: "Inter_400Regular" },
-  barContainer: { width: "100%", height: 110, justifyContent: "flex-end" },
-  bar: { width: "100%", borderRadius: 6 },
-  chartLabel: { fontSize: 10, fontFamily: "Inter_500Medium", textAlign: "center", lineHeight: 14, marginTop: 4 },
-  targetRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 12, borderTopWidth: 1 },
-  targetDot: { width: 8, height: 8, borderRadius: 4 },
-  targetRowText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
-  inRangeBadge: { fontSize: 12, fontFamily: "Inter_700Bold", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  adultStatRow: { flexDirection: "row", gap: 12 },
-  adultStatBox: { flex: 1, padding: 14, borderRadius: 14, borderWidth: 1, alignItems: "center", gap: 4 },
-  adultStatValue: { fontSize: 28, fontFamily: "Inter_700Bold" },
-  adultStatLabel: { fontSize: 12, fontFamily: "Inter_500Medium", textAlign: "center" },
-  doseBreakdown: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 10 },
-  breakdownTitle: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 2 },
-  bRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  bLabel: { fontSize: 14, fontFamily: "Inter_500Medium" },
-  bSub: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  bValue: { fontSize: 14, fontFamily: "Inter_700Bold" },
-
-  disclaimer: {
-    flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12,
-    borderRadius: 10, marginBottom: 12,
-  },
-  disclaimerText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
-  resetBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 8, paddingVertical: 12, borderRadius: 12, borderWidth: 1, marginBottom: 8,
-  },
-  resetBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
 });

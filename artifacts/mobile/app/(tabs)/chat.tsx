@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useRef, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -81,6 +82,8 @@ export default function ChatScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { latestReading } = useGlucose();
+  const { prompt } = useLocalSearchParams<{ prompt?: string }>();
+  const promptSentRef = useRef(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "0",
@@ -94,6 +97,14 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
+
+  useEffect(() => {
+    if (prompt && !promptSentRef.current) {
+      promptSentRef.current = true;
+      const delay = setTimeout(() => send(prompt), 400);
+      return () => clearTimeout(delay);
+    }
+  }, [prompt]);
 
   function send(text?: string) {
     const msg = (text ?? input).trim();
