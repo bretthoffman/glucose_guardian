@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlucoseGauge } from "@/components/GlucoseGauge";
+import type { GlucoseTrend } from "@/components/GlucoseGauge";
 import { ReadingCard } from "@/components/ReadingCard";
 import { CGMChart } from "@/components/CGMChart";
 import Colors, { COLORS } from "@/constants/colors";
@@ -72,6 +73,19 @@ export default function HomeScreen() {
 
   const displayGlucose = latestReading?.glucose ?? 0;
   const recentHistory = [...history].reverse().slice(0, 10);
+
+  const glucoseTrend: GlucoseTrend | undefined = (() => {
+    if (history.length < 2) return undefined;
+    const last = history[history.length - 1].glucose;
+    const prev = history[history.length - 2].glucose;
+    const diff = last - prev;
+    if (diff > 30) return "rapidly_rising";
+    if (diff > 15) return "rising";
+    if (diff < -30) return "rapidly_falling";
+    if (diff < -15) return "falling";
+    return "stable";
+  })();
+
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
   const childName = profile?.childName ?? "Gluco Guardian";
@@ -269,7 +283,7 @@ export default function HomeScreen() {
 
         <View style={styles.gaugeSection}>
           {latestReading ? (
-            <GlucoseGauge value={displayGlucose} size={200} />
+            <GlucoseGauge value={displayGlucose} size={200} trend={glucoseTrend} />
           ) : (
             <View
               style={[
