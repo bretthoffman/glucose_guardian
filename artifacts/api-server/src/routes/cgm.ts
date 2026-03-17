@@ -236,7 +236,7 @@ router.post("/libre/readings", async (req, res) => {
     const graphData: any = await graphResp.json();
     const rawReadings = graphData?.data?.graphData ?? [];
 
-    const readings = rawReadings.slice(-10).map((item: any) => {
+    const readings = rawReadings.map((item: any) => {
       const glucose = item.ValueInMgPerDl ?? item.Value;
       return {
         glucose,

@@ -57,6 +57,11 @@ export default function HomeScreen() {
   const autoSyncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isSyncingRef = useRef(false);
   const prevConnectedRef = useRef(isConnected);
+  const historyLenRef = useRef(history.length);
+
+  useEffect(() => {
+    historyLenRef.current = history.length;
+  }, [history.length]);
 
   useEffect(() => {
     const wasConnected = prevConnectedRef.current;
@@ -99,9 +104,10 @@ export default function HomeScreen() {
     try {
       const endpoint =
         cgmConnection.type === "dexcom" ? "/api/cgm/dexcom/readings" : "/api/cgm/libre/readings";
+      const needsBackfill = historyLenRef.current < 20;
       const body =
         cgmConnection.type === "dexcom"
-          ? { sessionId: cgmConnection.sessionId, outsideUS: cgmConnection.outsideUS, count: 5 }
+          ? { sessionId: cgmConnection.sessionId, outsideUS: cgmConnection.outsideUS, count: needsBackfill ? 288 : 5 }
           : { token: cgmConnection.token };
 
       const res = await fetch(`${BASE_URL}${endpoint}`, {
