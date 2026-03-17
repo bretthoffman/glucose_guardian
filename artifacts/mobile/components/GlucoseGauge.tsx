@@ -32,22 +32,25 @@ function getGlucoseStatus(value: number): {
   return { label: "High", color: COLORS.glucose.veryHigh, bg: COLORS.dangerLight };
 }
 
-const TREND_CONFIG: Record<GlucoseTrend, { arrow: string; rotate: string; color: string; label: string }> = {
-  rapidly_rising: { arrow: "↑", rotate: "0deg",   color: COLORS.danger,  label: "Rising fast" },
-  rising:         { arrow: "↑", rotate: "45deg",  color: COLORS.warning, label: "Rising" },
-  stable:         { arrow: "↑", rotate: "90deg",  color: COLORS.success, label: "Stable" },
-  falling:        { arrow: "↑", rotate: "135deg", color: COLORS.warning, label: "Falling" },
-  rapidly_falling:{ arrow: "↑", rotate: "180deg", color: COLORS.danger,  label: "Falling fast" },
+const TREND_CONFIG: Record<
+  GlucoseTrend,
+  { rotate: string; color: string; label: string; urgency: "high" | "mid" | "low" }
+> = {
+  rapidly_rising:  { rotate: "0deg",   color: COLORS.danger,  label: "Rising fast",   urgency: "high" },
+  rising:          { rotate: "45deg",  color: COLORS.warning, label: "Rising",         urgency: "mid"  },
+  stable:          { rotate: "90deg",  color: COLORS.success, label: "Stable",         urgency: "low"  },
+  falling:         { rotate: "135deg", color: COLORS.warning, label: "Falling",        urgency: "mid"  },
+  rapidly_falling: { rotate: "180deg", color: COLORS.danger,  label: "Falling fast",  urgency: "high" },
 };
 
 function getPulseConfig(trend: GlucoseTrend | undefined) {
   if (trend === "rapidly_rising" || trend === "rapidly_falling") {
-    return { toScale: 1.055, duration: 380 };
+    return { toScale: 1.06, ringDuration: 340, rippleDuration: 900 };
   }
   if (trend === "rising" || trend === "falling") {
-    return { toScale: 1.03, duration: 700 };
+    return { toScale: 1.035, ringDuration: 650, rippleDuration: 1300 };
   }
-  return { toScale: 1.015, duration: 1400 };
+  return { toScale: 1.018, ringDuration: 1400, rippleDuration: 2200 };
 }
 
 export function GlucoseGauge({ value, size = 180, trend }: Props) {
@@ -56,71 +59,144 @@ export function GlucoseGauge({ value, size = 180, trend }: Props) {
   const colors = isDark ? Colors.dark : Colors.light;
   const status = getGlucoseStatus(value);
 
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const ringStroke = Math.round(size * 0.07);
+  const innerSize = size - ringStroke * 2;
+
+  const ringPulse  = useRef(new Animated.Value(1)).current;
+  const r1Scale    = useRef(new Animated.Value(1)).current;
+  const r1Opacity  = useRef(new Animated.Value(0.65)).current;
+  const r2Scale    = useRef(new Animated.Value(1)).current;
+  const r2Opacity  = useRef(new Animated.Value(0.65)).current;
 
   useEffect(() => {
-    const { toScale, duration } = getPulseConfig(trend);
-    const pulse = Animated.loop(
+    const { toScale, ringDuration, rippleDuration } = getPulseConfig(trend);
+
+    ringPulse.setValue(1);
+    r1Scale.setValue(1);
+    r1Opacity.setValue(0.65);
+    r2Scale.setValue(1);
+    r2Opacity.setValue(0.65);
+
+    const ringAnim = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
+        Animated.timing(ringPulse, {
           toValue: toScale,
-          duration,
+          duration: ringDuration,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
-        Animated.timing(pulseAnim, {
+        Animated.timing(ringPulse, {
           toValue: 1,
-          duration,
+          duration: ringDuration,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
-    pulse.start();
-    return () => pulse.stop();
+
+    const ripple1 = Animated.loop(
+      Animated.parallel([
+        Animated.timing(r1Scale, {
+          toValue: 1.55,
+          duration: rippleDuration,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(r1Opacity, {
+          toValue: 0,
+          duration: rippleDuration,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    ringAnim.start();
+    ripple1.start();
+
+    const t = setTimeout(() => {
+      r2Scale.setValue(1);
+      r2Opacity.setValue(0.65);
+      const ripple2 = Animated.loop(
+        Animated.parallel([
+          Animated.timing(r2Scale, {
+            toValue: 1.55,
+            duration: rippleDuration,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(r2Opacity, {
+            toValue: 0,
+            duration: rippleDuration,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      ripple2.start();
+      return () => ripple2.stop();
+    }, rippleDuration / 2);
+
+    return () => {
+      ringAnim.stop();
+      ripple1.stop();
+      clearTimeout(t);
+    };
   }, [trend]);
 
-  const ringSize = size;
-  const ringStroke = size * 0.07;
-  const innerSize = ringSize - ringStroke * 2;
-
   const trendInfo = trend ? TREND_CONFIG[trend] : null;
-  const isAlarm = trend === "rapidly_rising" || trend === "rapidly_falling";
-
-  const outerGlowSize = ringSize + 16;
 
   return (
-    <View style={[styles.wrapper, { width: outerGlowSize, height: outerGlowSize }]}>
-      {isAlarm && (
+    <View style={styles.outerRow}>
+      <View style={[styles.gaugeArea, { width: size, height: size }]}>
         <Animated.View
-          style={[
-            styles.alarmGlow,
-            {
-              width: outerGlowSize,
-              height: outerGlowSize,
-              borderRadius: outerGlowSize / 2,
-              borderColor: status.color + "55",
-              transform: [{ scale: pulseAnim }],
-            },
-          ]}
+          style={{
+            position: "absolute",
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            borderWidth: 2,
+            borderColor: status.color + "55",
+            transform: [{ scale: r1Scale }],
+            opacity: r1Opacity,
+          }}
         />
-      )}
+        <Animated.View
+          style={{
+            position: "absolute",
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            borderWidth: 1.5,
+            borderColor: status.color + "35",
+            transform: [{ scale: r2Scale }],
+            opacity: r2Opacity,
+          }}
+        />
 
-      <Animated.View
-        style={[
-          styles.ringWrap,
-          {
-            width: ringSize,
-            height: ringSize,
-            borderRadius: ringSize / 2,
+        <Animated.View
+          style={{
+            position: "absolute",
+            width: size,
+            height: size,
+            borderRadius: size / 2,
             borderWidth: ringStroke,
             borderColor: status.color,
+            backgroundColor: "transparent",
+            transform: [{ scale: ringPulse }],
+          }}
+        />
+
+        <View
+          style={{
+            width: innerSize,
+            height: innerSize,
+            borderRadius: innerSize / 2,
             backgroundColor: isDark ? `${status.color}22` : `${status.color}18`,
-            transform: [{ scale: pulseAnim }],
-          },
-        ]}
-      >
-        <View style={[styles.inner, { width: innerSize, height: innerSize, borderRadius: innerSize / 2 }]}>
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
           <Text style={[styles.value, { color: status.color, fontSize: size * 0.27 }]}>
             {value}
           </Text>
@@ -133,32 +209,18 @@ export function GlucoseGauge({ value, size = 180, trend }: Props) {
             </Text>
           </View>
         </View>
-      </Animated.View>
+      </View>
 
       {trendInfo && (
-        <View
-          style={[
-            styles.trendBadge,
-            {
-              backgroundColor: trendInfo.color + "22",
-              borderColor: trendInfo.color + "55",
-              right: 0,
-              top: outerGlowSize / 2 - 16,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.trendArrow,
-              {
-                color: trendInfo.color,
-                fontSize: size * 0.14,
-                transform: [{ rotate: trendInfo.rotate }],
-              },
-            ]}
-          >
-            {trendInfo.arrow}
-          </Text>
+        <View style={styles.trendSide}>
+          <View style={[styles.arrowWrap, { transform: [{ rotate: trendInfo.rotate }] }]}>
+            <Text style={[styles.arrowText, { color: trendInfo.color }]}>↑</Text>
+          </View>
+          <View style={[styles.trendLabelPill, { backgroundColor: trendInfo.color + "1A", borderColor: trendInfo.color + "40" }]}>
+            <Text style={[styles.trendLabelText, { color: trendInfo.color }]}>
+              {trendInfo.label}
+            </Text>
+          </View>
         </View>
       )}
     </View>
@@ -166,22 +228,15 @@ export function GlucoseGauge({ value, size = 180, trend }: Props) {
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
+  outerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  gaugeArea: {
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
-  },
-  alarmGlow: {
-    position: "absolute",
-    borderWidth: 3,
-  },
-  ringWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  inner: {
-    alignItems: "center",
-    justifyContent: "center",
   },
   value: {
     fontFamily: "Inter_700Bold",
@@ -198,17 +253,30 @@ const styles = StyleSheet.create({
   badgeText: {
     fontFamily: "Inter_600SemiBold",
   },
-  trendBadge: {
-    position: "absolute",
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1.5,
+  trendSide: {
+    alignItems: "center",
+    gap: 8,
+    minWidth: 80,
+  },
+  arrowWrap: {
     alignItems: "center",
     justifyContent: "center",
   },
-  trendArrow: {
+  arrowText: {
+    fontSize: 38,
     fontFamily: "Inter_700Bold",
-    lineHeight: undefined,
+    lineHeight: 42,
+  },
+  trendLabelPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    alignItems: "center",
+  },
+  trendLabelText: {
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
   },
 });
