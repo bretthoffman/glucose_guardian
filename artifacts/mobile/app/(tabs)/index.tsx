@@ -31,21 +31,6 @@ const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
   ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
   : "";
 
-async function simulateGlucoseReading(prevGlucose: number | null) {
-  let newGlucose: number;
-  if (prevGlucose !== null) {
-    const delta = (Math.random() - 0.45) * 30;
-    newGlucose = Math.max(40, Math.min(350, Math.round(prevGlucose + delta)));
-  } else {
-    newGlucose = Math.floor(Math.random() * 100) + 90;
-  }
-  const res = await fetch(`${BASE_URL}/api/glucose`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ glucose: newGlucose }),
-  });
-  return res.json();
-}
 
 function formatLastSync(date: Date | null): string {
   if (!date) return "";
@@ -60,9 +45,8 @@ export default function HomeScreen() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { history, latestReading, addReading, bulkAddReadings, targetGlucose } = useGlucose();
+  const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose } = useGlucose();
   const { profile, cgmConnection, emergencyContacts, alertPrefs } = useAuth();
-  const [isSimulating, setIsSimulating] = useState(false);
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -71,6 +55,16 @@ export default function HomeScreen() {
   const [, forceUpdate] = useState(0);
   const autoSyncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isSyncingRef = useRef(false);
+  const prevConnectedRef = useRef(isConnected);
+
+  useEffect(() => {
+    const wasConnected = prevConnectedRef.current;
+    prevConnectedRef.current = isConnected;
+    if (wasConnected && !isConnected) {
+      setCgmLatestReading(null);
+      clearHistory();
+    }
+  }, [isConnected, clearHistory]);
 
   const displayGlucose = isConnected && cgmLatestReading
     ? cgmLatestReading.glucose
@@ -196,35 +190,10 @@ export default function HomeScreen() {
     await performSync(false);
   }
 
-  async function handleSimulate() {
-    if (isSimulating) return;
-    setIsSimulating(true);
-    try {
-      const prev = latestReading?.glucose ?? null;
-      const data = await simulateGlucoseReading(prev);
-      addReading({ glucose: data.current, timestamp: data.timestamp, anomaly: data.anomaly });
-      if (data.anomaly.warning) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        if (data.anomaly.message) {
-          Alert.alert("Heads Up!", data.anomaly.message, [{ text: "Got it" }]);
-        }
-      } else {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-    } catch {
-      Alert.alert("Error", "Could not get reading. Check your connection.");
-    } finally {
-      setIsSimulating(false);
-    }
-  }
-
   async function onRefresh() {
+    if (!isConnected) return;
     setRefreshing(true);
-    if (isConnected) {
-      await syncCGM();
-    } else {
-      await handleSimulate();
-    }
+    await syncCGM();
     setRefreshing(false);
   }
 
@@ -379,43 +348,21 @@ export default function HomeScreen() {
                 <Text style={styles.syncSubText}>Auto every 5 min</Text>
               </View>
             </Pressable>
-          ) : null}
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.simulateBtn,
-              {
-                backgroundColor: isConnected ? colors.card : COLORS.primary,
-                borderColor: isConnected ? colors.border : "transparent",
-                borderWidth: isConnected ? 1 : 0,
-                opacity: pressed ? 0.85 : 1,
-                flex: isConnected ? undefined : 1,
-              },
-            ]}
-            onPress={handleSimulate}
-            disabled={isSimulating}
-          >
-            {isSimulating ? (
-              <ActivityIndicator
-                color={isConnected ? COLORS.primary : "#fff"}
-                size="small"
-              />
-            ) : (
-              <Feather
-                name="activity"
-                size={18}
-                color={isConnected ? COLORS.primary : "#fff"}
-              />
-            )}
-            <Text
-              style={[
-                styles.actionBtnText,
-                { color: isConnected ? COLORS.primary : "#fff" },
+          ) : (
+            <Pressable
+              style={({ pressed }) => [
+                styles.syncBtn,
+                { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1, flex: 1 },
               ]}
+              onPress={() => router.push("/cgm-setup")}
             >
-              {isSimulating ? "Reading..." : "Simulate"}
-            </Text>
-          </Pressable>
+              <Feather name="bluetooth" size={18} color="#fff" />
+              <View style={{ alignItems: "flex-start" }}>
+                <Text style={styles.actionBtnText}>Connect CGM</Text>
+                <Text style={styles.syncSubText}>Dexcom · FreeStyle Libre</Text>
+              </View>
+            </Pressable>
+          )}
         </View>
 
         {history.length > 1 && (
