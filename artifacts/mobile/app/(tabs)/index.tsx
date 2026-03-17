@@ -19,7 +19,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlucoseGauge } from "@/components/GlucoseGauge";
 import { ReadingCard } from "@/components/ReadingCard";
-import { TrendChart } from "@/components/TrendChart";
+import { CGMChart } from "@/components/CGMChart";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
@@ -59,7 +59,7 @@ export default function HomeScreen() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { history, latestReading, addReading } = useGlucose();
+  const { history, latestReading, addReading, targetGlucose } = useGlucose();
   const { profile, cgmConnection, emergencyContacts, alertPrefs } = useAuth();
   const [isSimulating, setIsSimulating] = useState(false);
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
@@ -395,14 +395,13 @@ export default function HomeScreen() {
         </View>
 
         {history.length > 1 && (
-          <View
-            style={[
-              styles.chartCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-          >
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Trend</Text>
-            <TrendChart readings={history} height={110} />
+          <View style={[styles.cgmCard, { backgroundColor: isDark ? "#0D1526" : "#0F172A" }]}>
+            <CGMChart
+              readings={history}
+              targetGlucose={targetGlucose}
+              chartHeight={260}
+              paddingHorizontal={34}
+            />
           </View>
         )}
 
@@ -505,6 +504,7 @@ const styles = StyleSheet.create({
   },
   actionBtnText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#fff" },
   chartCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 24, gap: 12 },
+  cgmCard: { borderRadius: 18, overflow: "hidden", marginBottom: 20, padding: 14, paddingBottom: 10 },
   historySection: { gap: 0 },
   sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold", marginBottom: 12 },
   emptyList: { borderRadius: 14, padding: 24, alignItems: "center", gap: 10 },
