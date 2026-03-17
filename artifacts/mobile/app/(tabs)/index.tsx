@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { router } from "expo-router";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -19,14 +20,13 @@ import { ReadingCard } from "@/components/ReadingCard";
 import { TrendChart } from "@/components/TrendChart";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
+import { useAuth } from "@/context/AuthContext";
 
 const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
   ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
   : "";
 
-async function simulateGlucoseReading(
-  prevGlucose: number | null
-): Promise<{ current: number; anomaly: { warning: boolean; message?: string }; timestamp: string }> {
+async function simulateGlucoseReading(prevGlucose: number | null) {
   let newGlucose: number;
   if (prevGlucose !== null) {
     const delta = (Math.random() - 0.45) * 30;
@@ -34,7 +34,6 @@ async function simulateGlucoseReading(
   } else {
     newGlucose = Math.floor(Math.random() * 100) + 90;
   }
-
   const res = await fetch(`${BASE_URL}/api/glucose`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -49,13 +48,17 @@ export default function HomeScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, addReading } = useGlucose();
+  const { profile, cgmConnection } = useAuth();
   const [isSimulating, setIsSimulating] = useState(false);
+  const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const displayGlucose = latestReading?.glucose ?? 0;
   const recentHistory = [...history].reverse().slice(0, 10);
-
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
+
+  const childName = profile?.childName ?? "Gluco Guardian";
+  const isConnected = !!cgmConnection.type;
 
   async function handleSimulate() {
     if (isSimulating) return;
@@ -63,11 +66,7 @@ export default function HomeScreen() {
     try {
       const prev = latestReading?.glucose ?? null;
       const data = await simulateGlucoseReading(prev);
-      addReading({
-        glucose: data.current,
-        timestamp: data.timestamp,
-        anomaly: data.anomaly,
-      });
+      addReading({ glucose: data.current, timestamp: data.timestamp, anomaly: data.anomaly });
       if (data.anomaly.warning) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         if (data.anomaly.message) {
@@ -76,16 +75,71 @@ export default function HomeScreen() {
       } else {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
-    } catch (e) {
+    } catch {
       Alert.alert("Error", "Could not get reading. Check your connection.");
     } finally {
       setIsSimulating(false);
     }
   }
 
+  async function syncCGM() {
+    if (isSyncingCGM || !cgmConnection.type) return;
+    setIsSyncingCGM(true);
+    try {
+      const endpoint =
+        cgmConnection.type === "dexcom" ? "/api/cgm/dexcom/readings" : "/api/cgm/libre/readings";
+      const body =
+        cgmConnection.type === "dexcom"
+          ? { sessionId: cgmConnection.sessionId, outsideUS: cgmConnection.outsideUS, count: 5 }
+          : { token: cgmConnection.token };
+
+      const res = await fetch(`${BASE_URL}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        Alert.alert(
+          "Sync Failed",
+          err.error || "Could not fetch CGM readings.",
+          [
+            { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
+            { text: "OK", style: "cancel" },
+          ]
+        );
+        return;
+      }
+
+      const data = await res.json();
+      const readings: any[] = data.readings ?? [];
+
+      if (readings.length === 0) {
+        Alert.alert("No New Readings", "No recent CGM readings found.");
+        return;
+      }
+
+      for (const r of readings) {
+        addReading({ glucose: r.glucose, timestamp: r.timestamp, anomaly: r.anomaly });
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Synced!", `${readings.length} readings imported from ${cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre"}.`);
+    } catch {
+      Alert.alert("Error", "Could not sync CGM. Check your connection.");
+    } finally {
+      setIsSyncingCGM(false);
+    }
+  }
+
   async function onRefresh() {
     setRefreshing(true);
-    await handleSimulate();
+    if (isConnected) {
+      await syncCGM();
+    } else {
+      await handleSimulate();
+    }
     setRefreshing(false);
   }
 
@@ -110,15 +164,39 @@ export default function HomeScreen() {
             <Text style={[styles.greeting, { color: colors.textSecondary }]}>
               Good {getTimeOfDay()}
             </Text>
-            <Text style={[styles.title, { color: colors.text }]}>
-              Gluco Guardian
-            </Text>
+            <Text style={[styles.title, { color: colors.text }]}>{childName}</Text>
           </View>
-          <View
-            style={[styles.headerIcon, { backgroundColor: colors.backgroundTertiary }]}
+          <Pressable
+            onPress={() => router.push("/cgm-setup")}
+            style={[
+              styles.cgmButton,
+              {
+                backgroundColor: isConnected
+                  ? COLORS.success + "20"
+                  : colors.backgroundTertiary,
+                borderWidth: 1,
+                borderColor: isConnected ? COLORS.success + "50" : colors.border,
+              },
+            ]}
           >
-            <Feather name="shield" size={22} color={COLORS.primary} />
-          </View>
+            <Feather
+              name={isConnected ? "wifi" : "wifi-off"}
+              size={16}
+              color={isConnected ? COLORS.success : colors.textMuted}
+            />
+            <Text
+              style={[
+                styles.cgmButtonText,
+                { color: isConnected ? COLORS.success : colors.textMuted },
+              ]}
+            >
+              {isConnected
+                ? cgmConnection.type === "dexcom"
+                  ? "Dexcom"
+                  : "Libre"
+                : "Connect CGM"}
+            </Text>
+          </Pressable>
         </View>
 
         <View style={styles.gaugeSection}>
@@ -128,18 +206,13 @@ export default function HomeScreen() {
             <View
               style={[
                 styles.emptyGaugeBox,
-                {
-                  backgroundColor: colors.backgroundTertiary,
-                  borderColor: colors.border,
-                },
+                { backgroundColor: colors.backgroundTertiary, borderColor: colors.border },
               ]}
             >
               <Feather name="activity" size={32} color={colors.textMuted} />
-              <Text style={[styles.emptyGaugeText, { color: colors.text }]}>
-                No readings yet
-              </Text>
+              <Text style={[styles.emptyGaugeText, { color: colors.text }]}>No readings yet</Text>
               <Text style={[styles.emptyGaugeSub, { color: colors.textSecondary }]}>
-                Tap "Simulate Reading" to take your first glucose reading
+                {isConnected ? "Pull down to sync CGM" : 'Tap "Simulate Reading" or connect a CGM'}
               </Text>
             </View>
           )}
@@ -154,52 +227,91 @@ export default function HomeScreen() {
           )}
         </View>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.simulateBtn,
-            {
-              backgroundColor: COLORS.primary,
-              opacity: pressed ? 0.85 : 1,
-              transform: [{ scale: pressed ? 0.97 : 1 }],
-            },
-          ]}
-          onPress={handleSimulate}
-          disabled={isSimulating}
-        >
-          {isSimulating ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Feather name="activity" size={20} color="#fff" />
-          )}
-          <Text style={styles.simulateBtnText}>
-            {isSimulating ? "Reading..." : "Simulate Reading"}
-          </Text>
-        </Pressable>
+        <View style={styles.actionRow}>
+          {isConnected ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.syncBtn,
+                { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1, flex: 1 },
+              ]}
+              onPress={syncCGM}
+              disabled={isSyncingCGM}
+            >
+              {isSyncingCGM ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Feather name="refresh-cw" size={18} color="#fff" />
+              )}
+              <Text style={styles.actionBtnText}>
+                {isSyncingCGM ? "Syncing..." : "Sync CGM"}
+              </Text>
+            </Pressable>
+          ) : null}
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.simulateBtn,
+              {
+                backgroundColor: isConnected ? colors.card : COLORS.primary,
+                borderColor: isConnected ? colors.border : "transparent",
+                borderWidth: isConnected ? 1 : 0,
+                opacity: pressed ? 0.85 : 1,
+                flex: isConnected ? undefined : 1,
+              },
+            ]}
+            onPress={handleSimulate}
+            disabled={isSimulating}
+          >
+            {isSimulating ? (
+              <ActivityIndicator
+                color={isConnected ? COLORS.primary : "#fff"}
+                size="small"
+              />
+            ) : (
+              <Feather
+                name="activity"
+                size={18}
+                color={isConnected ? COLORS.primary : "#fff"}
+              />
+            )}
+            <Text
+              style={[
+                styles.actionBtnText,
+                { color: isConnected ? COLORS.primary : "#fff" },
+              ]}
+            >
+              {isSimulating ? "Reading..." : "Simulate"}
+            </Text>
+          </Pressable>
+        </View>
 
         {history.length > 1 && (
-          <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Trend
-            </Text>
+          <View
+            style={[
+              styles.chartCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Trend</Text>
             <TrendChart readings={history} height={110} />
           </View>
         )}
 
         <View style={styles.historySection}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Recent Readings
-          </Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Recent Readings</Text>
           {recentHistory.length === 0 ? (
-            <View style={[styles.emptyList, { backgroundColor: colors.backgroundTertiary }]}>
+            <View
+              style={[styles.emptyList, { backgroundColor: colors.backgroundTertiary }]}
+            >
               <Feather name="clipboard" size={24} color={colors.textMuted} />
               <Text style={[styles.emptyListText, { color: colors.textMuted }]}>
-                No readings yet. Simulate your first one above!
+                {isConnected
+                  ? "Pull down to sync readings from your CGM"
+                  : "No readings yet. Simulate your first one above!"}
               </Text>
             </View>
           ) : (
-            recentHistory.map((entry, i) => (
-              <ReadingCard key={i} entry={entry} />
-            ))
+            recentHistory.map((entry, i) => <ReadingCard key={i} entry={entry} />)
           )}
         </View>
       </ScrollView>
@@ -223,27 +335,18 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     marginBottom: 28,
   },
-  greeting: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-  },
-  title: {
-    fontSize: 26,
-    fontFamily: "Inter_700Bold",
-    marginTop: 2,
-  },
-  headerIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  greeting: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  title: { fontSize: 26, fontFamily: "Inter_700Bold", marginTop: 2 },
+  cgmButton: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
   },
-  gaugeSection: {
-    alignItems: "center",
-    marginBottom: 24,
-    gap: 14,
-  },
+  cgmButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  gaugeSection: { alignItems: "center", marginBottom: 24, gap: 14 },
   emptyGaugeBox: {
     width: 200,
     height: 200,
@@ -254,11 +357,7 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 24,
   },
-  emptyGaugeText: {
-    fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
-    textAlign: "center",
-  },
+  emptyGaugeText: { fontSize: 16, fontFamily: "Inter_600SemiBold", textAlign: "center" },
   emptyGaugeSub: {
     fontSize: 12,
     fontFamily: "Inter_400Regular",
@@ -273,11 +372,15 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     width: "100%",
   },
-  anomalyText: {
-    flex: 1,
-    fontSize: 14,
-    fontFamily: "Inter_500Medium",
-    lineHeight: 20,
+  anomalyText: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium", lineHeight: 20 },
+  actionRow: { flexDirection: "row", gap: 10, marginBottom: 24 },
+  syncBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 16,
+    borderRadius: 16,
   },
   simulateBtn: {
     flexDirection: "row",
@@ -285,33 +388,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 10,
     paddingVertical: 16,
+    paddingHorizontal: 20,
     borderRadius: 16,
-    marginBottom: 24,
   },
-  simulateBtnText: {
-    color: "#fff",
-    fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
-  },
-  chartCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    marginBottom: 24,
-    gap: 12,
-  },
+  actionBtnText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  chartCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 24, gap: 12 },
   historySection: { gap: 0 },
-  sectionTitle: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 12,
-  },
-  emptyList: {
-    borderRadius: 14,
-    padding: 24,
-    alignItems: "center",
-    gap: 10,
-  },
+  sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold", marginBottom: 12 },
+  emptyList: { borderRadius: 14, padding: 24, alignItems: "center", gap: 10 },
   emptyListText: {
     fontSize: 14,
     fontFamily: "Inter_400Regular",
