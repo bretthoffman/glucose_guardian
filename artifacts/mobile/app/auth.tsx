@@ -19,6 +19,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
+import { useGlucose } from "@/context/GlucoseContext";
 
 type Mode = "signin" | "create";
 
@@ -27,6 +28,7 @@ export default function AuthScreen() {
   const scheme = useColorScheme();
   const isDark = scheme !== "light";
   const { createAccount, signIn, account, isLoading } = useAuth();
+  const { resetGlucoseData } = useGlucose();
 
   const [mode, setMode] = useState<Mode>(account ? "signin" : "create");
   const [email, setEmail] = useState(account?.email ?? "");
@@ -69,6 +71,7 @@ export default function AuthScreen() {
       }
       setIsSubmitting(true);
       try {
+        resetGlucoseData();
         await createAccount(trimmedEmail, password);
       } catch {
         Alert.alert("Error", "Could not create account. Please try again.");

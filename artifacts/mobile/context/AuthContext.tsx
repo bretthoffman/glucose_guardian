@@ -182,11 +182,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const createAccount = useCallback(async (email: string, password: string) => {
     const acc: UserAccount = { email: email.trim().toLowerCase(), passwordHash: hashPassword(password) };
+    setProfile(null);
+    setCGMConnectionState({ type: null });
+    setFoodLog([]);
+    setEmergencyContacts([]);
+    setAlertPrefsState(DEFAULT_ALERT_PREFS);
+    setGuardianPinState(null);
+    setIsGuardianUnlocked(false);
     setAccount(acc);
     setIsSignedIn(true);
     await AsyncStorage.multiSet([
       [ACCOUNT_KEY, JSON.stringify(acc)],
       [SESSION_KEY, "true"],
+    ]);
+    await AsyncStorage.multiRemove([
+      PROFILE_KEY,
+      CGM_KEY,
+      FOOD_LOG_KEY,
+      EMERGENCY_CONTACTS_KEY,
+      ALERT_PREFS_KEY,
+      GUARDIAN_PIN_KEY,
     ]);
   }, []);
 
