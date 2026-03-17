@@ -1107,7 +1107,7 @@ const styles = StyleSheet.create({
   card: { borderRadius: 16, borderWidth: 1, padding: 18, marginBottom: 16, gap: 14 },
   cardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   cardTitle: { fontSize: 17, fontFamily: "Inter_700Bold" },
-  cardSub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18, marginTop: -8 },
+  cardSub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18, marginTop: 3 },
   editBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   editBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
 

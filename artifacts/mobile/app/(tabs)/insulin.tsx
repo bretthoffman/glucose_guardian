@@ -271,6 +271,26 @@ function ZoomableChart({
       r.glucose < LOW_THRESH ? COLORS.danger : COLORS.warning,
   }));
 
+  const alertPeaks = useMemo(() => {
+    const peaks: typeof points = [];
+    let i = 0;
+    while (i < points.length) {
+      if (!points[i].isAlert) { i++; continue; }
+      const isLow = points[i].glucose < LOW_THRESH;
+      let j = i;
+      let peakIdx = i;
+      while (j < points.length && points[j].isAlert && (points[j].glucose < LOW_THRESH) === isLow) {
+        if (isLow ? points[j].glucose < points[peakIdx].glucose : points[j].glucose > points[peakIdx].glucose) {
+          peakIdx = j;
+        }
+        j++;
+      }
+      peaks.push(points[peakIdx]);
+      i = j;
+    }
+    return peaks;
+  }, [points]);
+
   const lowLineY = yPct(LOW_THRESH) * CHART_H;
   const highLineY = yPct(HIGH_THRESH) * CHART_H;
   const targetLineY =
@@ -402,8 +422,7 @@ function ZoomableChart({
                   );
                 })}
 
-                {points.map((p, i) => {
-                  if (!p.isAlert) return null;
+                {alertPeaks.map((p, i) => {
                   const isSelected = selectedAlert?.timestamp === p.timestamp;
                   return (
                     <Pressable

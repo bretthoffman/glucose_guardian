@@ -194,7 +194,7 @@ export function CGMChart({
               {points.map((p, i) => {
                 const isLatest = i === points.length - 1;
                 const col = glucoseColor(p.glucose, lowThreshold, highThreshold, urgentLowThreshold);
-                const sz = isLatest ? 14 : 8;
+                const sz = isLatest ? 14 : 5;
                 return (
                   <React.Fragment key={`dot-${i}`}>
                     {isLatest && (
