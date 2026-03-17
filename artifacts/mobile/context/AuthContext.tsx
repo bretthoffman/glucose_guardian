@@ -165,7 +165,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     setProfile(null);
-    await AsyncStorage.multiRemove([PROFILE_KEY, CGM_KEY]);
+    setCGMConnectionState({ type: null });
+    setFoodLog([]);
+    setEmergencyContacts([]);
+    setAlertPrefsState(DEFAULT_ALERT_PREFS);
+    await AsyncStorage.multiRemove([
+      PROFILE_KEY,
+      CGM_KEY,
+      FOOD_LOG_KEY,
+      EMERGENCY_CONTACTS_KEY,
+      ALERT_PREFS_KEY,
+    ]);
   }, []);
 
   const addEmergencyContact = useCallback(async (contact: Omit<EmergencyContact, "id">) => {

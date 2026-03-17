@@ -55,6 +55,7 @@ export default function DashboardScreen() {
   const {
     history,
     clearHistory,
+    resetGlucoseData,
     carbRatio,
     targetGlucose,
     correctionFactor,
@@ -119,13 +120,14 @@ export default function DashboardScreen() {
   function confirmLogout() {
     Alert.alert(
       "Log Out",
-      "Are you sure you want to log out? Your health data will remain on this device.",
+      "Are you sure you want to log out?",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Log Out",
           style: "destructive",
           onPress: async () => {
+            resetGlucoseData();
             await logout();
             router.replace("/onboarding");
           },

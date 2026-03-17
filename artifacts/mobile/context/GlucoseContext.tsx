@@ -19,6 +19,7 @@ export interface GlucoseContextType {
   isLoading: boolean;
   addReading: (entry: GlucoseEntry) => void;
   clearHistory: () => void;
+  resetGlucoseData: () => void;
   carbRatio: number;
   targetGlucose: number;
   correctionFactor: number;
@@ -72,6 +73,14 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
   }, []);
 
+  const resetGlucoseData = useCallback(() => {
+    setHistory([]);
+    setCarbRatioState(15);
+    setTargetGlucoseState(120);
+    setCorrectionFactorState(50);
+    AsyncStorage.multiRemove([STORAGE_KEY, SETTINGS_KEY]).catch(() => {});
+  }, []);
+
   const setCarbRatio = useCallback((v: number) => {
     setCarbRatioState(v);
     AsyncStorage.getItem(SETTINGS_KEY)
@@ -121,6 +130,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         addReading,
         clearHistory,
+        resetGlucoseData,
         carbRatio,
         targetGlucose,
         correctionFactor,
