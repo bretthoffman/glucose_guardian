@@ -3,20 +3,25 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Gluco Guardian API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: glucose
+    description: Glucose readings and anomaly detection
+  - name: insulin
+    description: Insulin calculations
+  - name: food
+    description: Food carb estimation
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +29,88 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /glucose:
+    post:
+      operationId: submitGlucoseReading
+      tags: [glucose]
+      summary: Submit a glucose reading
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GlucoseReadingRequest"
+      responses:
+        "200":
+          description: Glucose reading processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlucoseReadingResponse"
+
+  /glucose/history:
+    get:
+      operationId: getGlucoseHistory
+      tags: [glucose]
+      summary: Get glucose reading history
+      responses:
+        "200":
+          description: Glucose history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlucoseHistoryResponse"
+    delete:
+      operationId: clearGlucoseHistory
+      tags: [glucose]
+      summary: Clear glucose history
+      responses:
+        "200":
+          description: History cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /insulin:
+    post:
+      operationId: calculateInsulin
+      tags: [insulin]
+      summary: Calculate insulin dose
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsulinRequest"
+      responses:
+        "200":
+          description: Insulin calculation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InsulinResponse"
+
+  /food/estimate:
+    post:
+      operationId: estimateFoodCarbs
+      tags: [food]
+      summary: Estimate carbs for a food item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FoodEstimateRequest"
+      responses:
+        "200":
+          description: Carb estimation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FoodEstimateResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +121,147 @@ components:
       required:
         - status
 
+    GlucoseReadingRequest:
+      type: object
+      properties:
+        glucose:
+          type: number
+          description: Glucose value in mg/dL
+      required:
+        - glucose
+
+    AnomalyResult:
+      type: object
+      properties:
+        warning:
+          type: boolean
+        message:
+          type: string
+      required:
+        - warning
+
+    Prediction:
+      type: object
+      properties:
+        predicted30min:
+          type: number
+      required:
+        - predicted30min
+
+    GlucoseReadingResponse:
+      type: object
+      properties:
+        current:
+          type: number
+        anomaly:
+          $ref: "#/components/schemas/AnomalyResult"
+        prediction:
+          $ref: "#/components/schemas/Prediction"
+        timestamp:
+          type: string
+      required:
+        - current
+        - anomaly
+        - timestamp
+
+    GlucoseHistoryEntry:
+      type: object
+      properties:
+        glucose:
+          type: number
+        timestamp:
+          type: string
+        anomaly:
+          $ref: "#/components/schemas/AnomalyResult"
+      required:
+        - glucose
+        - timestamp
+        - anomaly
+
+    GlucoseHistoryResponse:
+      type: object
+      properties:
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/GlucoseHistoryEntry"
+        count:
+          type: number
+      required:
+        - history
+        - count
+
+    InsulinRequest:
+      type: object
+      properties:
+        carbs:
+          type: number
+          description: Carbohydrates in grams
+        ratio:
+          type: number
+          description: Carb-to-insulin ratio (grams per unit)
+        currentGlucose:
+          type: number
+          description: Current glucose for correction dose
+        targetGlucose:
+          type: number
+          description: Target glucose level
+        correctionFactor:
+          type: number
+          description: Insulin sensitivity factor
+      required:
+        - carbs
+        - ratio
+
+    InsulinResponse:
+      type: object
+      properties:
+        insulin:
+          type: number
+          description: Calculated insulin dose in units
+        mealDose:
+          type: number
+          description: Meal dose component
+        correctionDose:
+          type: number
+          description: Correction dose component
+      required:
+        - insulin
+        - mealDose
+        - correctionDose
+
+    FoodEstimateRequest:
+      type: object
+      properties:
+        foodName:
+          type: string
+      required:
+        - foodName
+
+    FoodEstimateResponse:
+      type: object
+      properties:
+        foodName:
+          type: string
+        estimatedCarbs:
+          type: number
+        confidence:
+          type: string
+          enum: [high, medium, low]
+        tips:
+          type: string
+      required:
+        - foodName
+        - estimatedCarbs
+        - confidence
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+        - message

@@ -1,0 +1,292 @@
+
+GLUCO GUARDIAN – REPLIT STARTER PROJECT
+AI Diabetes Companion for Kids
+
+=====================================
+PROJECT STRUCTURE
+=====================================
+
+gluco-guardian/
+
+backend/
+  server.js
+  anomalyDetection.js
+  insulinCalculator.js
+  predictionEngine.js
+  foodVision.js
+
+frontend/
+  App.js
+  HomeScreen.js
+  CameraScreen.js
+  ChatScreen.js
+  ParentDashboard.js
+
+
+=====================================
+SETUP IN REPLIT
+=====================================
+
+1. Create a new Node.js Replit project
+2. Create folders:
+   backend
+   frontend
+
+3. Install dependencies in the shell:
+
+npm install express cors body-parser axios openai
+
+
+=====================================
+backend/server.js
+=====================================
+
+const express = require("express");
+const cors = require("cors");
+
+const { detectAnomaly } = require("./anomalyDetection");
+const { calculateInsulin } = require("./insulinCalculator");
+const { predictGlucose } = require("./predictionEngine");
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+let glucoseHistory = [];
+
+app.post("/glucose", (req, res) => {
+  const { glucose } = req.body;
+
+  const last = glucoseHistory[glucoseHistory.length - 1];
+
+  const anomaly = detectAnomaly(last, glucose);
+
+  glucoseHistory.push(glucose);
+
+  const prediction = predictGlucose(glucoseHistory);
+
+  res.json({
+    current: glucose,
+    anomaly,
+    prediction
+  });
+});
+
+app.post("/insulin", (req, res) => {
+  const { carbs, ratio } = req.body;
+
+  const insulin = calculateInsulin(carbs, ratio);
+
+  res.json({ insulin });
+});
+
+app.listen(3000, () => {
+  console.log("Server running on port 3000");
+});
+
+
+=====================================
+backend/anomalyDetection.js
+=====================================
+
+function detectAnomaly(previous, current) {
+
+  if (!previous) return null;
+
+  const difference = Math.abs(current - previous);
+
+  if (difference > 80) {
+    return {
+      warning: true,
+      message:
+        "Unusual glucose jump detected. Consider confirming with a finger-stick test."
+    };
+  }
+
+  return {
+    warning: false
+  };
+}
+
+module.exports = { detectAnomaly };
+
+
+=====================================
+backend/insulinCalculator.js
+=====================================
+
+function calculateInsulin(carbs, ratio) {
+
+  if (!carbs || !ratio) return 0;
+
+  const insulin = carbs / ratio;
+
+  return Number(insulin.toFixed(1));
+}
+
+module.exports = { calculateInsulin };
+
+
+=====================================
+backend/predictionEngine.js
+=====================================
+
+function predictGlucose(history) {
+
+  if (history.length < 3) return null;
+
+  const last = history[history.length - 1];
+  const prev = history[history.length - 2];
+
+  const trend = last - prev;
+
+  const predicted = last + trend * 3;
+
+  return {
+    predicted30min: predicted
+  };
+}
+
+module.exports = { predictGlucose };
+
+
+=====================================
+backend/foodVision.js
+=====================================
+
+async function estimateCarbs(foodName) {
+
+  const carbDatabase = {
+    pizza: 34,
+    apple: 25,
+    sandwich: 30,
+    spaghetti: 45
+  };
+
+  return carbDatabase[foodName.toLowerCase()] || 20;
+}
+
+module.exports = { estimateCarbs };
+
+
+=====================================
+frontend/HomeScreen.js
+=====================================
+
+import React, { useState } from "react";
+import { View, Text, Button } from "react-native";
+
+export default function HomeScreen() {
+
+  const [glucose, setGlucose] = useState(110);
+  const [message, setMessage] = useState("");
+
+  const simulateReading = async () => {
+
+    const newReading = Math.floor(Math.random() * 200);
+
+    const res = await fetch("http://localhost:3000/glucose", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ glucose: newReading })
+    });
+
+    const data = await res.json();
+
+    setGlucose(data.current);
+
+    if (data.anomaly?.warning) {
+      setMessage(data.anomaly.message);
+    } else {
+      setMessage("Reading looks normal");
+    }
+  };
+
+  return (
+    <View style={{ padding: 40 }}>
+      <Text style={{ fontSize: 32 }}>
+        Glucose: {glucose}
+      </Text>
+
+      <Text>{message}</Text>
+
+      <Button
+        title="Simulate Reading"
+        onPress={simulateReading}
+      />
+    </View>
+  );
+}
+
+
+=====================================
+frontend/CameraScreen.js
+=====================================
+
+import React from "react";
+import { View, Button } from "react-native";
+
+export default function CameraScreen() {
+
+  const analyzeFood = () => {
+    alert("AI food detection coming soon");
+  };
+
+  return (
+    <View style={{ padding: 40 }}>
+      <Button
+        title="Take Food Photo"
+        onPress={analyzeFood}
+      />
+    </View>
+  );
+}
+
+
+=====================================
+frontend/ChatScreen.js
+=====================================
+
+import React, { useState } from "react";
+import { View, TextInput, Button, Text } from "react-native";
+
+export default function ChatScreen() {
+
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+
+  const askAI = () => {
+
+    if (question.includes("low")) {
+      setAnswer("Your sugar may be low. Consider juice or fast carbs.");
+    } else {
+      setAnswer("Your glucose looks stable.");
+    }
+  };
+
+  return (
+    <View style={{ padding: 40 }}>
+
+      <TextInput
+        placeholder="Ask how you're feeling..."
+        onChangeText={setQuestion}
+      />
+
+      <Button title="Ask" onPress={askAI} />
+
+      <Text>{answer}</Text>
+
+    </View>
+  );
+}
+
+
+=====================================
+IMPORTANT MEDICAL DISCLAIMER
+=====================================
+
+This app provides estimates only and does not replace medical advice.
+Always follow your doctor's instructions when adjusting insulin doses.
+
