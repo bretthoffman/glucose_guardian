@@ -210,7 +210,7 @@ export default function OnboardingScreen() {
             <View style={[styles.logoCircle, { backgroundColor: COLORS.primary + "20" }]}>
               <Feather name="shield" size={56} color={COLORS.primary} />
             </View>
-            <Text style={[styles.bigTitle, { color: colors.text }]}>Gluco Guardian</Text>
+            <Text style={[styles.bigTitle, { color: colors.text }]}>Glucose Guardian</Text>
             <Text style={[styles.bigSubtitle, { color: colors.textSecondary }]}>
               Your AI-powered diabetes companion
             </Text>
@@ -253,7 +253,7 @@ export default function OnboardingScreen() {
             <StepBadge label="Step 1 of 3" colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>What's your name?</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
-              This personalizes your Gluco Guardian experience
+              This personalizes your Glucose Guardian experience
             </Text>
 
             <TextInput

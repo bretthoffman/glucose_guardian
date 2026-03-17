@@ -85,7 +85,7 @@ export default function HomeScreen() {
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
-  const childName = profile?.childName ?? "Gluco Guardian";
+  const childName = profile?.childName ?? "Glucose Guardian";
   const isConnected = !!cgmConnection.type;
 
   const performSync = useCallback(async (silent: boolean) => {
