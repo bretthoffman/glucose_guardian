@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -77,7 +77,7 @@ export default function ProfileChip({ colors, canEdit }: Props) {
     try {
       const src = result.assets[0].uri;
       const ext = src.split(".").pop() ?? "jpg";
-      const dest = ((FileSystem as any).documentDirectory ?? "") + `profile_photo.${ext}`;
+      const dest = (FileSystem.documentDirectory ?? "") + `profile_photo.${ext}`;
       await FileSystem.copyAsync({ from: src, to: dest });
       await updateProfile({ profilePhotoUri: dest });
     } catch {
