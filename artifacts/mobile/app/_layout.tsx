@@ -27,7 +27,7 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootLayoutNav() {
-  const { isLoggedIn, isLoading, isSignedIn, caregiverSession, alertPrefs } = useAuth();
+  const { isLoggedIn, isLoading, isSignedIn, caregiverSession, doctorSession, alertPrefs } = useAuth();
   const segments = useSegments();
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
@@ -56,14 +56,14 @@ function RootLayoutNav() {
     const inAuth = segments[0] === "auth";
     const inOnboarding = segments[0] === "onboarding";
 
-    if (!isSignedIn && !caregiverSession && !inAuth) {
+    if (!isSignedIn && !caregiverSession && !doctorSession && !inAuth) {
       router.replace("/auth");
     } else if (isSignedIn && !isLoggedIn && !inOnboarding) {
       router.replace("/onboarding");
-    } else if ((isSignedIn || caregiverSession) && isLoggedIn && (inAuth || inOnboarding)) {
+    } else if ((isSignedIn || caregiverSession || doctorSession) && isLoggedIn && (inAuth || inOnboarding)) {
       router.replace("/(tabs)");
     }
-  }, [isSignedIn, isLoggedIn, isLoading, caregiverSession, segments]);
+  }, [isSignedIn, isLoggedIn, isLoading, caregiverSession, doctorSession, segments]);
 
   useEffect(() => {
     if (!isLoggedIn || permissionsRequested.current) return;
