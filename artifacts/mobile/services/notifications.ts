@@ -28,10 +28,45 @@ export async function registerNotificationCategories() {
   ]);
 }
 
+export interface NotificationPermissionStatus {
+  granted: boolean;
+  soundEnabled: boolean;
+  criticalAlertsEnabled: boolean;
+  canAskAgain: boolean;
+}
+
+export async function getNotificationPermissionStatus(): Promise<NotificationPermissionStatus> {
+  const perms = await Notifications.getPermissionsAsync();
+  const granted = perms.status === "granted";
+  const soundEnabled = granted && (perms.ios?.allowsSound !== false);
+  const criticalAlertsEnabled = granted && (perms.ios?.allowsCriticalAlerts === true);
+  const canAskAgain = perms.canAskAgain;
+  return { granted, soundEnabled, criticalAlertsEnabled, canAskAgain };
+}
+
 export async function requestNotificationPermissions(): Promise<boolean> {
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  if (existing === "granted") return true;
-  const { status } = await Notifications.requestPermissionsAsync();
+  const existing = await Notifications.getPermissionsAsync();
+  if (existing.status === "granted") return true;
+  const { status } = await Notifications.requestPermissionsAsync({
+    ios: {
+      allowAlert: true,
+      allowSound: true,
+      allowBadge: true,
+      allowCriticalAlerts: true,
+    },
+  });
+  return status === "granted";
+}
+
+export async function requestCriticalAlerts(): Promise<boolean> {
+  const { status } = await Notifications.requestPermissionsAsync({
+    ios: {
+      allowAlert: true,
+      allowSound: true,
+      allowBadge: true,
+      allowCriticalAlerts: true,
+    },
+  });
   return status === "granted";
 }
 

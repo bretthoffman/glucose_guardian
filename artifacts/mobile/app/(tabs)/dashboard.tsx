@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   Linking,
@@ -25,6 +25,11 @@ import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constan
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import type { EmergencyContact } from "@/context/AuthContext";
+import {
+  getNotificationPermissionStatus,
+  requestCriticalAlerts,
+  type NotificationPermissionStatus,
+} from "@/services/notifications";
 
 function GuardianLock({ colors }: { colors: (typeof Colors)["light"] }) {
   return (
@@ -186,6 +191,12 @@ export default function DashboardScreen() {
   const [editLow, setEditLow] = useState(String(alertPrefs.lowThreshold));
   const [editHigh, setEditHigh] = useState(String(alertPrefs.highThreshold));
   const [editUrgentHigh, setEditUrgentHigh] = useState(String(alertPrefs.urgentHighThreshold));
+
+  const [notifPerm, setNotifPerm] = useState<NotificationPermissionStatus | null>(null);
+
+  useEffect(() => {
+    getNotificationPermissionStatus().then(setNotifPerm);
+  }, []);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -577,8 +588,68 @@ export default function DashboardScreen() {
             value={alertPrefs.emergencyAlertsEnabled}
             onToggle={(v) => updateAlertPrefs({ emergencyAlertsEnabled: v })}
             colors={colors}
-            last
           />
+
+          {notifPerm && (
+            <View style={[styles.notifPermRow, { borderTopColor: colors.border }]}>
+              <View style={styles.notifPermStatus}>
+                <View style={[styles.notifPermDot, {
+                  backgroundColor: !notifPerm.granted ? "#EF4444"
+                    : (!notifPerm.soundEnabled || !notifPerm.criticalAlertsEnabled) ? "#F59E0B"
+                    : "#22C55E"
+                }]} />
+                <Text style={[styles.notifPermLabel, { color: colors.text }]}>
+                  {!notifPerm.granted
+                    ? "Notifications blocked"
+                    : !notifPerm.soundEnabled
+                    ? "Sound disabled in settings"
+                    : !notifPerm.criticalAlertsEnabled
+                    ? "Critical alerts not enabled"
+                    : "Alerts & sounds active"}
+                </Text>
+              </View>
+              <Text style={[styles.notifPermHint, { color: colors.textSecondary }]}>
+                {!notifPerm.granted
+                  ? "Enable notifications so you never miss a glucose alert."
+                  : !notifPerm.soundEnabled
+                  ? "Turn on sounds so alerts play even in silent mode."
+                  : !notifPerm.criticalAlertsEnabled
+                  ? "Critical alerts can break through silent mode for urgent readings."
+                  : "Glucose Guardian can alert you for any out-of-range reading."}
+              </Text>
+
+              {(!notifPerm.granted || !notifPerm.soundEnabled) && (
+                <Pressable
+                  style={({ pressed }) => [styles.notifPermBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.8 : 1 }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    Linking.openSettings();
+                  }}
+                >
+                  <Feather name="settings" size={13} color="#fff" />
+                  <Text style={styles.notifPermBtnText}>Open Phone Settings</Text>
+                </Pressable>
+              )}
+
+              {notifPerm.granted && notifPerm.soundEnabled && !notifPerm.criticalAlertsEnabled && Platform.OS === "ios" && (
+                <Pressable
+                  style={({ pressed }) => [styles.notifPermBtn, { backgroundColor: "#F97316", opacity: pressed ? 0.8 : 1 }]}
+                  onPress={async () => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    const ok = await requestCriticalAlerts();
+                    if (!ok) {
+                      Linking.openSettings();
+                    }
+                    const updated = await getNotificationPermissionStatus();
+                    setNotifPerm(updated);
+                  }}
+                >
+                  <Feather name="alert-triangle" size={13} color="#fff" />
+                  <Text style={styles.notifPermBtnText}>Enable Critical Alerts</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
         </View>
 
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -1517,4 +1588,12 @@ const styles = StyleSheet.create({
   caregiverCodeDisplay: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 12, borderWidth: 1, gap: 12 },
   caregiverCodeLabel: { fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 },
   caregiverCodeValue: { fontSize: 22, fontFamily: "Inter_700Bold", letterSpacing: 3 },
+
+  notifPermRow: { borderTopWidth: 1, paddingTop: 14, gap: 8 },
+  notifPermStatus: { flexDirection: "row", alignItems: "center", gap: 8 },
+  notifPermDot: { width: 9, height: 9, borderRadius: 5 },
+  notifPermLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  notifPermHint: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  notifPermBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 10, borderRadius: 11, marginTop: 2 },
+  notifPermBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
 });
