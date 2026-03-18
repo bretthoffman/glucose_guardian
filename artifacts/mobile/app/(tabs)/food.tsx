@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
+
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -172,15 +172,16 @@ export default function FoodScreen() {
       return;
     }
 
-    const result = await ImagePicker.launchCameraAsync({
+    const pickerResult = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
       quality: 0.5,
-      base64: false,
+      base64: true,
     });
 
-    if (!result.canceled && result.assets[0]) {
+    if (!pickerResult.canceled && pickerResult.assets[0]) {
       setDoseTaken(false);
-      await analyzePhoto(result.assets[0].uri);
+      const asset = pickerResult.assets[0];
+      await analyzePhoto(asset.uri, asset.base64 ?? null);
     }
   }
 
@@ -191,19 +192,20 @@ export default function FoodScreen() {
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 0.7,
-      base64: false,
+      base64: true,
     });
 
-    if (!result.canceled && result.assets[0]) {
+    if (!pickerResult.canceled && pickerResult.assets[0]) {
       setDoseTaken(false);
-      await analyzePhoto(result.assets[0].uri);
+      const asset = pickerResult.assets[0];
+      await analyzePhoto(asset.uri, asset.base64 ?? null);
     }
   }
 
-  async function analyzePhoto(uri: string) {
+  async function analyzePhoto(uri: string, base64: string | null) {
     setPhotoUri(uri);
     setResult(null);
     setGuidance(null);
@@ -212,11 +214,13 @@ export default function FoodScreen() {
     setError("");
     setIsAnalyzingPhoto(true);
 
-    try {
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: "base64" as any,
-      });
+    if (!base64) {
+      setError("Could not read the photo. Please try again.");
+      setIsAnalyzingPhoto(false);
+      return;
+    }
 
+    try {
       const res = await fetch(`${BASE_URL}/api/food/analyze-photo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -252,8 +256,6 @@ export default function FoodScreen() {
       const message = err instanceof Error ? err.message : "";
       if (message.includes("Network") || message.includes("fetch")) {
         setError("Network error. Make sure you have an internet connection.");
-      } else if (message.includes("FileSystem") || message.includes("read")) {
-        setError("Could not read the photo. Please try again.");
       } else {
         setError("Could not analyze photo. Please try again.");
       }
