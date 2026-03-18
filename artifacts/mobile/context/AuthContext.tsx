@@ -335,6 +335,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     setProfile(null);
+    setAccount(null);
     setCGMConnectionState({ type: null });
     setFoodLog([]);
     setInsulinLog([]);

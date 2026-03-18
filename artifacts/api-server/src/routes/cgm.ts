@@ -30,28 +30,56 @@ router.post("/dexcom/connect", async (req, res) => {
     }
 
     const base = outsideUS ? DEXCOM_BASE_OUS : DEXCOM_BASE;
-    const response = await fetch(
-      `${base}/General/LoginPublisherAccountByName`,
-      {
-        method: "POST",
-        headers: DEXCOM_HEADERS,
-        body: JSON.stringify({
-          accountName: username,
-          password,
-          applicationId: "d8665ade-9673-4e27-9ff6-92db4ce13d13",
-        }),
-      }
-    );
+    const appId = "d8665ade-9673-4e27-9ff6-92db4ce13d13";
 
-    const rawText = await response.text();
-    console.log("Dexcom connect response:", response.status, rawText.slice(0, 200));
+    // Step 1: Authenticate to get account ID
+    const authResp = await fetch(`${base}/General/AuthenticatePublisherAccount`, {
+      method: "POST",
+      headers: DEXCOM_HEADERS,
+      body: JSON.stringify({ accountName: username, password, applicationId: appId }),
+    });
 
-    if (!response.ok) {
-      let msg = "Invalid Dexcom credentials. Check your username and password.";
+    const authText = await authResp.text();
+    console.log("Dexcom auth response:", authResp.status, authText.slice(0, 200));
+
+    if (!authResp.ok) {
+      let msg = "Invalid Dexcom credentials. Check your Dexcom Share username and password.";
       try {
-        const parsed = JSON.parse(rawText);
+        const parsed = JSON.parse(authText);
         if (parsed?.Message) msg = parsed.Message;
-        else if (typeof parsed === "string") msg = parsed;
+        else if (typeof parsed === "string" && parsed.length < 200) msg = parsed;
+      } catch {}
+      res.status(401).json({ error: msg });
+      return;
+    }
+
+    let accountId: string;
+    try {
+      accountId = JSON.parse(authText);
+    } catch {
+      accountId = authText.replace(/^"|"$/g, "").trim();
+    }
+
+    if (!accountId || typeof accountId !== "string" || accountId.length < 10) {
+      res.status(401).json({ error: "Could not get Dexcom account ID. Check your credentials." });
+      return;
+    }
+
+    // Step 2: Login with account ID to get session ID
+    const loginResp = await fetch(`${base}/General/LoginPublisherAccountById`, {
+      method: "POST",
+      headers: DEXCOM_HEADERS,
+      body: JSON.stringify({ accountId, password, applicationId: appId }),
+    });
+
+    const loginText = await loginResp.text();
+    console.log("Dexcom login response:", loginResp.status, loginText.slice(0, 200));
+
+    if (!loginResp.ok) {
+      let msg = "Dexcom login failed. Please try again.";
+      try {
+        const parsed = JSON.parse(loginText);
+        if (parsed?.Message) msg = parsed.Message;
       } catch {}
       res.status(401).json({ error: msg });
       return;
@@ -59,13 +87,13 @@ router.post("/dexcom/connect", async (req, res) => {
 
     let sessionId: string;
     try {
-      sessionId = JSON.parse(rawText);
+      sessionId = JSON.parse(loginText);
     } catch {
-      sessionId = rawText.replace(/^"|"$/g, "");
+      sessionId = loginText.replace(/^"|"$/g, "").trim();
     }
 
     if (!sessionId || typeof sessionId !== "string" || sessionId.length < 10) {
-      res.status(401).json({ error: "Invalid Dexcom session. Try again or check your credentials." });
+      res.status(401).json({ error: "Invalid Dexcom session returned. Please try again." });
       return;
     }
 
