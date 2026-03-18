@@ -93,6 +93,7 @@ export default function FoodScreen() {
   const [error, setError] = useState("");
   const [logged, setLogged] = useState(false);
   const [doseTaken, setDoseTaken] = useState(false);
+  const [editedCarbs, setEditedCarbs] = useState<string>("");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -150,6 +151,7 @@ export default function FoodScreen() {
       const insulinUnits = Math.round((data.estimatedCarbs / carbRatio) * 10) / 10;
       const finalResult = { ...data, insulinUnits, fromPhoto: false };
       setResult(finalResult);
+      setEditedCarbs(data.estimatedCarbs.toString());
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       await fetchGuidance(data.estimatedCarbs);
     } catch {
@@ -250,6 +252,7 @@ export default function FoodScreen() {
 
       const data = await res.json();
       setResult({ ...data, fromPhoto: true });
+      setEditedCarbs((data.estimatedCarbs ?? 0).toString());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await fetchGuidance(data.estimatedCarbs);
     } catch (err) {
@@ -266,10 +269,11 @@ export default function FoodScreen() {
 
   function logMeal() {
     if (!result) return;
+    const carbs = parseFloat(editedCarbs) || result.estimatedCarbs;
     addFoodLogEntry({
       timestamp: new Date().toISOString(),
       foodName: result.foodName,
-      estimatedCarbs: result.estimatedCarbs,
+      estimatedCarbs: carbs,
       insulinUnits: result.insulinUnits ?? 0,
       confidence: result.confidence,
       fromPhoto: !!result.fromPhoto,
@@ -277,6 +281,13 @@ export default function FoodScreen() {
     });
     setLogged(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }
+
+  function handleCarbsBlur() {
+    const parsed = parseFloat(editedCarbs);
+    if (!isNaN(parsed) && parsed > 0) {
+      fetchGuidance(parsed);
+    }
   }
 
   const spikePercent = guidance
@@ -429,9 +440,19 @@ export default function FoodScreen() {
                   </Text>
                 </View>
               </View>
-              <View style={styles.carbBubble}>
-                <Text style={[styles.carbValue, { color: COLORS.primary }]}>{result.estimatedCarbs}</Text>
+              <View style={[styles.carbBubble, { borderColor: COLORS.primary + "30", borderWidth: 1 }]}>
+                <TextInput
+                  style={[styles.carbValue, { color: COLORS.primary, textAlign: "center", minWidth: 48 }]}
+                  value={editedCarbs}
+                  onChangeText={setEditedCarbs}
+                  onBlur={handleCarbsBlur}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  onSubmitEditing={handleCarbsBlur}
+                  selectTextOnFocus
+                />
                 <Text style={[styles.carbLabel, { color: COLORS.primary }]}>g carbs</Text>
+                <Text style={[{ fontSize: 9, color: COLORS.primary + "80", fontFamily: "Inter_400Regular" }]}>tap to edit</Text>
               </View>
             </View>
 
@@ -441,6 +462,16 @@ export default function FoodScreen() {
                 <Text style={[styles.tipsText, { color: colors.textSecondary }]}>{result.tips}</Text>
               </View>
             )}
+
+            <DoseFormulaBox
+              carbs={parseFloat(editedCarbs) || result.estimatedCarbs}
+              bg={latestReading?.glucose ?? null}
+              carbRatio={carbRatio}
+              targetGlucose={targetGlucose}
+              correctionFactor={correctionFactor}
+              trend={currentTrend}
+              colors={colors}
+            />
 
             <Pressable
               style={({ pressed }) => [
@@ -679,6 +710,113 @@ function AdultGuidanceView({
     </View>
   );
 }
+
+function computeDose(carbs: number, bg: number, carbRatio: number, target: number, isf: number, trend: string) {
+  const carbDose = carbRatio > 0 ? carbs / carbRatio : 0;
+  const corrDose = bg > target ? (bg - target) / isf : 0;
+  const trendAdj =
+    trend === "rapidly_rising" ? 0.5
+    : trend === "rising" ? 0.25
+    : trend === "rapidly_falling" ? -0.5
+    : trend === "falling" ? -0.25
+    : 0;
+  const raw = Math.max(0, carbDose + corrDose + trendAdj);
+  const rounded = Math.round(raw * 2) / 2;
+  return { carbDose, corrDose, trendAdj, raw, rounded };
+}
+
+const TREND_DISPLAY: Record<string, string> = {
+  rapidly_rising: "↑↑ Rising fast",
+  rising: "↑ Rising",
+  stable: "→ Stable",
+  falling: "↓ Falling",
+  rapidly_falling: "↓↓ Falling fast",
+};
+
+function DoseFormulaBox({
+  carbs,
+  bg,
+  carbRatio,
+  targetGlucose,
+  correctionFactor,
+  trend,
+  colors,
+}: {
+  carbs: number;
+  bg: number | null;
+  carbRatio: number;
+  targetGlucose: number;
+  correctionFactor: number;
+  trend: string;
+  colors: (typeof Colors)["light"];
+}) {
+  if (!bg) return null;
+
+  const { carbDose, corrDose, trendAdj, rounded } = computeDose(
+    carbs, bg, carbRatio, targetGlucose, correctionFactor, trend
+  );
+
+  const trendLabel = TREND_DISPLAY[trend] ?? "→ Stable";
+  const r = (n: number) => Math.abs(n).toFixed(1);
+
+  return (
+    <View style={[formulaStyles.box, { backgroundColor: COLORS.primary + "0A", borderColor: COLORS.primary + "25" }]}>
+      <View style={formulaStyles.header}>
+        <Feather name="activity" size={13} color={COLORS.primary} />
+        <Text style={[formulaStyles.title, { color: COLORS.primary }]}>Dose Calculation</Text>
+      </View>
+
+      <View style={formulaStyles.row}>
+        <Text style={[formulaStyles.label, { color: colors.textSecondary }]}>Current BG</Text>
+        <Text style={[formulaStyles.value, { color: colors.text }]}>{bg} mg/dL  ({trendLabel})</Text>
+      </View>
+      <View style={[formulaStyles.divider, { backgroundColor: colors.border }]} />
+
+      <View style={formulaStyles.row}>
+        <Text style={[formulaStyles.label, { color: colors.textSecondary }]}>Carb dose</Text>
+        <Text style={[formulaStyles.value, { color: colors.text }]}>
+          {carbDose.toFixed(1)}u  ({carbs}g ÷ {carbRatio})
+        </Text>
+      </View>
+
+      <View style={formulaStyles.row}>
+        <Text style={[formulaStyles.label, { color: colors.textSecondary }]}>Correction</Text>
+        <Text style={[formulaStyles.value, { color: corrDose > 0 ? COLORS.warning : colors.textMuted }]}>
+          {corrDose > 0 ? `+${r(corrDose)}u  (${bg}−${targetGlucose} ÷ ${correctionFactor})` : "—  (BG in range)"}
+        </Text>
+      </View>
+
+      {trendAdj !== 0 && (
+        <View style={formulaStyles.row}>
+          <Text style={[formulaStyles.label, { color: colors.textSecondary }]}>Trend adj.</Text>
+          <Text style={[formulaStyles.value, { color: trendAdj > 0 ? COLORS.warning : COLORS.primary }]}>
+            {trendAdj > 0 ? "+" : "−"}{r(trendAdj)}u  ({trendLabel})
+          </Text>
+        </View>
+      )}
+
+      <View style={[formulaStyles.divider, { backgroundColor: colors.border }]} />
+      <View style={formulaStyles.row}>
+        <Text style={[formulaStyles.totalLabel, { color: COLORS.primary }]}>Suggested</Text>
+        <Text style={[formulaStyles.totalValue, { color: COLORS.primary }]}>
+          {rounded}u  (rounded to 0.5u)
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const formulaStyles = StyleSheet.create({
+  box: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 8 },
+  header: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
+  title: { fontSize: 12, fontFamily: "Inter_700Bold", letterSpacing: 0.4, textTransform: "uppercase" },
+  divider: { height: 1, marginVertical: 2 },
+  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
+  label: { fontSize: 13, fontFamily: "Inter_500Medium", flexShrink: 0 },
+  value: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "right", flex: 1 },
+  totalLabel: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  totalValue: { fontSize: 14, fontFamily: "Inter_700Bold", textAlign: "right", flex: 1 },
+});
 
 function StatBox({
   label,

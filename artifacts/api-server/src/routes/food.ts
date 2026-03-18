@@ -52,11 +52,20 @@ router.post("/estimate", (req, res) => {
 
 router.post("/analyze-photo", async (req, res) => {
   try {
-    const { photoBase64, mimeType = "image/jpeg", carbRatio = 15 } = req.body;
-    if (!photoBase64) {
+    const { photoBase64: rawBase64, mimeType: rawMime = "image/jpeg", carbRatio = 15 } = req.body;
+    if (!rawBase64) {
       res.status(400).json({ error: "photoBase64 is required" });
       return;
     }
+
+    // Sanitize base64: remove whitespace/newlines that can break the data URL
+    const photoBase64 = (rawBase64 as string).replace(/\s/g, "");
+    // Normalize MIME type — proxy does not accept HEIC/HEIF
+    const mimeType = (rawMime as string).toLowerCase().includes("heic") || (rawMime as string).toLowerCase().includes("heif")
+      ? "image/jpeg"
+      : rawMime;
+
+    console.log(`Photo analysis: mimeType=${mimeType}, base64Length=${photoBase64.length}, prefix=${photoBase64.substring(0, 16)}`);
 
     const openai = new OpenAI({
       apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY!,
