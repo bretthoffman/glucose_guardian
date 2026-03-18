@@ -19,7 +19,6 @@ import { GlucoseProvider } from "@/context/GlucoseContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import {
   registerNotificationCategories,
-  requestNotificationPermissions,
   handleNotificationResponse,
 } from "@/services/notifications";
 
@@ -71,7 +70,6 @@ function RootLayoutNav() {
     permissionsRequested.current = true;
 
     (async () => {
-      await requestNotificationPermissions();
       await registerNotificationCategories();
     })();
 

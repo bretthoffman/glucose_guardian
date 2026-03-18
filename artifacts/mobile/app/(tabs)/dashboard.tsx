@@ -604,7 +604,27 @@ export default function DashboardScreen() {
             label="Glucose Alerts"
             description={`Alerts when outside ${alertPrefs.lowThreshold}–${alertPrefs.highThreshold} mg/dL range`}
             value={alertPrefs.notificationsEnabled}
-            onToggle={(v) => updateAlertPrefs({ notificationsEnabled: v })}
+            onToggle={async (v) => {
+              if (!v) {
+                updateAlertPrefs({ notificationsEnabled: false });
+                return;
+              }
+              const granted = await requestNotificationPermissions();
+              if (granted) {
+                updateAlertPrefs({ notificationsEnabled: true });
+                const updated = await getNotificationPermissionStatus();
+                setNotifPerm(updated);
+              } else {
+                Alert.alert(
+                  "Notifications Blocked",
+                  "Glucose Guardian needs notification permission to send glucose alerts. Please enable it in your phone's Settings.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Open Settings", onPress: () => Linking.openSettings() },
+                  ]
+                );
+              }
+            }}
             colors={colors}
           />
           <ToggleRow
