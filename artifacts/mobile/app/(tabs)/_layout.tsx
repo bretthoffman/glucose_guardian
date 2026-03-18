@@ -11,8 +11,9 @@ import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 
 function NativeTabLayout() {
-  const { isChildMode, caregiverSession } = useAuth();
+  const { isChildMode, caregiverSession, doctorSession } = useAuth();
   const hidePredictTab = isChildMode && !caregiverSession;
+  const hideFoodTab = !!doctorSession;
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
@@ -25,10 +26,12 @@ function NativeTabLayout() {
           <Label>Predict</Label>
         </NativeTabs.Trigger>
       )}
-      <NativeTabs.Trigger name="food">
-        <Icon sf={{ default: "fork.knife", selected: "fork.knife" }} />
-        <Label>Food</Label>
-      </NativeTabs.Trigger>
+      {!hideFoodTab && (
+        <NativeTabs.Trigger name="food">
+          <Icon sf={{ default: "fork.knife", selected: "fork.knife" }} />
+          <Label>Food</Label>
+        </NativeTabs.Trigger>
+      )}
       <NativeTabs.Trigger name="chat">
         <Icon sf={{ default: "message", selected: "message.fill" }} />
         <Label>Chat</Label>
@@ -42,8 +45,9 @@ function NativeTabLayout() {
 }
 
 function ClassicTabLayout() {
-  const { isChildMode, caregiverSession } = useAuth();
+  const { isChildMode, caregiverSession, doctorSession } = useAuth();
   const hidePredictTab = isChildMode && !caregiverSession;
+  const hideFoodTab = !!doctorSession;
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const isIOS = Platform.OS === "ios";
@@ -111,6 +115,7 @@ function ClassicTabLayout() {
         name="food"
         options={{
           title: "Food",
+          tabBarButton: hideFoodTab ? () => null : undefined,
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="fork.knife" tintColor={color} size={22} />
