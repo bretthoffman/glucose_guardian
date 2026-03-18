@@ -34,35 +34,29 @@ function computeTrend(history: { glucose: number; timestamp: string }[]): {
   arrow: string;
   label: string;
 } {
-  if (history.length < 2) return { arrow: "→", label: "steady" };
-  const sorted = [...history].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-  );
-  const last = sorted[sorted.length - 1].glucose;
-  const prev = sorted[Math.max(0, sorted.length - 4)].glucose;
-  const delta = last - prev;
-  if (delta > 40) return { arrow: "↑↑", label: "rising fast" };
-  if (delta > 15) return { arrow: "↑", label: "rising" };
-  if (delta > 5) return { arrow: "↗", label: "trending up" };
-  if (delta < -40) return { arrow: "↓↓", label: "dropping fast" };
-  if (delta < -15) return { arrow: "↓", label: "dropping" };
-  if (delta < -5) return { arrow: "↘", label: "trending down" };
-  return { arrow: "→", label: "steady" };
+  if (history.length < 2) return { arrow: "→", label: "Stable" };
+  const last = history[history.length - 1].glucose;
+  const prev = history[history.length - 2].glucose;
+  const diff = last - prev;
+  if (diff > 30) return { arrow: "↑↑", label: "Rising fast" };
+  if (diff > 15) return { arrow: "↑",  label: "Rising" };
+  if (diff < -30) return { arrow: "↓↓", label: "Dropping fast" };
+  if (diff < -15) return { arrow: "↓",  label: "Dropping" };
+  return { arrow: "→", label: "Stable" };
 }
 
-function glucoseColor(g: number): string {
-  if (g < 70 || g > 250) return COLORS.danger;
-  if (g < 80 || g > 180) return COLORS.warning;
+function glucoseColor(g: number, low = 80, high = 180): string {
+  if (g < 70 || g > 300) return COLORS.danger;
+  if (g < low || g > high) return COLORS.warning;
   return COLORS.success;
 }
 
-function glucoseLabel(g: number): string {
-  if (g < 55) return "Critically Low";
+function glucoseLabel(g: number, low = 80, high = 180): string {
   if (g < 70) return "Low";
-  if (g < 80) return "Below Range";
-  if (g <= 180) return "In Range";
-  if (g <= 250) return "High";
-  return "Very High";
+  if (g < low) return "Below Range";
+  if (g <= high) return "In Range";
+  if (g <= 300) return "Above Range";
+  return "High";
 }
 
 function buildSuggestions(
@@ -115,18 +109,21 @@ export default function ChatScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
-  const { profile, ageYears } = useAuth();
+  const { profile, ageYears, alertPrefs } = useAuth();
   const { prompt } = useLocalSearchParams<{ prompt?: string }>();
   const promptSentRef = useRef(false);
 
   const name = profile?.childName ?? "there";
   const trend = computeTrend(history);
   const glucose = latestReading?.glucose ?? null;
+  const low = alertPrefs.lowThreshold;
+  const high = alertPrefs.highThreshold;
   const suggestions = buildSuggestions(glucose, name);
 
   const [messages, setMessages] = useState<Message[]>(() => {
+    const inRange = glucose != null && glucose >= low && glucose <= high;
     const greet = glucose != null
-      ? `Hey ${name}! Your glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${glucose >= 80 && glucose <= 180 ? "looking solid!" : glucose < 70 ? "let's get that up, okay?" : "let's keep an eye on it."} What's on your mind?`
+      ? `Hey ${name}! Your glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking solid!" : glucose < 70 ? "let's get that up, okay?" : "let's keep an eye on it."} What's on your mind?`
       : `Hey ${name}! I'm Glucose Guardian, your diabetes sidekick. I can see your glucose readings, help with carb counts, and just chat when you need someone who gets it. What's up?`;
 
     return [
@@ -253,12 +250,12 @@ export default function ChatScreen() {
           <Text style={[styles.headerSub, { color: COLORS.success }]}>Your AI diabetes companion</Text>
         </View>
         {glucose != null && (
-          <View style={[styles.glucosePill, { backgroundColor: glucoseColor(glucose) + "18", borderColor: glucoseColor(glucose) + "40" }]}>
-            <Text style={[styles.glucosePillValue, { color: glucoseColor(glucose) }]}>
+          <View style={[styles.glucosePill, { backgroundColor: glucoseColor(glucose, low, high) + "18", borderColor: glucoseColor(glucose, low, high) + "40" }]}>
+            <Text style={[styles.glucosePillValue, { color: glucoseColor(glucose, low, high) }]}>
               {glucose} <Text style={styles.glucosePillUnit}>mg/dL</Text>
             </Text>
-            <Text style={[styles.glucosePillTrend, { color: glucoseColor(glucose) }]}>{trend.arrow}</Text>
-            <Text style={[styles.glucosePillLabel, { color: glucoseColor(glucose) }]}>{glucoseLabel(glucose)}</Text>
+            <Text style={[styles.glucosePillTrend, { color: glucoseColor(glucose, low, high) }]}>{trend.arrow}</Text>
+            <Text style={[styles.glucosePillLabel, { color: glucoseColor(glucose, low, high) }]}>{glucoseLabel(glucose, low, high)}</Text>
           </View>
         )}
       </View>
