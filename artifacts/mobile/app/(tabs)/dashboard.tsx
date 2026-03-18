@@ -27,6 +27,7 @@ import { useAuth } from "@/context/AuthContext";
 import type { EmergencyContact } from "@/context/AuthContext";
 import {
   getNotificationPermissionStatus,
+  requestNotificationPermissions,
   requestCriticalAlerts,
   type NotificationPermissionStatus,
 } from "@/services/notifications";
@@ -618,7 +619,22 @@ export default function DashboardScreen() {
                   : "Glucose Guardian can alert you for any out-of-range reading."}
               </Text>
 
-              {(!notifPerm.granted || !notifPerm.soundEnabled) && (
+              {!notifPerm.granted && notifPerm.canAskAgain && (
+                <Pressable
+                  style={({ pressed }) => [styles.notifPermBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.8 : 1 }]}
+                  onPress={async () => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    await requestNotificationPermissions();
+                    const updated = await getNotificationPermissionStatus();
+                    setNotifPerm(updated);
+                  }}
+                >
+                  <Feather name="bell" size={13} color="#fff" />
+                  <Text style={styles.notifPermBtnText}>Enable Notifications</Text>
+                </Pressable>
+              )}
+
+              {(!notifPerm.granted && !notifPerm.canAskAgain) || (!notifPerm.soundEnabled && notifPerm.granted) ? (
                 <Pressable
                   style={({ pressed }) => [styles.notifPermBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.8 : 1 }]}
                   onPress={() => {
@@ -629,7 +645,7 @@ export default function DashboardScreen() {
                   <Feather name="settings" size={13} color="#fff" />
                   <Text style={styles.notifPermBtnText}>Open Phone Settings</Text>
                 </Pressable>
-              )}
+              ) : null}
 
               {notifPerm.granted && notifPerm.soundEnabled && !notifPerm.criticalAlertsEnabled && Platform.OS === "ios" && (
                 <Pressable
@@ -637,9 +653,7 @@ export default function DashboardScreen() {
                   onPress={async () => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                     const ok = await requestCriticalAlerts();
-                    if (!ok) {
-                      Linking.openSettings();
-                    }
+                    if (!ok) Linking.openSettings();
                     const updated = await getNotificationPermissionStatus();
                     setNotifPerm(updated);
                   }}

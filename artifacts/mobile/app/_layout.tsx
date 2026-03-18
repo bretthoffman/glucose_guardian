@@ -54,9 +54,7 @@ function RootLayoutNav() {
     permissionsRequested.current = true;
 
     (async () => {
-      if (alertPrefs.notificationsEnabled) {
-        await requestNotificationPermissions();
-      }
+      await requestNotificationPermissions();
       await registerNotificationCategories();
     })();
 
