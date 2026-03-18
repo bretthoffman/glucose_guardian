@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
-import { mapDexcomTrend, trendFromDiff } from "@/utils/trend";
+import { getEffectiveTrend } from "@/utils/trend";
 
 const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
   ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
@@ -29,22 +29,6 @@ interface Message {
   role: "user" | "assistant";
   text: string;
   timestamp: Date;
-}
-
-function computeTrend(history: { glucose: number; timestamp: string; dexcomTrend?: number | string }[]): {
-  arrow: string;
-  label: string;
-} {
-  if (history.length === 0) return { arrow: "→", label: "Stable" };
-  const latest = history[history.length - 1];
-  if (latest.dexcomTrend != null) {
-    const { arrow, label } = mapDexcomTrend(latest.dexcomTrend);
-    return { arrow, label };
-  }
-  if (history.length < 2) return { arrow: "→", label: "Stable" };
-  const diff = latest.glucose - history[history.length - 2].glucose;
-  const { arrow, label } = trendFromDiff(diff);
-  return { arrow, label };
 }
 
 function glucoseColor(g: number, low = 80, high = 180): string {
@@ -63,7 +47,8 @@ function glucoseLabel(g: number, low = 80, high = 180): string {
 
 function buildParentSuggestions(
   glucose: number | null,
-  name: string
+  name: string,
+  high: number
 ): string[] {
   if (glucose === null) {
     return [
@@ -89,7 +74,7 @@ function buildParentSuggestions(
       "What could have caused this spike?",
     ];
   }
-  if (glucose > 180) {
+  if (glucose > high) {
     return [
       `${name} is above range — correction?`,
       "How long to come back down?",
@@ -107,7 +92,8 @@ function buildParentSuggestions(
 
 function buildSuggestions(
   glucose: number | null,
-  name: string
+  name: string,
+  high: number
 ): string[] {
   if (glucose === null) {
     return [
@@ -133,7 +119,7 @@ function buildSuggestions(
       "Do I need a correction?",
     ];
   }
-  if (glucose > 180) {
+  if (glucose > high) {
     return [
       "Why is my sugar high?",
       "What can I do to bring it down?",
@@ -165,13 +151,13 @@ export default function ChatScreen() {
     fromParent === "true" ||
     (profile?.accountRole === "parent" && !isChildMode);
 
-  const trend = computeTrend(history);
+  const trend = getEffectiveTrend(history);
   const glucose = latestReading?.glucose ?? null;
   const low = alertPrefs.lowThreshold;
   const high = alertPrefs.highThreshold;
   const suggestions = speakingToParent
-    ? buildParentSuggestions(glucose, name)
-    : buildSuggestions(glucose, name);
+    ? buildParentSuggestions(glucose, name, high)
+    : buildSuggestions(glucose, name, high);
 
   const [messages, setMessages] = useState<Message[]>(() => {
     const inRange = glucose != null && glucose >= low && glucose <= high;
@@ -260,7 +246,7 @@ export default function ChatScreen() {
             trendArrow: trend.arrow,
             trendLabel: trend.label,
             recentReadings: recentHistory,
-            targetRange: { low: 80, high: 180 },
+            targetRange: { low, high },
             anomalyWarning: latestReading?.anomaly?.warning ?? false,
             anomalyMessage: latestReading?.anomaly?.message,
             carbRatio,

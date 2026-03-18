@@ -42,6 +42,22 @@ export function mapDexcomTrend(trend: number | string): TrendInfo {
 }
 
 /**
+ * Single source-of-truth trend resolver.
+ * Prefer the Dexcom CGM trend field; fall back to diff-based calculation.
+ * Use this everywhere: insulin tab, chat, dashboard — so they all agree.
+ */
+export function getEffectiveTrend(
+  history: { glucose: number; timestamp: string; dexcomTrend?: number | string }[]
+): TrendInfo {
+  if (history.length === 0) return { glucoseTrend: "stable", arrow: "→", label: "Stable" };
+  const latest = history[history.length - 1];
+  if (latest.dexcomTrend != null) return mapDexcomTrend(latest.dexcomTrend);
+  if (history.length < 2) return { glucoseTrend: "stable", arrow: "→", label: "Stable" };
+  const diff = latest.glucose - history[history.length - 2].glucose;
+  return trendFromDiff(diff);
+}
+
+/**
  * Fallback trend computation from a glucose diff between two consecutive readings.
  * Used only when no Dexcom trend field is available (manual entries, LibreLink).
  */

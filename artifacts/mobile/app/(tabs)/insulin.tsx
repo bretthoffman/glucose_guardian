@@ -22,6 +22,7 @@ import type { GlucoseEntry } from "@/context/GlucoseContext";
 import { glucoseColor } from "@/components/CGMChart";
 import { computeDose } from "@/utils/dose";
 import type { DoseBreakdown } from "@/utils/dose";
+import { getEffectiveTrend } from "@/utils/trend";
 
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
@@ -46,18 +47,6 @@ interface Suggestion {
   chatPrompt: string;
 }
 
-function detectTrend(history: GlucoseEntry[]): string {
-  if (history.length < 2) return "stable";
-  const last = history[history.length - 1].glucose;
-  const prev = history[history.length - 2].glucose;
-  const diff = last - prev;
-  if (diff > 30) return "rapidly_rising";
-  if (diff > 15) return "rising";
-  if (diff < -30) return "rapidly_falling";
-  if (diff < -15) return "falling";
-  return "stable";
-}
-
 function analyzeReadings(readings: GlucoseEntry[], targetGlucose: number, isMinor: boolean): Suggestion[] {
   if (readings.length === 0) return [];
   const suggestions: Suggestion[] = [];
@@ -66,7 +55,7 @@ function analyzeReadings(readings: GlucoseEntry[], targetGlucose: number, isMino
   const inRange = readings.filter((r) => r.glucose >= LOW_THRESH && r.glucose <= HIGH_THRESH);
   const timeInRange = Math.round((inRange.length / readings.length) * 100);
   const avg = Math.round(readings.reduce((s, r) => s + r.glucose, 0) / readings.length);
-  const trend = detectTrend(readings);
+  const trend = getEffectiveTrend(readings).glucoseTrend;
 
   if (lows.length > 0) {
     const worstLow = Math.min(...lows.map((r) => r.glucose));
@@ -625,7 +614,7 @@ export default function InsulinScreen() {
     const carbs = parseFloat(carbInput);
     const bg = parseFloat(bgInput);
     if (isNaN(carbs) || carbs < 0 || isNaN(bg) || bg <= 0) return null;
-    const trend = latest ? detectTrend(history) : "stable";
+    const trend = latest ? getEffectiveTrend(history).glucoseTrend : "stable";
     const prev = history.length >= 2 ? history[history.length - 2].glucose : undefined;
     return computeDose({
       carbs,
@@ -669,7 +658,7 @@ export default function InsulinScreen() {
               {new Date(latest.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </Text>
             <TrendArrow
-                      trend={detectTrend(history)}
+                      trend={getEffectiveTrend(history).glucoseTrend}
                       glucoseValue={latest.glucose}
                       lowThreshold={alertPrefs.lowThreshold}
                       highThreshold={alertPrefs.highThreshold}
