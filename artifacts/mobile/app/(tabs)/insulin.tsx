@@ -716,11 +716,11 @@ function TrendArrow({
       : COLORS.success;
 
   const map: Record<string, { icon: string; color: string; label: string }> = {
-    rapidly_rising:  { icon: "↑↑", color: COLORS.danger,  label: "Rising fast"  },
-    rising:          { icon: "↑",  color: COLORS.warning, label: "Rising"       },
+    rapidly_rising:  { icon: "↑",  color: COLORS.danger,  label: "Rising fast"  },
+    rising:          { icon: "↗",  color: COLORS.warning, label: "Rising"       },
     stable:          { icon: "→",  color: stableColor,    label: "Stable"       },
-    falling:         { icon: "↓",  color: COLORS.warning, label: "Falling"      },
-    rapidly_falling: { icon: "↓↓", color: COLORS.danger,  label: "Falling fast" },
+    falling:         { icon: "↘",  color: COLORS.warning, label: "Falling"      },
+    rapidly_falling: { icon: "↓",  color: COLORS.danger,  label: "Falling fast" },
   };
   const info = map[trend] ?? map.stable;
   return (

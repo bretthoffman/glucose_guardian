@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
+import { mapDexcomTrend, trendFromDiff } from "@/utils/trend";
 
 const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
   ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
@@ -30,19 +31,20 @@ interface Message {
   timestamp: Date;
 }
 
-function computeTrend(history: { glucose: number; timestamp: string }[]): {
+function computeTrend(history: { glucose: number; timestamp: string; dexcomTrend?: number | string }[]): {
   arrow: string;
   label: string;
 } {
+  if (history.length === 0) return { arrow: "→", label: "Stable" };
+  const latest = history[history.length - 1];
+  if (latest.dexcomTrend != null) {
+    const { arrow, label } = mapDexcomTrend(latest.dexcomTrend);
+    return { arrow, label };
+  }
   if (history.length < 2) return { arrow: "→", label: "Stable" };
-  const last = history[history.length - 1].glucose;
-  const prev = history[history.length - 2].glucose;
-  const diff = last - prev;
-  if (diff > 30) return { arrow: "↑↑", label: "Rising fast" };
-  if (diff > 15) return { arrow: "↑",  label: "Rising" };
-  if (diff < -30) return { arrow: "↓↓", label: "Dropping fast" };
-  if (diff < -15) return { arrow: "↓",  label: "Dropping" };
-  return { arrow: "→", label: "Stable" };
+  const diff = latest.glucose - history[history.length - 2].glucose;
+  const { arrow, label } = trendFromDiff(diff);
+  return { arrow, label };
 }
 
 function glucoseColor(g: number, low = 80, high = 180): string {

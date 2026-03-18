@@ -43,11 +43,11 @@ const TREND_ROTATE: Record<GlucoseTrend, string> = {
 };
 
 const TREND_LABEL: Record<GlucoseTrend, string> = {
-  rapidly_rising:  "Rising fast",
-  rising:          "Rising",
+  rapidly_rising:  "Rising",
+  rising:          "Rising slowly",
   stable:          "Stable",
-  falling:         "Falling",
-  rapidly_falling: "Falling fast",
+  falling:         "Falling slowly",
+  rapidly_falling: "Falling",
 };
 
 function getTrendColor(trend: GlucoseTrend, glucoseStatusColor: string): string {

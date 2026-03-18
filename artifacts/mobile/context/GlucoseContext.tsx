@@ -11,6 +11,7 @@ export interface GlucoseEntry {
   glucose: number;
   timestamp: string;
   anomaly: { warning: boolean; message?: string };
+  dexcomTrend?: number | string;
 }
 
 export interface GlucoseContextType {

@@ -20,6 +20,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlucoseGauge } from "@/components/GlucoseGauge";
 import type { GlucoseTrend } from "@/components/GlucoseGauge";
+import { mapDexcomTrend, trendFromDiff } from "@/utils/trend";
 import { ReadingCard } from "@/components/ReadingCard";
 import { CGMChart } from "@/components/CGMChart";
 import Colors, { COLORS } from "@/constants/colors";
@@ -128,15 +129,16 @@ export default function HomeScreen() {
   const recentHistory = [...history].reverse().slice(0, 10);
 
   const glucoseTrend: GlucoseTrend | undefined = (() => {
+    const latest = isConnected && cgmLatestReading
+      ? history.find(h => h.timestamp === cgmLatestReading.timestamp)
+      : history[history.length - 1];
+    if (latest?.dexcomTrend != null) {
+      return mapDexcomTrend(latest.dexcomTrend).glucoseTrend;
+    }
     if (history.length < 2) return undefined;
     const last = history[history.length - 1].glucose;
     const prev = history[history.length - 2].glucose;
-    const diff = last - prev;
-    if (diff > 30) return "rapidly_rising";
-    if (diff > 15) return "rising";
-    if (diff < -30) return "rapidly_falling";
-    if (diff < -15) return "falling";
-    return "stable";
+    return trendFromDiff(last - prev).glucoseTrend;
   })();
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
@@ -187,6 +189,7 @@ export default function HomeScreen() {
         glucose: r.glucose,
         timestamp: r.timestamp,
         anomaly: r.anomaly,
+        dexcomTrend: r.trend != null ? r.trend : undefined,
       }));
       bulkAddReadings(entries);
       if (entries.length > 0) {
@@ -204,10 +207,15 @@ export default function HomeScreen() {
 
           if (overThreshold && now - lastAlertTimeRef.current > ALERT_COOLDOWN_MS) {
             lastAlertTimeRef.current = now;
-            const trendDiff = entries.length >= 2
-              ? entries[entries.length - 1].glucose - entries[entries.length - 2].glucose
-              : 0;
-            const trendLabel = trendDiff > 30 ? "Rising fast" : trendDiff > 15 ? "Rising" : trendDiff < -30 ? "Dropping fast" : trendDiff < -15 ? "Dropping" : "Stable";
+            const latestDexcomTrend = mostRecent.dexcomTrend;
+            const trendLabel = latestDexcomTrend != null
+              ? mapDexcomTrend(latestDexcomTrend).label
+              : (() => {
+                  const diff = entries.length >= 2
+                    ? entries[entries.length - 1].glucose - entries[entries.length - 2].glucose
+                    : 0;
+                  return trendFromDiff(diff).label;
+                })();
             const status = g <= urgLow ? "critically_low" : g < low ? "low" : g >= urgHigh ? "critically_high" : "high";
             scheduleGlucoseAlert({
               childName: profile?.childName ?? "Child",
