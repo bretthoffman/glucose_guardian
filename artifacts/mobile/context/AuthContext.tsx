@@ -9,6 +9,13 @@ import React, {
 
 export type AccountRole = "parent" | "adult";
 
+export interface AccessLogEntry {
+  id: string;
+  timestamp: string;
+  action: string;
+  actor: "owner" | "caregiver" | "doctor";
+}
+
 export interface UserProfile {
   childName: string;
   parentName?: string;
@@ -18,9 +25,15 @@ export interface UserProfile {
   weightLbs?: number;
   doctorName?: string;
   doctorEmail?: string;
+  doctorPhone?: string;
+  doctorInstitution?: string;
   insulinTypes?: string[];
   childModeEnabled?: boolean;
   caregiverCode?: string;
+  caregiverCodeIssuedAt?: string;
+  doctorCode?: string;
+  doctorCodeIssuedAt?: string;
+  accessLog?: AccessLogEntry[];
 }
 
 export interface InsulinLogEntry {
@@ -87,6 +100,7 @@ export interface AuthContextType {
   guardianPin: string | null;
   isGuardianUnlocked: boolean;
   caregiverSession: boolean;
+  doctorSession: boolean;
   isChildMode: boolean;
   setupProfile: (profile: UserProfile) => Promise<void>;
   updateProfile: (profile: Partial<UserProfile>) => Promise<void>;
@@ -110,6 +124,10 @@ export interface AuthContextType {
   generateCaregiverCode: () => Promise<string>;
   enterCaregiverMode: (code: string) => boolean;
   exitCaregiverMode: () => void;
+  generateDoctorCode: () => Promise<string>;
+  enterDoctorMode: (code: string) => boolean;
+  exitDoctorMode: () => void;
+  addAccessLogEntry: (action: string, actor?: "owner" | "caregiver" | "doctor") => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -168,6 +186,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [guardianPin, setGuardianPinState] = useState<string | null>(null);
   const [isGuardianUnlocked, setIsGuardianUnlocked] = useState(false);
   const [caregiverSession, setCaregiverSession] = useState(false);
+  const [doctorSession, setDoctorSession] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -386,10 +405,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await updateProfile({ childModeEnabled: enabled });
   }, [updateProfile]);
 
+  const addAccessLogEntry = useCallback(async (action: string, actor: "owner" | "caregiver" | "doctor" = "owner") => {
+    const entry: AccessLogEntry = { id: `log_${Date.now()}`, timestamp: new Date().toISOString(), action, actor };
+    setProfile((prev) => {
+      if (!prev) return prev;
+      const newLog = [...(prev.accessLog ?? []), entry].slice(-50);
+      const updated = { ...prev, accessLog: newLog };
+      AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }, []);
+
   const generateCaregiverCode = useCallback(async (): Promise<string> => {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-    await updateProfile({ caregiverCode: code });
+    const now = new Date().toISOString();
+    const entry: AccessLogEntry = { id: `log_${Date.now()}`, timestamp: now, action: "Caregiver code generated", actor: "owner" };
+    await updateProfile({ caregiverCode: code, caregiverCodeIssuedAt: now });
+    setProfile((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, accessLog: [...(prev.accessLog ?? []), entry].slice(-50) };
+      AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
     return code;
   }, [updateProfile]);
 
@@ -404,6 +442,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const exitCaregiverMode = useCallback(() => {
     setCaregiverSession(false);
+  }, []);
+
+  const generateDoctorCode = useCallback(async (): Promise<string> => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    const now = new Date().toISOString();
+    const entry: AccessLogEntry = { id: `log_${Date.now()}`, timestamp: now, action: "Doctor code generated", actor: "owner" };
+    await updateProfile({ doctorCode: code, doctorCodeIssuedAt: now });
+    setProfile((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, accessLog: [...(prev.accessLog ?? []), entry].slice(-50) };
+      AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+    return code;
+  }, [updateProfile]);
+
+  const enterDoctorMode = useCallback((code: string): boolean => {
+    if (!profile?.doctorCode) return false;
+    if (code.trim().toUpperCase() === profile.doctorCode.toUpperCase()) {
+      setDoctorSession(true);
+      const entry: AccessLogEntry = { id: `log_${Date.now()}`, timestamp: new Date().toISOString(), action: "Doctor accessed account", actor: "doctor" };
+      setProfile((prev) => {
+        if (!prev) return prev;
+        const updated = { ...prev, accessLog: [...(prev.accessLog ?? []), entry].slice(-50) };
+        AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(updated)).catch(() => {});
+        return updated;
+      });
+      return true;
+    }
+    return false;
+  }, [profile]);
+
+  const exitDoctorMode = useCallback(() => {
+    setDoctorSession(false);
   }, []);
 
   const isChildMode = !!(profile?.childModeEnabled || caregiverSession);
@@ -426,6 +499,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         guardianPin,
         isGuardianUnlocked,
         caregiverSession,
+        doctorSession,
         isChildMode,
         setupProfile,
         updateProfile,
@@ -448,6 +522,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         generateCaregiverCode,
         enterCaregiverMode,
         exitCaregiverMode,
+        generateDoctorCode,
+        enterDoctorMode,
+        exitDoctorMode,
+        addAccessLogEntry,
       }}
     >
       {children}

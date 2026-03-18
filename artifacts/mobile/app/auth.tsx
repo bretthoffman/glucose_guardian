@@ -27,7 +27,7 @@ export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
   const isDark = scheme !== "light";
-  const { createAccount, signIn, account, isLoading, enterCaregiverMode } = useAuth();
+  const { createAccount, signIn, account, isLoading, enterCaregiverMode, enterDoctorMode } = useAuth();
   const { resetGlucoseData } = useGlucose();
 
   const [mode, setMode] = useState<Mode>(account ? "signin" : "create");
@@ -39,6 +39,9 @@ export default function AuthScreen() {
   const [showCaregiverEntry, setShowCaregiverEntry] = useState(false);
   const [caregiverCode, setCaregiverCode] = useState("");
   const [caregiverError, setCaregiverError] = useState("");
+  const [showDoctorEntry, setShowDoctorEntry] = useState(false);
+  const [doctorCode, setDoctorCode] = useState("");
+  const [doctorError, setDoctorError] = useState("");
 
   const slideAnim = useRef(new Animated.Value(account ? 1 : 0)).current;
   const passwordRef = useRef<TextInput>(null);
@@ -304,17 +307,28 @@ export default function AuthScreen() {
         </View>
 
         <View style={[styles.caregiverSection, { borderColor: "rgba(255,255,255,0.10)" }]}>
-          {!showCaregiverEntry ? (
-            <Pressable
-              style={styles.caregiverLink}
-              onPress={() => { setShowCaregiverEntry(true); setCaregiverError(""); }}
-            >
-              <Feather name="users" size={14} color={COLORS.accent} />
-              <Text style={[styles.caregiverLinkText, { color: COLORS.accent }]}>
-                Caregiver? Enter your access code →
-              </Text>
-            </Pressable>
-          ) : (
+          {!showCaregiverEntry && !showDoctorEntry ? (
+            <View style={{ gap: 10 }}>
+              <Pressable
+                style={styles.caregiverLink}
+                onPress={() => { setShowCaregiverEntry(true); setCaregiverError(""); }}
+              >
+                <Feather name="users" size={14} color={COLORS.accent} />
+                <Text style={[styles.caregiverLinkText, { color: COLORS.accent }]}>
+                  Caregiver? Enter your access code →
+                </Text>
+              </Pressable>
+              <Pressable
+                style={styles.caregiverLink}
+                onPress={() => { setShowDoctorEntry(true); setDoctorError(""); }}
+              >
+                <Feather name="activity" size={14} color="#6366F1" />
+                <Text style={[styles.caregiverLinkText, { color: "#6366F1" }]}>
+                  Doctor / Provider? Enter your code →
+                </Text>
+              </Pressable>
+            </View>
+          ) : showCaregiverEntry ? (
             <View style={styles.caregiverForm}>
               <Text style={[styles.caregiverFormTitle, { color: "#fff" }]}>Caregiver Access</Text>
               <Text style={[styles.caregiverFormSub, { color: "rgba(255,255,255,0.55)" }]}>
@@ -353,6 +367,53 @@ export default function AuthScreen() {
                       router.replace("/(tabs)");
                     } else {
                       setCaregiverError("Invalid code. Ask the account owner to check their Caregiver Access code.");
+                    }
+                  }}
+                >
+                  <Feather name="unlock" size={15} color="#fff" />
+                  <Text style={{ color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" }}>Enter</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.caregiverForm}>
+              <Text style={[styles.caregiverFormTitle, { color: "#fff" }]}>Doctor / Provider Access</Text>
+              <Text style={[styles.caregiverFormSub, { color: "rgba(255,255,255,0.55)" }]}>
+                Enter the 6-character doctor code to access editing permissions
+              </Text>
+              <View style={[styles.caregiverInputWrap, { backgroundColor: "rgba(255,255,255,0.06)", borderColor: doctorError ? COLORS.danger : "rgba(99,102,241,0.35)" }]}>
+                <Feather name="activity" size={15} color="rgba(99,102,241,0.7)" />
+                <TextInput
+                  style={[styles.caregiverInput, { color: "#fff" }]}
+                  value={doctorCode}
+                  onChangeText={(v) => { setDoctorCode(v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6)); setDoctorError(""); }}
+                  placeholder="ABC123"
+                  placeholderTextColor="rgba(255,255,255,0.25)"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={6}
+                />
+                <Text style={[styles.caregiverCounter, { color: "rgba(255,255,255,0.35)" }]}>{doctorCode.length}/6</Text>
+              </View>
+              {doctorError ? (
+                <Text style={[styles.caregiverError, { color: COLORS.danger }]}>{doctorError}</Text>
+              ) : null}
+              <View style={styles.caregiverBtns}>
+                <Pressable
+                  style={[styles.caregiverCancelBtn, { borderColor: "rgba(255,255,255,0.15)" }]}
+                  onPress={() => { setShowDoctorEntry(false); setDoctorCode(""); setDoctorError(""); }}
+                >
+                  <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, fontFamily: "Inter_500Medium" }}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.caregiverSubmitBtn, { backgroundColor: doctorCode.length === 6 ? "#6366F1" : "rgba(255,255,255,0.12)", opacity: doctorCode.length === 6 ? 1 : 0.6 }]}
+                  disabled={doctorCode.length < 6}
+                  onPress={() => {
+                    const ok = enterDoctorMode(doctorCode);
+                    if (ok) {
+                      router.replace("/(tabs)");
+                    } else {
+                      setDoctorError("Invalid code. Ask the patient's account holder for the correct doctor code.");
                     }
                   }}
                 >

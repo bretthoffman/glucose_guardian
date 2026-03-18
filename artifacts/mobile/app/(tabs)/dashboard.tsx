@@ -154,15 +154,19 @@ export default function DashboardScreen() {
     lockGuardian,
     isChildMode,
     caregiverSession,
+    doctorSession,
     setChildMode,
     generateCaregiverCode,
     exitCaregiverMode,
+    generateDoctorCode,
+    exitDoctorMode,
+    addAccessLogEntry,
   } = useAuth();
 
   const isParent = profile?.accountRole === "parent" || profile?.accountRole === undefined;
   const isAdult = profile?.accountRole === "adult";
 
-  const isGuarded = isMinor && !isGuardianUnlocked;
+  const isGuarded = isMinor && !isGuardianUnlocked && !doctorSession;
 
   const [editing, setEditing] = useState(false);
   const [editCarbRatio, setEditCarbRatio] = useState(String(carbRatio));
@@ -173,6 +177,8 @@ export default function DashboardScreen() {
   const [editingProfile, setEditingProfile] = useState(false);
   const [editDoctorName, setEditDoctorName] = useState(profile?.doctorName ?? "");
   const [editDoctorEmail, setEditDoctorEmail] = useState(profile?.doctorEmail ?? "");
+  const [editDoctorPhone, setEditDoctorPhone] = useState(profile?.doctorPhone ?? "");
+  const [editDoctorInstitution, setEditDoctorInstitution] = useState(profile?.doctorInstitution ?? "");
   const [isSharing, setIsSharing] = useState(false);
   const [addingContact, setAddingContact] = useState(false);
   const [newContactName, setNewContactName] = useState("");
@@ -239,6 +245,10 @@ export default function DashboardScreen() {
       return;
     }
     saveFormula(cr, tg, isf);
+    if (doctorSession) {
+      addAccessLogEntry(`Doctor updated dosing: CR=${cr}g/u, Target=${tg}, ISF=${isf}`, "doctor");
+      Alert.alert("Dosing Updated", "New parameters saved and applied immediately. The account holder has been notified in their access log.", [{ text: "OK" }]);
+    }
     setEditing(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }
@@ -461,6 +471,25 @@ export default function DashboardScreen() {
             >
               <Feather name="log-out" size={13} color={COLORS.accent} />
               <Text style={[styles.modeBannerBtnText, { color: COLORS.accent }]}>Exit</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {doctorSession && (
+          <View style={[styles.modeBanner, { backgroundColor: "#6366F1" + "18", borderColor: "#6366F1" + "40" }]}>
+            <View style={styles.modeBannerLeft}>
+              <Feather name="activity" size={16} color="#6366F1" />
+              <View>
+                <Text style={[styles.modeBannerTitle, { color: "#6366F1" }]}>Doctor Mode Active</Text>
+                <Text style={[styles.modeBannerSub, { color: colors.textSecondary }]}>Full editing access to dosing parameters</Text>
+              </View>
+            </View>
+            <Pressable
+              style={[styles.modeBannerBtn, { backgroundColor: "#6366F1" + "20" }]}
+              onPress={() => { exitDoctorMode(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+            >
+              <Feather name="log-out" size={13} color="#6366F1" />
+              <Text style={[styles.modeBannerBtnText, { color: "#6366F1" }]}>Exit</Text>
             </Pressable>
           </View>
         )}
@@ -1010,18 +1039,35 @@ export default function DashboardScreen() {
         </>)}
 
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor Sharing</Text>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor & Care Team</Text>
           {!isGuarded && !isChildMode && !caregiverSession && (
             <>
               {editingProfile ? (
                 <View style={{ gap: 10 }}>
-                  <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Doctor Name</Text>
+                  <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Doctor / Practice Name</Text>
                   <TextInput
                     style={[styles.smallInput, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, color: colors.text }]}
                     value={editDoctorName}
                     onChangeText={setEditDoctorName}
                     placeholder="Dr. Smith"
                     placeholderTextColor={colors.textMuted}
+                  />
+                  <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Hospital / Institution</Text>
+                  <TextInput
+                    style={[styles.smallInput, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, color: colors.text }]}
+                    value={editDoctorInstitution}
+                    onChangeText={setEditDoctorInstitution}
+                    placeholder="MUSC, Children's Hospital..."
+                    placeholderTextColor={colors.textMuted}
+                  />
+                  <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Doctor Phone</Text>
+                  <TextInput
+                    style={[styles.smallInput, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, color: colors.text }]}
+                    value={editDoctorPhone}
+                    onChangeText={setEditDoctorPhone}
+                    placeholder="(843) 555-0100"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="phone-pad"
                   />
                   <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Doctor Email</Text>
                   <TextInput
@@ -1035,7 +1081,10 @@ export default function DashboardScreen() {
                   />
                   <Pressable
                     style={({ pressed }) => [styles.editBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
-                    onPress={async () => { await updateProfile({ doctorName: editDoctorName, doctorEmail: editDoctorEmail }); setEditingProfile(false); }}
+                    onPress={async () => {
+                      await updateProfile({ doctorName: editDoctorName, doctorEmail: editDoctorEmail, doctorPhone: editDoctorPhone, doctorInstitution: editDoctorInstitution });
+                      setEditingProfile(false);
+                    }}
                   >
                     <Feather name="check" size={15} color="#fff" />
                     <Text style={[styles.editBtnText, { color: "#fff" }]}>Save</Text>
@@ -1044,15 +1093,37 @@ export default function DashboardScreen() {
               ) : (
                 <View style={{ gap: 8 }}>
                   <Text style={[styles.doctorInfo, { color: colors.textSecondary }]}>
-                    {profile?.doctorName ? `${profile.doctorName}${profile.doctorEmail ? ` — ${profile.doctorEmail}` : ""}` : "No doctor info added yet"}
+                    {profile?.doctorName
+                      ? `${profile.doctorName}${profile.doctorInstitution ? ` · ${profile.doctorInstitution}` : ""}${profile.doctorEmail ? `\n${profile.doctorEmail}` : ""}`
+                      : "No doctor info added yet"}
                   </Text>
-                  <Pressable
-                    style={({ pressed }) => [styles.outlineBtn, { borderColor: colors.border, backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
-                    onPress={() => { setEditDoctorName(profile?.doctorName ?? ""); setEditDoctorEmail(profile?.doctorEmail ?? ""); setEditingProfile(true); }}
-                  >
-                    <Feather name="edit-2" size={14} color={colors.text} />
-                    <Text style={[styles.outlineBtnText, { color: colors.text }]}>Edit Doctor Info</Text>
-                  </Pressable>
+                  <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                    <Pressable
+                      style={({ pressed }) => [styles.outlineBtn, { flex: 1, borderColor: colors.border, backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
+                      onPress={() => {
+                        setEditDoctorName(profile?.doctorName ?? "");
+                        setEditDoctorEmail(profile?.doctorEmail ?? "");
+                        setEditDoctorPhone(profile?.doctorPhone ?? "");
+                        setEditDoctorInstitution(profile?.doctorInstitution ?? "");
+                        setEditingProfile(true);
+                      }}
+                    >
+                      <Feather name="edit-2" size={14} color={colors.text} />
+                      <Text style={[styles.outlineBtnText, { color: colors.text }]}>Edit Info</Text>
+                    </Pressable>
+                    {profile?.doctorPhone ? (
+                      <Pressable
+                        style={({ pressed }) => [styles.outlineBtn, { flex: 1, borderColor: COLORS.success + "60", backgroundColor: COLORS.success + "10", opacity: pressed ? 0.8 : 1 }]}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          Linking.openURL(`tel:${profile.doctorPhone}`);
+                        }}
+                      >
+                        <Feather name="phone" size={14} color={COLORS.success} />
+                        <Text style={[styles.outlineBtnText, { color: COLORS.success }]}>Call Doctor</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 </View>
               )}
             </>
@@ -1211,70 +1282,168 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {isParent && !isChildMode && !caregiverSession && (
+        {isParent && !isChildMode && !caregiverSession && !doctorSession && (
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.cardHeader}>
               <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.accent + "15" }]}>
-                <Feather name="users" size={20} color={COLORS.accent} />
+                <Feather name="shield" size={20} color={COLORS.accent} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Caregiver Access</Text>
+                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Access Management</Text>
                 <Text style={[styles.guardianAccessSub, { color: colors.textMuted }]}>
-                  Share a code with caregivers (nurses, grandparents)
+                  Manage who can view or edit your data
                 </Text>
               </View>
-              {profile?.caregiverCode && (isMinor ? isGuardianUnlocked : true) && (
+            </View>
+
+            <View style={[styles.accessSection, { borderColor: colors.border }]}>
+              <View style={styles.accessSectionHeader}>
+                <Feather name="users" size={14} color={COLORS.accent} />
+                <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Caregiver Code</Text>
+                <Text style={[styles.accessSectionBadge, { backgroundColor: COLORS.accent + "18", color: COLORS.accent }]}>View-only</Text>
+              </View>
+              <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
+                Share with nurses, grandparents, or school staff. They can view glucose data but cannot change settings.
+              </Text>
+              {!profile?.caregiverCode ? (
                 <Pressable
-                  style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.accent + "15", opacity: pressed ? 0.7 : 1 }]}
-                  onPress={() => {
-                    Alert.alert(
-                      "Caregiver Code",
-                      `Share this code with your caregiver:\n\n${profile.caregiverCode}\n\nThey enter it on the login screen to access a read-only view.`,
-                      [{ text: "OK" }]
-                    );
+                  style={({ pressed }) => [styles.outlineBtn, { borderColor: COLORS.accent + "50", backgroundColor: COLORS.accent + "08", opacity: pressed ? 0.8 : 1 }]}
+                  onPress={async () => {
+                    if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
+                    const code = await generateCaregiverCode();
+                    Alert.alert("Caregiver Code Created", `Your caregiver code is:\n\n${code}\n\nShare this with your caregiver. They enter it on the login screen to view your data.`, [{ text: "OK" }]);
                   }}
                 >
-                  <Feather name="share-2" size={14} color={COLORS.accent} />
-                  <Text style={[styles.guardianBtnText, { color: COLORS.accent }]}>Share</Text>
+                  <Feather name="plus" size={14} color={COLORS.accent} />
+                  <Text style={[styles.outlineBtnText, { color: COLORS.accent }]}>Generate Caregiver Code</Text>
                 </Pressable>
+              ) : (
+                <View style={[styles.caregiverCodeDisplay, { backgroundColor: COLORS.accent + "0A", borderColor: COLORS.accent + "30" }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.caregiverCodeLabel, { color: colors.textMuted }]}>Active code</Text>
+                    <Text style={[styles.caregiverCodeValue, { color: colors.text }]}>
+                      {isMinor && !isGuardianUnlocked ? "••••••" : profile.caregiverCode}
+                    </Text>
+                    {profile.caregiverCodeIssuedAt ? (
+                      <Text style={[styles.accessTimestamp, { color: colors.textMuted }]}>
+                        Issued {new Date(profile.caregiverCodeIssuedAt).toLocaleDateString()}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Pressable
+                      style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.accent + "15", opacity: pressed ? 0.7 : 1 }]}
+                      onPress={() => {
+                        if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
+                        Alert.alert("Caregiver Code", `Share this code with your caregiver:\n\n${profile.caregiverCode}\n\nThey enter it on the login screen.`, [{ text: "OK" }]);
+                      }}
+                    >
+                      <Feather name="share-2" size={14} color={COLORS.accent} />
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "12", opacity: pressed ? 0.7 : 1 }]}
+                      onPress={() => {
+                        if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
+                        Alert.alert("Reset Code?", "This will invalidate the old code. Caregivers with the old code will lose access.", [
+                          { text: "Cancel", style: "cancel" },
+                          { text: "Reset", style: "destructive", onPress: async () => { const code = await generateCaregiverCode(); Alert.alert("New Code", `New caregiver code:\n\n${code}`, [{ text: "OK" }]); } },
+                        ]);
+                      }}
+                    >
+                      <Feather name="refresh-cw" size={14} color={COLORS.danger} />
+                    </Pressable>
+                  </View>
+                </View>
               )}
             </View>
-            {!profile?.caregiverCode ? (
-              <Pressable
-                style={({ pressed }) => [styles.outlineBtn, { borderColor: COLORS.accent + "50", backgroundColor: COLORS.accent + "08", opacity: pressed ? 0.8 : 1 }]}
-                onPress={async () => {
-                  if (isMinor && !isGuardianUnlocked) {
-                    setShowPinModal(true);
-                    return;
-                  }
-                  const code = await generateCaregiverCode();
-                  Alert.alert("Caregiver Code Created", `Your caregiver code is:\n\n${code}\n\nShare this with your caregiver. They'll enter it on the login screen to view your data.`, [{ text: "OK" }]);
-                }}
-              >
-                <Feather name="plus" size={14} color={COLORS.accent} />
-                <Text style={[styles.outlineBtnText, { color: COLORS.accent }]}>Generate Caregiver Code</Text>
-              </Pressable>
-            ) : (
-              <View style={[styles.caregiverCodeDisplay, { backgroundColor: COLORS.accent + "0A", borderColor: COLORS.accent + "30" }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.caregiverCodeLabel, { color: colors.textMuted }]}>Your caregiver code</Text>
-                  <Text style={[styles.caregiverCodeValue, { color: colors.text }]}>
-                    {isMinor && !isGuardianUnlocked ? "••••••" : profile.caregiverCode}
-                  </Text>
-                </View>
+
+            <View style={[styles.accessSection, { borderColor: colors.border }]}>
+              <View style={styles.accessSectionHeader}>
+                <Feather name="activity" size={14} color="#6366F1" />
+                <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Doctor Code</Text>
+                <Text style={[styles.accessSectionBadge, { backgroundColor: "#6366F1" + "18", color: "#6366F1" }]}>Full edit access</Text>
+              </View>
+              <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
+                Share with your verified doctor or endocrinologist. They can update carb ratios and correction factors.
+              </Text>
+              {!profile?.doctorCode ? (
                 <Pressable
-                  style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "12", opacity: pressed ? 0.7 : 1 }]}
-                  onPress={() => {
+                  style={({ pressed }) => [styles.outlineBtn, { borderColor: "#6366F1" + "50", backgroundColor: "#6366F1" + "08", opacity: pressed ? 0.8 : 1 }]}
+                  onPress={async () => {
                     if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
-                    Alert.alert("Reset Code?", "This will invalidate the old code. Caregivers with the old code will no longer have access.", [
-                      { text: "Cancel", style: "cancel" },
-                      { text: "Reset", style: "destructive", onPress: async () => { await generateCaregiverCode(); } },
-                    ]);
+                    const code = await generateDoctorCode();
+                    Alert.alert("Doctor Code Created", `Your doctor code is:\n\n${code}\n\nShare this ONLY with your verified doctor. They enter it on the login screen to access editing rights.`, [{ text: "OK" }]);
                   }}
                 >
-                  <Feather name="refresh-cw" size={14} color={COLORS.danger} />
-                  <Text style={[styles.guardianBtnText, { color: COLORS.danger }]}>Reset</Text>
+                  <Feather name="plus" size={14} color="#6366F1" />
+                  <Text style={[styles.outlineBtnText, { color: "#6366F1" }]}>Generate Doctor Code</Text>
                 </Pressable>
+              ) : (
+                <View style={[styles.caregiverCodeDisplay, { backgroundColor: "#6366F1" + "0A", borderColor: "#6366F1" + "30" }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.caregiverCodeLabel, { color: colors.textMuted }]}>Active code</Text>
+                    <Text style={[styles.caregiverCodeValue, { color: colors.text }]}>
+                      {isMinor && !isGuardianUnlocked ? "••••••" : profile.doctorCode}
+                    </Text>
+                    {profile.doctorCodeIssuedAt ? (
+                      <Text style={[styles.accessTimestamp, { color: colors.textMuted }]}>
+                        Issued {new Date(profile.doctorCodeIssuedAt).toLocaleDateString()}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Pressable
+                      style={({ pressed }) => [styles.guardianBtn, { backgroundColor: "#6366F1" + "15", opacity: pressed ? 0.7 : 1 }]}
+                      onPress={() => {
+                        if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
+                        Alert.alert("Doctor Code", `Share this ONLY with your verified doctor:\n\n${profile.doctorCode}\n\nThey enter it on the login screen.`, [{ text: "OK" }]);
+                      }}
+                    >
+                      <Feather name="share-2" size={14} color="#6366F1" />
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "12", opacity: pressed ? 0.7 : 1 }]}
+                      onPress={() => {
+                        if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
+                        Alert.alert("Revoke Doctor Code?", "This will invalidate the current code. Your doctor will lose editing access until you share a new code.", [
+                          { text: "Cancel", style: "cancel" },
+                          { text: "Revoke", style: "destructive", onPress: async () => { const code = await generateDoctorCode(); Alert.alert("New Doctor Code", `New code:\n\n${code}`, [{ text: "OK" }]); } },
+                        ]);
+                      }}
+                    >
+                      <Feather name="refresh-cw" size={14} color={COLORS.danger} />
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {(profile?.accessLog ?? []).length > 0 && (
+              <View style={[styles.accessSection, { borderColor: colors.border }]}>
+                <View style={styles.accessSectionHeader}>
+                  <Feather name="clock" size={14} color={colors.textMuted} />
+                  <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Access Log</Text>
+                </View>
+                {[...(profile?.accessLog ?? [])].reverse().slice(0, 8).map((entry) => (
+                  <View key={entry.id} style={[styles.accessLogRow, { borderColor: colors.border }]}>
+                    <View style={[styles.accessLogDot, {
+                      backgroundColor: entry.actor === "doctor" ? "#6366F1" : entry.actor === "caregiver" ? COLORS.accent : colors.textMuted
+                    }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.accessLogAction, { color: colors.text }]}>{entry.action}</Text>
+                      <Text style={[styles.accessLogTime, { color: colors.textMuted }]}>
+                        {new Date(entry.timestamp).toLocaleString()}
+                      </Text>
+                    </View>
+                    <View style={[styles.accessLogActorBadge, {
+                      backgroundColor: entry.actor === "doctor" ? "#6366F1" + "18" : entry.actor === "caregiver" ? COLORS.accent + "18" : colors.backgroundTertiary
+                    }]}>
+                      <Text style={[styles.accessLogActorText, {
+                        color: entry.actor === "doctor" ? "#6366F1" : entry.actor === "caregiver" ? COLORS.accent : colors.textMuted
+                      }]}>{entry.actor}</Text>
+                    </View>
+                  </View>
+                ))}
               </View>
             )}
           </View>
@@ -1603,6 +1772,20 @@ const styles = StyleSheet.create({
   caregiverCodeDisplay: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 12, borderWidth: 1, gap: 12 },
   caregiverCodeLabel: { fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 },
   caregiverCodeValue: { fontSize: 22, fontFamily: "Inter_700Bold", letterSpacing: 3 },
+  accessTimestamp: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 3 },
+
+  accessSection: { borderTopWidth: 1, paddingTop: 14, gap: 10 },
+  accessSectionHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  accessSectionTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1 },
+  accessSectionBadge: { fontSize: 10, fontFamily: "Inter_700Bold", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: "hidden", textTransform: "uppercase", letterSpacing: 0.4 },
+  accessSectionDesc: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+
+  accessLogRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 8, borderBottomWidth: 1 },
+  accessLogDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5, flexShrink: 0 },
+  accessLogAction: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1, lineHeight: 18 },
+  accessLogTime: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
+  accessLogActorBadge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, alignSelf: "flex-start" },
+  accessLogActorText: { fontSize: 10, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 0.4 },
 
   notifPermRow: { borderTopWidth: 1, paddingTop: 14, gap: 8 },
   notifPermStatus: { flexDirection: "row", alignItems: "center", gap: 8 },
