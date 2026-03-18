@@ -6,6 +6,7 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -19,6 +20,7 @@ import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { getEffectiveTrend } from "@/utils/trend";
+import DoctorMessaging from "@/components/DoctorMessaging";
 
 const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
   ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
@@ -183,7 +185,7 @@ export default function ChatScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
-  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession } = useAuth();
+  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession, doctorSession, doctorMessages, markDoctorMessagesRead } = useAuth();
   const { prompt, fromParent } = useLocalSearchParams<{ prompt?: string; fromParent?: string }>();
   const promptSentRef = useRef<string | null>(null);
 
@@ -240,6 +242,7 @@ export default function ChatScreen() {
     { id: "0", role: "assistant", text: buildGreeting(speakingToParent), timestamp: new Date() },
   ]);
 
+  const [showDoctorInbox, setShowDoctorInbox] = useState(false);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -355,6 +358,17 @@ export default function ChatScreen() {
     }
   }
 
+  if (doctorSession) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background }]}>
+        <View style={{ height: topPadding, backgroundColor: colors.background }} />
+        <DoctorMessaging colors={colors} isDoctor={true} />
+      </View>
+    );
+  }
+
+  const unreadDoctorCount = doctorMessages.filter((m) => m.sender === "doctor" && !m.read).length;
+
   return (
     <KeyboardAvoidingView
       style={[styles.root, { backgroundColor: colors.background }]}
@@ -386,6 +400,44 @@ export default function ChatScreen() {
           </View>
         )}
       </View>
+
+      {/* Doctor inbox banner */}
+      {doctorMessages.length > 0 && !doctorSession && (
+        <Pressable
+          style={[styles.doctorBanner, { backgroundColor: "#6366F1" + "12", borderColor: "#6366F1" + "30" }]}
+          onPress={() => { setShowDoctorInbox(true); markDoctorMessagesRead(); }}
+        >
+          <Feather name="message-circle" size={14} color="#6366F1" />
+          <Text style={[styles.doctorBannerText, { color: "#6366F1" }]}>
+            {unreadDoctorCount > 0 ? `${unreadDoctorCount} new message${unreadDoctorCount > 1 ? "s" : ""} from your doctor` : "Messages from your doctor"}
+          </Text>
+          {unreadDoctorCount > 0 && (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>{unreadDoctorCount}</Text>
+            </View>
+          )}
+          <Feather name="chevron-right" size={14} color="#6366F1" />
+        </Pressable>
+      )}
+
+      {/* Doctor inbox modal */}
+      <Modal
+        visible={showDoctorInbox}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowDoctorInbox(false)}
+      >
+        <View style={[styles.root, { backgroundColor: colors.background }]}>
+          <View style={[styles.modalTopBar, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+            <View style={{ width: 44 }} />
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Doctor Messages</Text>
+            <Pressable style={styles.modalCloseBtn} onPress={() => setShowDoctorInbox(false)}>
+              <Feather name="x" size={20} color={colors.textSecondary} />
+            </Pressable>
+          </View>
+          <DoctorMessaging colors={colors} isDoctor={false} />
+        </View>
+      </Modal>
 
       <FlatList
         ref={flatListRef}
@@ -601,4 +653,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
+  doctorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  doctorBannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
+  unreadBadge: {
+    backgroundColor: "#6366F1",
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  unreadBadgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
+
+  modalTopBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  modalTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  modalCloseBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
 });

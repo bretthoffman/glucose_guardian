@@ -16,6 +16,14 @@ export interface AccessLogEntry {
   actor: "owner" | "caregiver" | "doctor";
 }
 
+export interface DoctorMessage {
+  id: string;
+  timestamp: string;
+  text: string;
+  sender: "doctor" | "guardian";
+  read: boolean;
+}
+
 export interface UserProfile {
   childName: string;
   parentName?: string;
@@ -128,6 +136,9 @@ export interface AuthContextType {
   enterDoctorMode: (code: string) => boolean;
   exitDoctorMode: () => void;
   addAccessLogEntry: (action: string, actor?: "owner" | "caregiver" | "doctor") => Promise<void>;
+  doctorMessages: DoctorMessage[];
+  addDoctorMessage: (text: string, sender: "doctor" | "guardian") => void;
+  markDoctorMessagesRead: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -141,6 +152,7 @@ const ALERT_PREFS_KEY = "@gluco_guardian_alert_prefs";
 const GUARDIAN_PIN_KEY = "@gluco_guardian_pin";
 const ACCOUNT_KEY = "@gluco_guardian_account";
 const SESSION_KEY = "@gluco_guardian_session";
+const DOCTOR_MESSAGES_KEY = "@gluco_guardian_doctor_messages";
 
 const DEFAULT_ALERT_PREFS: AlertPreferences = {
   notificationsEnabled: false,
@@ -187,6 +199,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isGuardianUnlocked, setIsGuardianUnlocked] = useState(false);
   const [caregiverSession, setCaregiverSession] = useState(false);
   const [doctorSession, setDoctorSession] = useState(false);
+  const [doctorMessages, setDoctorMessages] = useState<DoctorMessage[]>([]);
 
   useEffect(() => {
     async function load() {
@@ -201,6 +214,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           storedPin,
           storedAccount,
           storedSession,
+          storedDoctorMessages,
         ] = await Promise.all([
           AsyncStorage.getItem(PROFILE_KEY),
           AsyncStorage.getItem(CGM_KEY),
@@ -211,6 +225,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(GUARDIAN_PIN_KEY),
           AsyncStorage.getItem(ACCOUNT_KEY),
           AsyncStorage.getItem(SESSION_KEY),
+          AsyncStorage.getItem(DOCTOR_MESSAGES_KEY),
         ]);
         if (storedProfile) setProfile(JSON.parse(storedProfile));
         if (storedCGM) setCGMConnectionState(JSON.parse(storedCGM));
@@ -219,6 +234,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (storedContacts) setEmergencyContacts(JSON.parse(storedContacts));
         if (storedAlertPrefs) setAlertPrefsState({ ...DEFAULT_ALERT_PREFS, ...JSON.parse(storedAlertPrefs) });
         if (storedPin) setGuardianPinState(storedPin);
+        if (storedDoctorMessages) setDoctorMessages(JSON.parse(storedDoctorMessages));
         if (storedAccount) {
           const acc = JSON.parse(storedAccount) as UserAccount;
           setAccount(acc);
@@ -480,6 +496,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setDoctorSession(false);
   }, []);
 
+  const addDoctorMessage = useCallback((text: string, sender: "doctor" | "guardian") => {
+    const msg: DoctorMessage = {
+      id: `dm_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      text,
+      sender,
+      read: sender === "guardian",
+    };
+    setDoctorMessages((prev) => {
+      const updated = [...prev, msg];
+      AsyncStorage.setItem(DOCTOR_MESSAGES_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }, []);
+
+  const markDoctorMessagesRead = useCallback(() => {
+    setDoctorMessages((prev) => {
+      const updated = prev.map((m) => ({ ...m, read: true }));
+      AsyncStorage.setItem(DOCTOR_MESSAGES_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }, []);
+
   const isChildMode = !!(profile?.childModeEnabled || caregiverSession);
 
   return (
@@ -527,6 +566,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         enterDoctorMode,
         exitDoctorMode,
         addAccessLogEntry,
+        doctorMessages,
+        addDoctorMessage,
+        markDoctorMessagesRead,
       }}
     >
       {children}

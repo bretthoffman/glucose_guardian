@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
+import * as Print from "expo-print";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -188,6 +189,11 @@ export default function DashboardScreen() {
   const [editDoctorPhone, setEditDoctorPhone] = useState(profile?.doctorPhone ?? "");
   const [editDoctorInstitution, setEditDoctorInstitution] = useState(profile?.doctorInstitution ?? "");
   const [isSharing, setIsSharing] = useState(false);
+  const [dlBSLogs, setDlBSLogs] = useState(true);
+  const [dlFoodLogs, setDlFoodLogs] = useState(true);
+  const [dlInsulinLogs, setDlInsulinLogs] = useState(true);
+  const [dlA1C, setDlA1C] = useState(true);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [addingContact, setAddingContact] = useState(false);
   const [newContactName, setNewContactName] = useState("");
   const [newContactPhone, setNewContactPhone] = useState("");
@@ -406,6 +412,144 @@ export default function DashboardScreen() {
     } finally {
       setIsSharing(false);
     }
+  }
+
+  function a1cForMonths(months: number): string | null {
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - months);
+    const filtered = history.filter((r) => new Date(r.timestamp) >= cutoff);
+    if (filtered.length < 3) return null;
+    const avg = filtered.reduce((s, r) => s + r.glucose, 0) / filtered.length;
+    return ((avg + 46.7) / 28.7).toFixed(1);
+  }
+
+  async function downloadSelectedLogs() {
+    setIsSharing(true);
+    try {
+      const now = new Date();
+      const name = profile?.childName ?? "Patient";
+      let lines: string[] = [`GLUCOSE GUARDIAN — SELECTED LOG EXPORT`, `Patient: ${name}`, `Generated: ${now.toLocaleString()}`, ""];
+      if (dlBSLogs) {
+        lines.push("=== BLOOD SUGAR LOGS ===");
+        if (history.length === 0) { lines.push("No readings recorded."); }
+        else { [...history].reverse().forEach((r) => { lines.push(`${new Date(r.timestamp).toLocaleString()} — ${r.glucose} mg/dL${r.anomaly.warning ? " ⚠" : ""}`); }); }
+        lines.push("");
+      }
+      if (dlFoodLogs) {
+        lines.push("=== FOOD LOGS ===");
+        if (foodLog.length === 0) { lines.push("No food entries."); }
+        else { foodLog.forEach((f) => { lines.push(`${new Date(f.timestamp).toLocaleString()} — ${f.foodName}: ${f.estimatedCarbs}g carbs → ${f.insulinUnits}u${f.fromPhoto ? " [AI Photo]" : ""}`); }); }
+        lines.push("");
+      }
+      if (dlInsulinLogs) {
+        lines.push("=== INSULIN LOGS ===");
+        if (insulinLog.length === 0) { lines.push("No insulin logs."); }
+        else { insulinLog.forEach((e) => { lines.push(`${new Date(e.timestamp).toLocaleString()} — ${e.units}u ${e.type}${e.note ? ` · ${e.note}` : ""}`); }); }
+        lines.push("");
+      }
+      if (dlA1C) {
+        lines.push("=== A1C ESTIMATES ===");
+        ([3, 6, 9, 12] as const).forEach((m) => {
+          const val = a1cForMonths(m);
+          lines.push(`${m}-Month A1C Estimate: ${val != null ? `${val}%` : "Not enough data"}`);
+        });
+      }
+      const content = lines.join("\n");
+      const fileName = `gg_logs_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}.txt`;
+      const fileUri = (FileSystem.documentDirectory ?? "") + fileName;
+      await FileSystem.writeAsStringAsync(fileUri, content, { encoding: "utf8" as any });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) await Sharing.shareAsync(fileUri, { mimeType: "text/plain", dialogTitle: `${name}'s Logs` });
+      else Alert.alert("Export Ready", `Saved as ${fileName}`);
+    } catch { Alert.alert("Error", "Could not export logs."); }
+    finally { setIsSharing(false); }
+  }
+
+  async function downloadFullPDF() {
+    setIsGeneratingPDF(true);
+    try {
+      const now = new Date();
+      const name = profile?.childName ?? "Patient";
+      const age = ageYears != null ? `${ageYears} yrs old` : "";
+      const diabetesType = profile?.diabetesType === "type1" ? "Type 1" : profile?.diabetesType === "type2" ? "Type 2" : "Diabetes";
+      const a1cRows = ([3, 6, 9, 12] as const).map((m) => {
+        const val = a1cForMonths(m);
+        const color = val == null ? "#888" : parseFloat(val) < 7 ? "#22c55e" : parseFloat(val) < 8 ? "#f59e0b" : "#ef4444";
+        return `<tr><td>${m}-Month</td><td style="color:${color};font-weight:700">${val != null ? `${val}%` : "—"}</td><td>${val ? (parseFloat(val) < 7 ? "Good" : parseFloat(val) < 8 ? "Needs Attention" : "High Risk") : "Insufficient data"}</td></tr>`;
+      }).join("");
+      const recentBSRows = [...history].reverse().slice(0, 50).map((r) => {
+        const color = r.glucose < 70 ? "#ef4444" : r.glucose < 80 || r.glucose > 180 ? "#f59e0b" : "#22c55e";
+        return `<tr><td>${new Date(r.timestamp).toLocaleString()}</td><td style="color:${color};font-weight:600">${r.glucose} mg/dL</td><td>${r.anomaly.warning ? "⚠ Alert" : "—"}</td></tr>`;
+      }).join("");
+      const foodRows = foodLog.slice(0, 30).map((f) => `<tr><td>${new Date(f.timestamp).toLocaleString()}</td><td>${f.foodName}</td><td>${f.estimatedCarbs}g</td><td>${f.insulinUnits}u</td><td>${f.fromPhoto ? "📸 AI" : "Manual"}</td></tr>`).join("");
+      const insulinRows = insulinLog.slice(0, 30).map((e) => `<tr><td>${new Date(e.timestamp).toLocaleString()}</td><td>${e.units}u</td><td style="text-transform:capitalize">${e.type}</td><td>${e.note ?? "—"}</td></tr>`).join("");
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+        body{font-family:'Helvetica Neue',Arial,sans-serif;margin:0;padding:24px;color:#111;background:#fff;font-size:13px}
+        h1{font-size:22px;color:#5B5FDE;margin:0 0 4px}
+        .subtitle{color:#666;font-size:14px;margin-bottom:20px}
+        .header-bar{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #5B5FDE;padding-bottom:14px;margin-bottom:20px}
+        .patient-info p{margin:3px 0;font-size:13px}
+        .section{margin-bottom:24px}
+        h2{font-size:15px;color:#5B5FDE;border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin:0 0 10px}
+        table{width:100%;border-collapse:collapse;font-size:12px}
+        th{background:#f3f4f6;text-align:left;padding:7px 10px;color:#555;font-weight:600;border-bottom:1px solid #e5e7eb}
+        td{padding:6px 10px;border-bottom:1px solid #f0f0f0}
+        tr:last-child td{border-bottom:none}
+        .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+        .stat-box{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center}
+        .stat-value{font-size:20px;font-weight:700;color:#5B5FDE}
+        .stat-label{font-size:11px;color:#888;margin-top:3px}
+        .footer{margin-top:30px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:11px;color:#999;text-align:center}
+        .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+      </style></head><body>
+        <div class="header-bar">
+          <div>
+            <h1>Glucose Guardian</h1>
+            <div class="subtitle">Clinical Diabetes Report</div>
+          </div>
+          <div style="text-align:right;font-size:12px;color:#666">
+            <div>Generated: ${now.toLocaleDateString()} ${now.toLocaleTimeString()}</div>
+            ${profile?.doctorName ? `<div>Prepared for: ${profile.doctorName}</div>` : ""}
+          </div>
+        </div>
+        <div class="patient-info" style="margin-bottom:20px">
+          <p><strong>Patient:</strong> ${name}${age ? `  ·  ${age}` : ""}  ·  ${diabetesType}</p>
+          <p><strong>Carb Ratio:</strong> 1:${carbRatio} g/unit  ·  <strong>Target BG:</strong> ${targetGlucose} mg/dL  ·  <strong>ISF:</strong> 1:${correctionFactor}</p>
+          ${profile?.doctorName ? `<p><strong>Doctor:</strong> ${profile.doctorName}${profile.doctorInstitution ? ` — ${profile.doctorInstitution}` : ""}</p>` : ""}
+        </div>
+        <div class="stats-grid">
+          <div class="stat-box"><div class="stat-value">${history.length}</div><div class="stat-label">Total Readings</div></div>
+          <div class="stat-box"><div class="stat-value" style="color:${avgGlucose < 70 ? "#ef4444" : avgGlucose > 180 ? "#f59e0b" : "#22c55e"}">${avgGlucose}</div><div class="stat-label">Avg Glucose (mg/dL)</div></div>
+          <div class="stat-box"><div class="stat-value" style="color:${inRangePercent >= 70 ? "#22c55e" : "#f59e0b"}">${inRangePercent}%</div><div class="stat-label">Time In Range</div></div>
+          <div class="stat-box"><div class="stat-value">${foodLog.length}</div><div class="stat-label">Meals Logged</div></div>
+        </div>
+        <div class="section">
+          <h2>A1C Estimates</h2>
+          <table><thead><tr><th>Period</th><th>Est. A1C</th><th>Status</th></tr></thead><tbody>${a1cRows}</tbody></table>
+        </div>
+        ${history.length > 0 ? `<div class="section">
+          <h2>Blood Sugar Readings (Recent 50)</h2>
+          <table><thead><tr><th>Date & Time</th><th>Glucose</th><th>Flag</th></tr></thead><tbody>${recentBSRows}</tbody></table>
+        </div>` : ""}
+        ${foodLog.length > 0 ? `<div class="section">
+          <h2>Food Diary (Recent 30)</h2>
+          <table><thead><tr><th>Date & Time</th><th>Food</th><th>Carbs</th><th>Insulin</th><th>Source</th></tr></thead><tbody>${foodRows}</tbody></table>
+        </div>` : ""}
+        ${insulinLog.length > 0 ? `<div class="section">
+          <h2>Insulin Log (Recent 30)</h2>
+          <table><thead><tr><th>Date & Time</th><th>Dose</th><th>Type</th><th>Note</th></tr></thead><tbody>${insulinRows}</tbody></table>
+        </div>` : ""}
+        <div class="footer">Glucose Guardian Clinical Report · Generated ${now.toLocaleDateString()} · For informational purposes only — not a substitute for clinical judgment.</div>
+      </body></html>`;
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+      const pdfName = `gg_report_${name.replace(/\s+/g, "_")}_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}.pdf`;
+      const dest = (FileSystem.documentDirectory ?? "") + pdfName;
+      await FileSystem.copyAsync({ from: uri, to: dest });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) await Sharing.shareAsync(dest, { mimeType: "application/pdf", dialogTitle: `${name}'s Full Report` });
+      else Alert.alert("PDF Ready", `Saved as ${pdfName}`);
+    } catch (e) { Alert.alert("Error", "Could not generate PDF report."); }
+    finally { setIsGeneratingPDF(false); }
   }
 
   function handlePinDigit(digit: string) {
@@ -1091,6 +1235,56 @@ export default function DashboardScreen() {
         </View>
         </>)}
 
+        {doctorSession && (
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>Download Patient Logs</Text>
+            <Text style={[styles.shareNote, { color: colors.textSecondary, marginBottom: 12 }]}>
+              Select which records to include, then download as a text export or a full formatted PDF report.
+            </Text>
+
+            {[
+              { label: "Blood Sugar Readings", icon: "activity", value: dlBSLogs, set: setDlBSLogs },
+              { label: "Food & Meal Diary", icon: "coffee", value: dlFoodLogs, set: setDlFoodLogs },
+              { label: "Insulin Dose Log", icon: "droplet", value: dlInsulinLogs, set: setDlInsulinLogs },
+              { label: "A1C Estimates (3 / 6 / 9 / 12 mo)", icon: "bar-chart-2", value: dlA1C, set: setDlA1C },
+            ].map((item) => (
+              <Pressable
+                key={item.label}
+                style={[styles.dlRow, { borderColor: colors.border }]}
+                onPress={() => { item.set(!item.value); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              >
+                <Feather name={item.icon as any} size={16} color={item.value ? COLORS.primary : colors.textMuted} />
+                <Text style={[styles.dlRowLabel, { color: item.value ? colors.text : colors.textSecondary }]}>{item.label}</Text>
+                <View style={[styles.dlCheckbox, { borderColor: item.value ? COLORS.primary : colors.border, backgroundColor: item.value ? COLORS.primary : "transparent" }]}>
+                  {item.value && <Feather name="check" size={11} color="#fff" />}
+                </View>
+              </Pressable>
+            ))}
+
+            <Pressable
+              style={({ pressed }) => [styles.shareBtn, { backgroundColor: colors.backgroundTertiary, borderWidth: 1, borderColor: colors.border, opacity: pressed || isSharing ? 0.8 : 1, marginTop: 14 }]}
+              onPress={downloadSelectedLogs}
+              disabled={isSharing || isGeneratingPDF || (!dlBSLogs && !dlFoodLogs && !dlInsulinLogs && !dlA1C)}
+            >
+              <Feather name="download" size={16} color={colors.text} />
+              <Text style={[styles.shareBtnText, { color: colors.text }]}>{isSharing ? "Exporting…" : "Export Selected (.txt)"}</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.shareBtn, { backgroundColor: "#6366F1", opacity: pressed || isGeneratingPDF ? 0.85 : 1 }]}
+              onPress={downloadFullPDF}
+              disabled={isSharing || isGeneratingPDF}
+            >
+              <Feather name="file-text" size={16} color="#fff" />
+              <Text style={styles.shareBtnText}>{isGeneratingPDF ? "Building PDF…" : "Download Full PDF Report"}</Text>
+            </Pressable>
+            <Text style={[styles.shareNote, { color: colors.textMuted }]}>
+              Full PDF includes all logs, A1C estimates, dosing settings, and patient summary.
+            </Text>
+          </View>
+        )}
+
+        {!doctorSession && (
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor & Care Team</Text>
           {!isGuarded && !isChildMode && !caregiverSession && (
@@ -1195,6 +1389,7 @@ export default function DashboardScreen() {
             </Text>
           )}
         </View>
+        )}
 
         {combinedEntries.length > 0 && !(isChildMode && !caregiverSession) && (
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -1801,6 +1996,9 @@ const styles = StyleSheet.create({
   shareBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 14, borderRadius: 14 },
   shareBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
   shareNote: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 16 },
+  dlRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1 },
+  dlRowLabel: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium" },
+  dlCheckbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   doctorInfo: { fontSize: 14, fontFamily: "Inter_400Regular" },
 
   foodLogCount: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: -8 },
