@@ -580,7 +580,7 @@ export default function InsulinScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { targetGlucose, history } = useGlucose();
-  const { isMinor } = useAuth();
+  const { isMinor, alertPrefs } = useAuth();
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -638,7 +638,12 @@ export default function InsulinScreen() {
             <Text style={[styles.latestTime, { color: colors.textSecondary }]}>
               {new Date(latest.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </Text>
-            <TrendArrow trend={detectTrend(history)} />
+            <TrendArrow
+                      trend={detectTrend(history)}
+                      glucoseValue={latest.glucose}
+                      lowThreshold={alertPrefs.lowThreshold}
+                      highThreshold={alertPrefs.highThreshold}
+                    />
             <Text style={[styles.rangeCount, { color: colors.textMuted }]}>
               {filteredReadings.length} reading{filteredReadings.length !== 1 ? "s" : ""} · last 24 hours
             </Text>
@@ -694,13 +699,28 @@ export default function InsulinScreen() {
   );
 }
 
-function TrendArrow({ trend }: { trend: string }) {
+function TrendArrow({
+  trend,
+  glucoseValue,
+  lowThreshold = LOW_THRESH,
+  highThreshold = HIGH_THRESH,
+}: {
+  trend: string;
+  glucoseValue?: number;
+  lowThreshold?: number;
+  highThreshold?: number;
+}) {
+  const stableColor =
+    glucoseValue !== undefined
+      ? glucoseColor(glucoseValue, lowThreshold, highThreshold)
+      : COLORS.success;
+
   const map: Record<string, { icon: string; color: string; label: string }> = {
-    rapidly_rising: { icon: "↑↑", color: COLORS.danger, label: "Rising fast" },
-    rising: { icon: "↑", color: COLORS.warning, label: "Rising" },
-    stable: { icon: "→", color: COLORS.success, label: "Stable" },
-    falling: { icon: "↓", color: COLORS.accent, label: "Falling" },
-    rapidly_falling: { icon: "↓↓", color: COLORS.danger, label: "Falling fast" },
+    rapidly_rising:  { icon: "↑↑", color: COLORS.danger,  label: "Rising fast"  },
+    rising:          { icon: "↑",  color: COLORS.warning, label: "Rising"       },
+    stable:          { icon: "→",  color: stableColor,    label: "Stable"       },
+    falling:         { icon: "↓",  color: COLORS.warning, label: "Falling"      },
+    rapidly_falling: { icon: "↓↓", color: COLORS.danger,  label: "Falling fast" },
   };
   const info = map[trend] ?? map.stable;
   return (
