@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import React, { useEffect, useRef, useState } from "react";
 import {
   FlatList,
@@ -53,6 +54,7 @@ interface Props {
 
 export default function DoctorMessaging({ colors, isDoctor }: Props) {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const { doctorMessages, addDoctorMessage, markDoctorMessagesRead, profile } = useAuth();
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
@@ -76,13 +78,11 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
 
   const groups = groupMessagesByDate(doctorMessages);
 
-  const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
-
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+      keyboardVerticalOffset={tabBarHeight}
     >
       <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <View style={[styles.headerIcon, { backgroundColor: "#6366F1" + "20" }]}>
@@ -104,7 +104,7 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
         ref={flatListRef}
         data={groups}
         keyExtractor={(g) => g.date}
-        contentContainerStyle={[styles.listContent, { paddingBottom: bottomPadding + 100 }]}
+        contentContainerStyle={[styles.listContent, { paddingBottom: 24 }]}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
         ListEmptyComponent={
@@ -175,7 +175,7 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
           {
             backgroundColor: colors.card,
             borderTopColor: colors.border,
-            paddingBottom: bottomPadding + 8,
+            paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
           },
         ]}
       >

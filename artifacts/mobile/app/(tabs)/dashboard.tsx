@@ -1956,7 +1956,7 @@ const styles = StyleSheet.create({
   pageHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 },
   pageTitle: { fontSize: 28, fontFamily: "Inter_700Bold", marginBottom: 4 },
   subtitle: { fontSize: 15, fontFamily: "Inter_400Regular" },
-  patientCard: { flexDirection: "row", borderRadius: 16, borderWidth: 1, padding: 14, gap: 14, marginBottom: 4 },
+  patientCard: { flexDirection: "row", borderRadius: 16, borderWidth: 1, padding: 14, gap: 14, marginTop: 12, marginBottom: 4 },
   patientCardLeft: { justifyContent: "flex-start" },
   patientAvatar: { width: 52, height: 52, borderRadius: 26, overflow: "hidden" },
   patientCardBody: { flex: 1, gap: 6 },
