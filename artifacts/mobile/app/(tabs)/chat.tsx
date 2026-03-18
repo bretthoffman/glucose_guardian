@@ -183,7 +183,7 @@ export default function ChatScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
-  const { profile, ageYears, alertPrefs, isChildMode } = useAuth();
+  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession } = useAuth();
   const { prompt, fromParent } = useLocalSearchParams<{ prompt?: string; fromParent?: string }>();
   const promptSentRef = useRef<string | null>(null);
 
@@ -191,6 +191,7 @@ export default function ChatScreen() {
   const parentName = profile?.parentName?.trim() || null;
   const speakingToParent =
     fromParent === "true" ||
+    caregiverSession ||
     (profile?.accountRole === "parent" && !isChildMode);
 
   const trend = getEffectiveTrend(history);
@@ -207,7 +208,7 @@ export default function ChatScreen() {
     const inRange = glucose != null && glucose >= low && glucose <= high;
     const trendingDown = trend.label.toLowerCase().includes("fall");
     if (speakingAsParent) {
-      const greeting = parentName ? `Hi ${parentName}!` : "Hi there!";
+      const greeting = caregiverSession ? "Hi, Caregiver!" : parentName ? `Hi ${parentName}!` : "Hi there!";
       return glucose != null
         ? `${greeting} ${name}'s glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking good." : glucose < 70 ? "that's a low, act quickly." : "worth keeping an eye on."} How can I help you manage ${name}'s care today?`
         : `${greeting} I'm Glucose Guardian — ${name}'s AI diabetes companion. I can walk you through glucose readings, insulin calculations, and anything else you need for ${name}'s care. What's on your mind?`;
@@ -311,6 +312,7 @@ export default function ChatScreen() {
             accountRole: profile?.accountRole,
             speakingToParent,
             isChildMode,
+            caregiverSession: caregiverSession || undefined,
             ageYears: ageYears,
             weightLbs: profile?.weightLbs,
             diabetesType: profile?.diabetesType,

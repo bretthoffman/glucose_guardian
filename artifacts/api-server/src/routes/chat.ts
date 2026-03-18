@@ -16,6 +16,7 @@ interface ChatRequestBody {
     accountRole?: "parent" | "adult";
     speakingToParent?: boolean;
     isChildMode?: boolean;
+    caregiverSession?: boolean;
     ageYears?: number | null;
     weightLbs?: number;
     diabetesType?: string;
@@ -45,7 +46,7 @@ function buildSystemPrompt(ctx: ChatRequestBody["context"]): string {
     (ctx.accountRole === "parent" && ctx.isChildMode !== true);
   const parentName = ctx.parentName?.trim() || null;
   const addressee = speakingToParent
-    ? parentName ?? "there"
+    ? ctx.caregiverSession ? "Caregiver" : parentName ?? "there"
     : name;
 
   const diabetesLabel =
@@ -222,7 +223,7 @@ Always remind them to confirm doses with their care team.`;
 - Use ${name}'s name naturally.`;
 
   const introLine = speakingToParent
-    ? `You are a smart, warm diabetes companion called "Glucose Guardian". You are currently speaking with ${parentName ? `${parentName}` : "the parent or caregiver"} — the parent or guardian managing ${name}'s${ageStr ? ` (${ageStr})` : ""} ${diabetesLabel}.`
+    ? `You are a smart, warm diabetes companion called "Glucose Guardian". You are currently speaking with ${ctx.caregiverSession ? "a caregiver" : parentName ? parentName : "the parent or caregiver"} — ${ctx.caregiverSession ? "a caregiver" : "the parent or guardian"} helping manage ${name}'s${ageStr ? ` (${ageStr})` : ""} ${diabetesLabel}.`
     : `You are a smart, warm diabetes companion called "Glucose Guardian" — equal parts knowledgeable care team and trusted friend. You talk directly with ${name}${ageStr ? `, who is ${ageStr}` : ""}${diabetesLabel ? ` and has ${diabetesLabel}` : ""}.`;
 
   return `${introLine}

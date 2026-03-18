@@ -262,6 +262,18 @@ export default function LogHistory({ colors, restrictToDay = false }: { colors: 
   );
 }
 
+function sectionSummary(entries: DayEntry[]): string {
+  const bgs = entries.filter((e) => e.type === "glucose" && e.glucose != null).map((e) => e.glucose as number);
+  const meals = entries.filter((e) => e.type === "food").length;
+  const insulin = entries.filter((e) => e.type === "insulin").length;
+  const avgBg = bgs.length > 0 ? Math.round(bgs.reduce((s, v) => s + v, 0) / bgs.length) : null;
+  const parts: string[] = [];
+  if (bgs.length > 0) parts.push(`${bgs.length} readings${avgBg != null ? ` · avg ${avgBg}` : ""}`);
+  if (meals > 0) parts.push(`${meals} meal${meals !== 1 ? "s" : ""}`);
+  if (insulin > 0) parts.push(`${insulin} dose${insulin !== 1 ? "s" : ""}`);
+  return parts.join(" · ") || `${entries.length} entries`;
+}
+
 function DayView({
   entries,
   day,
@@ -292,6 +304,19 @@ function DayView({
     return order.filter((k) => groups[k]).map((k) => ({ label: k, entries: groups[k] }));
   }, [entries]);
 
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
+    if (groupedByHour.length === 0) return new Set();
+    return new Set([groupedByHour[0].label]);
+  });
+
+  function toggleSection(label: string) {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) { next.delete(label); } else { next.add(label); }
+      return next;
+    });
+  }
+
   return (
     <View style={{ gap: 16 }}>
       <View style={styles.dayNav}>
@@ -313,14 +338,32 @@ function DayView({
           </Text>
         </View>
       ) : (
-        groupedByHour.map((group) => (
-          <View key={group.label} style={{ gap: 8 }}>
-            <Text style={[styles.groupLabel, { color: colors.textSecondary }]}>{group.label}</Text>
-            {group.entries.map((entry) => (
-              <EntryRow key={`${entry.type}-${entry.ts}`} entry={entry} colors={colors} />
-            ))}
-          </View>
-        ))
+        groupedByHour.map((group) => {
+          const isExpanded = expandedSections.has(group.label);
+          return (
+            <View key={group.label} style={{ gap: 8 }}>
+              <Pressable
+                onPress={() => toggleSection(group.label)}
+                style={[styles.sectionToggleRow, { borderColor: colors.border, backgroundColor: colors.backgroundTertiary }]}
+              >
+                <Text style={[styles.groupLabel, { color: colors.textSecondary, marginTop: 0, flex: 1 }]}>{group.label}</Text>
+                {!isExpanded && (
+                  <Text style={[styles.sectionSummary, { color: colors.textMuted }]}>
+                    {sectionSummary(group.entries)}
+                  </Text>
+                )}
+                <Feather
+                  name={isExpanded ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color={colors.textMuted}
+                />
+              </Pressable>
+              {isExpanded && group.entries.map((entry) => (
+                <EntryRow key={`${entry.type}-${entry.ts}`} entry={entry} colors={colors} />
+              ))}
+            </View>
+          );
+        })
       )}
     </View>
   );
@@ -590,6 +633,8 @@ const styles = StyleSheet.create({
   dayLabel: { fontSize: 18, fontFamily: "Inter_700Bold" },
 
   groupLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.6, marginTop: 4 },
+  sectionToggleRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
+  sectionSummary: { fontSize: 11, fontFamily: "Inter_400Regular", flexShrink: 1 },
 
   entryRow: {
     flexDirection: "row",

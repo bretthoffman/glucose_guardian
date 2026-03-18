@@ -788,11 +788,6 @@ export default function InsulinScreen() {
   const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
   const [timeRange, setTimeRange] = useState<TimeRange>(3);
 
-  useEffect(() => {
-    if (caregiverSession) {
-      setScreenTab("log");
-    }
-  }, [caregiverSession]);
 
   const [carbInput, setCarbInput] = useState("");
   const [bgInput, setBgInput] = useState("");
@@ -895,22 +890,20 @@ export default function InsulinScreen() {
           </View>
         </View>
 
-        {/* Predict / Log toggle — caregivers see Log only */}
-        {!caregiverSession && (
-          <View style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
-            {(["predict", "log"] as ScreenTab[]).map((t) => (
-              <Pressable
-                key={t}
-                style={[styles.screenToggleBtn, screenTab === t && { backgroundColor: colors.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }]}
-                onPress={() => { setScreenTab(t); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-              >
-                <Text style={[styles.screenToggleText, { color: screenTab === t ? COLORS.primary : colors.textSecondary }]}>
-                  {t === "predict" ? "📈 Predict" : "📋 Log"}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
+        {/* Predict / Log toggle */}
+        <View style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
+          {(["predict", "log"] as ScreenTab[]).map((t) => (
+            <Pressable
+              key={t}
+              style={[styles.screenToggleBtn, screenTab === t && { backgroundColor: colors.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }]}
+              onPress={() => { setScreenTab(t); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            >
+              <Text style={[styles.screenToggleText, { color: screenTab === t ? COLORS.primary : colors.textSecondary }]}>
+                {t === "predict" ? "📈 Predict" : "📋 Log"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
 
       {screenTab === "log" ? (
@@ -922,23 +915,25 @@ export default function InsulinScreen() {
         showsVerticalScrollIndicator={false}
       >
 
-      {/* ── Time Range Selector ── */}
-      <View style={[styles.rangeRow]}>
-        {TIME_RANGES.map((r) => (
-          <Pressable
-            key={r}
-            style={[styles.rangeBtn, { backgroundColor: timeRange === r ? COLORS.primary : colors.backgroundTertiary }]}
-            onPress={() => setTimeRange(r)}
-          >
-            <Text style={[styles.rangeBtnText, { color: timeRange === r ? "#fff" : colors.textSecondary }]}>
-              {r}M
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      {/* ── Time Range Selector — hidden for caregivers ── */}
+      {!caregiverSession && (
+        <View style={[styles.rangeRow]}>
+          {TIME_RANGES.map((r) => (
+            <Pressable
+              key={r}
+              style={[styles.rangeBtn, { backgroundColor: timeRange === r ? COLORS.primary : colors.backgroundTertiary }]}
+              onPress={() => setTimeRange(r)}
+            >
+              <Text style={[styles.rangeBtnText, { color: timeRange === r ? "#fff" : colors.textSecondary }]}>
+                {r}M
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
-      {/* ── A1C Estimation Card ── */}
-      {rangeStats ? (
+      {/* ── A1C Estimation Card — hidden for caregivers ── */}
+      {!caregiverSession && rangeStats ? (
         <View style={[styles.a1cCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.a1cTop}>
             <View style={{ flex: 1 }}>
@@ -975,14 +970,14 @@ export default function InsulinScreen() {
             </Text>
           </View>
         </View>
-      ) : (
+      ) : !caregiverSession ? (
         <View style={[styles.a1cCard, { backgroundColor: colors.card, borderColor: colors.border, alignItems: "center", paddingVertical: 20 }]}>
           <Text style={{ fontSize: 28 }}>📊</Text>
           <Text style={[styles.a1cLabel, { color: colors.textSecondary, textAlign: "center", marginTop: 6 }]}>
             No glucose data for this period. Sync your CGM to see A1C estimates.
           </Text>
         </View>
-      )}
+      ) : null}
 
       {latest && (
         <View style={styles.latestRow}>
