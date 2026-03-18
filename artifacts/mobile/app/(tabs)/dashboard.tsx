@@ -591,7 +591,7 @@ export default function DashboardScreen() {
               <View style={styles.notifPermStatus}>
                 <View style={[styles.notifPermDot, {
                   backgroundColor: !notifPerm.granted ? "#EF4444"
-                    : (!notifPerm.soundEnabled || !notifPerm.criticalAlertsEnabled) ? "#F59E0B"
+                    : !notifPerm.soundEnabled ? "#F59E0B"
                     : "#22C55E"
                 }]} />
                 <Text style={[styles.notifPermLabel, { color: colors.text }]}>
@@ -599,9 +599,7 @@ export default function DashboardScreen() {
                     ? "Notifications blocked"
                     : !notifPerm.soundEnabled
                     ? "Sound disabled in settings"
-                    : !notifPerm.criticalAlertsEnabled
-                    ? "Critical alerts not enabled"
-                    : "Alerts & sounds active"}
+                    : "Pop-up alerts & sounds active"}
                 </Text>
               </View>
               <Text style={[styles.notifPermHint, { color: colors.textSecondary }]}>
@@ -609,9 +607,7 @@ export default function DashboardScreen() {
                   ? "Enable notifications so you never miss a glucose alert."
                   : !notifPerm.soundEnabled
                   ? "Turn on sounds so alerts play even in silent mode."
-                  : !notifPerm.criticalAlertsEnabled
-                  ? "Critical alerts can break through silent mode for urgent readings."
-                  : "Glucose Guardian can alert you for any out-of-range reading."}
+                  : "You'll get pop-up banners and sounds for every glucose alert."}
               </Text>
 
               {!notifPerm.granted && notifPerm.canAskAgain && (
@@ -644,14 +640,13 @@ export default function DashboardScreen() {
 
               {notifPerm.granted && notifPerm.soundEnabled && !notifPerm.criticalAlertsEnabled && Platform.OS === "ios" && (
                 <Pressable
-                  style={({ pressed }) => [styles.notifPermBtn, { backgroundColor: "#F97316", opacity: pressed ? 0.8 : 1 }]}
+                  style={styles.notifCriticalNote}
                   onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                     Alert.alert(
-                      "Enable Critical Alerts",
-                      "1. Tap Open Settings below\n2. Tap Notifications\n3. Find Glucose Guardian\n4. Turn on Critical Alerts\n\nThis lets urgent glucose alarms sound even when your phone is on silent or in Do Not Disturb.",
+                      "About Critical Alerts",
+                      "Critical Alerts let Glucose Guardian sound an alarm even when your phone is on silent or in Do Not Disturb — ideal for overnight low readings.\n\nTo enable them:\n1. Open your iPhone Settings\n2. Tap Notifications → tap the app name\n3. Turn on Critical Alerts\n\nNote: This option appears in the standalone app, not in Expo Go.",
                       [
-                        { text: "Cancel", style: "cancel" },
+                        { text: "Got it" },
                         {
                           text: "Open Settings",
                           onPress: async () => {
@@ -664,8 +659,8 @@ export default function DashboardScreen() {
                     );
                   }}
                 >
-                  <Feather name="alert-triangle" size={13} color="#fff" />
-                  <Text style={styles.notifPermBtnText}>Enable Critical Alerts</Text>
+                  <Feather name="info" size={11} color="#F97316" />
+                  <Text style={styles.notifCriticalNoteText}>Critical alerts available in standalone build — tap to learn more</Text>
                 </Pressable>
               )}
             </View>
@@ -1616,4 +1611,6 @@ const styles = StyleSheet.create({
   notifPermHint: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
   notifPermBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 10, borderRadius: 11, marginTop: 2 },
   notifPermBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  notifCriticalNote: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 },
+  notifCriticalNoteText: { fontSize: 11, fontFamily: "Inter_400Regular", color: "#F97316", flex: 1, lineHeight: 15 },
 });
