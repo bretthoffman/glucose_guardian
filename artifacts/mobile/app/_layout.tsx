@@ -33,6 +33,23 @@ function RootLayoutNav() {
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
   const permissionsRequested = useRef(false);
+  const lastHandledNotifId = useRef<string | null>(null);
+
+  // Handles cold-start taps: app was killed, user tapped notification, app opened.
+  // useLastNotificationResponse holds the pending response across the initial render.
+  const lastNotificationResponse = Notifications.useLastNotificationResponse();
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    if (!lastNotificationResponse) return;
+    // De-duplicate: only navigate once per unique notification response
+    const notifId = lastNotificationResponse.notification.request.identifier;
+    if (lastHandledNotifId.current === notifId) return;
+    lastHandledNotifId.current = notifId;
+    // Small delay to ensure the router and tab navigator are mounted
+    const t = setTimeout(() => handleNotificationResponse(lastNotificationResponse), 300);
+    return () => clearTimeout(t);
+  }, [isLoggedIn, lastNotificationResponse]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -62,8 +79,12 @@ function RootLayoutNav() {
       (_notification) => {}
     );
 
+    // Handles foreground and background taps (app already running)
     responseListener.current = Notifications.addNotificationResponseReceivedListener(
       (response) => {
+        const notifId = response.notification.request.identifier;
+        if (lastHandledNotifId.current === notifId) return;
+        lastHandledNotifId.current = notifId;
         handleNotificationResponse(response);
       }
     );
