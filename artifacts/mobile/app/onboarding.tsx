@@ -20,7 +20,7 @@ import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constan
 import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 
-type Step = "welcome" | "role" | "parent_name" | "name" | "birthday" | "diabetes" | "guardian_pin";
+type Step = "welcome" | "role" | "parent_name" | "name" | "birthday" | "diabetes" | "insulin_formula" | "guardian_pin";
 
 function isValidDate(month: string, day: string, year: string): boolean {
   const m = parseInt(month);
@@ -114,7 +114,7 @@ export default function OnboardingScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { setupProfile, setGuardianPin } = useAuth();
-  const { setCarbRatio } = useGlucose();
+  const { setCarbRatio, setTargetGlucose, setCorrectionFactor } = useGlucose();
 
   const [step, setStep] = useState<Step>("welcome");
   const [accountRole, setAccountRole] = useState<"parent" | "adult">("parent");
@@ -128,6 +128,8 @@ export default function OnboardingScreen() {
   const [insulinTypes, setInsulinTypes] = useState<string[]>([]);
   const [carbRatioInput, setCarbRatioInput] = useState("");
   const [carbUnitHalf, setCarbUnitHalf] = useState(false);
+  const [targetGlucoseInput, setTargetGlucoseInput] = useState("");
+  const [isfInput, setIsfInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   function toggleInsulinType(t: string) {
@@ -207,6 +209,14 @@ export default function OnboardingScreen() {
       if (!isNaN(parsedCarbGrams) && parsedCarbGrams > 0) {
         setCarbRatio(carbUnitHalf ? parsedCarbGrams * 2 : parsedCarbGrams);
       }
+      const parsedTarget = parseFloat(targetGlucoseInput);
+      if (!isNaN(parsedTarget) && parsedTarget > 0) {
+        setTargetGlucose(parsedTarget);
+      }
+      const parsedISF = parseFloat(isfInput);
+      if (!isNaN(parsedISF) && parsedISF > 0) {
+        setCorrectionFactor(parsedISF);
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)");
     } catch {
@@ -215,6 +225,10 @@ export default function OnboardingScreen() {
   }
 
   function advanceFromDiabetes() {
+    setStep("insulin_formula");
+  }
+
+  function advanceFromInsulinFormula() {
     if (accountRole === "parent" && isMinorPreview) {
       setStep("guardian_pin");
     } else {
@@ -282,7 +296,7 @@ export default function OnboardingScreen() {
 
         {step === "role" && (
           <View style={styles.stepContainer}>
-            <StepBadge label={accountRole === "parent" ? "Step 1 of 5" : "Step 1 of 4"} colors={colors} />
+            <StepBadge label={accountRole === "parent" ? "Step 1 of 6" : "Step 1 of 5"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Who is this account for?</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               This helps us personalize the app for you
@@ -339,7 +353,7 @@ export default function OnboardingScreen() {
 
         {step === "parent_name" && (
           <View style={styles.stepContainer}>
-            <StepBadge label="Step 2 of 6" colors={colors} />
+            <StepBadge label="Step 2 of 7" colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Your Name</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               What should Glucose Guardian call you? Used when speaking to you in caregiver mode.
@@ -382,7 +396,7 @@ export default function OnboardingScreen() {
 
         {step === "name" && (
           <View style={styles.stepContainer}>
-            <StepBadge label={accountRole === "parent" ? "Step 3 of 5" : "Step 2 of 4"} colors={colors} />
+            <StepBadge label={accountRole === "parent" ? "Step 3 of 7" : "Step 2 of 5"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>
               {accountRole === "parent" ? "What's your child's name?" : "What's your name?"}
             </Text>
@@ -448,7 +462,7 @@ export default function OnboardingScreen() {
 
         {step === "birthday" && (
           <View style={styles.stepContainer}>
-            <StepBadge label={accountRole === "parent" ? "Step 4 of 5" : "Step 3 of 4"} colors={colors} />
+            <StepBadge label={accountRole === "parent" ? "Step 4 of 7" : "Step 3 of 5"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Date of Birth</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               Used to set the right access level in the app
@@ -574,7 +588,7 @@ export default function OnboardingScreen() {
 
         {step === "diabetes" && (
           <View style={styles.stepContainer}>
-            <StepBadge label={accountRole === "parent" ? (isMinorPreview ? "Step 5 of 6" : "Step 5 of 5") : "Step 4 of 4"} colors={colors} />
+            <StepBadge label={accountRole === "parent" ? (isMinorPreview ? "Step 5 of 7" : "Step 5 of 6") : "Step 4 of 5"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Diabetes Type</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               {accountRole === "parent" ? `Helps calibrate insulin calculations for ${childName}` : "Helps calibrate your insulin calculations"}
@@ -663,57 +677,64 @@ export default function OnboardingScreen() {
               })}
             </View>
 
-            <View style={[styles.insulinSection, { borderColor: colors.border, marginTop: 4 }]}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 },
+              ]}
+              onPress={advanceFromDiabetes}
+            >
+              <Text style={styles.primaryBtnText}>Continue</Text>
+              <Feather name="arrow-right" size={18} color="#fff" />
+            </Pressable>
+            <BackBtn onPress={() => setStep("birthday")} colors={colors} />
+          </View>
+        )}
+
+        {step === "insulin_formula" && (
+          <View style={styles.stepContainer}>
+            <StepBadge label={accountRole === "parent" ? (isMinorPreview ? "Step 6 of 7" : "Step 6 of 6") : "Step 5 of 5"} colors={colors} />
+
+            <View style={[styles.logoCircle, { backgroundColor: COLORS.primary + "12" }]}>
+              <Feather name="activity" size={32} color={COLORS.primary} />
+            </View>
+
+            <Text style={[styles.stepTitle, { color: colors.text }]}>Insulin Formula</Text>
+            <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
+              {accountRole === "parent"
+                ? `Enter ${childName || "your child"}'s doctor-prescribed settings. You can update these any time in Settings.`
+                : "Enter your doctor-prescribed settings. You can update these any time."}
+            </Text>
+
+            <View style={[styles.insulinSection, { borderColor: colors.border }]}>
               <View style={styles.insulinSectionHeader}>
                 <Feather name="divide" size={15} color={COLORS.primary} />
-                <Text style={[styles.insulinSectionTitle, { color: colors.text }]}>
-                  Carb Ratio
-                </Text>
+                <Text style={[styles.insulinSectionTitle, { color: colors.text }]}>Carb Ratio</Text>
                 <Text style={[styles.insulinSectionOptional, { color: colors.textMuted }]}>Optional</Text>
               </View>
               <Text style={[styles.insulinSectionSub, { color: colors.textMuted }]}>
                 {accountRole === "parent"
-                  ? `How many grams of carbs covers ${carbUnitHalf ? "½ unit" : "1 unit"} of insulin for ${childName || "your child"}`
-                  : `How many grams of carbs covers ${carbUnitHalf ? "½ unit" : "1 unit"} of insulin for you`}
+                  ? `Grams of carbs per ${carbUnitHalf ? "½ unit" : "1 unit"} of insulin for ${childName || "your child"}`
+                  : `Grams of carbs per ${carbUnitHalf ? "½ unit" : "1 unit"} of insulin`}
               </Text>
-
               <View style={[styles.carbUnitToggleRow, { marginTop: 10, marginBottom: 8 }]}>
                 {([false, true] as const).map((isHalf) => (
                   <Pressable
                     key={String(isHalf)}
-                    style={[
-                      styles.carbUnitBtn,
-                      {
-                        backgroundColor: carbUnitHalf === isHalf ? COLORS.primary + "18" : colors.card,
-                        borderColor: carbUnitHalf === isHalf ? COLORS.primary : colors.border,
-                      },
-                    ]}
+                    style={[styles.carbUnitBtn, { backgroundColor: carbUnitHalf === isHalf ? COLORS.primary + "18" : colors.card, borderColor: carbUnitHalf === isHalf ? COLORS.primary : colors.border }]}
                     onPress={() => { setCarbUnitHalf(isHalf); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
                   >
-                    {carbUnitHalf === isHalf && (
-                      <Feather name="check" size={13} color={COLORS.primary} />
-                    )}
+                    {carbUnitHalf === isHalf && <Feather name="check" size={13} color={COLORS.primary} />}
                     <Text style={[styles.carbUnitBtnText, { color: carbUnitHalf === isHalf ? COLORS.primary : colors.textMuted }]}>
                       {isHalf ? "½ unit" : "1 unit"}
                     </Text>
                   </Pressable>
                 ))}
               </View>
-
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <Text style={[styles.insulinSectionSub, { color: colors.textMuted, marginTop: 0 }]}>per</Text>
                 <TextInput
-                  style={[
-                    styles.nameInput,
-                    {
-                      flex: 1,
-                      backgroundColor: colors.card,
-                      borderColor: carbRatioInput.trim() ? COLORS.primary : colors.border,
-                      color: colors.text,
-                      marginTop: 0,
-                      textAlign: "center",
-                    },
-                  ]}
+                  style={[styles.nameInput, { flex: 1, backgroundColor: colors.card, borderColor: carbRatioInput.trim() ? COLORS.primary : colors.border, color: colors.text, marginTop: 0, textAlign: "center" }]}
                   value={carbRatioInput}
                   onChangeText={(v) => setCarbRatioInput(v.replace(/[^0-9.]/g, ""))}
                   placeholder={carbUnitHalf ? "e.g. 20" : "e.g. 40"}
@@ -721,11 +742,8 @@ export default function OnboardingScreen() {
                   keyboardType="decimal-pad"
                   maxLength={5}
                 />
-                <Text style={[styles.insulinSectionSub, { color: colors.textMuted, marginTop: 0 }]}>
-                  g of carbs
-                </Text>
+                <Text style={[styles.insulinSectionSub, { color: colors.textMuted, marginTop: 0 }]}>g of carbs</Text>
               </View>
-
               {carbRatioInput.trim() !== "" && !isNaN(parseFloat(carbRatioInput)) && (
                 <Text style={[styles.insulinSectionSub, { color: COLORS.primary + "BB", marginTop: 6 }]}>
                   = 1 unit covers {carbUnitHalf ? parseFloat(carbRatioInput) * 2 : parseFloat(carbRatioInput)}g of carbs
@@ -733,30 +751,90 @@ export default function OnboardingScreen() {
               )}
             </View>
 
+            <View style={[styles.insulinSection, { borderColor: colors.border, marginTop: 4 }]}>
+              <View style={styles.insulinSectionHeader}>
+                <Feather name="crosshair" size={15} color={COLORS.accent} />
+                <Text style={[styles.insulinSectionTitle, { color: colors.text }]}>Target Glucose</Text>
+                <Text style={[styles.insulinSectionOptional, { color: colors.textMuted }]}>Optional</Text>
+              </View>
+              <Text style={[styles.insulinSectionSub, { color: colors.textMuted }]}>
+                {accountRole === "parent"
+                  ? `${childName || "Your child"}'s target blood sugar set by the doctor (e.g. 125 mg/dL)`
+                  : "Your target blood sugar set by the doctor (e.g. 110 mg/dL)"}
+              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 }}>
+                <TextInput
+                  style={[styles.nameInput, { flex: 1, backgroundColor: colors.card, borderColor: targetGlucoseInput.trim() ? COLORS.accent : colors.border, color: colors.text, marginTop: 0, textAlign: "center" }]}
+                  value={targetGlucoseInput}
+                  onChangeText={(v) => setTargetGlucoseInput(v.replace(/[^0-9]/g, ""))}
+                  placeholder="e.g. 125"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                />
+                <Text style={[styles.insulinSectionSub, { color: colors.textMuted, marginTop: 0 }]}>mg/dL</Text>
+              </View>
+            </View>
+
+            <View style={[styles.insulinSection, { borderColor: colors.border, marginTop: 4 }]}>
+              <View style={styles.insulinSectionHeader}>
+                <Feather name="trending-down" size={15} color={COLORS.danger} />
+                <Text style={[styles.insulinSectionTitle, { color: colors.text }]}>Sensitivity Factor (ISF)</Text>
+                <Text style={[styles.insulinSectionOptional, { color: colors.textMuted }]}>Optional</Text>
+              </View>
+              <Text style={[styles.insulinSectionSub, { color: colors.textMuted }]}>
+                {accountRole === "parent"
+                  ? `How many mg/dL 1 unit drops ${childName || "your child"}'s glucose (e.g. 125)`
+                  : "How many mg/dL 1 unit drops your glucose (e.g. 50)"}
+              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 }}>
+                <TextInput
+                  style={[styles.nameInput, { flex: 1, backgroundColor: colors.card, borderColor: isfInput.trim() ? COLORS.danger : colors.border, color: colors.text, marginTop: 0, textAlign: "center" }]}
+                  value={isfInput}
+                  onChangeText={(v) => setIsfInput(v.replace(/[^0-9]/g, ""))}
+                  placeholder="e.g. 125"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                />
+                <Text style={[styles.insulinSectionSub, { color: colors.textMuted, marginTop: 0 }]}>mg/dL / unit</Text>
+              </View>
+            </View>
+
+            {targetGlucoseInput.trim() !== "" && isfInput.trim() !== "" && carbRatioInput.trim() !== "" && (
+              <View style={[styles.insulinSection, { borderColor: COLORS.primary + "50", marginTop: 4, backgroundColor: COLORS.primary + "08" }]}>
+                <View style={styles.insulinSectionHeader}>
+                  <Feather name="check-circle" size={14} color={COLORS.primary} />
+                  <Text style={[styles.insulinSectionTitle, { color: COLORS.primary, fontSize: 12 }]}>Formula preview</Text>
+                </View>
+                <Text style={[styles.insulinSectionSub, { color: colors.textSecondary }]}>
+                  Correction = (glucose − {targetGlucoseInput}) ÷ {isfInput}{"\n"}
+                  Carb dose = carbs ÷ {carbUnitHalf ? parseFloat(carbRatioInput || "0") * 2 : parseFloat(carbRatioInput || "0")}{"\n"}
+                  Total = correction + carb dose (round at the very end)
+                </Text>
+              </View>
+            )}
+
             <Pressable
               style={({ pressed }) => [
                 styles.primaryBtn,
                 { backgroundColor: COLORS.primary, opacity: pressed || isSaving ? 0.85 : 1 },
               ]}
-              onPress={advanceFromDiabetes}
+              onPress={advanceFromInsulinFormula}
               disabled={isSaving}
             >
               <Text style={styles.primaryBtnText}>
-                {isSaving
-                  ? "Setting up..."
-                  : isMinorPreview
-                  ? "Continue"
-                  : `Let's go, ${childName}!`}
+                {isSaving ? "Setting up..." : isMinorPreview ? "Continue" : `Let's go, ${childName || "you"}!`}
               </Text>
               <Feather name={isMinorPreview ? "arrow-right" : "check"} size={18} color="#fff" />
             </Pressable>
-            <BackBtn onPress={() => setStep("birthday")} colors={colors} />
+            <BackBtn onPress={() => setStep("diabetes")} colors={colors} />
           </View>
         )}
 
         {step === "guardian_pin" && (
           <View style={styles.stepContainer}>
-            <StepBadge label="Step 6 of 6" colors={colors} />
+            <StepBadge label="Step 7 of 7" colors={colors} />
 
             <View style={[styles.logoCircle, { backgroundColor: COLORS.accent + "15", width: 80, height: 80, borderRadius: 40 }]}>
               <Feather name="lock" size={36} color={COLORS.accent} />

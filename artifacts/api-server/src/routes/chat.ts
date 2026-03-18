@@ -68,34 +68,50 @@ function buildSystemPrompt(ctx: ChatRequestBody["context"]): string {
     const g = ctx.currentGlucose;
     const trend = ctx.trendLabel ?? "stable";
     const arrow = ctx.trendArrow ?? "";
+    const who = speakingToParent ? `${name}'s glucose` : "Glucose";
+    const whoLower = speakingToParent ? `${name}'s glucose` : "glucose";
 
     if (g < 55) {
-      glucoseStatus = `CRITICAL LOW: ${g} mg/dL ${arrow} — dangerously low, needs fast-acting carbs immediately.`;
+      glucoseStatus = `CRITICAL LOW: ${who} is ${g} mg/dL ${arrow} — dangerously low, needs fast-acting carbs immediately.`;
     } else if (g < low) {
-      glucoseStatus = `LOW: ${g} mg/dL ${arrow} — below target range of ${low}–${high} mg/dL. Needs treatment soon.`;
+      glucoseStatus = `LOW: ${who} is ${g} mg/dL ${arrow} — below target range of ${low}–${high} mg/dL. Needs treatment soon.`;
     } else if (g > 300) {
-      glucoseStatus = `CRITICAL HIGH: ${g} mg/dL ${arrow} — very high. May need correction + extra monitoring.`;
+      glucoseStatus = `CRITICAL HIGH: ${who} is ${g} mg/dL ${arrow} — very high. May need correction + extra monitoring.`;
     } else if (g > high) {
-      glucoseStatus = `HIGH: ${g} mg/dL ${arrow} — above target range of ${low}–${high} mg/dL.`;
+      glucoseStatus = `HIGH: ${who} is ${g} mg/dL ${arrow} — above target range of ${low}–${high} mg/dL.`;
     } else {
       const isFalling = trend.includes("falling");
       if (isFalling) {
-        glucoseStatus = `TRENDING DOWN: ${g} mg/dL ${arrow} — currently in range but falling toward the low threshold of ${low} mg/dL. Watch closely.`;
+        glucoseStatus = `TRENDING DOWN: ${who} is ${g} mg/dL ${arrow} — currently in range but falling toward the low threshold of ${low} mg/dL. Watch closely.`;
       } else {
-        glucoseStatus = `IN RANGE: ${g} mg/dL ${arrow} — within target range of ${low}–${high} mg/dL. Great job!`;
+        glucoseStatus = `IN RANGE: ${who} is ${g} mg/dL ${arrow} — within target range of ${low}–${high} mg/dL.${speakingToParent ? "" : " Great job!"}`;
       }
     }
 
-    if (trend.includes("rapidly rising") || trend.includes("rising fast")) {
-      trendGuidance = `Glucose is rising quickly. If eating, consider taking insulin 10–15 minutes before the meal (pre-bolus). Avoid adding high-carb extras. Monitor closely over the next 30 minutes.`;
-    } else if (trend.includes("rising")) {
-      trendGuidance = `Glucose is trending up. If eating, consider a slight correction with the meal dose. Light activity after eating can help bring it back into range.`;
-    } else if (trend.includes("rapidly falling") || trend.includes("falling fast")) {
-      trendGuidance = `Glucose is dropping quickly — treat the low first with 15g fast-acting carbs (juice or glucose tabs) before doing anything else. Do not take insulin right now.`;
-    } else if (trend.includes("falling")) {
-      trendGuidance = `Glucose is trending down. Eat a small snack before any meal dose. Reduce or skip the correction component if glucose is near the low end.`;
+    if (speakingToParent) {
+      if (trend.includes("rapidly rising") || trend.includes("rising fast")) {
+        trendGuidance = `${name}'s glucose is rising quickly. If ${name} is about to eat, consider a pre-bolus 10–15 min before the meal. Monitor closely over the next 30 minutes.`;
+      } else if (trend.includes("rising")) {
+        trendGuidance = `${name}'s glucose is trending up. A small correction with the next meal dose may help. Light activity after eating can also help bring it back into range.`;
+      } else if (trend.includes("rapidly falling") || trend.includes("falling fast")) {
+        trendGuidance = `${name}'s glucose is dropping quickly — give 15g fast-acting carbs (juice or glucose tabs) now before doing anything else. Do not give insulin right now.`;
+      } else if (trend.includes("falling")) {
+        trendGuidance = `${name}'s ${whoLower} is trending down. Give a small snack before any meal dose. Skip or reduce any correction if ${name}'s glucose is near the low end.`;
+      } else {
+        trendGuidance = `${name}'s glucose is stable — normal routine is fine.`;
+      }
     } else {
-      trendGuidance = `Glucose is stable. Normal routine is fine — follow the standard meal dose calculation.`;
+      if (trend.includes("rapidly rising") || trend.includes("rising fast")) {
+        trendGuidance = `${whoLower} is rising quickly. If eating, consider taking insulin 10–15 minutes before the meal (pre-bolus). Avoid adding high-carb extras. Monitor closely over the next 30 minutes.`;
+      } else if (trend.includes("rising")) {
+        trendGuidance = `${whoLower} is trending up. If eating, consider a slight correction with the meal dose. Light activity after eating can help bring it back into range.`;
+      } else if (trend.includes("rapidly falling") || trend.includes("falling fast")) {
+        trendGuidance = `${whoLower} is dropping quickly — treat the low first with 15g fast-acting carbs (juice or glucose tabs) before doing anything else. Do not take insulin right now.`;
+      } else if (trend.includes("falling")) {
+        trendGuidance = `${whoLower} is trending down. Eat a small snack before any meal dose. Reduce or skip the correction component if glucose is near the low end.`;
+      } else {
+        trendGuidance = `${whoLower} is stable. Normal routine is fine — follow the standard meal dose calculation.`;
+      }
     }
   }
 
@@ -114,7 +130,20 @@ function buildSystemPrompt(ctx: ChatRequestBody["context"]): string {
 
   let dosingInstructions = "";
   if (ctx.carbRatio && ctx.targetGlucose && ctx.correctionFactor) {
-    if (isChild) {
+    if (speakingToParent) {
+      dosingInstructions = `
+INSULIN DOSING (for ${name} — you are advising the parent/caregiver):
+When asked about a meal or correction for ${name}:
+1. Carb dose = grams of carbs ÷ ${ctx.carbRatio} (1 unit per ${ctx.carbRatio}g carbs)
+2. Correction dose = (${name}'s current glucose − ${ctx.targetGlucose}) ÷ ${ctx.correctionFactor}
+   - Only add correction if ${name}'s glucose is above target AND trending stable or up
+   - If ${name}'s glucose is falling or low, skip or reduce the correction entirely
+3. Total = carb dose + correction dose (do not round until the very end; round to nearest 0.5 unit)
+4. Timing: if ${name}'s glucose is rising, suggest injecting 10–15 min before eating; if stable or falling, inject just before or with the meal.
+${weightStr ? `5. Note: ${name} weighs ${weightStr}, factored into their carb ratio and correction factor.` : ""}
+Always address YOUR RESPONSE to the parent (${parentName ?? "the caregiver"}) — e.g. "You'll want to give ${name} about X units." Never address ${name} directly.
+Recommend confirming significant dose changes with the care team.`;
+    } else if (isChild) {
       dosingInstructions = `
 INSULIN DOSING (for ${name}):
 When ${name} mentions eating a meal or asks about insulin:
