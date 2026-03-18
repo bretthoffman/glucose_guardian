@@ -288,16 +288,11 @@ function ZoomableChart({
   const targetLineY =
     yPct(Math.max(LOW_THRESH, Math.min(HIGH_THRESH, targetGlucose))) * CHART_H;
 
-  const xLabels = [0, 1 / 4, 1 / 2, 3 / 4, 1].map((frac) => ({
-    x: frac * contentW,
-    label:
-      frac === 1
-        ? "Now"
-        : new Date(windowStart + frac * WINDOW_MS).toLocaleTimeString([], {
-            hour: "numeric",
-            minute: "2-digit",
-          }),
-  }));
+  const xLabels = [0, 1 / 4, 1 / 2, 3 / 4, 1].map((frac) => {
+    const hoursAgo = Math.round((1 - frac) * (WINDOW_MS / (60 * 60 * 1000)));
+    const label = frac === 1 ? "Now" : `${hoursAgo}h ago`;
+    return { x: frac * contentW, label };
+  });
 
   const isZoomed = zoomScale > 1.05;
 

@@ -111,8 +111,14 @@ export function CGMChart({
   const urgentHighLineY = yPct(urgentHighThreshold) * CHART_INNER_H;
   const targetLineY = yPct(Math.max(lowThreshold, Math.min(highThreshold, targetGlucose))) * CHART_INNER_H;
 
-  const midTime = new Date(windowStart + windowMs / 2).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const startTime = new Date(windowStart).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  function xLabel(msFromStart: number): string {
+    const hoursAgo = Math.round((windowMs - msFromStart) / (60 * 60 * 1000));
+    if (hoursAgo === 0) return "Now";
+    if (windowMs >= RANGE_MS["12H"]) return `${hoursAgo}h ago`;
+    return new Date(windowStart + msFromStart).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  const startTime = xLabel(0);
+  const midTime = xLabel(windowMs / 2);
 
   return (
     <View style={styles.wrapper}>
