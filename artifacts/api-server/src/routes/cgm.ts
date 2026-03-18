@@ -200,23 +200,50 @@ router.post("/libre/connect", async (req, res) => {
       return;
     }
 
-    const response = await fetch(`${LIBRE_BASE}/llu/auth/login`, {
+    // Step 1: Initial login — may return a regional redirect
+    const loginUrl = `${LIBRE_BASE}/llu/auth/login`;
+    const loginBody = JSON.stringify({ email, password });
+
+    let loginResp = await fetch(loginUrl, {
       method: "POST",
       headers: { ...LIBRE_HEADERS, "Accept": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: loginBody,
     });
 
-    if (!response.ok) {
-      res.status(401).json({ error: "Invalid LibreLink credentials." });
+    let loginText = await loginResp.text();
+    console.log("Libre login response:", loginResp.status, loginText.slice(0, 300));
+
+    let loginData: any;
+    try { loginData = JSON.parse(loginText); } catch { loginData = null; }
+
+    // Step 2: Handle regional redirect (status 2 = redirect to region-specific server)
+    if (loginData?.status === 2 && loginData?.data?.redirect === true) {
+      const region: string = loginData.data.region ?? "us";
+      const regionalBase = `https://api.${region}.libreview.io`;
+      console.log(`Libre redirect to region: ${region} (${regionalBase})`);
+
+      loginResp = await fetch(`${regionalBase}/llu/auth/login`, {
+        method: "POST",
+        headers: { ...LIBRE_HEADERS, "Accept": "application/json" },
+        body: loginBody,
+      });
+
+      loginText = await loginResp.text();
+      console.log("Libre regional login response:", loginResp.status, loginText.slice(0, 300));
+      try { loginData = JSON.parse(loginText); } catch { loginData = null; }
+    }
+
+    if (!loginResp.ok) {
+      const msg = loginData?.message ?? loginData?.error ?? "Invalid LibreLink credentials. Check your email and password.";
+      res.status(401).json({ error: msg });
       return;
     }
 
-    const data: any = await response.json();
-    const token = data?.data?.authTicket?.token;
-    const accountId = data?.data?.user?.id;
+    const token = loginData?.data?.authTicket?.token;
+    const accountId = loginData?.data?.user?.id;
 
     if (!token) {
-      res.status(401).json({ error: "Could not authenticate with LibreLink Up." });
+      res.status(401).json({ error: "Could not authenticate with LibreLink Up. Make sure LibreLinkUp Sharing is enabled in your LibreLink app." });
       return;
     }
 

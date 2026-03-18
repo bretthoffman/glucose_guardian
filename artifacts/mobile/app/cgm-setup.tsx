@@ -38,6 +38,7 @@ export default function CGMSetupScreen() {
   );
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [outsideUS, setOutsideUS] = useState(cgmConnection.outsideUS ?? false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
@@ -247,21 +248,25 @@ export default function CGMSetupScreen() {
           />
 
           <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Password</Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: colors.backgroundTertiary,
-                borderColor: colors.border,
-                color: colors.text,
-              },
-            ]}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Your password"
-            placeholderTextColor={colors.textMuted}
-            secureTextEntry
-          />
+          <View style={[styles.passwordRow, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+            <TextInput
+              style={[styles.passwordInput, { color: colors.text }]}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Your password"
+              placeholderTextColor={colors.textMuted}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Pressable
+              onPress={() => { setShowPassword((v) => !v); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              style={styles.eyeBtn}
+              hitSlop={10}
+            >
+              <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.textMuted} />
+            </Pressable>
+          </View>
 
           {selectedType === "dexcom" && (
             <View style={styles.switchRow}>
@@ -399,6 +404,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: "Inter_400Regular",
     marginBottom: 4,
+  },
+  passwordRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 10,
+    marginBottom: 4,
+    overflow: "hidden",
+  },
+  passwordInput: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+  },
+  eyeBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   switchRow: {
     flexDirection: "row",
