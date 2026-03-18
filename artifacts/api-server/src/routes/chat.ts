@@ -130,43 +130,47 @@ function buildSystemPrompt(ctx: ChatRequestBody["context"]): string {
 
   let dosingInstructions = "";
   if (ctx.carbRatio && ctx.targetGlucose && ctx.correctionFactor) {
+    const corrFormula = `(blood sugar − ${ctx.targetGlucose}) ÷ ${ctx.correctionFactor}`;
+    const corrExample = ctx.currentGlucose
+      ? `e.g. for BG ${ctx.currentGlucose}: (${ctx.currentGlucose} − ${ctx.targetGlucose}) ÷ ${ctx.correctionFactor} = ${Math.round(((ctx.currentGlucose - ctx.targetGlucose) / ctx.correctionFactor) * 100) / 100}, rounded to nearest 0.5u`
+      : "";
+
     if (speakingToParent) {
       dosingInstructions = `
-INSULIN DOSING (for ${name} — you are advising the parent/caregiver):
-When asked about a meal or correction for ${name}:
-1. Carb dose = grams of carbs ÷ ${ctx.carbRatio} (1 unit per ${ctx.carbRatio}g carbs)
-2. Correction dose = (${name}'s current glucose − ${ctx.targetGlucose}) ÷ ${ctx.correctionFactor}
-   - Only add correction if ${name}'s glucose is above target AND trending stable or up
-   - If ${name}'s glucose is falling or low, skip or reduce the correction entirely
-3. Total = carb dose + correction dose (do not round until the very end; round to nearest 0.5 unit)
-4. Timing: if ${name}'s glucose is rising, suggest injecting 10–15 min before eating; if stable or falling, inject just before or with the meal.
-${weightStr ? `5. Note: ${name} weighs ${weightStr}, factored into their carb ratio and correction factor.` : ""}
-Always address YOUR RESPONSE to the parent (${parentName ?? "the caregiver"}) — e.g. "You'll want to give ${name} about X units." Never address ${name} directly.
-Recommend confirming significant dose changes with the care team.`;
+INSULIN DOSING (for ${name} — advising the parent/caregiver):
+CORRECTION FORMULA: ${corrFormula}${corrExample ? ` (${corrExample})` : ""}
+Round to nearest 0.5 unit. Only apply when BG is above ${ctx.targetGlucose} and trend is stable or rising.
+
+FOR BLOOD SUGAR ONLY (no food mentioned):
+- Give ONLY the correction: ${corrFormula}, rounded to nearest 0.5u
+- Do NOT add any carb dose when no food is mentioned
+- If BG is at or below ${ctx.targetGlucose}, no correction is needed
+
+FOR A MEAL + HIGH BG:
+- Carb dose = carbs ÷ ${ctx.carbRatio}
+- Add correction: ${corrFormula} (only if BG above target)
+- Total = carb dose + correction, rounded to nearest 0.5u
+
+If ${name}'s glucose is falling or below target: skip or reduce the correction. Never give correction for a falling trend.
+Always address YOUR RESPONSE to the parent (${parentName ?? "the caregiver"}). Never address ${name} directly.${weightStr ? `\nNote: ${name} weighs ${weightStr}.` : ""}`;
     } else if (isChild) {
       dosingInstructions = `
 INSULIN DOSING (for ${name}):
-When ${name} mentions eating a meal or asks about insulin:
-1. Carb dose = grams of carbs ÷ ${ctx.carbRatio} (1 unit per ${ctx.carbRatio}g carbs)
-2. Correction dose = (current glucose − ${ctx.targetGlucose}) ÷ ${ctx.correctionFactor}
-   - Only add correction if glucose is above target AND trending stable or up
-   - If glucose is falling or low, skip or reduce the correction entirely
-3. Total = carb dose + correction dose (rounded to nearest 0.5 unit)
-4. Adjust timing: if glucose is rising, suggest injecting 10–15 min before eating; if stable or falling, inject just before or with the meal.
-${weightStr ? `5. Note: ${name} weighs ${weightStr}, which has been considered in their carb ratio and correction factor.` : ""}
-Always suggest they confirm with their care team for significant dose changes.`;
+CORRECTION FORMULA: ${corrFormula}${corrExample ? ` (${corrExample})` : ""}
+Round to nearest 0.5 unit.
+
+FOR BLOOD SUGAR ONLY (no food): give ONLY the correction dose — do NOT add carb dose.
+FOR A MEAL: carb dose = carbs ÷ ${ctx.carbRatio}, plus correction if BG is above ${ctx.targetGlucose}.
+If BG is falling or below target: skip or reduce the correction.${weightStr ? `\nNote: ${name} weighs ${weightStr}.` : ""}`;
     } else {
       dosingInstructions = `
 INSULIN DOSING:
-When the user mentions a meal or asks about insulin:
-1. Carb dose = grams of carbs ÷ ${ctx.carbRatio} (1 unit per ${ctx.carbRatio}g carbs)
-2. Correction dose = (current glucose − ${ctx.targetGlucose}) ÷ ${ctx.correctionFactor}
-   - Only include correction if glucose is above target AND trend is stable or rising
-   - If glucose is falling or near low threshold, omit or reduce the correction
-3. Total bolus = carb dose + correction dose (round to nearest 0.5 unit)
-4. Timing: rising glucose → pre-bolus 10–15 min before meal; stable/falling → bolus at meal time
-${weightStr ? `5. Patient weight: ${weightStr} — this is reflected in their personalized carb ratio and ISF.` : ""}
-Recommend confirming any significant dose adjustment with their endocrinologist or care team.`;
+CORRECTION FORMULA: ${corrFormula}${corrExample ? ` (${corrExample})` : ""}
+Round to nearest 0.5 unit. Only apply when BG is above ${ctx.targetGlucose}.
+
+FOR BLOOD SUGAR ONLY (no food): give ONLY the correction dose — do NOT add carb dose.
+FOR A MEAL + HIGH BG: carb dose = carbs ÷ ${ctx.carbRatio}, plus correction if BG above target.
+If BG is falling or below target: skip or reduce the correction.${weightStr ? `\nPatient weight: ${weightStr}.` : ""}`;
     }
   } else if (ctx.carbRatio) {
     dosingInstructions = `

@@ -578,9 +578,6 @@ export default function InsulinScreen() {
   const [bgInput, setBgInput] = useState("");
   const [bgManual, setBgManual] = useState(false);
 
-  const [corrBgInput, setCorrBgInput] = useState("");
-  const [corrBgManual, setCorrBgManual] = useState(false);
-
   const latest = history[history.length - 1];
 
   useEffect(() => {
@@ -588,12 +585,6 @@ export default function InsulinScreen() {
       setBgInput(String(latest.glucose));
     }
   }, [latest, bgManual]);
-
-  useEffect(() => {
-    if (!corrBgManual && latest) {
-      setCorrBgInput(String(latest.glucose));
-    }
-  }, [latest, corrBgManual]);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -619,8 +610,10 @@ export default function InsulinScreen() {
     [filteredReadings, targetGlucose, isMinor],
   );
 
+  const hasCarbs = carbInput !== "" && parseFloat(carbInput) > 0;
+
   const dose = useMemo<DoseBreakdown | null>(() => {
-    const carbs = parseFloat(carbInput);
+    const carbs = carbInput === "" ? 0 : parseFloat(carbInput);
     const bg = parseFloat(bgInput);
     if (isNaN(carbs) || carbs < 0 || isNaN(bg) || bg <= 0) return null;
     const trend = latest ? getEffectiveTrend(history).glucoseTrend : "stable";
@@ -635,15 +628,6 @@ export default function InsulinScreen() {
       previousBG: prev,
     });
   }, [carbInput, bgInput, targetGlucose, carbRatio, correctionFactor, history, latest]);
-
-  const correctionOnlyDose = useMemo<{ units: number; needed: boolean } | null>(() => {
-    const bg = parseFloat(corrBgInput);
-    if (isNaN(bg) || bg <= 0 || !correctionFactor || !targetGlucose) return null;
-    if (bg <= targetGlucose) return { units: 0, needed: false };
-    const raw = (bg - targetGlucose) / correctionFactor;
-    const rounded = Math.round(raw / 0.5) * 0.5;
-    return { units: Math.max(0, rounded), needed: true };
-  }, [corrBgInput, correctionFactor, targetGlucose]);
 
   function openChat(prompt: string) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -777,7 +761,9 @@ export default function InsulinScreen() {
             ))}
 
             <View style={[styles.doseBreakdown, { borderTopColor: colors.border }]}>
-              <DoseRow label="Carb Dose" sub={`${parseFloat(carbInput)}g ÷ ${carbRatio}g`} value={dose.carbInsulin} unit="u" colors={colors} />
+              {hasCarbs && (
+                <DoseRow label="Carb Dose" sub={`${parseFloat(carbInput)}g ÷ ${carbRatio}g`} value={dose.carbInsulin} unit="u" colors={colors} />
+              )}
               <DoseRow
                 label="Correction"
                 sub={dose.correctionSuppressed
@@ -801,7 +787,11 @@ export default function InsulinScreen() {
             <View style={[styles.doseTotalRow, { borderTopColor: colors.border }]}>
               <View>
                 <Text style={[styles.doseTotalLabel, { color: colors.textSecondary }]}>
-                  {isMinor ? "Ask your adult to give:" : "Recommended Dose"}
+                  {isMinor
+                    ? "Ask your adult to give:"
+                    : hasCarbs
+                    ? `Insulin to give (with ${carbInput}g carbs)`
+                    : "Insulin to give (no carbs)"}
                 </Text>
                 {dose.totalRaw !== dose.totalDose && (
                   <Text style={[styles.doseRoundNote, { color: colors.textMuted }]}>
@@ -820,7 +810,9 @@ export default function InsulinScreen() {
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 const name = profile?.childName ?? "them";
-                const prompt = `Explain my insulin dose calculation. Current BG: ${bgInput} mg/dL, eating ${carbInput}g carbs. Carb ratio 1:${carbRatio}, target BG ${targetGlucose}, ISF 1:${correctionFactor}. Trend: ${dose.trendLabel}. Carb dose: ${dose.carbInsulin}u, correction: ${dose.correctionInsulin}u, trend adjustment: ${dose.trendAdjustment}u. Total recommended: ${dose.totalDose} units. Break this down in simple terms${isMinor ? " for a kid" : ` for ${name}'s parent`}.`;
+                const prompt = hasCarbs
+                  ? `Explain my insulin dose. Current BG: ${bgInput} mg/dL, eating ${carbInput}g carbs. Carb ratio 1:${carbRatio}, target BG ${targetGlucose}, ISF 1:${correctionFactor}. Trend: ${dose.trendLabel}. Carb dose: ${dose.carbInsulin}u, correction: ${dose.correctionInsulin}u, trend adj: ${dose.trendAdjustment}u. Total: ${dose.totalDose}u.`
+                  : `${name}'s BG is ${bgInput} mg/dL with no carbs. Correction only: (${bgInput}−${targetGlucose})÷${correctionFactor} = ${dose.correctionInsulin}u, rounded to ${dose.totalDose}u. Is this right?`;
                 openChat(prompt);
               }}
             >
@@ -835,98 +827,10 @@ export default function InsulinScreen() {
           <Text style={[styles.dosePrompt, { color: colors.textMuted }]}>
             {isMinor
               ? "Enter how many carbs you're eating above and I'll help figure out your dose 🍎"
-              : "Enter carbs and current BG above to calculate a suggested dose."}
+              : "Enter a blood sugar reading to see the correction dose, then add carbs to include a meal dose."}
           </Text>
         )}
       </View>
-
-      {!isMinor && (
-        <>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Correction Dose</Text>
-          <View style={[styles.doseCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.doseInputLabel, { color: colors.textSecondary, marginBottom: 6 }]}>
-              Enter blood sugar to calculate a correction dose only — no carbs.
-            </Text>
-
-            <View style={styles.doseInputRow}>
-              <View style={[styles.doseInputGroup, { flex: 1 }]}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>Current BG (mg/dL)</Text>
-                  {latest && !corrBgManual && (
-                    <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}>
-                      <Text style={[styles.liveTagText, { color: COLORS.success }]}>LIVE</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <TextInput
-                    style={[styles.doseInput, { flex: 1, backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: corrBgManual ? COLORS.primary : colors.border }]}
-                    value={corrBgInput}
-                    onChangeText={(v) => { setCorrBgInput(v.replace(/[^0-9]/g, "")); setCorrBgManual(true); }}
-                    keyboardType="numeric"
-                    placeholder="mg/dL"
-                    placeholderTextColor={colors.textMuted}
-                  />
-                  {corrBgManual && latest && (
-                    <Pressable
-                      onPress={() => { setCorrBgInput(String(latest.glucose)); setCorrBgManual(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-                      style={{ padding: 4 }}
-                    >
-                      <Feather name="refresh-cw" size={15} color={COLORS.primary} />
-                    </Pressable>
-                  )}
-                </View>
-              </View>
-            </View>
-
-            {correctionOnlyDose && (
-              <View style={[styles.doseTotalRow, { borderTopColor: colors.border, marginTop: 12 }]}>
-                <View>
-                  <Text style={[styles.doseTotalLabel, { color: colors.textSecondary }]}>
-                    {correctionOnlyDose.needed ? "Correction Dose" : "No correction needed"}
-                  </Text>
-                  {correctionOnlyDose.needed && (
-                    <Text style={[styles.doseRoundNote, { color: colors.textMuted }]}>
-                      ({corrBgInput} − {targetGlucose}) ÷ {correctionFactor} → rounded to ½u
-                    </Text>
-                  )}
-                  {!correctionOnlyDose.needed && (
-                    <Text style={[styles.doseRoundNote, { color: colors.textMuted }]}>
-                      BG is at or below target ({targetGlucose} mg/dL)
-                    </Text>
-                  )}
-                </View>
-                <View style={[styles.doseTotalBadge, { backgroundColor: correctionOnlyDose.needed ? COLORS.primary : COLORS.success }]}>
-                  <Text style={styles.doseTotalValue}>{correctionOnlyDose.units}</Text>
-                  <Text style={styles.doseTotalUnit}>units</Text>
-                </View>
-              </View>
-            )}
-
-            {correctionOnlyDose?.needed && (
-              <Pressable
-                style={({ pressed }) => [styles.explainBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  const name = profile?.childName ?? "them";
-                  const prompt = `${name}'s glucose is ${corrBgInput} mg/dL and I need to give a correction dose only (no food). Based on a target of ${targetGlucose} and ISF of ${correctionFactor}, how much should I give?`;
-                  openChat(prompt);
-                }}
-              >
-                <Feather name="message-circle" size={13} color={COLORS.primary} />
-                <Text style={[styles.explainBtnText, { color: COLORS.primary }]}>Ask Guardian</Text>
-                <Feather name="chevron-right" size={13} color={COLORS.primary} />
-              </Pressable>
-            )}
-
-            {!correctionOnlyDose && (
-              <Text style={[styles.dosePrompt, { color: colors.textMuted }]}>
-                Enter a blood sugar reading above to see the correction dose.
-              </Text>
-            )}
-          </View>
-        </>
-      )}
 
       {suggestions.length > 0 && (
         <>
