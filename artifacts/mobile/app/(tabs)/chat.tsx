@@ -93,8 +93,50 @@ function buildParentSuggestions(
 function buildSuggestions(
   glucose: number | null,
   name: string,
-  high: number
+  high: number,
+  isKidMode = false,
 ): string[] {
+  if (isKidMode) {
+    if (glucose === null) {
+      return [
+        "I don't feel great 😟",
+        "What is blood sugar? 🤔",
+        "Can I eat candy? 🍬",
+        "Why do I need shots? 💉",
+      ];
+    }
+    if (glucose < 70) {
+      return [
+        "I need juice right now! 🧃",
+        "I feel shaky 😟",
+        "When will I feel better? 😢",
+        "Should I tell an adult? 🙋",
+      ];
+    }
+    if (glucose > 250) {
+      return [
+        "My sugar is really high 😮",
+        "Should I drink water? 💧",
+        "I don't feel good 😓",
+        "Should I tell someone? 🙋",
+      ];
+    }
+    if (glucose > high) {
+      return [
+        "My sugar went up 📈",
+        "Can I go for a walk? 🚶",
+        "What should I drink? 💧",
+        "Will I feel okay? 😊",
+      ];
+    }
+    return [
+      "How am I doing? 😊",
+      "What can I snack on? 🥨",
+      "Can I go play? 🏃",
+      "Am I doing a good job? 🌟",
+    ];
+  }
+
   if (glucose === null) {
     return [
       "How do I log a meal?",
@@ -128,7 +170,7 @@ function buildSuggestions(
     ];
   }
   return [
-    `My sugar feels low`,
+    "My sugar feels a bit low",
     "What should I snack on?",
     "Can I exercise now?",
     "How am I trending today?",
@@ -155,17 +197,37 @@ export default function ChatScreen() {
   const glucose = latestReading?.glucose ?? null;
   const low = alertPrefs.lowThreshold;
   const high = alertPrefs.highThreshold;
+  const isKidMode = !speakingToParent && ageYears !== null && ageYears < 18;
+
   const suggestions = speakingToParent
     ? buildParentSuggestions(glucose, name, high)
-    : buildSuggestions(glucose, name, high);
+    : buildSuggestions(glucose, name, high, isKidMode);
 
   function buildGreeting(speakingAsParent: boolean): string {
     const inRange = glucose != null && glucose >= low && glucose <= high;
+    const trendingDown = trend.label.toLowerCase().includes("fall");
     if (speakingAsParent) {
       const greeting = parentName ? `Hi ${parentName}!` : "Hi there!";
       return glucose != null
         ? `${greeting} ${name}'s glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking good." : glucose < 70 ? "that's a low, act quickly." : "worth keeping an eye on."} How can I help you manage ${name}'s care today?`
         : `${greeting} I'm Glucose Guardian — ${name}'s AI diabetes companion. I can walk you through glucose readings, insulin calculations, and anything else you need for ${name}'s care. What's on your mind?`;
+    } else if (isKidMode) {
+      if (glucose == null) {
+        return `Hey ${name}! 👋 I'm Glucose Guardian, your diabetes buddy! I'm here to help you feel your best every day. How are you feeling right now? 😊`;
+      }
+      if (glucose < 70) {
+        return `Hey ${name}! Your sugar is a little low right now 😟 — you should grab some juice or a snack right away! 🧃 Tell an adult too, okay?`;
+      }
+      if (trendingDown) {
+        return `Hey ${name}! Your sugar is going down 📉 — let's eat a small snack before it gets too low! 🥨 You'll feel so much better!`;
+      }
+      if (glucose > 250) {
+        return `Hey ${name}! Your sugar is really high right now 😮 — drink some water 💧 and go tell a grown-up. It'll come back down!`;
+      }
+      if (glucose > high) {
+        return `Hey ${name}! Your sugar went up a little 📈. Try drinking some water 💧 and maybe go for a short walk! 🚶 How are you feeling?`;
+      }
+      return `Hey ${name}! 🌟 Your sugar looks great right now — you're doing an awesome job! How are you feeling today? 😊`;
     } else {
       return glucose != null
         ? `Hey ${name}! Your glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking solid!" : glucose < 70 ? "let's get that up, okay?" : "let's keep an eye on it."} What's on your mind?`
@@ -345,7 +407,7 @@ export default function ChatScreen() {
             )}
           </>
         }
-        renderItem={({ item }) => <MessageBubble message={item} colors={colors} />}
+        renderItem={({ item }) => <MessageBubble message={item} colors={colors} isKidMode={isKidMode} />}
       />
 
       <View style={[styles.suggestionsRow, { borderTopColor: colors.border }]}>
@@ -377,7 +439,7 @@ export default function ChatScreen() {
           style={[styles.inputField, { backgroundColor: colors.card, color: colors.text, borderColor: colors.border }]}
           value={input}
           onChangeText={setInput}
-          placeholder={`Ask Glucose Guardian anything...`}
+          placeholder={isKidMode ? "Tell me how you're feeling... 😊" : "Ask Glucose Guardian anything..."}
           placeholderTextColor={colors.textMuted}
           returnKeyType="send"
           onSubmitEditing={() => send()}
@@ -400,11 +462,20 @@ export default function ChatScreen() {
   );
 }
 
-function MessageBubble({ message, colors }: { message: Message; colors: (typeof Colors)["light"] }) {
+function MessageBubble({
+  message,
+  colors,
+  isKidMode = false,
+}: {
+  message: Message;
+  colors: (typeof Colors)["light"];
+  isKidMode?: boolean;
+}) {
   const isUser = message.role === "user";
+  const isAI = !isUser;
   return (
     <View style={[styles.bubbleWrapper, isUser ? styles.userBubbleWrapper : styles.aiBubbleWrapper]}>
-      {!isUser && (
+      {isAI && (
         <View style={[styles.avatarTiny, { backgroundColor: COLORS.primary + "20" }]}>
           <Image source={require("../../assets/images/logo.png")} style={styles.avatarTinyLogo} resizeMode="contain" />
         </View>
@@ -415,9 +486,16 @@ function MessageBubble({ message, colors }: { message: Message; colors: (typeof 
           isUser
             ? [styles.userBubble, { backgroundColor: COLORS.primary }]
             : [styles.aiBubble, { backgroundColor: colors.card, borderColor: colors.border }],
+          isKidMode && styles.kidBubble,
         ]}
       >
-        <Text style={[styles.bubbleText, { color: isUser ? "#fff" : colors.text }]}>
+        <Text
+          style={[
+            isKidMode ? styles.kidBubbleText : styles.bubbleText,
+            { color: isUser ? "#fff" : colors.text },
+            isKidMode && isAI && { fontFamily: "Inter_700Bold" },
+          ]}
+        >
           {message.text}
         </Text>
         <Text style={[styles.bubbleTime, { color: isUser ? "rgba(255,255,255,0.55)" : colors.textMuted }]}>
@@ -482,6 +560,8 @@ const styles = StyleSheet.create({
   userBubble: { borderBottomRightRadius: 4 },
   aiBubble: { borderBottomLeftRadius: 4, borderWidth: 1 },
   bubbleText: { fontSize: 15, fontFamily: "Inter_400Regular", lineHeight: 22 },
+  kidBubbleText: { fontSize: 19, fontFamily: "Inter_600SemiBold", lineHeight: 28 },
+  kidBubble: { paddingHorizontal: 16, paddingVertical: 14, borderRadius: 22 },
   bubbleTime: { fontSize: 10, fontFamily: "Inter_400Regular" },
 
   thinkingRow: { flexDirection: "row", gap: 5, paddingVertical: 4 },
