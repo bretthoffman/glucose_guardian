@@ -143,7 +143,7 @@ export default function ChatScreen() {
   const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
   const { profile, ageYears, alertPrefs, isChildMode } = useAuth();
   const { prompt, fromParent } = useLocalSearchParams<{ prompt?: string; fromParent?: string }>();
-  const promptSentRef = useRef(false);
+  const promptSentRef = useRef<string | null>(null);
 
   const name = profile?.childName ?? "there";
   const parentName = profile?.parentName?.trim() || null;
@@ -193,8 +193,8 @@ export default function ChatScreen() {
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   useEffect(() => {
-    if (prompt && !promptSentRef.current) {
-      promptSentRef.current = true;
+    if (prompt && prompt !== promptSentRef.current) {
+      promptSentRef.current = prompt;
       const delay = setTimeout(() => send(prompt), 400);
       return () => clearTimeout(delay);
     }
