@@ -21,6 +21,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TrendChart } from "@/components/TrendChart";
 import Colors, { COLORS } from "@/constants/colors";
+import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constants/insulin";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import type { EmergencyContact } from "@/context/AuthContext";
@@ -820,38 +821,52 @@ export default function DashboardScreen() {
           <SettingRow label="Correction Factor (ISF)" description="points glucose drops per unit" displayValue={`1:${correctionFactor}`} editing={editing && !isGuarded} value={editISF} onChange={setEditISF} colors={colors} last />
 
           <View style={[styles.insulinTypesSection, { borderTopColor: colors.separator }]}>
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>My Insulin Types</Text>
-            <View style={styles.insulinChipsRow}>
-              {["Rapid-acting", "Short-acting", "Intermediate", "Long-acting", "Ultra-long", "Pre-mixed"].map((t) => {
-                const selected = (profile?.insulinTypes ?? []).includes(t);
-                return (
-                  <Pressable
-                    key={t}
-                    style={({ pressed }) => [
-                      styles.insulinChip,
-                      {
-                        backgroundColor: selected ? COLORS.accent + "18" : colors.backgroundTertiary,
-                        borderColor: selected ? COLORS.accent : colors.border,
-                        opacity: (pressed || (isGuarded && !isGuardianUnlocked)) ? 0.7 : 1,
-                      },
-                    ]}
-                    onPress={() => {
-                      if (isGuarded) return;
-                      const current = profile?.insulinTypes ?? [];
-                      const next = selected ? current.filter((x) => x !== t) : [...current, t];
-                      updateProfile({ insulinTypes: next });
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }}
-                    disabled={isGuarded}
-                  >
-                    {selected && <Feather name="check" size={11} color={COLORS.accent} />}
-                    <Text style={[styles.insulinChipText, { color: selected ? COLORS.accent : colors.textSecondary }]}>{t}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Insulin Used</Text>
+            {(["rapid", "long", "ultra-long", "regular", "intermediate", "premixed"] as const).map((groupType) => {
+              const groupOptions = INSULIN_OPTIONS.filter((o) => o.type === groupType);
+              return (
+                <View key={groupType} style={styles.insulinGroup}>
+                  <Text style={[styles.insulinGroupLabel, { color: colors.textMuted }]}>
+                    {INSULIN_TYPE_LABEL[groupType].toUpperCase()}
+                  </Text>
+                  <View style={styles.insulinChipsRow}>
+                    {groupOptions.map((opt) => {
+                      const chipLabel = insulinChipLabel(opt);
+                      const selected = (profile?.insulinTypes ?? []).includes(chipLabel);
+                      return (
+                        <Pressable
+                          key={opt.name}
+                          style={({ pressed }) => [
+                            styles.insulinChip,
+                            {
+                              backgroundColor: selected ? COLORS.accent + "18" : colors.backgroundTertiary,
+                              borderColor: selected ? COLORS.accent : colors.border,
+                              opacity: (pressed || isGuarded) ? 0.7 : 1,
+                            },
+                          ]}
+                          onPress={() => {
+                            if (isGuarded) return;
+                            const current = profile?.insulinTypes ?? [];
+                            const next = selected ? current.filter((x) => x !== chipLabel) : [...current, chipLabel];
+                            updateProfile({ insulinTypes: next });
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }}
+                          disabled={isGuarded}
+                        >
+                          {selected && <Feather name="check" size={11} color={COLORS.accent} />}
+                          <View>
+                            <Text style={[styles.insulinChipName, { color: selected ? COLORS.accent : colors.text }]}>{opt.name}</Text>
+                            <Text style={[styles.insulinChipConc, { color: selected ? COLORS.accent + "99" : colors.textMuted }]}>{opt.concentration}</Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })}
             {(profile?.insulinTypes ?? []).length === 0 && (
-              <Text style={[styles.insulinTypesEmpty, { color: colors.textMuted }]}>Tap to select insulin types you use</Text>
+              <Text style={[styles.insulinTypesEmpty, { color: colors.textMuted }]}>Tap to select the insulin you use</Text>
             )}
           </View>
 
@@ -1428,9 +1443,13 @@ const styles = StyleSheet.create({
   logEntryMeta: { fontSize: 11, fontFamily: "Inter_400Regular" },
   dangerBtnSmall: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1 },
 
-  insulinTypesSection: { borderTopWidth: 1, paddingTop: 14, gap: 10 },
+  insulinTypesSection: { borderTopWidth: 1, paddingTop: 14, gap: 12 },
+  insulinGroup: { gap: 6 },
+  insulinGroupLabel: { fontSize: 10, fontFamily: "Inter_600SemiBold", letterSpacing: 0.8 },
   insulinChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  insulinChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
+  insulinChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
+  insulinChipName: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  insulinChipConc: { fontSize: 10, fontFamily: "Inter_400Regular" },
   insulinChipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
   insulinTypesEmpty: { fontSize: 12, fontFamily: "Inter_400Regular", fontStyle: "italic" },
 

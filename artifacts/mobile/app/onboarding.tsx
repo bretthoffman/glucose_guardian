@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
+import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constants/insulin";
 import { useAuth } from "@/context/AuthContext";
 
 type Step = "welcome" | "role" | "name" | "birthday" | "diabetes" | "guardian_pin";
@@ -123,8 +124,6 @@ export default function OnboardingScreen() {
   const [diabetesType, setDiabetesType] = useState<"type1" | "type2" | "other">("type1");
   const [insulinTypes, setInsulinTypes] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
-
-  const INSULIN_OPTIONS = ["Rapid-Acting", "Long-Acting", "Regular", "Intermediate", "Ultra-Long", "Pre-Mixed"];
 
   function toggleInsulinType(t: string) {
     setInsulinTypes((prev) =>
@@ -567,29 +566,45 @@ export default function OnboardingScreen() {
               <Text style={[styles.insulinSectionSub, { color: colors.textMuted }]}>
                 Select any that apply — you can change this later
               </Text>
-              <View style={styles.insulinChipsRow}>
-                {INSULIN_OPTIONS.map((opt) => {
-                  const selected = insulinTypes.includes(opt);
-                  return (
-                    <Pressable
-                      key={opt}
-                      style={[
-                        styles.insulinChip,
-                        {
-                          backgroundColor: selected ? COLORS.accent + "18" : colors.card,
-                          borderColor: selected ? COLORS.accent : colors.border,
-                        },
-                      ]}
-                      onPress={() => toggleInsulinType(opt)}
-                    >
-                      {selected && <Feather name="check" size={12} color={COLORS.accent} />}
-                      <Text style={[styles.insulinChipText, { color: selected ? COLORS.accent : colors.textSecondary }]}>
-                        {opt}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              {(["rapid", "long", "ultra-long", "regular", "intermediate", "premixed"] as const).map((groupType) => {
+                const groupOptions = INSULIN_OPTIONS.filter((o) => o.type === groupType);
+                return (
+                  <View key={groupType} style={styles.insulinGroup}>
+                    <Text style={[styles.insulinGroupLabel, { color: colors.textMuted }]}>
+                      {INSULIN_TYPE_LABEL[groupType].toUpperCase()}
+                    </Text>
+                    <View style={styles.insulinChipsRow}>
+                      {groupOptions.map((opt) => {
+                        const chipLabel = insulinChipLabel(opt);
+                        const selected = insulinTypes.includes(chipLabel);
+                        return (
+                          <Pressable
+                            key={opt.name}
+                            style={[
+                              styles.insulinChip,
+                              {
+                                backgroundColor: selected ? COLORS.accent + "18" : colors.card,
+                                borderColor: selected ? COLORS.accent : colors.border,
+                              },
+                            ]}
+                            onPress={() => toggleInsulinType(chipLabel)}
+                          >
+                            {selected && <Feather name="check" size={12} color={COLORS.accent} />}
+                            <View>
+                              <Text style={[styles.insulinChipName, { color: selected ? COLORS.accent : colors.text }]}>
+                                {opt.name}
+                              </Text>
+                              <Text style={[styles.insulinChipConc, { color: selected ? COLORS.accent + "99" : colors.textMuted }]}>
+                                {opt.concentration}
+                              </Text>
+                            </View>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
             </View>
 
             <Pressable
@@ -867,12 +882,16 @@ const styles = StyleSheet.create({
   typeOptionDesc: { fontSize: 13, fontFamily: "Inter_400Regular" },
   roleIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", marginRight: 6, flexShrink: 0 },
 
-  insulinSection: { width: "100%", borderTopWidth: 1, paddingTop: 16, gap: 10 },
+  insulinSection: { width: "100%", borderTopWidth: 1, paddingTop: 16, gap: 12 },
   insulinSectionHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
   insulinSectionTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", flex: 1 },
   insulinSectionOptional: { fontSize: 12, fontFamily: "Inter_400Regular", fontStyle: "italic" },
   insulinSectionSub: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17, marginTop: -4 },
+  insulinGroup: { gap: 6 },
+  insulinGroupLabel: { fontSize: 10, fontFamily: "Inter_600SemiBold", letterSpacing: 0.8 },
   insulinChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  insulinChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
+  insulinChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1.5 },
+  insulinChipName: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  insulinChipConc: { fontSize: 10, fontFamily: "Inter_400Regular" },
   insulinChipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
 });
