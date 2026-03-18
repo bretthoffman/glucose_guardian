@@ -1,0 +1,267 @@
+1. FOOD + INSULIN LOG SYSTEM (HISTORICAL VIEW)
+
+🔹 Overview
+
+Create a multi-layer logging system that allows users to track and review:
+	•	Blood Glucose (BG)
+	•	Carbohydrates
+	•	Insulin doses
+	•	Meals (with optional photo)
+	•	Notes (exercise, stress, illness, etc.)
+
+⸻
+
+🔹 Time-Based Views
+
+The log should support:
+
+📅 Daily View
+	•	Timeline of the day (chronological)
+	•	Each entry shows:
+	•	Time
+	•	BG reading
+	•	Carbs consumed
+	•	Insulin dose
+	•	Meal photo (if available)
+	•	Notes
+
+⸻
+
+📆 Weekly View
+	•	7-day summary (Mon–Sun)
+	•	Each day shows:
+	•	Avg BG
+	•	Total carbs
+	•	Total insulin
+	•	of highs / lows
+	•	Tap into any day → opens full daily timeline
+
+⸻
+
+🗓️ Monthly View
+	•	Calendar layout
+	•	Each day displays:
+	•	Avg BG (color coded)
+	•	Total carbs
+	•	Total insulin
+	•	Tap a date → opens daily log
+
+⸻
+
+📈 Yearly View
+	•	Monthly breakdown (Jan–Dec)
+	•	Each month shows:
+	•	Avg BG
+	•	Avg carbs/day
+	•	Avg insulin/day
+	•	Tap a month → opens monthly view
+
+⸻
+
+🔹 Filtering Options
+
+User can filter logs by:
+	•	Time range (custom dates)
+	•	High/low events only
+	•	Meals only
+	•	Insulin only
+
+⸻
+
+🔹 Export Feature (VERY IMPORTANT)
+	•	Export logs as PDF or CSV
+	•	Used for doctor visits
+	•	Includes:
+	•	Charts
+	•	Daily summaries
+	•	Trend insights
+
+⸻
+
+📈 2. PREDICT PAGE – ADVANCED ANALYTICS
+
+⸻
+
+🔹 Time Range Selector
+
+Add toggle buttons:
+	•	1 Month
+	•	3 Months
+	•	6 Months
+	•	9 Months
+	•	12 Months
+
+⸻
+
+🔹 Metrics to Display
+
+For each selected range, calculate:
+
+🩸 Blood Glucose
+	•	Average BG
+	•	% Time in Range (70–180)
+	•	% High
+	•	% Low
+
+⸻
+
+🍽️ Carbs
+	•	Avg carbs per day
+	•	Total carbs
+	•	Peak carb times (patterns)
+
+⸻
+
+💉 Insulin
+	•	Avg insulin per day
+	•	Total insulin used
+	•	Avg per meal
+
+⸻
+
+🔹 Charts (VERY IMPORTANT)
+
+Each metric should have:
+	•	Line chart (trend over time)
+	•	Smooth curve (not jagged)
+	•	Highlight:
+	•	High points
+	•	Low points
+	•	Stable zones
+
+⸻
+
+🧠 3. A1C ESTIMATION (KEY FEATURE)
+
+⸻
+
+🔹 Formula
+
+Use standard estimated A1C formula:
+
+👉 A1C = (Average BG + 46.7) ÷ 28.7
+
+⸻
+
+🔹 Display
+
+Show:
+	•	Estimated A1C for selected range
+	•	Label:
+	•	✅ Good (below 7)
+	•	⚠️ Needs Attention (7–8)
+	•	🚨 High Risk (8+)
+
+⸻
+
+🔹 Trend Insight (THIS IS 🔥)
+
+Example messages:
+	•	“Your A1C has improved over the last 3 months.”
+	•	“Frequent evening highs are impacting your A1C.”
+	•	“Improving post-meal control could lower your A1C.”
+
+⸻
+
+🚨 4. SMART INSIGHTS ENGINE
+
+⸻
+
+🔹 Pattern Detection
+
+System should automatically detect:
+	•	Repeated highs after meals
+	•	Nighttime lows
+	•	Morning spikes
+
+⸻
+
+🔹 Suggestions (Dynamic)
+
+Examples:
+
+High Trends:
+	•	“You tend to spike after dinner. Consider pre-meal insulin timing.”
+
+Low Trends:
+	•	“Frequent lows detected overnight. Consider adjusting evening insulin.”
+
+Stable:
+	•	“Your glucose has been stable. Keep up the current routine.”
+
+⸻
+
+👨‍⚕️ 5. DOCTOR VIEW ENHANCEMENT
+
+⸻
+
+Doctors should be able to see:
+	•	Full logs (daily → yearly)
+	•	A1C estimates
+	•	Trends and patterns
+	•	Insulin usage behavior
+
+⸻
+
+🔹 Doctor Tools
+	•	Adjust insulin ratios
+	•	Leave notes on specific days
+	•	Message patient directly
+
+⸻
+
+🔥 6. UI EXPERIENCE (IMPORTANT)
+
+⸻
+
+Predict Page Layout:
+
+Top Section:
+	•	Time selector (1, 3, 6, 9, 12 months)
+
+Middle:
+	•	Charts (BG, carbs, insulin)
+
+Bottom:
+	•	A1C estimate
+	•	Smart insights
+
+⸻
+
+Log Page Layout:
+	•	Tabs: Day | Week | Month | Year
+	•	Clean, scrollable interface
+	•	Tap-to-expand entries
+
+⸻
+
+🚀 BONUS (OPTIONAL BUT GAME-CHANGING)
+
+⸻
+
+🔹 “What’s Affecting My A1C?”
+
+Breakdown like:
+	•	40% from post-meal spikes
+	•	30% from nighttime highs
+	•	20% from missed insulin timing
+
+⸻
+
+🔹 “Replay My Day”
+	•	Visual playback of glucose changes
+	•	Shows:
+	•	Meals
+	•	Insulin
+	•	Spikes
+
+⸻
+
+💡 FINAL NOTE FOR DEV
+
+This system must:
+	•	Update in real-time
+	•	Sync with Dexcom / Libre APIs
+	•	Be optimized for both:
+	•	Adults (data-heavy view)
+	•	Kids (simplified visuals)

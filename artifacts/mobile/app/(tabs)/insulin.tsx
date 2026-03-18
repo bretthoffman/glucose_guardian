@@ -24,6 +24,7 @@ import { glucoseColor } from "@/components/CGMChart";
 import { computeDose } from "@/utils/dose";
 import type { DoseBreakdown } from "@/utils/dose";
 import { getEffectiveTrend } from "@/utils/trend";
+import LogHistory from "@/components/LogHistory";
 
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
@@ -751,6 +752,31 @@ const chartStyles = StyleSheet.create({
   chartRow: { flexDirection: "row", alignItems: "flex-start" },
 });
 
+type ScreenTab = "predict" | "log";
+type TimeRange = 1 | 3 | 6 | 9 | 12;
+
+function estimateA1C(avgBg: number): number {
+  return Math.round(((avgBg + 46.7) / 28.7) * 10) / 10;
+}
+
+function a1cLabel(a1c: number): { label: string; emoji: string; color: string } {
+  if (a1c < 7) return { label: "Good", emoji: "✅", color: COLORS.success };
+  if (a1c < 8) return { label: "Needs Attention", emoji: "⚠️", color: COLORS.warning };
+  return { label: "High Risk", emoji: "🚨", color: COLORS.danger };
+}
+
+function a1cInsight(avgBg: number, timeRange: TimeRange): string {
+  const a1c = estimateA1C(avgBg);
+  if (a1c < 7) {
+    if (timeRange <= 3) return `Your estimated A1C is looking great over the last ${timeRange} month${timeRange > 1 ? "s" : ""}. Keep up the current routine!`;
+    return `Excellent glucose control over the last ${timeRange} months. Consistent time-in-range is the key driver.`;
+  }
+  if (a1c < 8) {
+    return `Your A1C estimate suggests some room for improvement. Focus on post-meal control and consistent meal timing to bring this down.`;
+  }
+  return `Frequent highs are impacting your estimated A1C. Improving post-meal control and reviewing meal insulin timing could lower it meaningfully.`;
+}
+
 export default function InsulinScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
@@ -759,6 +785,8 @@ export default function InsulinScreen() {
   const { targetGlucose, carbRatio, correctionFactor, history } = useGlucose();
   const { isMinor, alertPrefs, profile, foodLog, insulinLog } = useAuth();
 
+  const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
+  const [timeRange, setTimeRange] = useState<TimeRange>(3);
   const [carbInput, setCarbInput] = useState("");
   const [bgInput, setBgInput] = useState("");
   const [bgManual, setBgManual] = useState(false);
@@ -778,6 +806,28 @@ export default function InsulinScreen() {
     const cutoff = Date.now() - WINDOW_MS;
     return history.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
   }, [history]);
+
+  const rangeReadings = useMemo(() => {
+    const cutoff = Date.now() - timeRange * 30 * 24 * 60 * 60 * 1000;
+    return history.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
+  }, [history, timeRange]);
+
+  const rangeStats = useMemo(() => {
+    if (rangeReadings.length === 0) return null;
+    const vals = rangeReadings.map((r) => r.glucose);
+    const avg = Math.round(vals.reduce((s, v) => s + v, 0) / vals.length);
+    const inRange = rangeReadings.filter((r) => r.glucose >= LOW_THRESH && r.glucose <= HIGH_THRESH).length;
+    const tir = Math.round((inRange / rangeReadings.length) * 100);
+    const pctHigh = Math.round((rangeReadings.filter((r) => r.glucose > HIGH_THRESH).length / rangeReadings.length) * 100);
+    const pctLow = Math.round((rangeReadings.filter((r) => r.glucose < LOW_THRESH).length / rangeReadings.length) * 100);
+    const a1c = estimateA1C(avg);
+    const foodInRange = (foodLog ?? []).filter((f) => new Date(f.timestamp).getTime() >= Date.now() - timeRange * 30 * 24 * 60 * 60 * 1000);
+    const insulinInRange = (insulinLog ?? []).filter((i) => new Date(i.timestamp).getTime() >= Date.now() - timeRange * 30 * 24 * 60 * 60 * 1000);
+    const totalDays = timeRange * 30;
+    const avgCarbs = foodInRange.length > 0 ? Math.round(foodInRange.reduce((s, f) => s + f.estimatedCarbs, 0) / totalDays) : 0;
+    const avgInsulin = insulinInRange.length > 0 ? Math.round((insulinInRange.reduce((s, i) => s + i.units, 0) / totalDays) * 10) / 10 : 0;
+    return { avg, tir, pctHigh, pctLow, a1c, avgCarbs, avgInsulin };
+  }, [rangeReadings, foodLog, insulinLog, timeRange]);
 
   const stats = useMemo(() => {
     if (filteredReadings.length === 0) return null;
@@ -819,18 +869,111 @@ export default function InsulinScreen() {
     router.push({ pathname: "/(tabs)/chat", params: { prompt } });
   }
 
+  const TIME_RANGES: TimeRange[] = [1, 3, 6, 9, 12];
+
   return (
-    <ScrollView
-      style={[styles.root, { backgroundColor: colors.background }]}
-      contentContainerStyle={[styles.scroll, { paddingTop: topPadding + 12, paddingBottom: bottomPadding + 80 }]}
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={[styles.pageTitle, { color: colors.text }]}>Glucose Trends</Text>
-      <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-        {isMinor
-          ? "See your sugar patterns and get helpful tips"
-          : "24-hour glucose pattern with alert markers and AI insights"}
-      </Text>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* ── Header ── */}
+      <View style={[styles.screenHeader, { paddingTop: topPadding + 8, borderBottomColor: colors.border }]}>
+        <View style={styles.screenHeaderRow}>
+          <View>
+            <Text style={[styles.pageTitle, { color: colors.text }]}>
+              {screenTab === "predict" ? "Predict" : "Log"}
+            </Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              {screenTab === "predict"
+                ? isMinor ? "Your sugar patterns & dose helper" : "Analytics, A1C estimate & dose calculator"
+                : "Your full food, insulin & glucose history"}
+            </Text>
+          </View>
+        </View>
+
+        {/* Predict / Log toggle */}
+        <View style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
+          {(["predict", "log"] as ScreenTab[]).map((t) => (
+            <Pressable
+              key={t}
+              style={[styles.screenToggleBtn, screenTab === t && { backgroundColor: colors.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }]}
+              onPress={() => { setScreenTab(t); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            >
+              <Text style={[styles.screenToggleText, { color: screenTab === t ? COLORS.primary : colors.textSecondary }]}>
+                {t === "predict" ? "📈 Predict" : "📋 Log"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      {screenTab === "log" ? (
+        <LogHistory colors={colors} />
+      ) : (
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPadding + 80 }]}
+        showsVerticalScrollIndicator={false}
+      >
+
+      {/* ── Time Range Selector ── */}
+      <View style={[styles.rangeRow]}>
+        {TIME_RANGES.map((r) => (
+          <Pressable
+            key={r}
+            style={[styles.rangeBtn, { backgroundColor: timeRange === r ? COLORS.primary : colors.backgroundTertiary }]}
+            onPress={() => setTimeRange(r)}
+          >
+            <Text style={[styles.rangeBtnText, { color: timeRange === r ? "#fff" : colors.textSecondary }]}>
+              {r}M
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* ── A1C Estimation Card ── */}
+      {rangeStats ? (
+        <View style={[styles.a1cCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.a1cTop}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.a1cLabel, { color: colors.textSecondary }]}>
+                Estimated A1C · {timeRange}-month avg
+              </Text>
+              <View style={styles.a1cValueRow}>
+                <Text style={[styles.a1cValue, { color: a1cLabel(rangeStats.a1c).color }]}>
+                  {rangeStats.a1c}%
+                </Text>
+                <View style={[styles.a1cBadge, { backgroundColor: a1cLabel(rangeStats.a1c).color + "20" }]}>
+                  <Text style={[styles.a1cBadgeText, { color: a1cLabel(rangeStats.a1c).color }]}>
+                    {a1cLabel(rangeStats.a1c).emoji} {a1cLabel(rangeStats.a1c).label}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          <View style={[styles.a1cStatsRow, { borderTopColor: colors.border }]}>
+            <A1CStat label="Time in Range" value={`${rangeStats.tir}%`} color={rangeStats.tir >= 70 ? COLORS.success : COLORS.warning} />
+            <View style={[styles.a1cDivider, { backgroundColor: colors.border }]} />
+            <A1CStat label="% High" value={`${rangeStats.pctHigh}%`} color={rangeStats.pctHigh > 25 ? COLORS.warning : COLORS.success} />
+            <View style={[styles.a1cDivider, { backgroundColor: colors.border }]} />
+            <A1CStat label="% Low" value={`${rangeStats.pctLow}%`} color={rangeStats.pctLow > 5 ? COLORS.danger : COLORS.success} />
+            <View style={[styles.a1cDivider, { backgroundColor: colors.border }]} />
+            <A1CStat label="Avg Carbs/day" value={`${rangeStats.avgCarbs}g`} color={COLORS.accent} />
+          </View>
+
+          <View style={[styles.a1cInsightBox, { backgroundColor: colors.backgroundTertiary }]}>
+            <Feather name="zap" size={13} color={COLORS.primary} />
+            <Text style={[styles.a1cInsightText, { color: colors.textSecondary }]}>
+              {a1cInsight(rangeStats.avg, timeRange)}
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <View style={[styles.a1cCard, { backgroundColor: colors.card, borderColor: colors.border, alignItems: "center", paddingVertical: 20 }]}>
+          <Text style={{ fontSize: 28 }}>📊</Text>
+          <Text style={[styles.a1cLabel, { color: colors.textSecondary, textAlign: "center", marginTop: 6 }]}>
+            No glucose data for this period. Sync your CGM to see A1C estimates.
+          </Text>
+        </View>
+      )}
 
       {latest && (
         <View style={styles.latestRow}>
@@ -1040,6 +1183,17 @@ export default function InsulinScreen() {
         </View>
       )}
     </ScrollView>
+      )}
+    </View>
+  );
+}
+
+function A1CStat({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <View style={{ flex: 1, alignItems: "center", gap: 2 }}>
+      <Text style={[styles.a1cStatValue, { color }]}>{value}</Text>
+      <Text style={styles.a1cStatLabel}>{label}</Text>
+    </View>
   );
 }
 
@@ -1147,6 +1301,30 @@ const styles = StyleSheet.create({
 
   latestRow: { flexDirection: "row", alignItems: "center", gap: 18, marginBottom: 18 },
   latestCircle: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, alignItems: "center", justifyContent: "center" },
+  screenHeader: { paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, gap: 12 },
+  screenHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  screenToggle: { flexDirection: "row", borderRadius: 12, padding: 3, gap: 3 },
+  screenToggleBtn: { flex: 1, borderRadius: 10, paddingVertical: 8, alignItems: "center" },
+  screenToggleText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+
+  rangeRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
+  rangeBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: "center" },
+  rangeBtnText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+
+  a1cCard: { borderRadius: 18, borderWidth: 1, marginBottom: 16, overflow: "hidden" },
+  a1cTop: { padding: 16 },
+  a1cLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 },
+  a1cValueRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  a1cValue: { fontSize: 42, fontFamily: "Inter_700Bold" },
+  a1cBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
+  a1cBadgeText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  a1cStatsRow: { flexDirection: "row", alignItems: "center", borderTopWidth: 1, padding: 14 },
+  a1cDivider: { width: 1, height: 36, marginHorizontal: 2 },
+  a1cStatValue: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  a1cStatLabel: { fontSize: 9, fontFamily: "Inter_500Medium", color: "#888", textAlign: "center" },
+  a1cInsightBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, margin: 12, marginTop: 0, borderRadius: 10 },
+  a1cInsightText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
+
   latestValue: { fontSize: 30, fontFamily: "Inter_700Bold", lineHeight: 34 },
   latestUnit: { fontSize: 11, fontFamily: "Inter_500Medium" },
   latestMeta: { gap: 6 },
