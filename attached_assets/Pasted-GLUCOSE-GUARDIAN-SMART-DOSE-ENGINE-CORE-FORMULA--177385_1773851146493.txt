@@ -1,0 +1,122 @@
+GLUCOSE GUARDIAN - SMART DOSE ENGINE
+
+--------------------------------------
+CORE FORMULA
+--------------------------------------
+
+Total Insulin = Carb Insulin + Correction Insulin (+ Trend Adjustment)
+
+--------------------------------------
+1. CARB INSULIN
+--------------------------------------
+
+Carb Ratio:
+1 unit insulin : 40g carbs
+
+Formula:
+Carb Insulin = Total Carbs / 40
+
+Example:
+80g carbs -> 80 / 40 = 2 units
+
+--------------------------------------
+2. CORRECTION INSULIN
+--------------------------------------
+
+Target Blood Glucose (BG): 125
+Correction Factor: 1 unit lowers 125 mg/dL
+
+Formula:
+Correction Insulin = (Current BG - 125) / 125
+
+Example:
+BG = 255
+(255 - 125) = 130
+130 / 125 = 1 unit
+
+--------------------------------------
+3. TREND ADJUSTMENT (CGM DATA)
+--------------------------------------
+
+Based on glucose trends:
+
+Falling Fast   -> -0.5 units
+Rising Fast    -> +0.5 units
+Stable         -> 0 units
+
+--------------------------------------
+4. TOTAL INSULIN
+--------------------------------------
+
+Total Insulin = Carb Insulin + Correction Insulin + Trend Adjustment
+
+Example:
+
+Carbs = 80g
+BG = 255
+Trend = Falling
+
+Carb Insulin = 2
+Correction = 1
+Trend Adjustment = -0.5
+
+Total Dose = 2.5 units
+
+--------------------------------------
+SAFETY RULES
+--------------------------------------
+
+1. Prevent negative dosing:
+If BG < 125:
+- Do NOT subtract insulin blindly
+- Suggest eating instead
+
+2. Low Glucose Warning:
+If BG < 90:
+- Alert: "Your glucose is low. Consider fast-acting carbs (juice, glucose tabs)"
+
+3. High Glucose Warning:
+If BG > 250:
+- Alert: "Your glucose is high. Monitor closely and consider correction"
+
+4. Odd Reading Detection:
+If previous BG = 129 and next = 255:
+- Alert: "Unusual spike detected. Consider verifying with finger stick"
+
+--------------------------------------
+SMART FEATURES
+--------------------------------------
+
+1. Food Scan Integration:
+- Detect carbs from photo
+- Auto-fill carb input
+
+2. CGM Integration:
+- Dexcom / Libre sync
+- Real-time glucose + trends
+
+3. Explain My Dose:
+- Break down insulin calculation
+- Show user WHY dose was suggested
+
+4. Parent & Doctor Sharing:
+- Share logs, trends, insulin history
+- Export reports
+
+--------------------------------------
+SAMPLE OUTPUT (APP UI)
+--------------------------------------
+
+Based on your meal and current glucose:
+
+Carb Dose: 2 units
+Correction: 1 unit
+Trend Adjustment: -0.5 units
+
+Recommended Dose: 2.5 units
+
+You are trending downward. Monitor closely.
+
+--------------------------------------
+END
+--------------------------------------

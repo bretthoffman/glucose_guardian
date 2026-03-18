@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dimensions,
   PanResponder,
@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useColorScheme,
 } from "react-native";
@@ -19,6 +20,8 @@ import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import type { GlucoseEntry } from "@/context/GlucoseContext";
 import { glucoseColor } from "@/components/CGMChart";
+import { computeDose } from "@/utils/dose";
+import type { DoseBreakdown } from "@/utils/dose";
 
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
@@ -579,8 +582,20 @@ export default function InsulinScreen() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { targetGlucose, history } = useGlucose();
-  const { isMinor, alertPrefs } = useAuth();
+  const { targetGlucose, carbRatio, correctionFactor, history } = useGlucose();
+  const { isMinor, alertPrefs, profile } = useAuth();
+
+  const [carbInput, setCarbInput] = useState("");
+  const [bgInput, setBgInput] = useState("");
+  const [bgManual, setBgManual] = useState(false);
+
+  const latest = history[history.length - 1];
+
+  useEffect(() => {
+    if (!bgManual && latest) {
+      setBgInput(String(latest.glucose));
+    }
+  }, [latest, bgManual]);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -606,7 +621,22 @@ export default function InsulinScreen() {
     [filteredReadings, targetGlucose, isMinor],
   );
 
-  const latest = history[history.length - 1];
+  const dose = useMemo<DoseBreakdown | null>(() => {
+    const carbs = parseFloat(carbInput);
+    const bg = parseFloat(bgInput);
+    if (isNaN(carbs) || carbs < 0 || isNaN(bg) || bg <= 0) return null;
+    const trend = latest ? detectTrend(history) : "stable";
+    const prev = history.length >= 2 ? history[history.length - 2].glucose : undefined;
+    return computeDose({
+      carbs,
+      currentBG: bg,
+      targetBG: targetGlucose,
+      carbRatio,
+      correctionFactor,
+      trend,
+      previousBG: prev,
+    });
+  }, [carbInput, bgInput, targetGlucose, carbRatio, correctionFactor, history, latest]);
 
   function openChat(prompt: string) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -672,6 +702,136 @@ export default function InsulinScreen() {
           <StatBox label="Highs" value={`${stats.highs}`} unit="events" color={stats.highs > 0 ? COLORS.warning : COLORS.success} colors={colors} />
         </View>
       )}
+
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>
+        {isMinor ? "Dose Helper 💉" : "Dose Calculator"}
+      </Text>
+
+      <View style={[styles.doseCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={styles.doseInputRow}>
+          <View style={styles.doseInputGroup}>
+            <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>Carbs (g)</Text>
+            <TextInput
+              style={[styles.doseInput, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border }]}
+              value={carbInput}
+              onChangeText={(v) => setCarbInput(v.replace(/[^0-9.]/g, ""))}
+              keyboardType="numeric"
+              placeholder="0"
+              placeholderTextColor={colors.textMuted}
+            />
+          </View>
+          <View style={styles.doseInputDivider} />
+          <View style={styles.doseInputGroup}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>Current BG</Text>
+              {latest && !bgManual && (
+                <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}>
+                  <Text style={[styles.liveTagText, { color: COLORS.success }]}>LIVE</Text>
+                </View>
+              )}
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <TextInput
+                style={[styles.doseInput, { flex: 1, backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: bgManual ? COLORS.primary : colors.border }]}
+                value={bgInput}
+                onChangeText={(v) => { setBgInput(v.replace(/[^0-9]/g, "")); setBgManual(true); }}
+                keyboardType="numeric"
+                placeholder="mg/dL"
+                placeholderTextColor={colors.textMuted}
+              />
+              {bgManual && latest && (
+                <Pressable
+                  onPress={() => { setBgInput(String(latest.glucose)); setBgManual(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                  style={{ padding: 4 }}
+                >
+                  <Feather name="refresh-cw" size={15} color={COLORS.primary} />
+                </Pressable>
+              )}
+            </View>
+          </View>
+        </View>
+
+        {dose && (
+          <>
+            {dose.warnings.map((w, i) => (
+              <View key={i} style={[styles.doseWarning, {
+                backgroundColor: w.level === "danger" ? "#EF444418" : w.level === "warning" ? "#F59E0B18" : COLORS.primary + "14",
+                borderColor: w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary,
+              }]}>
+                <Feather
+                  name={w.level === "danger" ? "alert-circle" : w.level === "warning" ? "alert-triangle" : "info"}
+                  size={13}
+                  color={w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary}
+                />
+                <Text style={[styles.doseWarningText, {
+                  color: w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary,
+                }]}>{w.message}</Text>
+              </View>
+            ))}
+
+            <View style={[styles.doseBreakdown, { borderTopColor: colors.border }]}>
+              <DoseRow label="Carb Dose" sub={`${parseFloat(carbInput)}g ÷ ${carbRatio}g`} value={dose.carbInsulin} unit="u" colors={colors} />
+              <DoseRow
+                label="Correction"
+                sub={dose.correctionSuppressed
+                  ? "BG below target — suppressed"
+                  : `(${bgInput} − ${targetGlucose}) ÷ ${correctionFactor}`}
+                value={dose.correctionInsulin}
+                unit="u"
+                colors={colors}
+                dimmed={dose.correctionSuppressed}
+              />
+              <DoseRow
+                label="Trend Adj."
+                sub={dose.trendLabel}
+                value={dose.trendAdjustment}
+                unit="u"
+                colors={colors}
+                signed
+              />
+            </View>
+
+            <View style={[styles.doseTotalRow, { borderTopColor: colors.border }]}>
+              <View>
+                <Text style={[styles.doseTotalLabel, { color: colors.textSecondary }]}>
+                  {isMinor ? "Ask your adult to give:" : "Recommended Dose"}
+                </Text>
+                {dose.totalRaw !== dose.totalDose && (
+                  <Text style={[styles.doseRoundNote, { color: colors.textMuted }]}>
+                    Raw {dose.totalRaw}u → rounded to nearest ½
+                  </Text>
+                )}
+              </View>
+              <View style={styles.doseTotalBadge}>
+                <Text style={styles.doseTotalValue}>{dose.totalDose}</Text>
+                <Text style={styles.doseTotalUnit}>units</Text>
+              </View>
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [styles.explainBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                const name = profile?.childName ?? "them";
+                const prompt = `Explain my insulin dose calculation. Current BG: ${bgInput} mg/dL, eating ${carbInput}g carbs. Carb ratio 1:${carbRatio}, target BG ${targetGlucose}, ISF 1:${correctionFactor}. Trend: ${dose.trendLabel}. Carb dose: ${dose.carbInsulin}u, correction: ${dose.correctionInsulin}u, trend adjustment: ${dose.trendAdjustment}u. Total recommended: ${dose.totalDose} units. Break this down in simple terms${isMinor ? " for a kid" : ` for ${name}'s parent`}.`;
+                openChat(prompt);
+              }}
+            >
+              <Feather name="help-circle" size={13} color={COLORS.primary} />
+              <Text style={[styles.explainBtnText, { color: COLORS.primary }]}>Explain My Dose</Text>
+              <Feather name="chevron-right" size={13} color={COLORS.primary} />
+            </Pressable>
+          </>
+        )}
+
+        {!dose && (
+          <Text style={[styles.dosePrompt, { color: colors.textMuted }]}>
+            {isMinor
+              ? "Enter how many carbs you're eating above and I'll help figure out your dose 🍎"
+              : "Enter carbs and current BG above to calculate a suggested dose."}
+          </Text>
+        )}
+      </View>
 
       {suggestions.length > 0 && (
         <>
@@ -755,6 +915,31 @@ function SuggestionCard({ suggestion, colors, onChat }: { suggestion: Suggestion
   );
 }
 
+function DoseRow({
+  label, sub, value, unit, colors, signed = false, dimmed = false,
+}: {
+  label: string; sub: string; value: number; unit: string;
+  colors: (typeof Colors)["light"]; signed?: boolean; dimmed?: boolean;
+}) {
+  const display = signed
+    ? value > 0 ? `+${value}` : `${value}`
+    : `${value}`;
+  const color = dimmed
+    ? colors.textMuted
+    : value > 0 && signed ? COLORS.warning
+    : value < 0 && signed ? COLORS.success
+    : colors.text;
+  return (
+    <View style={styles.doseRowItem}>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.doseRowLabel, { color: colors.text, opacity: dimmed ? 0.45 : 1 }]}>{label}</Text>
+        <Text style={[styles.doseRowSub, { color: colors.textMuted }]}>{sub}</Text>
+      </View>
+      <Text style={[styles.doseRowValue, { color, opacity: dimmed ? 0.45 : 1 }]}>{display} {unit}</Text>
+    </View>
+  );
+}
+
 function StatBox({ label, value, unit, color, colors }: { label: string; value: string; unit: string; color: string; colors: (typeof Colors)["light"] }) {
   return (
     <View style={styles.statBox}>
@@ -806,4 +991,33 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 40 },
   emptyTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
   emptySub: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
+
+  doseCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 20, gap: 14 },
+  doseInputRow: { flexDirection: "row", gap: 12 },
+  doseInputGroup: { flex: 1, gap: 6 },
+  doseInputLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.5 },
+  doseInput: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontFamily: "Inter_700Bold", textAlign: "center" },
+  doseInputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.15)", marginVertical: 4 },
+  liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  liveTagText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
+
+  doseWarning: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1 },
+  doseWarningText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium", lineHeight: 17 },
+
+  doseBreakdown: { borderTopWidth: 1, paddingTop: 12, gap: 10 },
+  doseRowItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  doseRowLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  doseRowSub: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 1 },
+  doseRowValue: { fontSize: 16, fontFamily: "Inter_700Bold" },
+
+  doseTotalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, paddingTop: 14, gap: 10 },
+  doseTotalLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold", marginBottom: 3 },
+  doseRoundNote: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  doseTotalBadge: { flexDirection: "row", alignItems: "baseline", gap: 4, backgroundColor: COLORS.primary, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14 },
+  doseTotalValue: { fontSize: 30, fontFamily: "Inter_700Bold", color: "#fff" },
+  doseTotalUnit: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "rgba(255,255,255,0.8)" },
+
+  explainBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 11 },
+  explainBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  dosePrompt: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20, textAlign: "center", paddingVertical: 8 },
 });
