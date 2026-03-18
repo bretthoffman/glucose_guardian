@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -121,8 +121,13 @@ function buildDaySummary(
   return { date, avgBg, totalCarbs, totalInsulin, highs, lows, entries };
 }
 
-export default function LogHistory({ colors }: { colors: (typeof Colors)["light"] }) {
+export default function LogHistory({ colors, restrictToDay = false }: { colors: (typeof Colors)["light"]; restrictToDay?: boolean }) {
   const [view, setView] = useState<TimeView>("day");
+
+  useEffect(() => {
+    if (restrictToDay) setView("day");
+  }, [restrictToDay]);
+
   const [dayOffset, setDayOffset] = useState(0);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
 
@@ -211,6 +216,7 @@ export default function LogHistory({ colors }: { colors: (typeof Colors)["light"
 
   return (
     <View style={{ flex: 1 }}>
+      {!restrictToDay && (
       <View style={[styles.viewTabs, { borderBottomColor: colors.border }]}>
         {VIEW_TABS.map((t) => (
           <Pressable
@@ -224,6 +230,7 @@ export default function LogHistory({ colors }: { colors: (typeof Colors)["light"
           </Pressable>
         ))}
       </View>
+      )}
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {view === "day" && (

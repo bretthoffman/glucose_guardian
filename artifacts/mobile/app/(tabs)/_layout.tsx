@@ -8,18 +8,23 @@ import React from "react";
 import { Platform, StyleSheet, View, useColorScheme } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
+import { useAuth } from "@/context/AuthContext";
 
 function NativeTabLayout() {
+  const { isChildMode, caregiverSession } = useAuth();
+  const hidePredictTab = isChildMode && !caregiverSession;
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: "drop", selected: "drop.fill" }} />
         <Label>Glucose</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="insulin">
-        <Icon sf={{ default: "chart.line.uptrend.xyaxis", selected: "chart.line.uptrend.xyaxis.circle.fill" }} />
-        <Label>Predict</Label>
-      </NativeTabs.Trigger>
+      {!hidePredictTab && (
+        <NativeTabs.Trigger name="insulin">
+          <Icon sf={{ default: "chart.line.uptrend.xyaxis", selected: "chart.line.uptrend.xyaxis.circle.fill" }} />
+          <Label>Predict</Label>
+        </NativeTabs.Trigger>
+      )}
       <NativeTabs.Trigger name="food">
         <Icon sf={{ default: "fork.knife", selected: "fork.knife" }} />
         <Label>Food</Label>
@@ -37,6 +42,8 @@ function NativeTabLayout() {
 }
 
 function ClassicTabLayout() {
+  const { isChildMode, caregiverSession } = useAuth();
+  const hidePredictTab = isChildMode && !caregiverSession;
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const isIOS = Platform.OS === "ios";
@@ -91,6 +98,7 @@ function ClassicTabLayout() {
         name="insulin"
         options={{
           title: "Predict",
+          tabBarButton: hidePredictTab ? () => null : undefined,
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="chart.line.uptrend.xyaxis" tintColor={color} size={22} />

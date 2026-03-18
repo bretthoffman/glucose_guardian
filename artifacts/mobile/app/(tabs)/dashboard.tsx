@@ -1180,7 +1180,7 @@ export default function DashboardScreen() {
           )}
         </View>
 
-        {combinedEntries.length > 0 && (
+        {combinedEntries.length > 0 && !(isChildMode && !caregiverSession) && (
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>Activity Log</Text>
             <Text style={[styles.foodLogCount, { color: colors.textSecondary }]}>
@@ -1229,7 +1229,7 @@ export default function DashboardScreen() {
             )}
             {isGuarded ? (
               <GuardianLock colors={colors} />
-            ) : (
+            ) : !caregiverSession ? (
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                 {foodLog.length > 0 && (
                   <Pressable
@@ -1250,7 +1250,7 @@ export default function DashboardScreen() {
                   </Pressable>
                 )}
               </View>
-            )}
+            ) : null}
           </View>
         )}
 

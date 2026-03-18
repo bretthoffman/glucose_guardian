@@ -783,10 +783,17 @@ export default function InsulinScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { targetGlucose, carbRatio, correctionFactor, history } = useGlucose();
-  const { isMinor, alertPrefs, profile, foodLog, insulinLog } = useAuth();
+  const { isMinor, alertPrefs, profile, foodLog, insulinLog, caregiverSession } = useAuth();
 
   const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
   const [timeRange, setTimeRange] = useState<TimeRange>(3);
+
+  useEffect(() => {
+    if (caregiverSession) {
+      setScreenTab("log");
+    }
+  }, [caregiverSession]);
+
   const [carbInput, setCarbInput] = useState("");
   const [bgInput, setBgInput] = useState("");
   const [bgManual, setBgManual] = useState(false);
@@ -888,24 +895,26 @@ export default function InsulinScreen() {
           </View>
         </View>
 
-        {/* Predict / Log toggle */}
-        <View style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
-          {(["predict", "log"] as ScreenTab[]).map((t) => (
-            <Pressable
-              key={t}
-              style={[styles.screenToggleBtn, screenTab === t && { backgroundColor: colors.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }]}
-              onPress={() => { setScreenTab(t); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-            >
-              <Text style={[styles.screenToggleText, { color: screenTab === t ? COLORS.primary : colors.textSecondary }]}>
-                {t === "predict" ? "📈 Predict" : "📋 Log"}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        {/* Predict / Log toggle — caregivers see Log only */}
+        {!caregiverSession && (
+          <View style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
+            {(["predict", "log"] as ScreenTab[]).map((t) => (
+              <Pressable
+                key={t}
+                style={[styles.screenToggleBtn, screenTab === t && { backgroundColor: colors.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }]}
+                onPress={() => { setScreenTab(t); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              >
+                <Text style={[styles.screenToggleText, { color: screenTab === t ? COLORS.primary : colors.textSecondary }]}>
+                  {t === "predict" ? "📈 Predict" : "📋 Log"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
       </View>
 
       {screenTab === "log" ? (
-        <LogHistory colors={colors} />
+        <LogHistory colors={colors} restrictToDay={caregiverSession} />
       ) : (
       <ScrollView
         style={{ flex: 1 }}
