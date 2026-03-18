@@ -28,6 +28,7 @@ export interface GlucoseContextType {
   setCarbRatio: (v: number) => void;
   setTargetGlucose: (v: number) => void;
   setCorrectionFactor: (v: number) => void;
+  saveFormula: (carbRatio: number, targetGlucose: number, correctionFactor: number) => void;
 }
 
 const GlucoseContext = createContext<GlucoseContextType | null>(null);
@@ -102,10 +103,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.getItem(SETTINGS_KEY)
       .then((s) => {
         const curr = s ? JSON.parse(s) : {};
-        return AsyncStorage.setItem(
-          SETTINGS_KEY,
-          JSON.stringify({ ...curr, carbRatio: v })
-        );
+        return AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...curr, carbRatio: v }));
       })
       .catch(() => {});
   }, []);
@@ -115,10 +113,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.getItem(SETTINGS_KEY)
       .then((s) => {
         const curr = s ? JSON.parse(s) : {};
-        return AsyncStorage.setItem(
-          SETTINGS_KEY,
-          JSON.stringify({ ...curr, targetGlucose: v })
-        );
+        return AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...curr, targetGlucose: v }));
       })
       .catch(() => {});
   }, []);
@@ -128,9 +123,21 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.getItem(SETTINGS_KEY)
       .then((s) => {
         const curr = s ? JSON.parse(s) : {};
+        return AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...curr, correctionFactor: v }));
+      })
+      .catch(() => {});
+  }, []);
+
+  const saveFormula = useCallback((cr: number, tg: number, cf: number) => {
+    setCarbRatioState(cr);
+    setTargetGlucoseState(tg);
+    setCorrectionFactorState(cf);
+    AsyncStorage.getItem(SETTINGS_KEY)
+      .then((s) => {
+        const curr = s ? JSON.parse(s) : {};
         return AsyncStorage.setItem(
           SETTINGS_KEY,
-          JSON.stringify({ ...curr, correctionFactor: v })
+          JSON.stringify({ ...curr, carbRatio: cr, targetGlucose: tg, correctionFactor: cf })
         );
       })
       .catch(() => {});
@@ -154,6 +161,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
         setCarbRatio,
         setTargetGlucose,
         setCorrectionFactor,
+        saveFormula,
       }}
     >
       {children}

@@ -132,9 +132,7 @@ export default function DashboardScreen() {
     carbRatio,
     targetGlucose,
     correctionFactor,
-    setCarbRatio,
-    setTargetGlucose,
-    setCorrectionFactor,
+    saveFormula,
   } = useGlucose();
   const {
     profile,
@@ -241,9 +239,7 @@ export default function DashboardScreen() {
       Alert.alert("Invalid Values", "Please enter valid positive numbers.");
       return;
     }
-    setCarbRatio(cr);
-    setTargetGlucose(tg);
-    setCorrectionFactor(isf);
+    saveFormula(cr, tg, isf);
     setEditing(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }

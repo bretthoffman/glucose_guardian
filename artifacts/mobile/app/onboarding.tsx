@@ -114,7 +114,7 @@ export default function OnboardingScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { setupProfile, setGuardianPin } = useAuth();
-  const { setCarbRatio, setTargetGlucose, setCorrectionFactor } = useGlucose();
+  const { saveFormula } = useGlucose();
 
   const [step, setStep] = useState<Step>("welcome");
   const [accountRole, setAccountRole] = useState<"parent" | "adult">("parent");
@@ -206,17 +206,12 @@ export default function OnboardingScreen() {
       });
       if (pin) await setGuardianPin(pin);
       const parsedCarbGrams = parseFloat(carbRatioInput);
-      if (!isNaN(parsedCarbGrams) && parsedCarbGrams > 0) {
-        setCarbRatio(carbUnitHalf ? parsedCarbGrams * 2 : parsedCarbGrams);
-      }
       const parsedTarget = parseFloat(targetGlucoseInput);
-      if (!isNaN(parsedTarget) && parsedTarget > 0) {
-        setTargetGlucose(parsedTarget);
-      }
       const parsedISF = parseFloat(isfInput);
-      if (!isNaN(parsedISF) && parsedISF > 0) {
-        setCorrectionFactor(parsedISF);
-      }
+      const cr = !isNaN(parsedCarbGrams) && parsedCarbGrams > 0 ? (carbUnitHalf ? parsedCarbGrams * 2 : parsedCarbGrams) : 40;
+      const tg = !isNaN(parsedTarget) && parsedTarget > 0 ? parsedTarget : 120;
+      const cf = !isNaN(parsedISF) && parsedISF > 0 ? parsedISF : 50;
+      saveFormula(cr, tg, cf);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)");
     } catch {
