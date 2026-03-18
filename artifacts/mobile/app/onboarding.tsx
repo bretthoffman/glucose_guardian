@@ -127,6 +127,7 @@ export default function OnboardingScreen() {
   const [diabetesType, setDiabetesType] = useState<"type1" | "type2" | "other">("type1");
   const [insulinTypes, setInsulinTypes] = useState<string[]>([]);
   const [carbRatioInput, setCarbRatioInput] = useState("");
+  const [carbUnitHalf, setCarbUnitHalf] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   function toggleInsulinType(t: string) {
@@ -202,9 +203,9 @@ export default function OnboardingScreen() {
         insulinTypes: insulinTypes.length > 0 ? insulinTypes : undefined,
       });
       if (pin) await setGuardianPin(pin);
-      const parsedCarbRatio = parseFloat(carbRatioInput);
-      if (!isNaN(parsedCarbRatio) && parsedCarbRatio > 0) {
-        setCarbRatio(parsedCarbRatio);
+      const parsedCarbGrams = parseFloat(carbRatioInput);
+      if (!isNaN(parsedCarbGrams) && parsedCarbGrams > 0) {
+        setCarbRatio(carbUnitHalf ? parsedCarbGrams * 2 : parsedCarbGrams);
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)");
@@ -672,10 +673,35 @@ export default function OnboardingScreen() {
               </View>
               <Text style={[styles.insulinSectionSub, { color: colors.textMuted }]}>
                 {accountRole === "parent"
-                  ? `How many grams of carbs 1 unit of insulin covers for ${childName || "your child"}`
-                  : "How many grams of carbs 1 unit of insulin covers for you"}
+                  ? `How many grams of carbs covers ${carbUnitHalf ? "½ unit" : "1 unit"} of insulin for ${childName || "your child"}`
+                  : `How many grams of carbs covers ${carbUnitHalf ? "½ unit" : "1 unit"} of insulin for you`}
               </Text>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 }}>
+
+              <View style={[styles.carbUnitToggleRow, { marginTop: 10, marginBottom: 8 }]}>
+                {([false, true] as const).map((isHalf) => (
+                  <Pressable
+                    key={String(isHalf)}
+                    style={[
+                      styles.carbUnitBtn,
+                      {
+                        backgroundColor: carbUnitHalf === isHalf ? COLORS.primary + "18" : colors.card,
+                        borderColor: carbUnitHalf === isHalf ? COLORS.primary : colors.border,
+                      },
+                    ]}
+                    onPress={() => { setCarbUnitHalf(isHalf); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                  >
+                    {carbUnitHalf === isHalf && (
+                      <Feather name="check" size={13} color={COLORS.primary} />
+                    )}
+                    <Text style={[styles.carbUnitBtnText, { color: carbUnitHalf === isHalf ? COLORS.primary : colors.textMuted }]}>
+                      {isHalf ? "½ unit" : "1 unit"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Text style={[styles.insulinSectionSub, { color: colors.textMuted, marginTop: 0 }]}>per</Text>
                 <TextInput
                   style={[
                     styles.nameInput,
@@ -685,19 +711,26 @@ export default function OnboardingScreen() {
                       borderColor: carbRatioInput.trim() ? COLORS.primary : colors.border,
                       color: colors.text,
                       marginTop: 0,
+                      textAlign: "center",
                     },
                   ]}
                   value={carbRatioInput}
                   onChangeText={(v) => setCarbRatioInput(v.replace(/[^0-9.]/g, ""))}
-                  placeholder="e.g. 10"
+                  placeholder={carbUnitHalf ? "e.g. 20" : "e.g. 40"}
                   placeholderTextColor={colors.textMuted}
                   keyboardType="decimal-pad"
                   maxLength={5}
                 />
                 <Text style={[styles.insulinSectionSub, { color: colors.textMuted, marginTop: 0 }]}>
-                  g carbs / unit
+                  g of carbs
                 </Text>
               </View>
+
+              {carbRatioInput.trim() !== "" && !isNaN(parseFloat(carbRatioInput)) && (
+                <Text style={[styles.insulinSectionSub, { color: COLORS.primary + "BB", marginTop: 6 }]}>
+                  = 1 unit covers {carbUnitHalf ? parseFloat(carbRatioInput) * 2 : parseFloat(carbRatioInput)}g of carbs
+                </Text>
+              )}
             </View>
 
             <Pressable
@@ -987,4 +1020,7 @@ const styles = StyleSheet.create({
   insulinChipName: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   insulinChipConc: { fontSize: 10, fontFamily: "Inter_400Regular" },
   insulinChipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  carbUnitToggleRow: { flexDirection: "row", gap: 10 },
+  carbUnitBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 12, borderWidth: 1.5 },
+  carbUnitBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });

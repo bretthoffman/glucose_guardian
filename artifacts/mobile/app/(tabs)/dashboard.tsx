@@ -163,6 +163,8 @@ export default function DashboardScreen() {
 
   const [editing, setEditing] = useState(false);
   const [editCarbRatio, setEditCarbRatio] = useState(String(carbRatio));
+  const [editCarbUnit, setEditCarbUnit] = useState<"full" | "half">("full");
+  const [editCarbGrams, setEditCarbGrams] = useState(String(carbRatio));
   const [editTarget, setEditTarget] = useState(String(targetGlucose));
   const [editISF, setEditISF] = useState(String(correctionFactor));
   const [editingProfile, setEditingProfile] = useState(false);
@@ -219,7 +221,8 @@ export default function DashboardScreen() {
   }
 
   function saveSettings() {
-    const cr = parseFloat(editCarbRatio);
+    const grams = parseFloat(editCarbGrams);
+    const cr = editCarbUnit === "half" ? grams * 2 : grams;
     const tg = parseFloat(editTarget);
     const isf = parseFloat(editISF);
     if (isNaN(cr) || cr <= 0 || isNaN(tg) || tg <= 0 || isNaN(isf) || isf <= 0) {
@@ -800,6 +803,8 @@ export default function DashboardScreen() {
                 onPress={() => {
                   if (editing) { saveSettings(); } else {
                     setEditCarbRatio(String(carbRatio));
+                    setEditCarbUnit("full");
+                    setEditCarbGrams(String(carbRatio));
                     setEditTarget(String(targetGlucose));
                     setEditISF(String(correctionFactor));
                     setEditing(true);
@@ -816,7 +821,51 @@ export default function DashboardScreen() {
               </Pressable>
             )}
           </View>
-          <SettingRow label="Carb Ratio" description="grams of carbs per unit of insulin" displayValue={`1:${carbRatio} g/unit`} editing={editing && !isGuarded} value={editCarbRatio} onChange={setEditCarbRatio} colors={colors} />
+          <View style={[styles.settingRow, { borderBottomWidth: 1, borderBottomColor: colors.separator }]}>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Carb Ratio</Text>
+              <Text style={[styles.settingDesc, { color: colors.textMuted }]}>grams of carbs per unit of insulin</Text>
+            </View>
+            {(editing && !isGuarded) ? (
+              <View style={{ gap: 8, minWidth: 160 }}>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  {(["full", "half"] as const).map((u) => (
+                    <Pressable
+                      key={u}
+                      onPress={() => { setEditCarbUnit(u); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                      style={[
+                        styles.carbUnitToggleBtn,
+                        { backgroundColor: editCarbUnit === u ? COLORS.primary + "18" : colors.backgroundTertiary, borderColor: editCarbUnit === u ? COLORS.primary : colors.border },
+                      ]}
+                    >
+                      <Text style={[styles.carbUnitToggleBtnText, { color: editCarbUnit === u ? COLORS.primary : colors.textMuted }]}>
+                        {u === "full" ? "1 unit" : "½ unit"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={[styles.settingDesc, { color: colors.textMuted }]}>per</Text>
+                  <TextInput
+                    style={[styles.settingInput, { flex: 1, backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border, textAlign: "center" }]}
+                    value={editCarbGrams}
+                    onChangeText={(v) => setEditCarbGrams(v.replace(/[^0-9.]/g, ""))}
+                    keyboardType="numeric"
+                    placeholder={editCarbUnit === "half" ? "e.g. 20" : "e.g. 40"}
+                    placeholderTextColor={colors.textMuted}
+                  />
+                  <Text style={[styles.settingDesc, { color: colors.textMuted }]}>g</Text>
+                </View>
+                {editCarbGrams.trim() !== "" && !isNaN(parseFloat(editCarbGrams)) && (
+                  <Text style={[styles.settingDesc, { color: COLORS.primary + "CC" }]}>
+                    = 1 unit per {editCarbUnit === "half" ? parseFloat(editCarbGrams) * 2 : parseFloat(editCarbGrams)}g
+                  </Text>
+                )}
+              </View>
+            ) : (
+              <Text style={[styles.settingValue, { color: COLORS.primary }]}>1:{carbRatio} g/unit</Text>
+            )}
+          </View>
           <SettingRow label="Target Glucose" description="desired blood glucose level" displayValue={`${targetGlucose} mg/dL`} editing={editing && !isGuarded} value={editTarget} onChange={setEditTarget} colors={colors} />
           <SettingRow label="Correction Factor (ISF)" description="points glucose drops per unit" displayValue={`1:${correctionFactor}`} editing={editing && !isGuarded} value={editISF} onChange={setEditISF} colors={colors} last />
 
@@ -1417,6 +1466,8 @@ const styles = StyleSheet.create({
   settingDesc: { fontSize: 12, fontFamily: "Inter_400Regular" },
   settingValue: { fontSize: 14, fontFamily: "Inter_700Bold" },
   settingInput: { width: 80, borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7, fontSize: 14, fontFamily: "Inter_500Medium", textAlign: "right" },
+  carbUnitToggleBtn: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 7, borderRadius: 8, borderWidth: 1.5 },
+  carbUnitToggleBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
 
   fieldLabel: { fontSize: 13, fontFamily: "Inter_500Medium" },
   smallInput: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontFamily: "Inter_400Regular" },
