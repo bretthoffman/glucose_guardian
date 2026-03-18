@@ -31,24 +31,32 @@ import {
   type NotificationPermissionStatus,
 } from "@/services/notifications";
 
-function GuardianLock({ colors }: { colors: (typeof Colors)["light"] }) {
+function GuardianLock({ colors, onPress }: { colors: (typeof Colors)["light"]; onPress?: () => void }) {
   return (
-    <View style={[guardianStyles.container, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        guardianStyles.container,
+        { backgroundColor: colors.backgroundTertiary, borderColor: onPress ? COLORS.warning + "60" : colors.border },
+        onPress && pressed && { opacity: 0.75 },
+      ]}
+    >
       <View style={[guardianStyles.iconWrap, { backgroundColor: COLORS.warning + "20" }]}>
         <Feather name="lock" size={20} color={COLORS.warning} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[guardianStyles.title, { color: colors.text }]}>Guardian Permission Required</Text>
         <Text style={[guardianStyles.sub, { color: colors.textMuted }]}>
-          Use the Guardian Access section to unlock and edit this.
+          {onPress ? "Tap here to enter your PIN and unlock." : "Use the Guardian Access section to unlock and edit this."}
         </Text>
       </View>
-    </View>
+      {onPress && <Feather name="chevron-right" size={18} color={COLORS.warning} />}
+    </Pressable>
   );
 }
 
 const guardianStyles = StyleSheet.create({
-  container: { flexDirection: "row", alignItems: "flex-start", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, marginTop: 4 },
+  container: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, marginTop: 4 },
   iconWrap: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   title: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 3 },
   sub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
@@ -414,6 +422,7 @@ export default function DashboardScreen() {
             setShowPinModal(false);
             setPinEntry("");
             setPinError("");
+            setPinPurpose("unlock");
             setChildMode(false);
           } else {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -448,6 +457,13 @@ export default function DashboardScreen() {
     setPinError("");
     setPinShake(false);
     setPinPurpose("unlock");
+  }
+
+  function openPinUnlock() {
+    setPinPurpose("unlock");
+    setPinEntry("");
+    setPinError("");
+    setShowPinModal(true);
   }
 
   const diabetesLabel: Record<string, string> = { type1: "Type 1", type2: "Type 2", other: "Other" };
@@ -760,7 +776,7 @@ export default function DashboardScreen() {
           </View>
 
           {isGuarded ? (
-            <GuardianLock colors={colors} />
+            <GuardianLock colors={colors} onPress={openPinUnlock} />
           ) : (
             <>
               <View style={styles.thresholdGrid}>
@@ -934,7 +950,7 @@ export default function DashboardScreen() {
             </View>
             <TrendChart readings={history} height={130} />
             {isGuarded ? (
-              <GuardianLock colors={colors} />
+              <GuardianLock colors={colors} onPress={openPinUnlock} />
             ) : (
               <Pressable
                 style={({ pressed }) => [styles.dangerBtn, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
@@ -1071,7 +1087,7 @@ export default function DashboardScreen() {
             )}
           </View>
 
-          {isGuarded && <GuardianLock colors={colors} />}
+          {isGuarded && <GuardianLock colors={colors} onPress={openPinUnlock} />}
         </View>
         </>)}
 
@@ -1228,7 +1244,7 @@ export default function DashboardScreen() {
               <Text style={[styles.foodLogMore, { color: colors.textMuted }]}>+{dayKeys.length - 3} earlier days in report</Text>
             )}
             {isGuarded ? (
-              <GuardianLock colors={colors} />
+              <GuardianLock colors={colors} onPress={openPinUnlock} />
             ) : !caregiverSession ? (
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                 {foodLog.length > 0 && (
