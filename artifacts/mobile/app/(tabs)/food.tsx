@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 
 import React, { useState } from "react";
 import {
@@ -176,14 +177,12 @@ export default function FoodScreen() {
 
     const pickerResult = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
-      quality: 0.5,
-      base64: true,
+      quality: 0.7,
     });
 
     if (!pickerResult.canceled && pickerResult.assets[0]) {
       setDoseTaken(false);
-      const asset = pickerResult.assets[0];
-      await analyzePhoto(asset.uri, asset.base64 ?? null, asset.mimeType ?? "image/jpeg");
+      await analyzePhoto(pickerResult.assets[0].uri);
     }
   }
 
@@ -196,18 +195,16 @@ export default function FoodScreen() {
 
     const pickerResult = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      quality: 0.4,
-      base64: true,
+      quality: 0.7,
     });
 
     if (!pickerResult.canceled && pickerResult.assets[0]) {
       setDoseTaken(false);
-      const asset = pickerResult.assets[0];
-      await analyzePhoto(asset.uri, asset.base64 ?? null, asset.mimeType ?? "image/jpeg");
+      await analyzePhoto(pickerResult.assets[0].uri);
     }
   }
 
-  async function analyzePhoto(uri: string, base64: string | null, mimeType = "image/jpeg") {
+  async function analyzePhoto(uri: string) {
     setPhotoUri(uri);
     setResult(null);
     setGuidance(null);
@@ -216,8 +213,20 @@ export default function FoodScreen() {
     setError("");
     setIsAnalyzingPhoto(true);
 
-    if (!base64) {
-      setError("Could not read the photo. Please try again.");
+    let base64: string;
+    try {
+      const manipResult = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 1024 } }],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      if (!manipResult.base64) {
+        throw new Error("No base64 output from image manipulator");
+      }
+      base64 = manipResult.base64;
+    } catch (manipErr) {
+      console.error("Image conversion error:", manipErr);
+      setError("Could not process the photo. Please try a different image.");
       setIsAnalyzingPhoto(false);
       return;
     }
@@ -228,7 +237,7 @@ export default function FoodScreen() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           photoBase64: base64,
-          mimeType,
+          mimeType: "image/jpeg",
           carbRatio,
         }),
       });
