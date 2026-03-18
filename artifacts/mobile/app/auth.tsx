@@ -27,7 +27,7 @@ export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
   const isDark = scheme !== "light";
-  const { createAccount, signIn, account, isLoading } = useAuth();
+  const { createAccount, signIn, account, isLoading, enterCaregiverMode } = useAuth();
   const { resetGlucoseData } = useGlucose();
 
   const [mode, setMode] = useState<Mode>(account ? "signin" : "create");
@@ -36,6 +36,9 @@ export default function AuthScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showCaregiverEntry, setShowCaregiverEntry] = useState(false);
+  const [caregiverCode, setCaregiverCode] = useState("");
+  const [caregiverError, setCaregiverError] = useState("");
 
   const slideAnim = useRef(new Animated.Value(account ? 1 : 0)).current;
   const passwordRef = useRef<TextInput>(null);
@@ -299,6 +302,67 @@ export default function AuthScreen() {
             </View>
           ))}
         </View>
+
+        <View style={[styles.caregiverSection, { borderColor: "rgba(255,255,255,0.10)" }]}>
+          {!showCaregiverEntry ? (
+            <Pressable
+              style={styles.caregiverLink}
+              onPress={() => { setShowCaregiverEntry(true); setCaregiverError(""); }}
+            >
+              <Feather name="users" size={14} color={COLORS.accent} />
+              <Text style={[styles.caregiverLinkText, { color: COLORS.accent }]}>
+                Caregiver? Enter your access code →
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.caregiverForm}>
+              <Text style={[styles.caregiverFormTitle, { color: "#fff" }]}>Caregiver Access</Text>
+              <Text style={[styles.caregiverFormSub, { color: "rgba(255,255,255,0.55)" }]}>
+                Enter the 6-character code shared by the account owner
+              </Text>
+              <View style={[styles.caregiverInputWrap, { backgroundColor: "rgba(255,255,255,0.06)", borderColor: caregiverError ? COLORS.danger : "rgba(255,255,255,0.15)" }]}>
+                <Feather name="key" size={15} color="rgba(255,255,255,0.5)" />
+                <TextInput
+                  style={[styles.caregiverInput, { color: "#fff" }]}
+                  value={caregiverCode}
+                  onChangeText={(v) => { setCaregiverCode(v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6)); setCaregiverError(""); }}
+                  placeholder="ABC123"
+                  placeholderTextColor="rgba(255,255,255,0.25)"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={6}
+                />
+                <Text style={[styles.caregiverCounter, { color: "rgba(255,255,255,0.35)" }]}>{caregiverCode.length}/6</Text>
+              </View>
+              {caregiverError ? (
+                <Text style={[styles.caregiverError, { color: COLORS.danger }]}>{caregiverError}</Text>
+              ) : null}
+              <View style={styles.caregiverBtns}>
+                <Pressable
+                  style={[styles.caregiverCancelBtn, { borderColor: "rgba(255,255,255,0.15)" }]}
+                  onPress={() => { setShowCaregiverEntry(false); setCaregiverCode(""); setCaregiverError(""); }}
+                >
+                  <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, fontFamily: "Inter_500Medium" }}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.caregiverSubmitBtn, { backgroundColor: caregiverCode.length === 6 ? COLORS.accent : "rgba(255,255,255,0.12)", opacity: caregiverCode.length === 6 ? 1 : 0.6 }]}
+                  disabled={caregiverCode.length < 6}
+                  onPress={() => {
+                    const ok = enterCaregiverMode(caregiverCode);
+                    if (ok) {
+                      router.replace("/(tabs)");
+                    } else {
+                      setCaregiverError("Invalid code. Ask the account owner to check their Caregiver Access code.");
+                    }
+                  }}
+                >
+                  <Feather name="unlock" size={15} color="#fff" />
+                  <Text style={{ color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" }}>Enter</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -408,8 +472,22 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
   },
 
-  features: { gap: 12 },
+  features: { gap: 12, marginBottom: 24 },
   featureRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   featureIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   featureText: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
+
+  caregiverSection: { borderTopWidth: 1, paddingTop: 20 },
+  caregiverLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 8 },
+  caregiverLinkText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  caregiverForm: { gap: 12 },
+  caregiverFormTitle: { fontSize: 16, fontFamily: "Inter_700Bold", textAlign: "center" },
+  caregiverFormSub: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 18 },
+  caregiverInputWrap: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
+  caregiverInput: { flex: 1, fontSize: 20, fontFamily: "Inter_700Bold", letterSpacing: 4, textAlign: "center" },
+  caregiverCounter: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  caregiverError: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center" },
+  caregiverBtns: { flexDirection: "row", gap: 10 },
+  caregiverCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  caregiverSubmitBtn: { flex: 1.5, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 12, borderRadius: 12 },
 });

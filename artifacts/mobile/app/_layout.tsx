@@ -22,7 +22,7 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootLayoutNav() {
-  const { isLoggedIn, isLoading, isSignedIn } = useAuth();
+  const { isLoggedIn, isLoading, isSignedIn, caregiverSession } = useAuth();
   const segments = useSegments();
 
   useEffect(() => {
@@ -30,16 +30,15 @@ function RootLayoutNav() {
 
     const inAuth = segments[0] === "auth";
     const inOnboarding = segments[0] === "onboarding";
-    const inTabs = segments[0] === "(tabs)";
 
-    if (!isSignedIn && !inAuth) {
+    if (!isSignedIn && !caregiverSession && !inAuth) {
       router.replace("/auth");
     } else if (isSignedIn && !isLoggedIn && !inOnboarding) {
       router.replace("/onboarding");
-    } else if (isSignedIn && isLoggedIn && (inAuth || inOnboarding)) {
+    } else if ((isSignedIn || caregiverSession) && isLoggedIn && (inAuth || inOnboarding)) {
       router.replace("/(tabs)");
     }
-  }, [isSignedIn, isLoggedIn, isLoading, segments]);
+  }, [isSignedIn, isLoggedIn, isLoading, caregiverSession, segments]);
 
   return (
     <Stack screenOptions={{ headerBackTitle: "Back" }}>

@@ -148,7 +148,15 @@ export default function DashboardScreen() {
     isGuardianUnlocked,
     unlockGuardian,
     lockGuardian,
+    isChildMode,
+    caregiverSession,
+    setChildMode,
+    generateCaregiverCode,
+    exitCaregiverMode,
   } = useAuth();
+
+  const isParent = profile?.accountRole === "parent" || profile?.accountRole === undefined;
+  const isAdult = profile?.accountRole === "adult";
 
   const isGuarded = isMinor && !isGuardianUnlocked;
 
@@ -427,7 +435,38 @@ export default function DashboardScreen() {
           )}
         </View>
 
-        {isMinor && (
+        {caregiverSession && (
+          <View style={[styles.modeBanner, { backgroundColor: COLORS.accent + "15", borderColor: COLORS.accent + "35" }]}>
+            <View style={styles.modeBannerLeft}>
+              <Feather name="users" size={16} color={COLORS.accent} />
+              <View>
+                <Text style={[styles.modeBannerTitle, { color: COLORS.accent }]}>Caregiver View</Text>
+                <Text style={[styles.modeBannerSub, { color: colors.textSecondary }]}>Read-only access via caregiver code</Text>
+              </View>
+            </View>
+            <Pressable
+              style={[styles.modeBannerBtn, { backgroundColor: COLORS.accent + "20" }]}
+              onPress={() => { exitCaregiverMode(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+            >
+              <Feather name="log-out" size={13} color={COLORS.accent} />
+              <Text style={[styles.modeBannerBtnText, { color: COLORS.accent }]}>Exit</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {isChildMode && !caregiverSession && (
+          <View style={[styles.modeBanner, { backgroundColor: COLORS.primary + "12", borderColor: COLORS.primary + "30" }]}>
+            <View style={styles.modeBannerLeft}>
+              <Feather name="eye" size={16} color={COLORS.primary} />
+              <View>
+                <Text style={[styles.modeBannerTitle, { color: COLORS.primary }]}>Child View Active</Text>
+                <Text style={[styles.modeBannerSub, { color: colors.textSecondary }]}>Settings are hidden — guardian PIN required</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {!isChildMode && !caregiverSession && isMinor && (
           <View style={[styles.childBanner, { backgroundColor: COLORS.primary + "10", borderColor: COLORS.primary + "30" }]}>
             <Feather name="info" size={16} color={COLORS.primary} />
             <Text style={[styles.childBannerText, { color: colors.textSecondary }]}>
@@ -436,7 +475,7 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {isMinor && guardianPin && (
+        {!isChildMode && !caregiverSession && isMinor && guardianPin && (
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: isGuardianUnlocked ? COLORS.success + "50" : colors.border }]}>
             <View style={styles.guardianAccessHeader}>
               <View style={[styles.guardianAccessIcon, { backgroundColor: isGuardianUnlocked ? COLORS.success + "18" : COLORS.warning + "18" }]}>
@@ -515,6 +554,7 @@ export default function DashboardScreen() {
           </Pressable>
         </View>
 
+        {!isChildMode && !caregiverSession && (<>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Notifications</Text>
           <Text style={[styles.cardSub, { color: colors.textSecondary }]}>
@@ -817,10 +857,11 @@ export default function DashboardScreen() {
 
           {isGuarded && <GuardianLock colors={colors} />}
         </View>
+        </>)}
 
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor Sharing</Text>
-          {!isGuarded && (
+          {!isGuarded && !isChildMode && !caregiverSession && (
             <>
               {editingProfile ? (
                 <View style={{ gap: 10 }}>
@@ -950,6 +991,140 @@ export default function DashboardScreen() {
                     <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear Insulin</Text>
                   </Pressable>
                 )}
+              </View>
+            )}
+          </View>
+        )}
+
+        {isParent && !isChildMode && !caregiverSession && (
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.primary + "15" }]}>
+                <Feather name="eye" size={20} color={COLORS.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Child View Mode</Text>
+                <Text style={[styles.guardianAccessSub, { color: colors.textMuted }]}>
+                  Hides settings — safe for child to use the app
+                </Text>
+              </View>
+              {isMinor && !isGuardianUnlocked ? (
+                <View style={[styles.guardianBtn, { backgroundColor: colors.backgroundTertiary }]}>
+                  <Feather name="lock" size={14} color={colors.textMuted} />
+                </View>
+              ) : (
+                <Pressable
+                  style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => {
+                    if (isMinor && !isGuardianUnlocked) {
+                      setShowPinModal(true);
+                    } else {
+                      setChildMode(true);
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    }
+                  }}
+                >
+                  <Feather name="toggle-right" size={14} color={COLORS.primary} />
+                  <Text style={[styles.guardianBtnText, { color: COLORS.primary }]}>Enable</Text>
+                </Pressable>
+              )}
+            </View>
+            {isMinor && !isGuardianUnlocked && (
+              <View style={[styles.unlockedNote, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+                <Feather name="lock" size={13} color={colors.textMuted} />
+                <Text style={[styles.unlockedNoteText, { color: colors.textMuted }]}>
+                  Unlock Guardian Access above to enable Child View Mode
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {isChildMode && !caregiverSession && isParent && (
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: COLORS.primary + "35" }]}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.primary + "15" }]}>
+                <Feather name="eye-off" size={20} color={COLORS.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Child View Mode On</Text>
+                <Text style={[styles.guardianAccessSub, { color: colors.textMuted }]}>Settings are hidden for child safety</Text>
+              </View>
+              <Pressable
+                style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "15", opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => { setChildMode(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+              >
+                <Feather name="toggle-left" size={14} color={COLORS.danger} />
+                <Text style={[styles.guardianBtnText, { color: COLORS.danger }]}>Turn Off</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {isParent && !isChildMode && !caregiverSession && (
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.accent + "15" }]}>
+                <Feather name="users" size={20} color={COLORS.accent} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Caregiver Access</Text>
+                <Text style={[styles.guardianAccessSub, { color: colors.textMuted }]}>
+                  Share a code with caregivers (nurses, grandparents)
+                </Text>
+              </View>
+              {profile?.caregiverCode && (isMinor ? isGuardianUnlocked : true) && (
+                <Pressable
+                  style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.accent + "15", opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => {
+                    Alert.alert(
+                      "Caregiver Code",
+                      `Share this code with your caregiver:\n\n${profile.caregiverCode}\n\nThey enter it on the login screen to access a read-only view.`,
+                      [{ text: "OK" }]
+                    );
+                  }}
+                >
+                  <Feather name="share-2" size={14} color={COLORS.accent} />
+                  <Text style={[styles.guardianBtnText, { color: COLORS.accent }]}>Share</Text>
+                </Pressable>
+              )}
+            </View>
+            {!profile?.caregiverCode ? (
+              <Pressable
+                style={({ pressed }) => [styles.outlineBtn, { borderColor: COLORS.accent + "50", backgroundColor: COLORS.accent + "08", opacity: pressed ? 0.8 : 1 }]}
+                onPress={async () => {
+                  if (isMinor && !isGuardianUnlocked) {
+                    setShowPinModal(true);
+                    return;
+                  }
+                  const code = await generateCaregiverCode();
+                  Alert.alert("Caregiver Code Created", `Your caregiver code is:\n\n${code}\n\nShare this with your caregiver. They'll enter it on the login screen to view your data.`, [{ text: "OK" }]);
+                }}
+              >
+                <Feather name="plus" size={14} color={COLORS.accent} />
+                <Text style={[styles.outlineBtnText, { color: COLORS.accent }]}>Generate Caregiver Code</Text>
+              </Pressable>
+            ) : (
+              <View style={[styles.caregiverCodeDisplay, { backgroundColor: COLORS.accent + "0A", borderColor: COLORS.accent + "30" }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.caregiverCodeLabel, { color: colors.textMuted }]}>Your caregiver code</Text>
+                  <Text style={[styles.caregiverCodeValue, { color: colors.text }]}>
+                    {isMinor && !isGuardianUnlocked ? "••••••" : profile.caregiverCode}
+                  </Text>
+                </View>
+                <Pressable
+                  style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "12", opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => {
+                    if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
+                    Alert.alert("Reset Code?", "This will invalidate the old code. Caregivers with the old code will no longer have access.", [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Reset", style: "destructive", onPress: async () => { await generateCaregiverCode(); } },
+                    ]);
+                  }}
+                >
+                  <Feather name="refresh-cw" size={14} color={COLORS.danger} />
+                  <Text style={[styles.guardianBtnText, { color: COLORS.danger }]}>Reset</Text>
+                </Pressable>
               </View>
             )}
           </View>
@@ -1261,4 +1436,15 @@ const styles = StyleSheet.create({
 
   disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 14, borderRadius: 12, marginTop: 4 },
   disclaimerText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
+
+  modeBanner: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 12 },
+  modeBannerLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  modeBannerTitle: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 1 },
+  modeBannerSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  modeBannerBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
+  modeBannerBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+
+  caregiverCodeDisplay: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 12, borderWidth: 1, gap: 12 },
+  caregiverCodeLabel: { fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 },
+  caregiverCodeValue: { fontSize: 22, fontFamily: "Inter_700Bold", letterSpacing: 3 },
 });

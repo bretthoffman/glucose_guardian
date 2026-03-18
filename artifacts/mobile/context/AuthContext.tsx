@@ -7,14 +7,19 @@ import React, {
   useState,
 } from "react";
 
+export type AccountRole = "parent" | "adult";
+
 export interface UserProfile {
   childName: string;
+  accountRole?: AccountRole;
   diabetesType: "type1" | "type2" | "other";
   dateOfBirth: string;
   weightLbs?: number;
   doctorName?: string;
   doctorEmail?: string;
   insulinTypes?: string[];
+  childModeEnabled?: boolean;
+  caregiverCode?: string;
 }
 
 export interface InsulinLogEntry {
@@ -80,6 +85,8 @@ export interface AuthContextType {
   alertPrefs: AlertPreferences;
   guardianPin: string | null;
   isGuardianUnlocked: boolean;
+  caregiverSession: boolean;
+  isChildMode: boolean;
   setupProfile: (profile: UserProfile) => Promise<void>;
   updateProfile: (profile: Partial<UserProfile>) => Promise<void>;
   setCGMConnection: (conn: CGMConnection) => Promise<void>;
@@ -98,6 +105,10 @@ export interface AuthContextType {
   setGuardianPin: (pin: string) => Promise<void>;
   unlockGuardian: (pin: string) => boolean;
   lockGuardian: () => void;
+  setChildMode: (enabled: boolean) => Promise<void>;
+  generateCaregiverCode: () => Promise<string>;
+  enterCaregiverMode: (code: string) => boolean;
+  exitCaregiverMode: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -155,6 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [alertPrefs, setAlertPrefsState] = useState<AlertPreferences>(DEFAULT_ALERT_PREFS);
   const [guardianPin, setGuardianPinState] = useState<string | null>(null);
   const [isGuardianUnlocked, setIsGuardianUnlocked] = useState(false);
+  const [caregiverSession, setCaregiverSession] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -369,6 +381,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsGuardianUnlocked(false);
   }, []);
 
+  const setChildMode = useCallback(async (enabled: boolean) => {
+    await updateProfile({ childModeEnabled: enabled });
+  }, [updateProfile]);
+
+  const generateCaregiverCode = useCallback(async (): Promise<string> => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    await updateProfile({ caregiverCode: code });
+    return code;
+  }, [updateProfile]);
+
+  const enterCaregiverMode = useCallback((code: string): boolean => {
+    if (!profile?.caregiverCode) return false;
+    if (code.trim().toUpperCase() === profile.caregiverCode.toUpperCase()) {
+      setCaregiverSession(true);
+      return true;
+    }
+    return false;
+  }, [profile]);
+
+  const exitCaregiverMode = useCallback(() => {
+    setCaregiverSession(false);
+  }, []);
+
+  const isChildMode = !!(profile?.childModeEnabled || caregiverSession);
+
   return (
     <AuthContext.Provider
       value={{
@@ -386,6 +424,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         alertPrefs,
         guardianPin,
         isGuardianUnlocked,
+        caregiverSession,
+        isChildMode,
         setupProfile,
         updateProfile,
         setCGMConnection,
@@ -403,6 +443,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setGuardianPin,
         unlockGuardian,
         lockGuardian,
+        setChildMode,
+        generateCaregiverCode,
+        enterCaregiverMode,
+        exitCaregiverMode,
       }}
     >
       {children}

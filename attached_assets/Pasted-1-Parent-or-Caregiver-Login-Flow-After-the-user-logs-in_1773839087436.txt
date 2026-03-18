@@ -1,0 +1,33 @@
+1.	Parent or Caregiver Login Flow:
+After the user logs in, if they identified themselves as a parent, they immediately go to a profile setup screen. If they identified as a caregiver, they log in using the parent’s invitation credentials, and they also go to a separate caregiver dashboard.
+	2.	Profile Setup for Both Parent and Adult Users:
+After identifying as a parent or adult, both still go through a mandatory profile creation step. They enter:
+	•	Username
+	•	Date of birth
+	•	Email (for future logins)
+	•	Insulin types they take (even if adult, this ensures a personalized recommendation system).
+Once the profile is completed, the user is assigned a unique login (email and password). After this, they proceed to their appropriate dashboard.
+	3.	Parent Dashboard Features:
+Once the profile is created, parents have a dashboard that includes the “Child-Only View” toggle. When toggled, it locks all editing features so that the child’s view is read-only. If toggled off, they have full control over all settings.
+	4.	Child Dashboard:
+The child uses the parent’s login, but once inside, they only see a simplified dashboard. They can:
+	•	Take photos of food for carb estimation.
+	•	View glucose trends and predictions.
+	•	Check food and insulin logs.
+	•	Chat with the AI assistant for guidance.
+But they cannot change any medical settings.
+	5.	Caregiver View (Invited by Parent):
+Parents can invite caregivers by email. Caregivers log in with their credentials and see a read-only dashboard:
+	•	Glucose trends (daily, 3-month, 6-month, 12-month averages).
+	•	Food logs (meals, carb counts).
+	•	Insulin logs (type, amount, time given).
+	•	Trend arrows and predictions.
+Caregivers can also receive alerts if glucose trends high or low, but they can’t modify or delete anything.
+	6.	Data Sharing:
+In the parent dashboard, add a section that allows the parent to invite a caregiver and control what data streams are shared. The caregiver’s dashboard should mirror the parent’s insights—glucose trends, food, and insulin logs—so the caregiver can see long-term patterns (like 3, 6, 12-month averages), just like in the Dexcom Follow app.
+	7.	Adult Users (No Child View):
+If an adult user sets up the account, they still go through the profile step, but once done, they land on their full dashboard without any child-specific toggles.
+	8.	Chat Feature:
+Both child and caregiver views include the AI chat. The AI uses all logged data (glucose, food, insulin) to give personalized guidance.
+	9.	Navigation and Security:
+Keep the home screen simple with a clear differentiation between adult and child views. Each login is secured with a unique email/password. The caregiver’s access can be revoked by the parent at any time.

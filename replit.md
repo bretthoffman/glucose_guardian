@@ -96,16 +96,17 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 Expo React Native app — "Gluco Guardian" diabetes companion for kids.
 
 Key screens:
-- `app/onboarding.tsx` — 3-step signup (name → date of birth → diabetes type). DOB determines `isMinor` (under 18).
+- `app/onboarding.tsx` — 5-step signup (role → name → date of birth → diabetes type → guardian PIN for parents). DOB determines `isMinor` (under 18). Role selection: Parent vs Adult.
+- `app/auth.tsx` — Login / sign-up screen. Includes "Caregiver Access" panel: enter 6-char code to access a read-only caregiver view without a full account.
 - `app/(tabs)/index.tsx` — Home: glucose gauge, CGM sync button, simulate reading, trend chart.
-- `app/(tabs)/food.tsx` — Food & Carbs: camera photo → AI carb analysis (OpenAI vision), search by name, insulin dose suggestion, log to food diary.
-- `app/(tabs)/dashboard.tsx` — Dashboard: stats, trend chart, insulin settings, doctor sharing, food diary. Age-gated: minors see all data but cannot edit settings, delete logs, or edit doctor info — they see "Guardian Permission Required" banners.
+- `app/(tabs)/food.tsx` — Food & Carbs: camera photo → AI carb analysis (OpenAI vision), search by name, insulin dose suggestion, log to food diary. Includes "I Took X Units" dose-log button.
+- `app/(tabs)/dashboard.tsx` — Dashboard: stats, trend chart, insulin settings, doctor sharing, food diary. Age-gated: minors see all data but cannot edit settings. Multi-role features: Child View Mode toggle (parent-only, Guardian-PIN protected), Caregiver Access code generation (parent-only), mode banners for child/caregiver views, settings hidden in restricted modes.
 - `app/(tabs)/insulin.tsx` — Insulin calculator.
 - `app/(tabs)/chat.tsx` — AI chat assistant.
 - `app/cgm-setup.tsx` — Connect Dexcom (Share API) or FreeStyle Libre (LibreLink Up).
 
 Contexts:
-- `context/AuthContext.tsx` — Profile (name, DOB, diabetesType, doctor info), CGM connection, food log. Computes `isMinor` and `ageYears` from DOB.
+- `context/AuthContext.tsx` — Profile (name, DOB, diabetesType, accountRole, caregiverCode, childModeEnabled), CGM connection, food log, insulin log. Computes `isMinor`/`ageYears` from DOB. Multi-role: `caregiverSession` (in-memory), `isChildMode`, `setChildMode`, `generateCaregiverCode`, `enterCaregiverMode`, `exitCaregiverMode`.
 - `context/GlucoseContext.tsx` — Glucose history, carb ratio, target glucose, correction factor (all persisted in AsyncStorage).
 
 Backend routes added:

@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 
-type Step = "welcome" | "name" | "birthday" | "diabetes" | "guardian_pin";
+type Step = "welcome" | "role" | "name" | "birthday" | "diabetes" | "guardian_pin";
 
 function isValidDate(month: string, day: string, year: string): boolean {
   const m = parseInt(month);
@@ -114,6 +114,7 @@ export default function OnboardingScreen() {
   const { setupProfile, setGuardianPin } = useAuth();
 
   const [step, setStep] = useState<Step>("welcome");
+  const [accountRole, setAccountRole] = useState<"parent" | "adult">("parent");
   const [childName, setChildName] = useState("");
   const [weightLbs, setWeightLbs] = useState("");
   const [birthMonth, setBirthMonth] = useState("");
@@ -180,6 +181,7 @@ export default function OnboardingScreen() {
       const parsedWeight = parseFloat(weightLbs);
       await setupProfile({
         childName: childName.trim(),
+        accountRole,
         diabetesType,
         dateOfBirth: dobStr,
         weightLbs: !isNaN(parsedWeight) && parsedWeight > 0 ? parsedWeight : undefined,
@@ -193,7 +195,7 @@ export default function OnboardingScreen() {
   }
 
   function advanceFromDiabetes() {
-    if (isMinorPreview) {
+    if (accountRole === "parent" && isMinorPreview) {
       setStep("guardian_pin");
     } else {
       finishSetup();
@@ -249,7 +251,7 @@ export default function OnboardingScreen() {
               ]}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                setStep("name");
+                setStep("role");
               }}
             >
               <Text style={styles.primaryBtnText}>Get Started</Text>
@@ -258,12 +260,70 @@ export default function OnboardingScreen() {
           </View>
         )}
 
+        {step === "role" && (
+          <View style={styles.stepContainer}>
+            <StepBadge label="Step 1 of 4" colors={colors} />
+            <Text style={[styles.stepTitle, { color: colors.text }]}>Who is this account for?</Text>
+            <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
+              This helps us personalize the app for you
+            </Text>
+
+            {(["parent", "adult"] as const).map((role) => {
+              const isSelected = accountRole === role;
+              const icon = role === "parent" ? "users" : "user";
+              const title = role === "parent" ? "Parent or Guardian" : "Adult (myself)";
+              const desc = role === "parent"
+                ? "Setting up Glucose Guardian for your child's diabetes management"
+                : "Managing my own diabetes — I'm 18 or older";
+              return (
+                <Pressable
+                  key={role}
+                  style={({ pressed }) => [
+                    styles.typeOption,
+                    {
+                      backgroundColor: isSelected ? COLORS.primary + "15" : colors.card,
+                      borderColor: isSelected ? COLORS.primary : colors.border,
+                      opacity: pressed ? 0.85 : 1,
+                    },
+                  ]}
+                  onPress={() => { setAccountRole(role); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                >
+                  <View style={[styles.roleIcon, { backgroundColor: isSelected ? COLORS.primary + "20" : colors.backgroundTertiary ?? colors.card }]}>
+                    <Feather name={icon} size={22} color={isSelected ? COLORS.primary : colors.textMuted ?? colors.textSecondary} />
+                  </View>
+                  <View style={styles.typeOptionLeft}>
+                    <Text style={[styles.typeOptionTitle, { color: colors.text }]}>{title}</Text>
+                    <Text style={[styles.typeOptionDesc, { color: colors.textMuted }]}>{desc}</Text>
+                  </View>
+                  {isSelected && <Feather name="check-circle" size={22} color={COLORS.primary} />}
+                </Pressable>
+              );
+            })}
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 },
+              ]}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setStep("name"); }}
+            >
+              <Text style={styles.primaryBtnText}>Continue</Text>
+              <Feather name="arrow-right" size={18} color="#fff" />
+            </Pressable>
+            <BackBtn onPress={() => setStep("welcome")} colors={colors} />
+          </View>
+        )}
+
         {step === "name" && (
           <View style={styles.stepContainer}>
-            <StepBadge label="Step 1 of 3" colors={colors} />
-            <Text style={[styles.stepTitle, { color: colors.text }]}>What's your name?</Text>
+            <StepBadge label="Step 2 of 4" colors={colors} />
+            <Text style={[styles.stepTitle, { color: colors.text }]}>
+              {accountRole === "parent" ? "What's your child's name?" : "What's your name?"}
+            </Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
-              This personalizes your Glucose Guardian experience
+              {accountRole === "parent"
+                ? "This personalizes their Glucose Guardian experience"
+                : "This personalizes your Glucose Guardian experience"}
             </Text>
 
             <TextInput
@@ -277,7 +337,7 @@ export default function OnboardingScreen() {
               ]}
               value={childName}
               onChangeText={setChildName}
-              placeholder="Enter your name..."
+              placeholder={accountRole === "parent" ? "Enter child's name..." : "Enter your name..."}
               placeholderTextColor={colors.textMuted}
               autoFocus
               returnKeyType="next"
@@ -316,13 +376,13 @@ export default function OnboardingScreen() {
               <Text style={styles.primaryBtnText}>Continue</Text>
               <Feather name="arrow-right" size={18} color="#fff" />
             </Pressable>
-            <BackBtn onPress={() => setStep("welcome")} colors={colors} />
+            <BackBtn onPress={() => setStep("role")} colors={colors} />
           </View>
         )}
 
         {step === "birthday" && (
           <View style={styles.stepContainer}>
-            <StepBadge label="Step 2 of 3" colors={colors} />
+            <StepBadge label="Step 3 of 4" colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Date of Birth</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               Used to set the right access level in the app
@@ -448,10 +508,10 @@ export default function OnboardingScreen() {
 
         {step === "diabetes" && (
           <View style={styles.stepContainer}>
-            <StepBadge label={isMinorPreview ? "Step 3 of 4" : "Step 3 of 3"} colors={colors} />
+            <StepBadge label={accountRole === "parent" && isMinorPreview ? "Step 4 of 5" : "Step 4 of 4"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Diabetes Type</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
-              Helps calibrate insulin calculations for {childName}
+              {accountRole === "parent" ? `Helps calibrate insulin calculations for ${childName}` : "Helps calibrate your insulin calculations"}
             </Text>
 
             {(["type1", "type2", "other"] as const).map((type) => (
@@ -508,7 +568,7 @@ export default function OnboardingScreen() {
 
         {step === "guardian_pin" && (
           <View style={styles.stepContainer}>
-            <StepBadge label="Step 4 of 4" colors={colors} />
+            <StepBadge label="Step 5 of 5" colors={colors} />
 
             <View style={[styles.logoCircle, { backgroundColor: COLORS.accent + "15", width: 80, height: 80, borderRadius: 40 }]}>
               <Feather name="lock" size={36} color={COLORS.accent} />
@@ -755,7 +815,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 16,
   },
-  typeOptionLeft: { gap: 2 },
+  typeOptionLeft: { flex: 1, gap: 2 },
   typeOptionTitle: { fontSize: 17, fontFamily: "Inter_700Bold" },
   typeOptionDesc: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  roleIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", marginRight: 6, flexShrink: 0 },
 });
