@@ -159,38 +159,48 @@ export default function ChatScreen() {
     ? buildParentSuggestions(glucose, name, high)
     : buildSuggestions(glucose, name, high);
 
-  const [messages, setMessages] = useState<Message[]>(() => {
+  function buildGreeting(speakingAsParent: boolean): string {
     const inRange = glucose != null && glucose >= low && glucose <= high;
-    let greet: string;
-    if (speakingToParent) {
+    if (speakingAsParent) {
       const greeting = parentName ? `Hi ${parentName}!` : "Hi there!";
-      greet = glucose != null
+      return glucose != null
         ? `${greeting} ${name}'s glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking good." : glucose < 70 ? "that's a low, act quickly." : "worth keeping an eye on."} How can I help you manage ${name}'s care today?`
         : `${greeting} I'm Glucose Guardian — ${name}'s AI diabetes companion. I can walk you through glucose readings, insulin calculations, and anything else you need for ${name}'s care. What's on your mind?`;
     } else {
-      greet = glucose != null
+      return glucose != null
         ? `Hey ${name}! Your glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking solid!" : glucose < 70 ? "let's get that up, okay?" : "let's keep an eye on it."} What's on your mind?`
         : `Hey ${name}! I'm Glucose Guardian, your diabetes sidekick. I can see your glucose readings, help with carb counts, and just chat when you need someone who gets it. What's up?`;
     }
+  }
 
-    return [
-      {
-        id: "0",
-        role: "assistant",
-        text: greet,
-        timestamp: new Date(),
-      },
-    ];
-  });
+  const [messages, setMessages] = useState<Message[]>(() => [
+    { id: "0", role: "assistant", text: buildGreeting(speakingToParent), timestamp: new Date() },
+  ]);
 
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const conversationRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
+  const prevSpeakingToParent = useRef(speakingToParent);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
+
+  useEffect(() => {
+    if (prevSpeakingToParent.current === speakingToParent) return;
+    prevSpeakingToParent.current = speakingToParent;
+    const newGreet: Message = {
+      id: Date.now().toString(),
+      role: "assistant",
+      text: buildGreeting(speakingToParent),
+      timestamp: new Date(),
+    };
+    setMessages([newGreet]);
+    conversationRef.current = [];
+    setInput("");
+    setError(null);
+  }, [speakingToParent]);
 
   useEffect(() => {
     if (prompt && prompt !== promptSentRef.current) {

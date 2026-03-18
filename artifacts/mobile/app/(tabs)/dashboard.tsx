@@ -189,6 +189,7 @@ export default function DashboardScreen() {
   const [pinEntry, setPinEntry] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinShake, setPinShake] = useState(false);
+  const [pinPurpose, setPinPurpose] = useState<"unlock" | "disable_child_mode">("unlock");
 
   const [editingThresholds, setEditingThresholds] = useState(false);
   const [editUrgentLow, setEditUrgentLow] = useState(String(alertPrefs.urgentLowThreshold));
@@ -406,16 +407,31 @@ export default function DashboardScreen() {
     setPinError("");
     if (next.length === 4) {
       setTimeout(() => {
-        const ok = unlockGuardian(next);
-        if (ok) {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          setShowPinModal(false);
-          setPinEntry("");
-          setPinError("");
+        if (pinPurpose === "disable_child_mode") {
+          const ok = next === guardianPin;
+          if (ok) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setShowPinModal(false);
+            setPinEntry("");
+            setPinError("");
+            setChildMode(false);
+          } else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            setPinShake(true);
+            setTimeout(() => { setPinShake(false); setPinEntry(""); setPinError("Incorrect PIN — try again"); }, 600);
+          }
         } else {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          setPinShake(true);
-          setTimeout(() => { setPinShake(false); setPinEntry(""); setPinError("Incorrect PIN — try again"); }, 600);
+          const ok = unlockGuardian(next);
+          if (ok) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setShowPinModal(false);
+            setPinEntry("");
+            setPinError("");
+          } else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            setPinShake(true);
+            setTimeout(() => { setPinShake(false); setPinEntry(""); setPinError("Incorrect PIN — try again"); }, 600);
+          }
         }
       }, 200);
     }
@@ -431,6 +447,7 @@ export default function DashboardScreen() {
     setPinEntry("");
     setPinError("");
     setPinShake(false);
+    setPinPurpose("unlock");
   }
 
   const diabetesLabel: Record<string, string> = { type1: "Type 1", type2: "Type 2", other: "Other" };
@@ -1293,7 +1310,17 @@ export default function DashboardScreen() {
               </View>
               <Pressable
                 style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "15", opacity: pressed ? 0.7 : 1 }]}
-                onPress={() => { setChildMode(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  if (guardianPin) {
+                    setPinPurpose("disable_child_mode");
+                    setPinEntry("");
+                    setPinError("");
+                    setShowPinModal(true);
+                  } else {
+                    setChildMode(false);
+                  }
+                }}
               >
                 <Feather name="toggle-left" size={14} color={COLORS.danger} />
                 <Text style={[styles.guardianBtnText, { color: COLORS.danger }]}>Turn Off</Text>
@@ -1492,9 +1519,13 @@ export default function DashboardScreen() {
               <Feather name="shield" size={28} color={COLORS.warning} />
             </View>
 
-            <Text style={[modalStyles.title, { color: colors.text }]}>Guardian Access</Text>
+            <Text style={[modalStyles.title, { color: colors.text }]}>
+              {pinPurpose === "disable_child_mode" ? "Turn Off Child View" : "Guardian Access"}
+            </Text>
             <Text style={[modalStyles.sub, { color: colors.textSecondary }]}>
-              Enter the 4-digit guardian PIN to unlock settings
+              {pinPurpose === "disable_child_mode"
+                ? "Enter your guardian PIN to turn off Child View Mode"
+                : "Enter the 4-digit guardian PIN to unlock settings"}
             </Text>
 
             <PinDots entered={pinEntry.length} shake={pinShake} />
