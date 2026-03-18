@@ -503,29 +503,6 @@ export default function FoodScreen() {
           </View>
         )}
 
-        {(isFetchingGuidance || guidance) && result && (
-          <View style={[styles.guidanceCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={styles.guidanceHeader}>
-              <Feather name="trending-up" size={16} color={COLORS.accent} />
-              <Text style={[styles.guidanceTitle, { color: colors.text }]}>Meal Insulin Guidance</Text>
-              {isFetchingGuidance && <ActivityIndicator size="small" color={COLORS.accent} />}
-            </View>
-
-            {guidance && !isFetchingGuidance && (
-              isMinor ? (
-                <KidGuidanceView
-                  guidance={guidance}
-                  spikePercent={spikePercent}
-                  spikeColor={spikeColor}
-                  colors={colors}
-                />
-              ) : (
-                <AdultGuidanceView guidance={guidance} colors={colors} />
-              )
-            )}
-          </View>
-        )}
-
         {guidance && !isFetchingGuidance && guidance.insulinDose > 0 && logged && (
           <View style={[styles.doseLogCard, { backgroundColor: colors.card, borderColor: doseTaken ? COLORS.success + "50" : COLORS.accent + "40" }]}>
             <View style={styles.doseLogRow}>
@@ -558,6 +535,29 @@ export default function FoodScreen() {
                 <Feather name="check" size={14} color="#fff" />
                 <Text style={styles.doseTakeBtnText}>I Took {guidance.insulinDose} Units</Text>
               </Pressable>
+            )}
+          </View>
+        )}
+
+        {(isFetchingGuidance || guidance) && result && (
+          <View style={[styles.guidanceCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.guidanceHeader}>
+              <Feather name="trending-up" size={16} color={COLORS.accent} />
+              <Text style={[styles.guidanceTitle, { color: colors.text }]}>Meal Insulin Guidance</Text>
+              {isFetchingGuidance && <ActivityIndicator size="small" color={COLORS.accent} />}
+            </View>
+
+            {guidance && !isFetchingGuidance && (
+              isMinor ? (
+                <KidGuidanceView
+                  guidance={guidance}
+                  spikePercent={spikePercent}
+                  spikeColor={spikeColor}
+                  colors={colors}
+                />
+              ) : (
+                <AdultGuidanceView guidance={guidance} colors={colors} />
+              )
             )}
           </View>
         )}
