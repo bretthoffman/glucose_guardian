@@ -210,7 +210,7 @@ export default function ChatScreen() {
     const inRange = glucose != null && glucose >= low && glucose <= high;
     const trendingDown = trend.label.toLowerCase().includes("fall");
     if (speakingAsParent) {
-      const greeting = caregiverSession ? "Hi, Caregiver!" : parentName ? `Hi ${parentName}!` : "Hi there!";
+      const greeting = caregiverSession ? "Hi, Caregiver/Family!" : parentName ? `Hi ${parentName}!` : "Hi there!";
       return glucose != null
         ? `${greeting} ${name}'s glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking good." : glucose < 70 ? "that's a low, act quickly." : "worth keeping an eye on."} How can I help you manage ${name}'s care today?`
         : `${greeting} I'm Glucose Guardian — ${name}'s AI diabetes companion. I can walk you through glucose readings, insulin calculations, and anything else you need for ${name}'s care. What's on your mind?`;

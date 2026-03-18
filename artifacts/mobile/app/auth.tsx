@@ -315,7 +315,7 @@ export default function AuthScreen() {
               >
                 <Feather name="users" size={14} color={COLORS.accent} />
                 <Text style={[styles.caregiverLinkText, { color: COLORS.accent }]}>
-                  Caregiver? Enter your access code →
+                  Caregiver/Family? Enter your access code →
                 </Text>
               </Pressable>
               <Pressable
@@ -330,7 +330,7 @@ export default function AuthScreen() {
             </View>
           ) : showCaregiverEntry ? (
             <View style={styles.caregiverForm}>
-              <Text style={[styles.caregiverFormTitle, { color: "#fff" }]}>Caregiver Access</Text>
+              <Text style={[styles.caregiverFormTitle, { color: "#fff" }]}>Caregiver/Family Access</Text>
               <Text style={[styles.caregiverFormSub, { color: "rgba(255,255,255,0.55)" }]}>
                 Enter the 6-character code shared by the account owner
               </Text>
@@ -366,7 +366,7 @@ export default function AuthScreen() {
                     if (ok) {
                       router.replace("/(tabs)");
                     } else {
-                      setCaregiverError("Invalid code. Ask the account owner to check their Caregiver Access code.");
+                      setCaregiverError("Invalid code. Ask the account owner to share their Caregiver/Family code.");
                     }
                   }}
                 >

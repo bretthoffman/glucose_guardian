@@ -638,8 +638,8 @@ export default function DashboardScreen() {
             <View style={styles.modeBannerLeft}>
               <Feather name="users" size={16} color={COLORS.accent} />
               <View>
-                <Text style={[styles.modeBannerTitle, { color: COLORS.accent }]}>Caregiver View</Text>
-                <Text style={[styles.modeBannerSub, { color: colors.textSecondary }]}>Read-only access via caregiver code</Text>
+                <Text style={[styles.modeBannerTitle, { color: COLORS.accent }]}>Caregiver/Family View</Text>
+                <Text style={[styles.modeBannerSub, { color: colors.textSecondary }]}>Read-only access via caregiver/family code</Text>
               </View>
             </View>
             <Pressable
@@ -1602,7 +1602,7 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {isParent && !isChildMode && !caregiverSession && !doctorSession && (
+        {(isParent || isAdult) && !isChildMode && !caregiverSession && !doctorSession && (
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.cardHeader}>
               <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.accent + "15" }]}>
@@ -1619,11 +1619,11 @@ export default function DashboardScreen() {
             <View style={[styles.accessSection, { borderColor: colors.border }]}>
               <View style={styles.accessSectionHeader}>
                 <Feather name="users" size={14} color={COLORS.accent} />
-                <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Caregiver Code</Text>
+                <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Caregiver/Family Code</Text>
                 <Text style={[styles.accessSectionBadge, { backgroundColor: COLORS.accent + "18", color: COLORS.accent }]}>View-only</Text>
               </View>
               <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
-                Share with nurses, grandparents, or school staff. They can view glucose data but cannot change settings.
+                Share with family, nurses, grandparents, or school staff. They can view glucose data but cannot change settings.
               </Text>
               {!profile?.caregiverCode ? (
                 <Pressable
@@ -1631,11 +1631,11 @@ export default function DashboardScreen() {
                   onPress={async () => {
                     if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
                     const code = await generateCaregiverCode();
-                    Alert.alert("Caregiver Code Created", `Your caregiver code is:\n\n${code}\n\nShare this with your caregiver. They enter it on the login screen to view your data.`, [{ text: "OK" }]);
+                    Alert.alert("Caregiver/Family Code Created", `Your code is:\n\n${code}\n\nShare this with your caregiver or family. They enter it on the login screen to view your data.`, [{ text: "OK" }]);
                   }}
                 >
                   <Feather name="plus" size={14} color={COLORS.accent} />
-                  <Text style={[styles.outlineBtnText, { color: COLORS.accent }]}>Generate Caregiver Code</Text>
+                  <Text style={[styles.outlineBtnText, { color: COLORS.accent }]}>Generate Caregiver/Family Code</Text>
                 </Pressable>
               ) : (
                 <View style={[styles.caregiverCodeDisplay, { backgroundColor: COLORS.accent + "0A", borderColor: COLORS.accent + "30" }]}>
@@ -1655,7 +1655,7 @@ export default function DashboardScreen() {
                       style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.accent + "15", opacity: pressed ? 0.7 : 1 }]}
                       onPress={() => {
                         if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
-                        Alert.alert("Caregiver Code", `Share this code with your caregiver:\n\n${profile.caregiverCode}\n\nThey enter it on the login screen.`, [{ text: "OK" }]);
+                        Alert.alert("Caregiver/Family Code", `Share this code with your caregiver or family:\n\n${profile.caregiverCode}\n\nThey enter it on the login screen.`, [{ text: "OK" }]);
                       }}
                     >
                       <Feather name="share-2" size={14} color={COLORS.accent} />
@@ -1664,9 +1664,9 @@ export default function DashboardScreen() {
                       style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "12", opacity: pressed ? 0.7 : 1 }]}
                       onPress={() => {
                         if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
-                        Alert.alert("Reset Code?", "This will invalidate the old code. Caregivers with the old code will lose access.", [
+                        Alert.alert("Reset Code?", "This will invalidate the old code. Anyone using the old code will lose access.", [
                           { text: "Cancel", style: "cancel" },
-                          { text: "Reset", style: "destructive", onPress: async () => { const code = await generateCaregiverCode(); Alert.alert("New Code", `New caregiver code:\n\n${code}`, [{ text: "OK" }]); } },
+                          { text: "Reset", style: "destructive", onPress: async () => { const code = await generateCaregiverCode(); Alert.alert("New Code", `New caregiver/family code:\n\n${code}`, [{ text: "OK" }]); } },
                         ]);
                       }}
                     >
