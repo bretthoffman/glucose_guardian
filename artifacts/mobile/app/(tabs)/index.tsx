@@ -107,12 +107,17 @@ export default function HomeScreen() {
   const isSyncingRef = useRef(false);
   const prevConnectedRef = useRef(isConnected);
   const historyLenRef = useRef(history.length);
+  const historyOldestRef = useRef<number>(0);
   const lastAlertTimeRef = useRef<number>(0);
   const ALERT_COOLDOWN_MS = 15 * 60 * 1000;
+  const FULL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
   useEffect(() => {
     historyLenRef.current = history.length;
-  }, [history.length]);
+    historyOldestRef.current = history.length > 0
+      ? new Date(history[0].timestamp).getTime()
+      : 0;
+  }, [history]);
 
   useEffect(() => {
     const wasConnected = prevConnectedRef.current;
@@ -156,7 +161,8 @@ export default function HomeScreen() {
     try {
       const endpoint =
         cgmConnection.type === "dexcom" ? "/api/cgm/dexcom/readings" : "/api/cgm/libre/readings";
-      const needsBackfill = historyLenRef.current < 20;
+      const coverageMs = historyOldestRef.current > 0 ? Date.now() - historyOldestRef.current : 0;
+      const needsBackfill = historyLenRef.current < 20 || coverageMs < FULL_WINDOW_MS - 30 * 60 * 1000;
       const body =
         cgmConnection.type === "dexcom"
           ? { sessionId: cgmConnection.sessionId, outsideUS: cgmConnection.outsideUS, count: needsBackfill ? 288 : 5 }

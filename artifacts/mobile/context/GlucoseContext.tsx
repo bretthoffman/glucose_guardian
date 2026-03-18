@@ -65,7 +65,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
 
   const addReading = useCallback((entry: GlucoseEntry) => {
     setHistory((prev) => {
-      const next = [...prev, entry].slice(-100);
+      const next = [...prev, entry].slice(-300);
       AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
@@ -79,7 +79,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
       if (newEntries.length === 0) return prev;
       const combined = [...prev, ...newEntries];
       combined.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-      const next = combined.slice(-100);
+      const next = combined.slice(-300);
       AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
