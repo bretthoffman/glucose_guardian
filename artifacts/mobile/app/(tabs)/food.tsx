@@ -20,7 +20,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
-import type { GlucoseEntry } from "@/context/GlucoseContext";
+
+import { getEffectiveTrend } from "@/utils/trend";
 
 const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
   ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
@@ -53,18 +54,6 @@ interface MealGuidance {
 }
 
 const QUICK_FOODS = ["Apple", "Pizza", "Rice", "Banana", "Sandwich", "Oatmeal", "Pasta", "Milk"];
-
-function detectTrend(history: GlucoseEntry[]): string {
-  if (history.length < 2) return "stable";
-  const last = history[history.length - 1].glucose;
-  const prev = history[history.length - 2].glucose;
-  const diff = last - prev;
-  if (diff > 30) return "rapidly_rising";
-  if (diff > 15) return "rising";
-  if (diff < -30) return "rapidly_falling";
-  if (diff < -15) return "falling";
-  return "stable";
-}
 
 const TREND_LABELS: Record<string, string> = {
   rapidly_rising: "↑↑ Rising fast",
@@ -114,7 +103,7 @@ export default function FoodScreen() {
     low: COLORS.danger,
   };
 
-  const currentTrend = detectTrend(history);
+  const currentTrend = getEffectiveTrend(history).glucoseTrend;
 
   async function fetchGuidance(carbs: number) {
     setIsFetchingGuidance(true);
