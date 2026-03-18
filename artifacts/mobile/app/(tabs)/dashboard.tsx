@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TrendChart } from "@/components/TrendChart";
+import ProfileChip from "@/components/ProfileChip";
 import Colors, { COLORS } from "@/constants/colors";
 import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constants/insulin";
 import { useGlucose } from "@/context/GlucoseContext";
@@ -625,12 +626,10 @@ export default function DashboardScreen() {
               {profile?.childName ? `${profile.childName}'s health summary` : "Health summary"}
             </Text>
           </View>
-          {isMinor && (
-            <View style={[styles.ageBadge, { backgroundColor: COLORS.accent + "15", borderColor: COLORS.accent + "30" }]}>
-              <Feather name="shield" size={13} color={COLORS.accent} />
-              <Text style={[styles.ageBadgeText, { color: COLORS.accent }]}>{ageYears} yrs</Text>
-            </View>
-          )}
+          <ProfileChip
+            colors={colors}
+            canEdit={!caregiverSession && !doctorSession && !isChildMode}
+          />
         </View>
 
         {caregiverSession && (

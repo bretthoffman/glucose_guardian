@@ -25,6 +25,7 @@ import { computeDose } from "@/utils/dose";
 import type { DoseBreakdown } from "@/utils/dose";
 import { getEffectiveTrend } from "@/utils/trend";
 import LogHistory from "@/components/LogHistory";
+import ProfileChip from "@/components/ProfileChip";
 
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
@@ -783,7 +784,7 @@ export default function InsulinScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { targetGlucose, carbRatio, correctionFactor, history } = useGlucose();
-  const { isMinor, alertPrefs, profile, foodLog, insulinLog, caregiverSession } = useAuth();
+  const { isMinor, alertPrefs, profile, foodLog, insulinLog, caregiverSession, doctorSession, isChildMode } = useAuth();
 
   const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
   const [timeRange, setTimeRange] = useState<TimeRange>(3);
@@ -888,6 +889,10 @@ export default function InsulinScreen() {
                 : "Your full food, insulin & glucose history"}
             </Text>
           </View>
+          <ProfileChip
+            colors={colors}
+            canEdit={!caregiverSession && !doctorSession && !isChildMode}
+          />
         </View>
 
         {/* Predict / Log toggle */}

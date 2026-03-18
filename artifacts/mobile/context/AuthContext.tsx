@@ -36,6 +36,7 @@ export interface UserProfile {
   doctorPhone?: string;
   doctorInstitution?: string;
   insulinTypes?: string[];
+  profilePhotoUri?: string;
   childModeEnabled?: boolean;
   caregiverCode?: string;
   caregiverCodeIssuedAt?: string;
