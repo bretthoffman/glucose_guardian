@@ -14,6 +14,16 @@ export interface UserProfile {
   weightLbs?: number;
   doctorName?: string;
   doctorEmail?: string;
+  insulinTypes?: string[];
+}
+
+export interface InsulinLogEntry {
+  id: string;
+  timestamp: string;
+  units: number;
+  type: "bolus" | "correction" | "manual";
+  note?: string;
+  foodLogId?: string;
 }
 
 export interface UserAccount {
@@ -73,8 +83,11 @@ export interface AuthContextType {
   setupProfile: (profile: UserProfile) => Promise<void>;
   updateProfile: (profile: Partial<UserProfile>) => Promise<void>;
   setCGMConnection: (conn: CGMConnection) => Promise<void>;
+  insulinLog: InsulinLogEntry[];
   addFoodLogEntry: (entry: Omit<FoodLogEntry, "id">) => void;
   clearFoodLog: () => void;
+  logInsulinDose: (entry: Omit<InsulinLogEntry, "id">) => void;
+  clearInsulinLog: () => void;
   logout: () => Promise<void>;
   signOut: () => Promise<void>;
   createAccount: (email: string, password: string) => Promise<void>;
@@ -92,6 +105,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 const PROFILE_KEY = "@gluco_guardian_profile";
 const CGM_KEY = "@gluco_guardian_cgm";
 const FOOD_LOG_KEY = "@gluco_guardian_food_log";
+const INSULIN_LOG_KEY = "@gluco_guardian_insulin_log";
 const EMERGENCY_CONTACTS_KEY = "@gluco_guardian_emergency_contacts";
 const ALERT_PREFS_KEY = "@gluco_guardian_alert_prefs";
 const GUARDIAN_PIN_KEY = "@gluco_guardian_pin";
@@ -136,6 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [cgmConnection, setCGMConnectionState] = useState<CGMConnection>({ type: null });
   const [foodLog, setFoodLog] = useState<FoodLogEntry[]>([]);
+  const [insulinLog, setInsulinLog] = useState<InsulinLogEntry[]>([]);
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [alertPrefs, setAlertPrefsState] = useState<AlertPreferences>(DEFAULT_ALERT_PREFS);
   const [guardianPin, setGuardianPinState] = useState<string | null>(null);
@@ -148,6 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           storedProfile,
           storedCGM,
           storedFoodLog,
+          storedInsulinLog,
           storedContacts,
           storedAlertPrefs,
           storedPin,
@@ -157,6 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(PROFILE_KEY),
           AsyncStorage.getItem(CGM_KEY),
           AsyncStorage.getItem(FOOD_LOG_KEY),
+          AsyncStorage.getItem(INSULIN_LOG_KEY),
           AsyncStorage.getItem(EMERGENCY_CONTACTS_KEY),
           AsyncStorage.getItem(ALERT_PREFS_KEY),
           AsyncStorage.getItem(GUARDIAN_PIN_KEY),
@@ -166,6 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (storedProfile) setProfile(JSON.parse(storedProfile));
         if (storedCGM) setCGMConnectionState(JSON.parse(storedCGM));
         if (storedFoodLog) setFoodLog(JSON.parse(storedFoodLog));
+        if (storedInsulinLog) setInsulinLog(JSON.parse(storedInsulinLog));
         if (storedContacts) setEmergencyContacts(JSON.parse(storedContacts));
         if (storedAlertPrefs) setAlertPrefsState({ ...DEFAULT_ALERT_PREFS, ...JSON.parse(storedAlertPrefs) });
         if (storedPin) setGuardianPinState(storedPin);
@@ -190,6 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfile(null);
     setCGMConnectionState({ type: null });
     setFoodLog([]);
+    setInsulinLog([]);
     setEmergencyContacts([]);
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
     setGuardianPinState(null);
@@ -204,6 +223,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       PROFILE_KEY,
       CGM_KEY,
       FOOD_LOG_KEY,
+      INSULIN_LOG_KEY,
       EMERGENCY_CONTACTS_KEY,
       ALERT_PREFS_KEY,
       GUARDIAN_PIN_KEY,
@@ -266,10 +286,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.removeItem(FOOD_LOG_KEY).catch(() => {});
   }, []);
 
+  const logInsulinDose = useCallback((entry: Omit<InsulinLogEntry, "id">) => {
+    const id = `ins_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const full: InsulinLogEntry = { ...entry, id };
+    setInsulinLog((prev) => {
+      const next = [full, ...prev].slice(0, 500);
+      AsyncStorage.setItem(INSULIN_LOG_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const clearInsulinLog = useCallback(() => {
+    setInsulinLog([]);
+    AsyncStorage.removeItem(INSULIN_LOG_KEY).catch(() => {});
+  }, []);
+
   const logout = useCallback(async () => {
     setProfile(null);
     setCGMConnectionState({ type: null });
     setFoodLog([]);
+    setInsulinLog([]);
     setEmergencyContacts([]);
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
     setGuardianPinState(null);
@@ -279,6 +315,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       PROFILE_KEY,
       CGM_KEY,
       FOOD_LOG_KEY,
+      INSULIN_LOG_KEY,
       EMERGENCY_CONTACTS_KEY,
       ALERT_PREFS_KEY,
       GUARDIAN_PIN_KEY,
@@ -344,6 +381,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ageYears,
         cgmConnection,
         foodLog,
+        insulinLog,
         emergencyContacts,
         alertPrefs,
         guardianPin,
@@ -353,6 +391,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setCGMConnection,
         addFoodLogEntry,
         clearFoodLog,
+        logInsulinDose,
+        clearInsulinLog,
         logout,
         signOut,
         createAccount,

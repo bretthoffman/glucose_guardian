@@ -1,0 +1,126 @@
+Task:
+Enhance the existing diabetes management app by adding smarter insulin suggestions, trend-based alerts, improved logging, and a Guardian View system. Do not rebuild the app—extend current functionality.
+
+⸻
+
+1. Trend-Based Glucose Alerts (Enhance Existing Logic)
+	•	Add logic to detect glucose trends:
+	•	Trending Up
+	•	Notify user
+	•	Suggest insulin (include estimated amount based on formula)
+	•	Trending Down
+	•	Notify user
+	•	Suggest fast-acting carbs (juice/snack)
+	•	Add smart alert messaging:
+	•	“You are trending low, consider drinking juice.”
+	•	“You are trending high, insulin may be needed.”
+	•	Detect abnormal jumps (example: 129 → 255 quickly):
+	•	Prompt user:
+“This reading seems unusual. Please confirm with a fingerstick.”
+
+⸻
+
+2. Insulin Suggestion (Improve Existing Feature)
+	•	Use this formula for ALL insulin suggestions:
+	•	Carb Dose = Carbs ÷ ICR
+	•	Correction Dose = (Current BG − Target BG) ÷ Correction Factor
+	•	Total Dose = Carb Dose + Correction Dose
+	•	Apply this when:
+	•	Logging food
+	•	Taking a picture of food
+	•	Output should:
+	•	Show insulin estimate
+	•	Explain suggestion in simple language
+
+⸻
+
+3. Food Scan Enhancement
+	•	When user takes a picture of food:
+	•	Estimate carbs
+	•	Combine with current glucose
+	•	Return:
+	•	Suggested insulin dose
+	•	Clear recommendation message
+
+⸻
+
+4. Logs System (New or Improved Section)
+
+Create or enhance a Logs View:
+	•	Track:
+	•	Food (time + carbs)
+	•	Insulin (time + units + type)
+	•	Display:
+	•	By day
+	•	By time
+	•	Allow users to:
+	•	Scroll to previous days
+	•	Logs must sync with Guardian View
+
+⸻
+
+5. Guardian View (New Feature)
+
+Add a Guardian Access Mode for parents/sitters.
+
+Setup (Main Account):
+	•	Add section in dashboard: “Guardian View Setup”
+	•	Allow user to:
+	•	Create username + password
+	•	Toggle what guardian can access
+
+Login Screen:
+	•	Add option: “Guardian View Login”
+
+Guardian Permissions:
+	•	CAN:
+	•	View glucose data
+	•	View trends
+	•	View logs (food + insulin)
+	•	Receive alerts
+	•	Take food pictures → get insulin suggestion
+	•	Log insulin and food
+	•	CANNOT:
+	•	Change medical settings (ICR, correction factor, etc.)
+
+⸻
+
+6. AI Chat Enhancement
+	•	Allow both user and guardian to access chat
+	•	Chat should use:
+	•	Glucose data
+	•	Food logs
+	•	Insulin logs
+	•	Example questions:
+	•	“Should I eat this?”
+	•	“Why is glucose high?”
+	•	AI should respond based on user’s real data
+
+⸻
+
+7. Insulin Setup Update (Replace Weight Input)
+	•	Remove or reduce reliance on weight input
+	•	Add dropdown for insulin types:
+	•	(Humalog, Novolog, Lantus, KwikPen, etc.)
+	•	Allow multiple selections
+	•	Use this for better recommendation context
+
+⸻
+
+8. Smart Notifications Upgrade
+	•	Add more intelligent messaging:
+	•	High → insulin suggestion
+	•	Low → snack suggestion
+	•	Stable → reassurance
+	•	Include trend insights:
+	•	“You’ve been trending high for 3 hours”
+	•	“Your levels are stable”
+
+⸻
+
+Goal
+
+Improve the app to feel like a real-time “glucose guardian” by:
+	•	Making smarter decisions
+	•	Supporting both users and caregivers
+	•	Providing clear, actionable guidance

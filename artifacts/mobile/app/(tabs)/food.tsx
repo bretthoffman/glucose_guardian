@@ -92,7 +92,7 @@ export default function FoodScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { carbRatio, targetGlucose, correctionFactor, latestReading, history } = useGlucose();
-  const { addFoodLogEntry, isMinor } = useAuth();
+  const { addFoodLogEntry, logInsulinDose, isMinor } = useAuth();
 
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<FoodResult | null>(null);
@@ -103,6 +103,7 @@ export default function FoodScreen() {
   const [isFetchingGuidance, setIsFetchingGuidance] = useState(false);
   const [error, setError] = useState("");
   const [logged, setLogged] = useState(false);
+  const [doseTaken, setDoseTaken] = useState(false);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -149,6 +150,7 @@ export default function FoodScreen() {
     setGuidance(null);
     setPhotoUri(null);
     setLogged(false);
+    setDoseTaken(false);
     try {
       const res = await fetch(`${BASE_URL}/api/food/estimate`, {
         method: "POST",
@@ -188,6 +190,7 @@ export default function FoodScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
+      setDoseTaken(false);
       await analyzePhoto(result.assets[0].uri);
     }
   }
@@ -206,6 +209,7 @@ export default function FoodScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
+      setDoseTaken(false);
       await analyzePhoto(result.assets[0].uri);
     }
   }
@@ -487,6 +491,42 @@ export default function FoodScreen() {
               ) : (
                 <AdultGuidanceView guidance={guidance} colors={colors} />
               )
+            )}
+          </View>
+        )}
+
+        {guidance && !isFetchingGuidance && guidance.insulinDose > 0 && logged && (
+          <View style={[styles.doseLogCard, { backgroundColor: colors.card, borderColor: doseTaken ? COLORS.success + "50" : COLORS.accent + "40" }]}>
+            <View style={styles.doseLogRow}>
+              <View style={[styles.doseLogIcon, { backgroundColor: doseTaken ? COLORS.success + "18" : COLORS.accent + "15" }]}>
+                <Feather name={doseTaken ? "check-circle" : "droplet"} size={18} color={doseTaken ? COLORS.success : COLORS.accent} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.doseLogTitle, { color: colors.text }]}>
+                  {doseTaken ? "Dose Logged" : `Suggested dose: ${guidance.insulinDose} units`}
+                </Text>
+                <Text style={[styles.doseLogSub, { color: colors.textSecondary }]}>
+                  {doseTaken ? "Insulin dose recorded in your log." : "Did you take this insulin dose? Tap to confirm and log it."}
+                </Text>
+              </View>
+            </View>
+            {!doseTaken && (
+              <Pressable
+                style={({ pressed }) => [styles.doseTakeBtn, { backgroundColor: COLORS.accent, opacity: pressed ? 0.8 : 1 }]}
+                onPress={() => {
+                  logInsulinDose({
+                    timestamp: new Date().toISOString(),
+                    units: guidance.insulinDose,
+                    type: "bolus",
+                    note: result ? `For ${result.foodName} (${result.estimatedCarbs}g carbs)` : undefined,
+                  });
+                  setDoseTaken(true);
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }}
+              >
+                <Feather name="check" size={14} color="#fff" />
+                <Text style={styles.doseTakeBtnText}>I Took {guidance.insulinDose} Units</Text>
+              </Pressable>
             )}
           </View>
         )}
@@ -845,4 +885,11 @@ const styles = StyleSheet.create({
   quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   quickChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
   quickChipText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  doseLogCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 24, gap: 12 },
+  doseLogRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  doseLogIcon: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  doseLogTitle: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 2 },
+  doseLogSub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  doseTakeBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 12, borderRadius: 12 },
+  doseTakeBtnText: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#fff" },
 });

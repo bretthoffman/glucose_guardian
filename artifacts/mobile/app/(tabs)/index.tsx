@@ -32,6 +32,53 @@ const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
   : "";
 
 
+function TrendAlertBanner({
+  trend,
+  glucose,
+  colors,
+}: {
+  trend: "rapidly_falling" | "rapidly_rising";
+  glucose: number;
+  colors: (typeof Colors)["light"];
+}) {
+  const [dismissed, setDismissed] = React.useState(false);
+  if (dismissed) return null;
+  const isFalling = trend === "rapidly_falling";
+  const bannerColor = isFalling ? COLORS.danger : COLORS.warning;
+  const icon = isFalling ? "trending-down" : "trending-up";
+  const title = isFalling ? "Glucose Dropping Fast ↓↓" : "Glucose Rising Fast ↑↑";
+  const message = isFalling
+    ? `At ${glucose} mg/dL and dropping quickly — eat 15g fast-acting carbs (juice or glucose tabs) now. Do not take insulin.`
+    : `At ${glucose} mg/dL and rising quickly — avoid high-carb food now. Consider a short walk or consult your dose plan.`;
+  return (
+    <View style={[trendBannerStyles.banner, { backgroundColor: bannerColor + "15", borderColor: bannerColor + "50" }]}>
+      <View style={[trendBannerStyles.iconWrap, { backgroundColor: bannerColor + "20" }]}>
+        <Feather name={icon} size={18} color={bannerColor} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[trendBannerStyles.title, { color: bannerColor }]}>{title}</Text>
+        <Text style={[trendBannerStyles.message, { color: colors.textSecondary }]}>{message}</Text>
+      </View>
+      <Pressable
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          setDismissed(true);
+        }}
+        hitSlop={10}
+      >
+        <Feather name="x" size={16} color={colors.textMuted} />
+      </Pressable>
+    </View>
+  );
+}
+
+const trendBannerStyles = StyleSheet.create({
+  banner: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 8, width: "100%" },
+  iconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  title: { fontSize: 13, fontFamily: "Inter_700Bold", marginBottom: 2 },
+  message: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+});
+
 function formatLastSync(date: Date | null): string {
   if (!date) return "";
   const diff = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -282,6 +329,10 @@ export default function HomeScreen() {
                 {isConnected ? "Pull down to sync CGM" : 'Tap "Simulate Reading" or connect a CGM'}
               </Text>
             </View>
+          )}
+
+          {(glucoseTrend === "rapidly_falling" || glucoseTrend === "rapidly_rising") && history.length > 1 && (
+            <TrendAlertBanner trend={glucoseTrend} glucose={displayGlucose} colors={colors} />
           )}
 
           {latestReading?.anomaly.warning && (

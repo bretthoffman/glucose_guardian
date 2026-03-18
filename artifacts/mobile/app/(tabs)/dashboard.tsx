@@ -135,6 +135,8 @@ export default function DashboardScreen() {
     ageYears,
     foodLog,
     clearFoodLog,
+    insulinLog,
+    clearInsulinLog,
     updateProfile,
     signOut,
     emergencyContacts,
@@ -252,6 +254,30 @@ export default function DashboardScreen() {
       { text: "Clear", style: "destructive", onPress: () => { clearFoodLog(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } },
     ]);
   }
+
+  function promptClearInsulin() {
+    Alert.alert("Clear Insulin Log", "Remove all insulin entries permanently?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Clear", style: "destructive", onPress: () => { clearInsulinLog(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } },
+    ]);
+  }
+
+  type CombinedEntry =
+    | { kind: "food"; id: string; timestamp: string; foodName: string; estimatedCarbs: number; insulinUnits: number; fromPhoto: boolean }
+    | { kind: "insulin"; id: string; timestamp: string; units: number; type: string; note?: string };
+
+  const combinedEntries: CombinedEntry[] = [
+    ...foodLog.map((f) => ({ kind: "food" as const, id: f.id, timestamp: f.timestamp, foodName: f.foodName, estimatedCarbs: f.estimatedCarbs, insulinUnits: f.insulinUnits, fromPhoto: !!f.fromPhoto })),
+    ...insulinLog.map((i) => ({ kind: "insulin" as const, id: i.id, timestamp: i.timestamp, units: i.units, type: i.type, note: i.note })),
+  ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  const groupedByDay = combinedEntries.reduce<Record<string, CombinedEntry[]>>((acc, entry) => {
+    const day = new Date(entry.timestamp).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+    if (!acc[day]) acc[day] = [];
+    acc[day].push(entry);
+    return acc;
+  }, {});
+  const dayKeys = Object.keys(groupedByDay);
 
   function confirmRemoveContact(contact: EmergencyContact) {
     Alert.alert(`Remove ${contact.name}?`, "They will no longer receive emergency alerts.", [
@@ -752,6 +778,43 @@ export default function DashboardScreen() {
           <SettingRow label="Carb Ratio" description="grams of carbs per unit of insulin" displayValue={`1:${carbRatio} g/unit`} editing={editing && !isGuarded} value={editCarbRatio} onChange={setEditCarbRatio} colors={colors} />
           <SettingRow label="Target Glucose" description="desired blood glucose level" displayValue={`${targetGlucose} mg/dL`} editing={editing && !isGuarded} value={editTarget} onChange={setEditTarget} colors={colors} />
           <SettingRow label="Correction Factor (ISF)" description="points glucose drops per unit" displayValue={`1:${correctionFactor}`} editing={editing && !isGuarded} value={editISF} onChange={setEditISF} colors={colors} last />
+
+          <View style={[styles.insulinTypesSection, { borderTopColor: colors.separator }]}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>My Insulin Types</Text>
+            <View style={styles.insulinChipsRow}>
+              {["Rapid-acting", "Short-acting", "Intermediate", "Long-acting", "Ultra-long", "Pre-mixed"].map((t) => {
+                const selected = (profile?.insulinTypes ?? []).includes(t);
+                return (
+                  <Pressable
+                    key={t}
+                    style={({ pressed }) => [
+                      styles.insulinChip,
+                      {
+                        backgroundColor: selected ? COLORS.accent + "18" : colors.backgroundTertiary,
+                        borderColor: selected ? COLORS.accent : colors.border,
+                        opacity: (pressed || (isGuarded && !isGuardianUnlocked)) ? 0.7 : 1,
+                      },
+                    ]}
+                    onPress={() => {
+                      if (isGuarded) return;
+                      const current = profile?.insulinTypes ?? [];
+                      const next = selected ? current.filter((x) => x !== t) : [...current, t];
+                      updateProfile({ insulinTypes: next });
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
+                    disabled={isGuarded}
+                  >
+                    {selected && <Feather name="check" size={11} color={COLORS.accent} />}
+                    <Text style={[styles.insulinChipText, { color: selected ? COLORS.accent : colors.textSecondary }]}>{t}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {(profile?.insulinTypes ?? []).length === 0 && (
+              <Text style={[styles.insulinTypesEmpty, { color: colors.textMuted }]}>Tap to select insulin types you use</Text>
+            )}
+          </View>
+
           {isGuarded && <GuardianLock colors={colors} />}
         </View>
 
@@ -818,35 +881,76 @@ export default function DashboardScreen() {
           )}
         </View>
 
-        {foodLog.length > 0 && (
+        {combinedEntries.length > 0 && (
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.cardTitle, { color: colors.text }]}>Food Diary</Text>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>Activity Log</Text>
             <Text style={[styles.foodLogCount, { color: colors.textSecondary }]}>
-              {foodLog.length} meal{foodLog.length !== 1 ? "s" : ""} logged
+              {foodLog.length} meal{foodLog.length !== 1 ? "s" : ""}
+              {insulinLog.length > 0 ? ` · ${insulinLog.length} insulin dose${insulinLog.length !== 1 ? "s" : ""}` : ""}
             </Text>
-            {foodLog.slice(0, 5).map((f) => (
-              <View key={f.id} style={[styles.foodLogRow, { borderBottomColor: colors.separator }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.foodLogName, { color: colors.text }]}>{f.foodName}</Text>
-                  <Text style={[styles.foodLogMeta, { color: colors.textMuted }]}>
-                    {new Date(f.timestamp).toLocaleDateString()} · {f.estimatedCarbs}g carbs · {f.insulinUnits}u{f.fromPhoto ? " · AI Photo" : ""}
-                  </Text>
-                </View>
+            {dayKeys.slice(0, 3).map((day) => (
+              <View key={day} style={{ gap: 6 }}>
+                <Text style={[styles.logDayHeader, { color: colors.textMuted, borderBottomColor: colors.separator }]}>{day}</Text>
+                {groupedByDay[day].map((entry) => (
+                  <View key={entry.id} style={[styles.logEntryRow, { borderBottomColor: colors.separator }]}>
+                    <View style={[styles.logEntryIcon, {
+                      backgroundColor: entry.kind === "food" ? COLORS.primary + "15" : COLORS.accent + "15",
+                    }]}>
+                      <Feather
+                        name={entry.kind === "food" ? "coffee" : "droplet"}
+                        size={13}
+                        color={entry.kind === "food" ? COLORS.primary : COLORS.accent}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      {entry.kind === "food" ? (
+                        <>
+                          <Text style={[styles.logEntryName, { color: colors.text }]}>{entry.foodName}</Text>
+                          <Text style={[styles.logEntryMeta, { color: colors.textMuted }]}>
+                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {entry.estimatedCarbs}g carbs · {entry.insulinUnits}u{entry.fromPhoto ? " · AI Photo" : ""}
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={[styles.logEntryName, { color: colors.text }]}>
+                            {entry.units}u {entry.type.charAt(0).toUpperCase() + entry.type.slice(1)} Insulin
+                          </Text>
+                          <Text style={[styles.logEntryMeta, { color: colors.textMuted }]}>
+                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{entry.note ? ` · ${entry.note}` : ""}
+                          </Text>
+                        </>
+                      )}
+                    </View>
+                  </View>
+                ))}
               </View>
             ))}
-            {foodLog.length > 5 && (
-              <Text style={[styles.foodLogMore, { color: colors.textMuted }]}>+{foodLog.length - 5} more in report</Text>
+            {dayKeys.length > 3 && (
+              <Text style={[styles.foodLogMore, { color: colors.textMuted }]}>+{dayKeys.length - 3} earlier days in report</Text>
             )}
             {isGuarded ? (
               <GuardianLock colors={colors} />
             ) : (
-              <Pressable
-                style={({ pressed }) => [styles.dangerBtn, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
-                onPress={promptClearFood}
-              >
-                <Feather name="trash-2" size={14} color={COLORS.danger} />
-                <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear Food Diary</Text>
-              </Pressable>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                {foodLog.length > 0 && (
+                  <Pressable
+                    style={({ pressed }) => [styles.dangerBtnSmall, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
+                    onPress={promptClearFood}
+                  >
+                    <Feather name="trash-2" size={13} color={COLORS.danger} />
+                    <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear Meals</Text>
+                  </Pressable>
+                )}
+                {insulinLog.length > 0 && (
+                  <Pressable
+                    style={({ pressed }) => [styles.dangerBtnSmall, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
+                    onPress={promptClearInsulin}
+                  >
+                    <Feather name="trash-2" size={13} color={COLORS.danger} />
+                    <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear Insulin</Text>
+                  </Pressable>
+                )}
+              </View>
             )}
           </View>
         )}
@@ -1141,6 +1245,19 @@ const styles = StyleSheet.create({
   foodLogName: { fontSize: 14, fontFamily: "Inter_500Medium" },
   foodLogMeta: { fontSize: 12, fontFamily: "Inter_400Regular" },
   foodLogMore: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 4 },
+
+  logDayHeader: { fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.5, paddingBottom: 6, borderBottomWidth: 1, marginTop: 4, marginBottom: 4 },
+  logEntryRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: 1 },
+  logEntryIcon: { width: 30, height: 30, borderRadius: 9, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  logEntryName: { fontSize: 13, fontFamily: "Inter_600SemiBold", marginBottom: 1 },
+  logEntryMeta: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  dangerBtnSmall: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1 },
+
+  insulinTypesSection: { borderTopWidth: 1, paddingTop: 14, gap: 10 },
+  insulinChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  insulinChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
+  insulinChipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  insulinTypesEmpty: { fontSize: 12, fontFamily: "Inter_400Regular", fontStyle: "italic" },
 
   disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 14, borderRadius: 12, marginTop: 4 },
   disclaimerText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
