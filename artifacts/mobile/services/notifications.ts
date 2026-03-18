@@ -59,7 +59,7 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 }
 
 export async function requestCriticalAlerts(): Promise<boolean> {
-  const { status } = await Notifications.requestPermissionsAsync({
+  const { status, ios } = await Notifications.requestPermissionsAsync({
     ios: {
       allowAlert: true,
       allowSound: true,
@@ -67,7 +67,8 @@ export async function requestCriticalAlerts(): Promise<boolean> {
       allowCriticalAlerts: true,
     },
   });
-  return status === "granted";
+  if (status !== "granted") return false;
+  return ios?.allowsCriticalAlerts === true;
 }
 
 export type GlucoseAlertStatus =

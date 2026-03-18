@@ -14,7 +14,13 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCriticalAlertUsageDescription": "Glucose Guardian uses critical alerts to notify you of urgent glucose readings that require immediate attention, even when your phone is on silent or in Do Not Disturb."
+      },
+      "entitlements": {
+        "com.apple.developer.usernotifications.critical-alerts": true
+      }
     },
     "android": {},
     "web": {

@@ -28,7 +28,6 @@ import type { EmergencyContact } from "@/context/AuthContext";
 import {
   getNotificationPermissionStatus,
   requestNotificationPermissions,
-  requestCriticalAlerts,
   type NotificationPermissionStatus,
 } from "@/services/notifications";
 
@@ -646,12 +645,23 @@ export default function DashboardScreen() {
               {notifPerm.granted && notifPerm.soundEnabled && !notifPerm.criticalAlertsEnabled && Platform.OS === "ios" && (
                 <Pressable
                   style={({ pressed }) => [styles.notifPermBtn, { backgroundColor: "#F97316", opacity: pressed ? 0.8 : 1 }]}
-                  onPress={async () => {
+                  onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    const ok = await requestCriticalAlerts();
-                    if (!ok) Linking.openSettings();
-                    const updated = await getNotificationPermissionStatus();
-                    setNotifPerm(updated);
+                    Alert.alert(
+                      "Enable Critical Alerts",
+                      "1. Tap Open Settings below\n2. Tap Notifications\n3. Find Glucose Guardian\n4. Turn on Critical Alerts\n\nThis lets urgent glucose alarms sound even when your phone is on silent or in Do Not Disturb.",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Open Settings",
+                          onPress: async () => {
+                            await Linking.openSettings();
+                            const updated = await getNotificationPermissionStatus();
+                            setNotifPerm(updated);
+                          },
+                        },
+                      ]
+                    );
                   }}
                 >
                   <Feather name="alert-triangle" size={13} color="#fff" />
