@@ -7,6 +7,7 @@ import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Image,
   Linking,
   Modal,
   Platform,
@@ -669,6 +670,68 @@ export default function DashboardScreen() {
             </Pressable>
           </View>
         )}
+
+        {doctorSession && profile && (() => {
+          const dob = profile.dateOfBirth
+            ? (() => {
+                const [y, m, d] = profile.dateOfBirth.split("-").map(Number);
+                const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                return `${months[m - 1] ?? ""} ${d}, ${y}`;
+              })()
+            : "—";
+          const typeLabel = profile.diabetesType === "type1" ? "Type 1" : profile.diabetesType === "type2" ? "Type 2" : "Diabetes";
+          const ageText = ageYears === null ? "—" : ageYears === 1 ? "1 yr old" : `${ageYears} yrs old`;
+          const initials = (profile.childName ?? "")
+            .split(" ").filter(Boolean).slice(0, 2).map((w: string) => w[0].toUpperCase()).join("");
+
+          return (
+            <View style={[styles.patientCard, { backgroundColor: colors.card, borderColor: "#6366F1" + "30" }]}>
+              {/* Avatar */}
+              <View style={styles.patientCardLeft}>
+                {profile.profilePhotoUri ? (
+                  <Image source={{ uri: profile.profilePhotoUri }} style={styles.patientAvatar} />
+                ) : (
+                  <View style={[styles.patientAvatar, { backgroundColor: "#6366F1" + "20", alignItems: "center", justifyContent: "center" }]}>
+                    {initials ? (
+                      <Text style={{ fontSize: 18, fontFamily: "Inter_700Bold", color: "#6366F1" }}>{initials}</Text>
+                    ) : (
+                      <Feather name="user" size={20} color="#6366F1" />
+                    )}
+                  </View>
+                )}
+              </View>
+
+              {/* Info */}
+              <View style={styles.patientCardBody}>
+                <Text style={[styles.patientName, { color: colors.text }]}>{profile.childName || "Patient"}</Text>
+                <View style={styles.patientMetaRow}>
+                  <View style={[styles.patientPill, { backgroundColor: "#6366F1" + "18" }]}>
+                    <Text style={[styles.patientPillText, { color: "#6366F1" }]}>{typeLabel}</Text>
+                  </View>
+                  <Text style={[styles.patientMeta, { color: colors.textSecondary }]}>{ageText}</Text>
+                  <Text style={[styles.patientMeta, { color: colors.textSecondary }]}>· DOB: {dob}</Text>
+                </View>
+
+                <View style={[styles.patientFormulaRow, { borderTopColor: colors.border }]}>
+                  <View style={styles.patientFormulaItem}>
+                    <Text style={[styles.patientFormulaLabel, { color: colors.textSecondary }]}>Carb Ratio</Text>
+                    <Text style={[styles.patientFormulaValue, { color: colors.text }]}>1:{carbRatio} g/u</Text>
+                  </View>
+                  <View style={[styles.patientFormulaDivider, { backgroundColor: colors.border }]} />
+                  <View style={styles.patientFormulaItem}>
+                    <Text style={[styles.patientFormulaLabel, { color: colors.textSecondary }]}>Target BG</Text>
+                    <Text style={[styles.patientFormulaValue, { color: colors.text }]}>{targetGlucose} mg/dL</Text>
+                  </View>
+                  <View style={[styles.patientFormulaDivider, { backgroundColor: colors.border }]} />
+                  <View style={styles.patientFormulaItem}>
+                    <Text style={[styles.patientFormulaLabel, { color: colors.textSecondary }]}>ISF</Text>
+                    <Text style={[styles.patientFormulaValue, { color: colors.text }]}>1:{correctionFactor}</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          );
+        })()}
 
         {isChildMode && !caregiverSession && (
           <View style={[styles.modeBanner, { backgroundColor: COLORS.primary + "12", borderColor: COLORS.primary + "30" }]}>
@@ -1893,8 +1956,20 @@ const styles = StyleSheet.create({
   pageHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 },
   pageTitle: { fontSize: 28, fontFamily: "Inter_700Bold", marginBottom: 4 },
   subtitle: { fontSize: 15, fontFamily: "Inter_400Regular" },
-  ageBadge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
-  ageBadgeText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  patientCard: { flexDirection: "row", borderRadius: 16, borderWidth: 1, padding: 14, gap: 14, marginBottom: 4 },
+  patientCardLeft: { justifyContent: "flex-start" },
+  patientAvatar: { width: 52, height: 52, borderRadius: 26, overflow: "hidden" },
+  patientCardBody: { flex: 1, gap: 6 },
+  patientName: { fontSize: 17, fontFamily: "Inter_700Bold" },
+  patientMetaRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  patientPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  patientPillText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  patientMeta: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  patientFormulaRow: { flexDirection: "row", alignItems: "center", paddingTop: 8, marginTop: 2, borderTopWidth: 1, gap: 0 },
+  patientFormulaItem: { flex: 1, alignItems: "center", gap: 2 },
+  patientFormulaDivider: { width: 1, height: 28, opacity: 0.4 },
+  patientFormulaLabel: { fontSize: 10, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 0.4 },
+  patientFormulaValue: { fontSize: 14, fontFamily: "Inter_700Bold" },
   childBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 16 },
   childBannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
 
