@@ -4,6 +4,7 @@ import { useLocalSearchParams } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -126,7 +127,7 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState<Message[]>(() => {
     const greet = glucose != null
       ? `Hey ${name}! Your glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${glucose >= 80 && glucose <= 180 ? "looking solid!" : glucose < 70 ? "let's get that up, okay?" : "let's keep an eye on it."} What's on your mind?`
-      : `Hey ${name}! I'm Gluco, your diabetes sidekick. I can see your glucose readings, help with carb counts, and just chat when you need someone who gets it. What's up?`;
+      : `Hey ${name}! I'm Glucose Guardian, your diabetes sidekick. I can see your glucose readings, help with carb counts, and just chat when you need someone who gets it. What's up?`;
 
     return [
       {
@@ -225,7 +226,7 @@ export default function ChatScreen() {
       setMessages((prev) => [aiMsg, ...prev]);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {
-      setError("Couldn't reach Gluco right now. Check your connection and try again.");
+      setError("Couldn't reach Glucose Guardian right now. Check your connection and try again.");
       conversationRef.current = conversationRef.current.slice(0, -1);
     } finally {
       setIsThinking(false);
@@ -245,11 +246,11 @@ export default function ChatScreen() {
         ]}
       >
         <View style={[styles.avatarSmall, { backgroundColor: COLORS.primary + "20" }]}>
-          <Text style={styles.avatarEmoji}>🛡️</Text>
+          <Image source={require("../../assets/images/logo.png")} style={styles.avatarLogo} resizeMode="contain" />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Gluco</Text>
-          <Text style={[styles.headerSub, { color: COLORS.success }]}>Your diabetes companion</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Glucose Guardian</Text>
+          <Text style={[styles.headerSub, { color: COLORS.success }]}>Your AI diabetes companion</Text>
         </View>
         {glucose != null && (
           <View style={[styles.glucosePill, { backgroundColor: glucoseColor(glucose) + "18", borderColor: glucoseColor(glucose) + "40" }]}>
@@ -316,7 +317,7 @@ export default function ChatScreen() {
           style={[styles.inputField, { backgroundColor: colors.card, color: colors.text, borderColor: colors.border }]}
           value={input}
           onChangeText={setInput}
-          placeholder={`Ask Gluco anything...`}
+          placeholder={`Ask Glucose Guardian anything...`}
           placeholderTextColor={colors.textMuted}
           returnKeyType="send"
           onSubmitEditing={() => send()}
@@ -345,7 +346,7 @@ function MessageBubble({ message, colors }: { message: Message; colors: (typeof 
     <View style={[styles.bubbleWrapper, isUser ? styles.userBubbleWrapper : styles.aiBubbleWrapper]}>
       {!isUser && (
         <View style={[styles.avatarTiny, { backgroundColor: COLORS.primary + "20" }]}>
-          <Text style={{ fontSize: 12 }}>🛡️</Text>
+          <Image source={require("../../assets/images/logo.png")} style={styles.avatarTinyLogo} resizeMode="contain" />
         </View>
       )}
       <View
@@ -395,6 +396,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarEmoji: { fontSize: 20 },
+  avatarLogo: { width: 28, height: 28 },
+  avatarTinyLogo: { width: 18, height: 18 },
   headerTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
   headerSub: { fontSize: 11, fontFamily: "Inter_400Regular" },
   glucosePill: {
