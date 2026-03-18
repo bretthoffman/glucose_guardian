@@ -315,7 +315,13 @@ export default function HomeScreen() {
 
         <View style={styles.gaugeSection}>
           {latestReading ? (
-            <GlucoseGauge value={displayGlucose} size={200} trend={glucoseTrend} />
+              <GlucoseGauge
+              value={displayGlucose}
+              size={200}
+              trend={glucoseTrend}
+              lowThreshold={alertPrefs.lowThreshold}
+              highThreshold={alertPrefs.highThreshold}
+            />
           ) : (
             <View
               style={[

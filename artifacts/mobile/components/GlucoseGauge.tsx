@@ -14,34 +14,47 @@ interface Props {
   value: number;
   size?: number;
   trend?: GlucoseTrend;
+  lowThreshold?: number;
+  highThreshold?: number;
 }
 
-function getGlucoseStatus(value: number): {
+function getGlucoseStatus(value: number, lowThreshold = 80, highThreshold = 180): {
   label: string;
   color: string;
   bg: string;
 } {
   if (value < 70)
     return { label: "Low", color: COLORS.glucose.low, bg: COLORS.dangerLight };
-  if (value < 80)
+  if (value < lowThreshold)
     return { label: "Below Range", color: COLORS.glucose.lowRange, bg: "#FFF7ED" };
-  if (value <= 180)
+  if (value <= highThreshold)
     return { label: "In Range", color: COLORS.glucose.normal, bg: COLORS.successLight };
-  if (value <= 250)
+  if (value <= 300)
     return { label: "Above Range", color: COLORS.glucose.high, bg: COLORS.warningLight };
   return { label: "High", color: COLORS.glucose.veryHigh, bg: COLORS.dangerLight };
 }
 
-const TREND_CONFIG: Record<
-  GlucoseTrend,
-  { rotate: string; color: string; label: string; urgency: "high" | "mid" | "low" }
-> = {
-  rapidly_rising:  { rotate: "0deg",   color: COLORS.danger,  label: "Rising fast",   urgency: "high" },
-  rising:          { rotate: "45deg",  color: COLORS.warning, label: "Rising",         urgency: "mid"  },
-  stable:          { rotate: "90deg",  color: COLORS.success, label: "Stable",         urgency: "low"  },
-  falling:         { rotate: "135deg", color: COLORS.warning, label: "Falling",        urgency: "mid"  },
-  rapidly_falling: { rotate: "180deg", color: COLORS.danger,  label: "Falling fast",  urgency: "high" },
+const TREND_ROTATE: Record<GlucoseTrend, string> = {
+  rapidly_rising:  "0deg",
+  rising:          "45deg",
+  stable:          "90deg",
+  falling:         "135deg",
+  rapidly_falling: "180deg",
 };
+
+const TREND_LABEL: Record<GlucoseTrend, string> = {
+  rapidly_rising:  "Rising fast",
+  rising:          "Rising",
+  stable:          "Stable",
+  falling:         "Falling",
+  rapidly_falling: "Falling fast",
+};
+
+function getTrendColor(trend: GlucoseTrend, glucoseStatusColor: string): string {
+  if (trend === "rapidly_rising" || trend === "rapidly_falling") return COLORS.danger;
+  if (trend === "rising" || trend === "falling") return COLORS.warning;
+  return glucoseStatusColor;
+}
 
 function getPulseConfig(trend: GlucoseTrend | undefined) {
   if (trend === "rapidly_rising" || trend === "rapidly_falling") {
@@ -53,11 +66,11 @@ function getPulseConfig(trend: GlucoseTrend | undefined) {
   return { toScale: 1.018, ringDuration: 1400, rippleDuration: 2200 };
 }
 
-export function GlucoseGauge({ value, size = 180, trend }: Props) {
+export function GlucoseGauge({ value, size = 180, trend, lowThreshold = 80, highThreshold = 180 }: Props) {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const status = getGlucoseStatus(value);
+  const status = getGlucoseStatus(value, lowThreshold, highThreshold);
 
   const ringStroke = Math.round(size * 0.07);
   const innerSize = size - ringStroke * 2;
@@ -144,7 +157,7 @@ export function GlucoseGauge({ value, size = 180, trend }: Props) {
     };
   }, [trend]);
 
-  const trendInfo = trend ? TREND_CONFIG[trend] : null;
+  const trendColor = trend ? getTrendColor(trend, status.color) : null;
 
   return (
     <View style={styles.outerRow}>
@@ -211,14 +224,14 @@ export function GlucoseGauge({ value, size = 180, trend }: Props) {
         </View>
       </View>
 
-      {trendInfo && (
+      {trend && trendColor && (
         <View style={styles.trendSide}>
-          <View style={[styles.arrowWrap, { transform: [{ rotate: trendInfo.rotate }] }]}>
-            <Text style={[styles.arrowText, { color: trendInfo.color }]}>↑</Text>
+          <View style={[styles.arrowWrap, { transform: [{ rotate: TREND_ROTATE[trend] }] }]}>
+            <Text style={[styles.arrowText, { color: trendColor }]}>↑</Text>
           </View>
-          <View style={[styles.trendLabelPill, { backgroundColor: trendInfo.color + "1A", borderColor: trendInfo.color + "40" }]}>
-            <Text style={[styles.trendLabelText, { color: trendInfo.color }]}>
-              {trendInfo.label}
+          <View style={[styles.trendLabelPill, { backgroundColor: trendColor + "1A", borderColor: trendColor + "40" }]}>
+            <Text style={[styles.trendLabelText, { color: trendColor }]}>
+              {TREND_LABEL[trend]}
             </Text>
           </View>
         </View>

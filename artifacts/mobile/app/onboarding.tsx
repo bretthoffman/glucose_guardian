@@ -121,7 +121,17 @@ export default function OnboardingScreen() {
   const [birthDay, setBirthDay] = useState("");
   const [birthYear, setBirthYear] = useState("");
   const [diabetesType, setDiabetesType] = useState<"type1" | "type2" | "other">("type1");
+  const [insulinTypes, setInsulinTypes] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+
+  const INSULIN_OPTIONS = ["Rapid-Acting", "Long-Acting", "Regular", "Intermediate", "Ultra-Long", "Pre-Mixed"];
+
+  function toggleInsulinType(t: string) {
+    setInsulinTypes((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
+    );
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
 
   const [pinEntry, setPinEntry] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
@@ -185,6 +195,7 @@ export default function OnboardingScreen() {
         diabetesType,
         dateOfBirth: dobStr,
         weightLbs: !isNaN(parsedWeight) && parsedWeight > 0 ? parsedWeight : undefined,
+        insulinTypes: insulinTypes.length > 0 ? insulinTypes : undefined,
       });
       if (pin) await setGuardianPin(pin);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -545,6 +556,42 @@ export default function OnboardingScreen() {
               </Pressable>
             ))}
 
+            <View style={[styles.insulinSection, { borderColor: colors.border }]}>
+              <View style={styles.insulinSectionHeader}>
+                <Feather name="droplet" size={15} color={COLORS.accent} />
+                <Text style={[styles.insulinSectionTitle, { color: colors.text }]}>
+                  Insulin Types Used
+                </Text>
+                <Text style={[styles.insulinSectionOptional, { color: colors.textMuted }]}>Optional</Text>
+              </View>
+              <Text style={[styles.insulinSectionSub, { color: colors.textMuted }]}>
+                Select any that apply — you can change this later
+              </Text>
+              <View style={styles.insulinChipsRow}>
+                {INSULIN_OPTIONS.map((opt) => {
+                  const selected = insulinTypes.includes(opt);
+                  return (
+                    <Pressable
+                      key={opt}
+                      style={[
+                        styles.insulinChip,
+                        {
+                          backgroundColor: selected ? COLORS.accent + "18" : colors.card,
+                          borderColor: selected ? COLORS.accent : colors.border,
+                        },
+                      ]}
+                      onPress={() => toggleInsulinType(opt)}
+                    >
+                      {selected && <Feather name="check" size={12} color={COLORS.accent} />}
+                      <Text style={[styles.insulinChipText, { color: selected ? COLORS.accent : colors.textSecondary }]}>
+                        {opt}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
             <Pressable
               style={({ pressed }) => [
                 styles.primaryBtn,
@@ -819,4 +866,13 @@ const styles = StyleSheet.create({
   typeOptionTitle: { fontSize: 17, fontFamily: "Inter_700Bold" },
   typeOptionDesc: { fontSize: 13, fontFamily: "Inter_400Regular" },
   roleIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", marginRight: 6, flexShrink: 0 },
+
+  insulinSection: { width: "100%", borderTopWidth: 1, paddingTop: 16, gap: 10 },
+  insulinSectionHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
+  insulinSectionTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", flex: 1 },
+  insulinSectionOptional: { fontSize: 12, fontFamily: "Inter_400Regular", fontStyle: "italic" },
+  insulinSectionSub: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17, marginTop: -4 },
+  insulinChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  insulinChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
+  insulinChipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
 });

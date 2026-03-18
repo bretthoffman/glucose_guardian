@@ -193,20 +193,22 @@ export function CGMChart({
 
               {points.map((p, i) => {
                 const isLatest = i === points.length - 1;
+                const stride = points.length > 72 ? 4 : points.length > 36 ? 3 : points.length > 18 ? 2 : 1;
+                if (!isLatest && i % stride !== 0) return null;
                 const col = glucoseColor(p.glucose, lowThreshold, highThreshold, urgentLowThreshold);
-                const sz = isLatest ? 14 : 5;
+                const sz = isLatest ? 13 : 3;
                 return (
                   <React.Fragment key={`dot-${i}`}>
                     {isLatest && (
                       <View
                         style={{
                           position: "absolute",
-                          left: p.x - 11,
-                          top: p.y - 11,
-                          width: 22,
-                          height: 22,
-                          borderRadius: 11,
-                          backgroundColor: col + "33",
+                          left: p.x - 10,
+                          top: p.y - 10,
+                          width: 20,
+                          height: 20,
+                          borderRadius: 10,
+                          backgroundColor: col + "30",
                         }}
                       />
                     )}
@@ -219,8 +221,8 @@ export function CGMChart({
                         height: sz,
                         borderRadius: sz / 2,
                         backgroundColor: col,
-                        borderWidth: isLatest ? 2.5 : 1.5,
-                        borderColor: isLatest ? "#fff" : col + "99",
+                        borderWidth: isLatest ? 2 : 0,
+                        borderColor: isLatest ? "#fff" : undefined,
                       }}
                     />
                   </React.Fragment>
