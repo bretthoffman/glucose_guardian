@@ -86,7 +86,7 @@ Be specific about what you see. If multiple foods, combine the total carbs and d
             { type: "text", text: prompt },
             {
               type: "image_url",
-              image_url: { url: `data:${mimeType};base64,${photoBase64}`, detail: "high" },
+              image_url: { url: `data:${mimeType};base64,${photoBase64}` },
             },
           ],
         },

@@ -181,7 +181,7 @@ export default function FoodScreen() {
     if (!pickerResult.canceled && pickerResult.assets[0]) {
       setDoseTaken(false);
       const asset = pickerResult.assets[0];
-      await analyzePhoto(asset.uri, asset.base64 ?? null);
+      await analyzePhoto(asset.uri, asset.base64 ?? null, asset.mimeType ?? "image/jpeg");
     }
   }
 
@@ -194,18 +194,18 @@ export default function FoodScreen() {
 
     const pickerResult = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      quality: 0.7,
+      quality: 0.4,
       base64: true,
     });
 
     if (!pickerResult.canceled && pickerResult.assets[0]) {
       setDoseTaken(false);
       const asset = pickerResult.assets[0];
-      await analyzePhoto(asset.uri, asset.base64 ?? null);
+      await analyzePhoto(asset.uri, asset.base64 ?? null, asset.mimeType ?? "image/jpeg");
     }
   }
 
-  async function analyzePhoto(uri: string, base64: string | null) {
+  async function analyzePhoto(uri: string, base64: string | null, mimeType = "image/jpeg") {
     setPhotoUri(uri);
     setResult(null);
     setGuidance(null);
@@ -226,7 +226,7 @@ export default function FoodScreen() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           photoBase64: base64,
-          mimeType: "image/jpeg",
+          mimeType,
           carbRatio,
         }),
       });
