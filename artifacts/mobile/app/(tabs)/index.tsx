@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { scheduleGlucoseAlert } from "@/services/notifications";
 import {
   ActivityIndicator,
   Alert,
@@ -105,6 +106,8 @@ export default function HomeScreen() {
   const isSyncingRef = useRef(false);
   const prevConnectedRef = useRef(isConnected);
   const historyLenRef = useRef(history.length);
+  const lastAlertTimeRef = useRef<number>(0);
+  const ALERT_COOLDOWN_MS = 15 * 60 * 1000;
 
   useEffect(() => {
     historyLenRef.current = history.length;
@@ -189,6 +192,31 @@ export default function HomeScreen() {
       if (entries.length > 0) {
         const mostRecent = entries[entries.length - 1];
         setCgmLatestReading({ glucose: mostRecent.glucose, timestamp: mostRecent.timestamp });
+
+        if (alertPrefs.notificationsEnabled) {
+          const g = mostRecent.glucose;
+          const urgLow = alertPrefs.urgentLowThreshold;
+          const low = alertPrefs.lowThreshold;
+          const high = alertPrefs.highThreshold;
+          const urgHigh = alertPrefs.urgentHighThreshold;
+          const now = Date.now();
+          const overThreshold = g <= urgLow || (g < low && g > urgLow) || g >= urgHigh || (g > high && g < urgHigh);
+
+          if (overThreshold && now - lastAlertTimeRef.current > ALERT_COOLDOWN_MS) {
+            lastAlertTimeRef.current = now;
+            const trendDiff = entries.length >= 2
+              ? entries[entries.length - 1].glucose - entries[entries.length - 2].glucose
+              : 0;
+            const trendLabel = trendDiff > 30 ? "Rising fast" : trendDiff > 15 ? "Rising" : trendDiff < -30 ? "Dropping fast" : trendDiff < -15 ? "Dropping" : "Stable";
+            const status = g <= urgLow ? "critically_low" : g < low ? "low" : g >= urgHigh ? "critically_high" : "high";
+            scheduleGlucoseAlert({
+              childName: profile?.childName ?? "Child",
+              glucose: g,
+              status,
+              trendLabel,
+            }).catch(() => {});
+          }
+        }
       }
       if (readings.length > 0) {
         setLastSyncTime(new Date());
@@ -211,7 +239,7 @@ export default function HomeScreen() {
       setIsSyncingCGM(false);
       setIsAutoSyncing(false);
     }
-  }, [cgmConnection, bulkAddReadings, setCgmLatestReading]);
+  }, [cgmConnection, bulkAddReadings, setCgmLatestReading, alertPrefs, profile]);
 
   useEffect(() => {
     if (!isConnected) return;

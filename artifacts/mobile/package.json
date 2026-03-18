@@ -59,6 +59,7 @@
     "@nkzw/create-context-hook": "^1.1.0",
     "expo-camera": "^55.0.9",
     "expo-file-system": "^55.0.10",
+    "expo-notifications": "~0.32.16",
     "expo-print": "^55.0.8",
     "expo-sharing": "^55.0.11"
   }

@@ -96,18 +96,24 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 Expo React Native app — "Gluco Guardian" diabetes companion for kids.
 
 Key screens:
-- `app/onboarding.tsx` — 5-step signup (role → name → date of birth → diabetes type → guardian PIN for parents). DOB determines `isMinor` (under 18). Role selection: Parent vs Adult.
+- `app/onboarding.tsx` — 6-step signup for parents (role → parent name → child name → DOB → diabetes type + insulin + carb ratio → guardian PIN for minors), 4-step for adults (role → name → DOB → diabetes type). DOB determines `isMinor` (under 18).
 - `app/auth.tsx` — Login / sign-up screen. Includes "Caregiver Access" panel: enter 6-char code to access a read-only caregiver view without a full account.
 - `app/(tabs)/index.tsx` — Home: glucose gauge, CGM sync button, simulate reading, trend chart.
 - `app/(tabs)/food.tsx` — Food & Carbs: camera photo → AI carb analysis (OpenAI vision), search by name, insulin dose suggestion, log to food diary. Includes "I Took X Units" dose-log button.
 - `app/(tabs)/dashboard.tsx` — Dashboard: stats, trend chart, insulin settings, doctor sharing, food diary. Age-gated: minors see all data but cannot edit settings. Multi-role features: Child View Mode toggle (parent-only, Guardian-PIN protected), Caregiver Access code generation (parent-only), mode banners for child/caregiver views, settings hidden in restricted modes.
 - `app/(tabs)/insulin.tsx` — Insulin calculator.
-- `app/(tabs)/chat.tsx` — AI chat assistant.
+- `app/(tabs)/chat.tsx` — AI chat assistant. Mode-aware: parent accounts see parent-mode greeting ("Hi Sarah! Emma's glucose is…"), parent-specific quick suggestions (correction/care-focused), and the API receives `speakingToParent`/`parentName`/`isChildMode` context so the AI uses caregiver language (third-person about the child). Notification reply: `fromParent` URL param pre-sends the user's typed notification reply. Header subtitle dynamically shows "Managing {name}'s care" in parent mode.
 - `app/cgm-setup.tsx` — Connect Dexcom (Share API) or FreeStyle Libre (LibreLink Up).
 
 Contexts:
-- `context/AuthContext.tsx` — Profile (name, DOB, diabetesType, accountRole, caregiverCode, childModeEnabled), CGM connection, food log, insulin log. Computes `isMinor`/`ageYears` from DOB. Multi-role: `caregiverSession` (in-memory), `isChildMode`, `setChildMode`, `generateCaregiverCode`, `enterCaregiverMode`, `exitCaregiverMode`.
+- `context/AuthContext.tsx` — Profile (name, parentName, DOB, diabetesType, accountRole, caregiverCode, childModeEnabled), CGM connection, food log, insulin log. Computes `isMinor`/`ageYears` from DOB. Multi-role: `caregiverSession` (in-memory), `isChildMode`, `setChildMode`, `generateCaregiverCode`, `enterCaregiverMode`, `exitCaregiverMode`.
 - `context/GlucoseContext.tsx` — Glucose history, carb ratio, target glucose, correction factor (all persisted in AsyncStorage).
+
+Services:
+- `services/notifications.ts` — Push notification service using expo-notifications. Registers GLUCOSE_ALERT category with Reply (text input) and Dismiss actions. `scheduleGlucoseAlert()` fires an immediate local notification when glucose crosses thresholds. `handleNotificationResponse()` routes Reply-action responses to `/(tabs)/chat` with the typed text as `prompt` param. `_layout.tsx` registers the listener and requests permissions when `alertPrefs.notificationsEnabled` is true. `index.tsx` triggers notifications after each CGM sync with a 15-minute cooldown.
+
+Constants:
+- `constants/insulin.ts` — 16 brand options including Lispro Junior (new addition), grouped by type (rapid, long, ultra-long, regular, intermediate, premixed).
 
 Backend routes added:
 - `POST /api/food/analyze-photo` — OpenAI GPT vision analyzes base64 food photo, returns carbs + insulin recommendation.

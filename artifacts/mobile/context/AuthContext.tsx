@@ -11,6 +11,7 @@ export type AccountRole = "parent" | "adult";
 
 export interface UserProfile {
   childName: string;
+  parentName?: string;
   accountRole?: AccountRole;
   diabetesType: "type1" | "type2" | "other";
   dateOfBirth: string;

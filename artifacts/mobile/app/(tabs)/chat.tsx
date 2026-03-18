@@ -59,6 +59,50 @@ function glucoseLabel(g: number, low = 80, high = 180): string {
   return "High";
 }
 
+function buildParentSuggestions(
+  glucose: number | null,
+  name: string
+): string[] {
+  if (glucose === null) {
+    return [
+      `How should I manage ${name}'s levels?`,
+      "What do carb ratios mean?",
+      "When should I give a correction?",
+      "How do I read the trend arrows?",
+    ];
+  }
+  if (glucose < 70) {
+    return [
+      `${name}'s sugar is low — what do I do?`,
+      "How much fast-acting sugar to give?",
+      "When should I call the doctor?",
+      "Is it safe to let them sleep?",
+    ];
+  }
+  if (glucose > 250) {
+    return [
+      `${name}'s glucose is very high`,
+      "Should I give a correction dose now?",
+      "Could this be ketoacidosis?",
+      "What could have caused this spike?",
+    ];
+  }
+  if (glucose > 180) {
+    return [
+      `${name} is above range — correction?`,
+      "How long to come back down?",
+      "Is activity safe at this level?",
+      "Should I log this in their report?",
+    ];
+  }
+  return [
+    `${name}'s levels look good — tips?`,
+    "What's the ideal overnight range?",
+    "How do I adjust for exercise?",
+    "Generate a doctor report",
+  ];
+}
+
 function buildSuggestions(
   glucose: number | null,
   name: string
@@ -109,22 +153,37 @@ export default function ChatScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
-  const { profile, ageYears, alertPrefs } = useAuth();
-  const { prompt } = useLocalSearchParams<{ prompt?: string }>();
+  const { profile, ageYears, alertPrefs, isChildMode } = useAuth();
+  const { prompt, fromParent } = useLocalSearchParams<{ prompt?: string; fromParent?: string }>();
   const promptSentRef = useRef(false);
 
   const name = profile?.childName ?? "there";
+  const parentName = profile?.parentName?.trim() || null;
+  const speakingToParent =
+    fromParent === "true" ||
+    (profile?.accountRole === "parent" && !isChildMode);
+
   const trend = computeTrend(history);
   const glucose = latestReading?.glucose ?? null;
   const low = alertPrefs.lowThreshold;
   const high = alertPrefs.highThreshold;
-  const suggestions = buildSuggestions(glucose, name);
+  const suggestions = speakingToParent
+    ? buildParentSuggestions(glucose, name)
+    : buildSuggestions(glucose, name);
 
   const [messages, setMessages] = useState<Message[]>(() => {
     const inRange = glucose != null && glucose >= low && glucose <= high;
-    const greet = glucose != null
-      ? `Hey ${name}! Your glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking solid!" : glucose < 70 ? "let's get that up, okay?" : "let's keep an eye on it."} What's on your mind?`
-      : `Hey ${name}! I'm Glucose Guardian, your diabetes sidekick. I can see your glucose readings, help with carb counts, and just chat when you need someone who gets it. What's up?`;
+    let greet: string;
+    if (speakingToParent) {
+      const greeting = parentName ? `Hi ${parentName}!` : "Hi there!";
+      greet = glucose != null
+        ? `${greeting} ${name}'s glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking good." : glucose < 70 ? "that's a low, act quickly." : "worth keeping an eye on."} How can I help you manage ${name}'s care today?`
+        : `${greeting} I'm Glucose Guardian — ${name}'s AI diabetes companion. I can walk you through glucose readings, insulin calculations, and anything else you need for ${name}'s care. What's on your mind?`;
+    } else {
+      greet = glucose != null
+        ? `Hey ${name}! Your glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking solid!" : glucose < 70 ? "let's get that up, okay?" : "let's keep an eye on it."} What's on your mind?`
+        : `Hey ${name}! I'm Glucose Guardian, your diabetes sidekick. I can see your glucose readings, help with carb counts, and just chat when you need someone who gets it. What's up?`;
+    }
 
     return [
       {
@@ -188,6 +247,10 @@ export default function ChatScreen() {
           messages: conversationRef.current.slice(-14),
           context: {
             childName: profile?.childName,
+            parentName: parentName ?? undefined,
+            accountRole: profile?.accountRole,
+            speakingToParent,
+            isChildMode,
             ageYears: ageYears,
             weightLbs: profile?.weightLbs,
             diabetesType: profile?.diabetesType,
@@ -247,7 +310,9 @@ export default function ChatScreen() {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Glucose Guardian</Text>
-          <Text style={[styles.headerSub, { color: COLORS.success }]}>Your AI diabetes companion</Text>
+          <Text style={[styles.headerSub, { color: COLORS.success }]}>
+            {speakingToParent ? `Managing ${name}'s care` : "Your AI diabetes companion"}
+          </Text>
         </View>
         {glucose != null && (
           <View style={[styles.glucosePill, { backgroundColor: glucoseColor(glucose, low, high) + "18", borderColor: glucoseColor(glucose, low, high) + "40" }]}>

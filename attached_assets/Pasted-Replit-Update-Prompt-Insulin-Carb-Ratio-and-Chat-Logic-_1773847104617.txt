@@ -1,0 +1,29 @@
+Replit Update Prompt: Insulin, Carb Ratio, and Chat Logic Enhancements
+	1.	Insulin Lispro Junior Inclusion:
+	•	Add “Insulin Lispro Junior (generic)” to the insulin selection list, alongside other options like Lantus, Novolog, etc., ensuring it is always available for selection.
+	2.	Profile Setup Add-On (Carb Ratio Input):
+	•	After login, regardless of whether the user is an adult or parent, prompt them to input their carb ratio as part of the profile setup.
+	•	Example: “My carb ratio is 1 unit of insulin per 20 grams of carbs.”
+	•	Store this ratio in the user’s profile so it is always available when calculating insulin.
+	3.	Carb and Insulin Calculation:
+	•	After the user takes a photo of a meal, the app identifies the carb count.
+	•	Prompt them for their current blood glucose (BG).
+	•	Calculate insulin using the formula:
+Total insulin = (carbs / carb ratio) + correction dose based on BG.
+Show the calculation steps in a pop-up or scrollable section below the photo result, so users can see:
+	•	Carbs identified
+	•	Blood glucose input
+	•	Carb ratio used
+	•	Formula output: final insulin dose
+	4.	Log Enhancement:
+	•	When the user logs a meal and insulin, save not just the meal and dose but also include:
+	•	The exact carb ratio used (pulled from their profile).
+	•	A breakdown of the formula calculation: carbs, BG, ratio, and resulting insulin dose.
+	•	This log should appear in a detailed view, so users can review their calculations later.
+	5.	Chat Feature Logic:
+	•	When a parent logs in (not in child mode), the chat should speak directly to the parent by name.
+Example: “Hi Brian, Bella’s glucose is trending high—please check her snack.”
+	•	When the child-only view (safe mode) is toggled on, the chat should automatically recognize it’s talking to the child.
+Example: “Hey Bella, your blood sugar is a bit low—let’s get a snack now.”
+	6.	Separate Chat Flows:
+	•	Ensure the chat logic is fully aware of who it is addressing. If it’s a parent, the chat uses adult language and references. If it’s the child-only mode, the chat is age-appropriate and addresses the child by name.

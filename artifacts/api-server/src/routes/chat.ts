@@ -12,6 +12,10 @@ interface ChatRequestBody {
   messages: { role: "user" | "assistant"; content: string }[];
   context: {
     childName?: string;
+    parentName?: string;
+    accountRole?: "parent" | "adult";
+    speakingToParent?: boolean;
+    isChildMode?: boolean;
     ageYears?: number | null;
     weightLbs?: number;
     diabetesType?: string;
@@ -35,6 +39,14 @@ function buildSystemPrompt(ctx: ChatRequestBody["context"]): string {
   const isAdult = age !== null && age >= 18;
   const ageStr = age != null ? `${age} years old` : null;
   const weightStr = ctx.weightLbs ? `${ctx.weightLbs} lbs` : null;
+
+  const speakingToParent =
+    ctx.speakingToParent === true ||
+    (ctx.accountRole === "parent" && ctx.isChildMode !== true);
+  const parentName = ctx.parentName?.trim() || null;
+  const addressee = speakingToParent
+    ? parentName ?? "there"
+    : name;
 
   const diabetesLabel =
     ctx.diabetesType === "type1"
@@ -136,7 +148,17 @@ ${ctx.targetGlucose ? `Target glucose: ${ctx.targetGlucose} mg/dL.` : ""}
 Always remind them to confirm doses with their care team.`;
   }
 
-  const languageStyle = isChild
+  const languageStyle = speakingToParent
+    ? `LANGUAGE STYLE — PARENT/CAREGIVER MODE:
+- You are speaking with ${parentName ? `${parentName}` : "the parent or caregiver"}, NOT the child directly.
+- Refer to the child by name (${name})${ageStr ? ` (${ageStr})` : ""} in the third person — "How is ${name} doing?", "${name}'s glucose is currently..."
+- Use clear, clinical-but-warm language suited to an informed caregiver
+- Lead with the most important number (glucose, trend) then context
+- Offer actionable guidance: doses, timing, when to worry vs. monitor
+- Treat them as a competent partner in ${name}'s care — no over-explaining, no hand-holding
+- Example: "${name}'s glucose is at 220 mg/dL and trending up. You'll want to correct now — based on the ISF, a 2-unit correction should bring it back to target in about 2 hours."
+- Be efficient: bullet points or numbered steps are welcome for complex answers`
+    : isChild
     ? `LANGUAGE STYLE — CHILD (${ageStr}):
 - Use friendly, simple, encouraging language as if talking to a kid
 - Short sentences, relatable comparisons ("Your sugar is a little high — like your body needs a reset")
@@ -156,7 +178,11 @@ Always remind them to confirm doses with their care team.`;
 - Adjust complexity based on how they write to you
 - Use their name (${name}) naturally`;
 
-  return `You are a smart, warm diabetes companion called "Glucose Guardian" — equal parts knowledgeable care team and trusted friend. You talk directly with ${name}${ageStr ? `, who is ${ageStr}` : ""}${diabetesLabel ? ` and has ${diabetesLabel}` : ""}.
+  const introLine = speakingToParent
+    ? `You are a smart, warm diabetes companion called "Glucose Guardian". You are currently speaking with ${parentName ? `${parentName}` : "the parent or caregiver"} — the parent or guardian managing ${name}'s${ageStr ? ` (${ageStr})` : ""} ${diabetesLabel}.`
+    : `You are a smart, warm diabetes companion called "Glucose Guardian" — equal parts knowledgeable care team and trusted friend. You talk directly with ${name}${ageStr ? `, who is ${ageStr}` : ""}${diabetesLabel ? ` and has ${diabetesLabel}` : ""}.`;
+
+  return `${introLine}
 
 ${languageStyle}
 

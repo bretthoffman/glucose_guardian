@@ -18,8 +18,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constants/insulin";
 import { useAuth } from "@/context/AuthContext";
+import { useGlucose } from "@/context/GlucoseContext";
 
-type Step = "welcome" | "role" | "name" | "birthday" | "diabetes" | "guardian_pin";
+type Step = "welcome" | "role" | "parent_name" | "name" | "birthday" | "diabetes" | "guardian_pin";
 
 function isValidDate(month: string, day: string, year: string): boolean {
   const m = parseInt(month);
@@ -113,9 +114,11 @@ export default function OnboardingScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { setupProfile, setGuardianPin } = useAuth();
+  const { setCarbRatio } = useGlucose();
 
   const [step, setStep] = useState<Step>("welcome");
   const [accountRole, setAccountRole] = useState<"parent" | "adult">("parent");
+  const [parentNameInput, setParentNameInput] = useState("");
   const [childName, setChildName] = useState("");
   const [weightLbs, setWeightLbs] = useState("");
   const [birthMonth, setBirthMonth] = useState("");
@@ -123,6 +126,7 @@ export default function OnboardingScreen() {
   const [birthYear, setBirthYear] = useState("");
   const [diabetesType, setDiabetesType] = useState<"type1" | "type2" | "other">("type1");
   const [insulinTypes, setInsulinTypes] = useState<string[]>([]);
+  const [carbRatioInput, setCarbRatioInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   function toggleInsulinType(t: string) {
@@ -190,6 +194,7 @@ export default function OnboardingScreen() {
       const parsedWeight = parseFloat(weightLbs);
       await setupProfile({
         childName: childName.trim(),
+        parentName: accountRole === "parent" && parentNameInput.trim() ? parentNameInput.trim() : undefined,
         accountRole,
         diabetesType,
         dateOfBirth: dobStr,
@@ -197,6 +202,10 @@ export default function OnboardingScreen() {
         insulinTypes: insulinTypes.length > 0 ? insulinTypes : undefined,
       });
       if (pin) await setGuardianPin(pin);
+      const parsedCarbRatio = parseFloat(carbRatioInput);
+      if (!isNaN(parsedCarbRatio) && parsedCarbRatio > 0) {
+        setCarbRatio(parsedCarbRatio);
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)");
     } catch {
@@ -272,7 +281,7 @@ export default function OnboardingScreen() {
 
         {step === "role" && (
           <View style={styles.stepContainer}>
-            <StepBadge label="Step 1 of 4" colors={colors} />
+            <StepBadge label={accountRole === "parent" ? "Step 1 of 5" : "Step 1 of 4"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Who is this account for?</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               This helps us personalize the app for you
@@ -315,7 +324,10 @@ export default function OnboardingScreen() {
                 styles.primaryBtn,
                 { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 },
               ]}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setStep("name"); }}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setStep(accountRole === "parent" ? "parent_name" : "name");
+              }}
             >
               <Text style={styles.primaryBtnText}>Continue</Text>
               <Feather name="arrow-right" size={18} color="#fff" />
@@ -324,9 +336,52 @@ export default function OnboardingScreen() {
           </View>
         )}
 
+        {step === "parent_name" && (
+          <View style={styles.stepContainer}>
+            <StepBadge label="Step 2 of 6" colors={colors} />
+            <Text style={[styles.stepTitle, { color: colors.text }]}>Your Name</Text>
+            <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
+              What should Glucose Guardian call you? Used when speaking to you in caregiver mode.
+            </Text>
+
+            <TextInput
+              style={[
+                styles.nameInput,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: parentNameInput.trim() ? COLORS.primary : colors.border,
+                  color: colors.text,
+                },
+              ]}
+              value={parentNameInput}
+              onChangeText={setParentNameInput}
+              placeholder="Your first name (optional)..."
+              placeholderTextColor={colors.textMuted}
+              autoFocus
+              returnKeyType="next"
+              maxLength={30}
+              onSubmitEditing={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setStep("name"); }}
+            />
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 },
+              ]}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setStep("name"); }}
+            >
+              <Text style={styles.primaryBtnText}>
+                {parentNameInput.trim() ? "Continue" : "Skip for now"}
+              </Text>
+              <Feather name="arrow-right" size={18} color="#fff" />
+            </Pressable>
+            <BackBtn onPress={() => setStep("role")} colors={colors} />
+          </View>
+        )}
+
         {step === "name" && (
           <View style={styles.stepContainer}>
-            <StepBadge label="Step 2 of 4" colors={colors} />
+            <StepBadge label={accountRole === "parent" ? "Step 3 of 5" : "Step 2 of 4"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>
               {accountRole === "parent" ? "What's your child's name?" : "What's your name?"}
             </Text>
@@ -386,13 +441,13 @@ export default function OnboardingScreen() {
               <Text style={styles.primaryBtnText}>Continue</Text>
               <Feather name="arrow-right" size={18} color="#fff" />
             </Pressable>
-            <BackBtn onPress={() => setStep("role")} colors={colors} />
+            <BackBtn onPress={() => setStep(accountRole === "parent" ? "parent_name" : "role")} colors={colors} />
           </View>
         )}
 
         {step === "birthday" && (
           <View style={styles.stepContainer}>
-            <StepBadge label="Step 3 of 4" colors={colors} />
+            <StepBadge label={accountRole === "parent" ? "Step 4 of 5" : "Step 3 of 4"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Date of Birth</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               Used to set the right access level in the app
@@ -518,7 +573,7 @@ export default function OnboardingScreen() {
 
         {step === "diabetes" && (
           <View style={styles.stepContainer}>
-            <StepBadge label={accountRole === "parent" && isMinorPreview ? "Step 4 of 5" : "Step 4 of 4"} colors={colors} />
+            <StepBadge label={accountRole === "parent" ? (isMinorPreview ? "Step 5 of 6" : "Step 5 of 5") : "Step 4 of 4"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Diabetes Type</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               {accountRole === "parent" ? `Helps calibrate insulin calculations for ${childName}` : "Helps calibrate your insulin calculations"}
@@ -607,6 +662,44 @@ export default function OnboardingScreen() {
               })}
             </View>
 
+            <View style={[styles.insulinSection, { borderColor: colors.border, marginTop: 4 }]}>
+              <View style={styles.insulinSectionHeader}>
+                <Feather name="divide" size={15} color={COLORS.primary} />
+                <Text style={[styles.insulinSectionTitle, { color: colors.text }]}>
+                  Carb Ratio
+                </Text>
+                <Text style={[styles.insulinSectionOptional, { color: colors.textMuted }]}>Optional</Text>
+              </View>
+              <Text style={[styles.insulinSectionSub, { color: colors.textMuted }]}>
+                {accountRole === "parent"
+                  ? `How many grams of carbs 1 unit of insulin covers for ${childName || "your child"}`
+                  : "How many grams of carbs 1 unit of insulin covers for you"}
+              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 }}>
+                <TextInput
+                  style={[
+                    styles.nameInput,
+                    {
+                      flex: 1,
+                      backgroundColor: colors.card,
+                      borderColor: carbRatioInput.trim() ? COLORS.primary : colors.border,
+                      color: colors.text,
+                      marginTop: 0,
+                    },
+                  ]}
+                  value={carbRatioInput}
+                  onChangeText={(v) => setCarbRatioInput(v.replace(/[^0-9.]/g, ""))}
+                  placeholder="e.g. 10"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="decimal-pad"
+                  maxLength={5}
+                />
+                <Text style={[styles.insulinSectionSub, { color: colors.textMuted, marginTop: 0 }]}>
+                  g carbs / unit
+                </Text>
+              </View>
+            </View>
+
             <Pressable
               style={({ pressed }) => [
                 styles.primaryBtn,
@@ -630,7 +723,7 @@ export default function OnboardingScreen() {
 
         {step === "guardian_pin" && (
           <View style={styles.stepContainer}>
-            <StepBadge label="Step 5 of 5" colors={colors} />
+            <StepBadge label="Step 6 of 6" colors={colors} />
 
             <View style={[styles.logoCircle, { backgroundColor: COLORS.accent + "15", width: 80, height: 80, borderRadius: 40 }]}>
               <Feather name="lock" size={36} color={COLORS.accent} />

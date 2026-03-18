@@ -7,6 +7,7 @@ export interface InsulinOption {
 
 export const INSULIN_OPTIONS: InsulinOption[] = [
   { name: "Humalog",          concentration: "100 u/mL", type: "rapid",        genericName: "lispro"    },
+  { name: "Lispro Junior",    concentration: "100 u/mL", type: "rapid",        genericName: "lispro"    },
   { name: "NovoLog",          concentration: "100 u/mL", type: "rapid",        genericName: "aspart"    },
   { name: "Apidra",           concentration: "100 u/mL", type: "rapid",        genericName: "glulisine" },
   { name: "FIASP",            concentration: "100 u/mL", type: "rapid",        genericName: "aspart"    },
