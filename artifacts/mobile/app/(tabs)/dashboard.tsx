@@ -172,7 +172,20 @@ export default function DashboardScreen() {
     generateDoctorCode,
     exitDoctorMode,
     addAccessLogEntry,
+    syncToDoctor,
   } = useAuth();
+
+  useEffect(() => {
+    if (!profile?.doctorCode || !history.length) return;
+    const mapped = history.map((e) => ({
+      value: e.glucose,
+      trend: typeof e.dexcomTrend === "string" ? e.dexcomTrend : "Flat",
+      timestamp: e.timestamp,
+    }));
+    syncToDoctor(mapped);
+    const timer = setInterval(() => syncToDoctor(mapped), 120_000);
+    return () => clearInterval(timer);
+  }, [profile?.doctorCode, history.length]);
 
   const isParent = profile?.accountRole === "parent" || profile?.accountRole === undefined;
   const isAdult = profile?.accountRole === "adult";

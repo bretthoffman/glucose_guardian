@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -140,6 +141,7 @@ export interface AuthContextType {
   doctorMessages: DoctorMessage[];
   addDoctorMessage: (text: string, sender: "doctor" | "guardian") => void;
   markDoctorMessagesRead: () => void;
+  syncToDoctor: (glucoseReadings?: { value: number; trend: string; timestamp: string }[]) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -201,6 +203,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [caregiverSession, setCaregiverSession] = useState(false);
   const [doctorSession, setDoctorSession] = useState(false);
   const [doctorMessages, setDoctorMessages] = useState<DoctorMessage[]>([]);
+
+  const profileRef = useRef(profile);
+  const insulinLogRef = useRef(insulinLog);
+  const foodLogRef = useRef(foodLog);
+  const alertPrefsRef = useRef(alertPrefs);
+  const doctorMessagesRef = useRef(doctorMessages);
+  useEffect(() => { profileRef.current = profile; }, [profile]);
+  useEffect(() => { insulinLogRef.current = insulinLog; }, [insulinLog]);
+  useEffect(() => { foodLogRef.current = foodLog; }, [foodLog]);
+  useEffect(() => { alertPrefsRef.current = alertPrefs; }, [alertPrefs]);
+  useEffect(() => { doctorMessagesRef.current = doctorMessages; }, [doctorMessages]);
 
   useEffect(() => {
     async function load() {
@@ -521,12 +534,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const syncToDoctor = useCallback(async (
-    currentProfile: UserProfile | null,
-    currentInsulinLog: InsulinLogEntry[],
-    currentFoodLog: FoodLogEntry[],
-    currentAlertPrefs: AlertPreferences,
-    currentMessages: DoctorMessage[],
+    glucoseReadings: { value: number; trend: string; timestamp: string }[] = [],
   ) => {
+    const currentProfile = profileRef.current;
+    const currentInsulinLog = insulinLogRef.current;
+    const currentFoodLog = foodLogRef.current;
+    const currentAlertPrefs = alertPrefsRef.current;
+    const currentMessages = doctorMessagesRef.current;
     if (!currentProfile?.doctorCode) return;
     try {
       const apiBase = process.env.EXPO_PUBLIC_DOMAIN
@@ -542,8 +556,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           weightLbs: currentProfile.weightLbs,
           doctorName: currentProfile.doctorName,
           insulinTypes: currentProfile.insulinTypes,
+          carbRatio: currentProfile.carbRatio,
+          targetGlucose: currentProfile.targetGlucose,
+          correctionFactor: currentProfile.correctionFactor,
         },
-        glucoseReadings: [],
+        glucoseReadings: glucoseReadings.slice(-300),
         insulinLog: currentInsulinLog.slice(0, 100),
         foodLog: currentFoodLog.slice(0, 100),
         messages: currentMessages,
@@ -562,20 +579,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     } catch {}
   }, []);
-
-  useEffect(() => {
-    if (!profile?.doctorCode || isLoading) return;
-    syncToDoctor(profile, insulinLog, foodLog, alertPrefs, doctorMessages);
-    const interval = setInterval(() => {
-      syncToDoctor(profile, insulinLog, foodLog, alertPrefs, doctorMessages);
-    }, 120_000);
-    return () => clearInterval(interval);
-  }, [profile?.doctorCode, isLoading]);
-
-  useEffect(() => {
-    if (!profile?.doctorCode || isLoading) return;
-    syncToDoctor(profile, insulinLog, foodLog, alertPrefs, doctorMessages);
-  }, [insulinLog.length, foodLog.length, doctorMessages.length]);
 
   const isChildMode = !!(profile?.childModeEnabled || caregiverSession);
 
@@ -627,6 +630,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         doctorMessages,
         addDoctorMessage,
         markDoctorMessagesRead,
+        syncToDoctor,
       }}
     >
       {children}
