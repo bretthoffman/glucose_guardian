@@ -1,6 +1,5 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import React, { useEffect, useRef, useState } from "react";
 import {
   FlatList,
@@ -54,7 +53,9 @@ interface Props {
 
 export default function DoctorMessaging({ colors, isDoctor }: Props) {
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
+  // Tab bar height approximation: 49px base + safe area bottom inset
+  // (avoids using useBottomTabBarHeight which crashes with native iOS tab bar)
+  const tabBarHeight = 49 + insets.bottom;
   const { doctorMessages, addDoctorMessage, markDoctorMessagesRead, profile } = useAuth();
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);

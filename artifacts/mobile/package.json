@@ -43,7 +43,6 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-native": "0.81.5",
-    "@react-navigation/bottom-tabs": "*",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-keyboard-controller": "^1.20.6",
     "react-native-reanimated": "~4.1.6",
