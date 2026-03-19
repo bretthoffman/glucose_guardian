@@ -176,7 +176,7 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
           {
             backgroundColor: colors.card,
             borderTopColor: colors.border,
-            paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
+            paddingBottom: tabBarHeight,
           },
         ]}
       >
