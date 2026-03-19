@@ -43,11 +43,21 @@ router.post("/dexcom/connect", async (req, res) => {
     console.log("Dexcom auth response:", authResp.status, authText.slice(0, 200));
 
     if (!authResp.ok) {
-      let msg = "Invalid Dexcom credentials. Check your Dexcom Share username and password.";
+      let msg = "Could not sign in to Dexcom. Check your email and password.";
       try {
         const parsed = JSON.parse(authText);
-        if (parsed?.Message) msg = parsed.Message;
-        else if (typeof parsed === "string" && parsed.length < 200) msg = parsed;
+        const code = parsed?.Code ?? "";
+        if (code === "AccountPasswordInvalid") {
+          msg = "Incorrect password. Check the password for your Dexcom account.";
+        } else if (code === "AccountNotFound") {
+          msg = "No Dexcom account found with that email. Make sure you're using the email you log into the Dexcom app with.";
+        } else if (code === "AccountLockout") {
+          msg = "Your Dexcom account is temporarily locked due to too many failed attempts. Try again in a few minutes.";
+        } else if (parsed?.Message) {
+          msg = parsed.Message;
+        } else if (typeof parsed === "string" && parsed.length < 200) {
+          msg = parsed;
+        }
       } catch {}
       res.status(401).json({ error: msg });
       return;

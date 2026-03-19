@@ -218,6 +218,24 @@ export default function CGMSetupScreen() {
           ))}
         </View>
 
+        {selectedType === "dexcom" && (
+          <View style={[styles.requirementsBox, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+            <Text style={[styles.requirementsTitle, { color: colors.text }]}>Before you connect:</Text>
+            <View style={styles.requirementRow}>
+              <Text style={[styles.requirementBullet, { color: COLORS.primary }]}>1.</Text>
+              <Text style={[styles.requirementText, { color: colors.textSecondary }]}>Open the Dexcom app → Menu → Share → Enable Sharing</Text>
+            </View>
+            <View style={styles.requirementRow}>
+              <Text style={[styles.requirementBullet, { color: COLORS.primary }]}>2.</Text>
+              <Text style={[styles.requirementText, { color: colors.textSecondary }]}>Use the email address you log into the Dexcom app with</Text>
+            </View>
+            <View style={styles.requirementRow}>
+              <Text style={[styles.requirementBullet, { color: COLORS.primary }]}>3.</Text>
+              <Text style={[styles.requirementText, { color: colors.textSecondary }]}>Enter the password for that Dexcom account below</Text>
+            </View>
+          </View>
+        )}
+
         <View
           style={[
             styles.formCard,
@@ -225,7 +243,7 @@ export default function CGMSetupScreen() {
           ]}
         >
           <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
-            {selectedType === "dexcom" ? "Dexcom Username" : "LibreLink Email"}
+            {selectedType === "dexcom" ? "Dexcom Account Email" : "LibreLink Email"}
           </Text>
           <TextInput
             style={[
@@ -239,10 +257,10 @@ export default function CGMSetupScreen() {
             value={username}
             onChangeText={setUsername}
             placeholder={
-              selectedType === "dexcom" ? "Your Dexcom username" : "your@email.com"
+              selectedType === "dexcom" ? "your@email.com" : "your@email.com"
             }
             placeholderTextColor={colors.textMuted}
-            keyboardType={selectedType === "libre" ? "email-address" : "default"}
+            keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
           />
@@ -437,6 +455,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_400Regular",
     marginTop: 2,
+  },
+  requirementsBox: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    gap: 10,
+  },
+  requirementsTitle: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    marginBottom: 2,
+  },
+  requirementRow: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "flex-start",
+  },
+  requirementBullet: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    width: 16,
+  },
+  requirementText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 18,
   },
   infoBox: {
     flexDirection: "row",
