@@ -1,0 +1,16 @@
+packages:
+  "recharts": "Required for rendering the patient glucose history chart"
+  "framer-motion": "Required for smooth page transitions and micro-interactions"
+  "date-fns": "Required for formatting timestamps and calculating durations"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility for merging Tailwind classes safely"
+  "lucide-react": "Already installed, but re-affirming for icons"
+
+images:
+  - path: "artifacts/doctor-portal/public/images/login-bg.png"
+    description: "Dark, moody, abstract medical technology background. Deep navy blue with subtle glowing cyan and teal data nodes or geometric mesh lines. Highly professional, blurred, depth of field."
+    aspect_ratio: "16:9"
+
+notes:
+  - Using session storage for access code persistence since doctor sessions are typically short-lived.
+  - Relying on @workspace/api-client-react for all data fetching.

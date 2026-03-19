@@ -96,3 +96,195 @@ export const EstimateFoodCarbsResponse = zod.object({
   confidence: zod.enum(["high", "medium", "low"]),
   tips: zod.string().optional(),
 });
+
+/**
+ * @summary Doctor login with access code
+ */
+export const DoctorLoginBody = zod.object({
+  accessCode: zod.string(),
+});
+
+export const DoctorLoginResponse = zod.object({
+  success: zod.boolean(),
+  accessCode: zod.string(),
+  patientName: zod.string().optional(),
+  hasData: zod.boolean(),
+});
+
+/**
+ * @summary Mobile app syncs patient snapshot to server
+ */
+export const SyncPatientDataBody = zod.object({
+  accessCode: zod.string(),
+  profile: zod.object({
+    childName: zod.string(),
+    parentName: zod.string().optional(),
+    diabetesType: zod.string(),
+    dateOfBirth: zod.string(),
+    weightLbs: zod.number().optional(),
+    doctorName: zod.string().optional(),
+    insulinTypes: zod.array(zod.string()).optional(),
+    carbRatio: zod.number().optional(),
+    targetGlucose: zod.number().optional(),
+    correctionFactor: zod.number().optional(),
+  }),
+  glucoseReadings: zod.array(
+    zod.object({
+      value: zod.number(),
+      trend: zod.string(),
+      timestamp: zod.string(),
+    }),
+  ),
+  insulinLog: zod.array(
+    zod.object({
+      id: zod.string(),
+      timestamp: zod.string(),
+      units: zod.number(),
+      type: zod.enum(["bolus", "correction", "manual"]),
+      note: zod.string().optional(),
+      foodLogId: zod.string().optional(),
+    }),
+  ),
+  foodLog: zod.array(
+    zod.object({
+      id: zod.string(),
+      timestamp: zod.string(),
+      foodName: zod.string(),
+      estimatedCarbs: zod.number(),
+      insulinUnits: zod.number(),
+      confidence: zod.enum(["high", "medium", "low"]),
+      fromPhoto: zod.boolean(),
+    }),
+  ),
+  messages: zod.array(
+    zod.object({
+      id: zod.string(),
+      timestamp: zod.string(),
+      text: zod.string(),
+      sender: zod.enum(["doctor", "guardian"]),
+      read: zod.boolean(),
+    }),
+  ),
+  alertPreferences: zod
+    .object({
+      lowThreshold: zod.number().optional(),
+      highThreshold: zod.number().optional(),
+      urgentLowThreshold: zod.number().optional(),
+      urgentHighThreshold: zod.number().optional(),
+    })
+    .optional(),
+  syncedAt: zod.string(),
+});
+
+export const SyncPatientDataResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string(),
+});
+
+/**
+ * @summary Get patient data for a doctor access code
+ */
+export const GetPatientDataParams = zod.object({
+  accessCode: zod.coerce.string(),
+});
+
+export const GetPatientDataResponse = zod.object({
+  accessCode: zod.string(),
+  profile: zod.object({
+    childName: zod.string(),
+    parentName: zod.string().optional(),
+    diabetesType: zod.string(),
+    dateOfBirth: zod.string(),
+    weightLbs: zod.number().optional(),
+    doctorName: zod.string().optional(),
+    insulinTypes: zod.array(zod.string()).optional(),
+    carbRatio: zod.number().optional(),
+    targetGlucose: zod.number().optional(),
+    correctionFactor: zod.number().optional(),
+  }),
+  glucoseReadings: zod.array(
+    zod.object({
+      value: zod.number(),
+      trend: zod.string(),
+      timestamp: zod.string(),
+    }),
+  ),
+  insulinLog: zod.array(
+    zod.object({
+      id: zod.string(),
+      timestamp: zod.string(),
+      units: zod.number(),
+      type: zod.enum(["bolus", "correction", "manual"]),
+      note: zod.string().optional(),
+      foodLogId: zod.string().optional(),
+    }),
+  ),
+  foodLog: zod.array(
+    zod.object({
+      id: zod.string(),
+      timestamp: zod.string(),
+      foodName: zod.string(),
+      estimatedCarbs: zod.number(),
+      insulinUnits: zod.number(),
+      confidence: zod.enum(["high", "medium", "low"]),
+      fromPhoto: zod.boolean(),
+    }),
+  ),
+  messages: zod.array(
+    zod.object({
+      id: zod.string(),
+      timestamp: zod.string(),
+      text: zod.string(),
+      sender: zod.enum(["doctor", "guardian"]),
+      read: zod.boolean(),
+    }),
+  ),
+  alertPreferences: zod
+    .object({
+      lowThreshold: zod.number().optional(),
+      highThreshold: zod.number().optional(),
+      urgentLowThreshold: zod.number().optional(),
+      urgentHighThreshold: zod.number().optional(),
+    })
+    .optional(),
+  syncedAt: zod.string(),
+});
+
+/**
+ * @summary Get messages for a patient
+ */
+export const GetDoctorMessagesParams = zod.object({
+  accessCode: zod.coerce.string(),
+});
+
+export const GetDoctorMessagesResponse = zod.object({
+  messages: zod.array(
+    zod.object({
+      id: zod.string(),
+      timestamp: zod.string(),
+      text: zod.string(),
+      sender: zod.enum(["doctor", "guardian"]),
+      read: zod.boolean(),
+    }),
+  ),
+});
+
+/**
+ * @summary Doctor sends a message to patient
+ */
+export const SendDoctorMessageParams = zod.object({
+  accessCode: zod.coerce.string(),
+});
+
+export const SendDoctorMessageBody = zod.object({
+  text: zod.string(),
+  sender: zod.enum(["doctor", "guardian"]),
+});
+
+export const SendDoctorMessageResponse = zod.object({
+  id: zod.string(),
+  timestamp: zod.string(),
+  text: zod.string(),
+  sender: zod.enum(["doctor", "guardian"]),
+  read: zod.boolean(),
+});

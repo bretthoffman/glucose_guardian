@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/doctor-portal/"
+title = "Glucose Guardian — Doctor Portal"
+version = "1.0.0"
+id = "artifacts/doctor-portal"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/doctor-portal/" ]
+localPort = 25289
+
+[services.development]
+run = "pnpm --filter @workspace/doctor-portal run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/doctor-portal", "run", "build" ]
+publicDir = "artifacts/doctor-portal/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25289"
+BASE_PATH = "/doctor-portal/"

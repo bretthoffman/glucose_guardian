@@ -520,6 +520,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const syncToDoctor = useCallback(async (
+    currentProfile: UserProfile | null,
+    currentInsulinLog: InsulinLogEntry[],
+    currentFoodLog: FoodLogEntry[],
+    currentAlertPrefs: AlertPreferences,
+    currentMessages: DoctorMessage[],
+  ) => {
+    if (!currentProfile?.doctorCode) return;
+    try {
+      const apiBase = process.env.EXPO_PUBLIC_DOMAIN
+        ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`
+        : "http://localhost:8080/api";
+      const snapshot = {
+        accessCode: currentProfile.doctorCode.toUpperCase(),
+        profile: {
+          childName: currentProfile.childName,
+          parentName: currentProfile.parentName,
+          diabetesType: currentProfile.diabetesType,
+          dateOfBirth: currentProfile.dateOfBirth,
+          weightLbs: currentProfile.weightLbs,
+          doctorName: currentProfile.doctorName,
+          insulinTypes: currentProfile.insulinTypes,
+        },
+        glucoseReadings: [],
+        insulinLog: currentInsulinLog.slice(0, 100),
+        foodLog: currentFoodLog.slice(0, 100),
+        messages: currentMessages,
+        alertPreferences: {
+          lowThreshold: currentAlertPrefs.lowThreshold,
+          highThreshold: currentAlertPrefs.highThreshold,
+          urgentLowThreshold: currentAlertPrefs.urgentLowThreshold,
+          urgentHighThreshold: currentAlertPrefs.urgentHighThreshold,
+        },
+        syncedAt: new Date().toISOString(),
+      };
+      await fetch(`${apiBase}/doctor/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(snapshot),
+      });
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (!profile?.doctorCode || isLoading) return;
+    syncToDoctor(profile, insulinLog, foodLog, alertPrefs, doctorMessages);
+    const interval = setInterval(() => {
+      syncToDoctor(profile, insulinLog, foodLog, alertPrefs, doctorMessages);
+    }, 120_000);
+    return () => clearInterval(interval);
+  }, [profile?.doctorCode, isLoading]);
+
+  useEffect(() => {
+    if (!profile?.doctorCode || isLoading) return;
+    syncToDoctor(profile, insulinLog, foodLog, alertPrefs, doctorMessages);
+  }, [insulinLog.length, foodLog.length, doctorMessages.length]);
+
   const isChildMode = !!(profile?.childModeEnabled || caregiverSession);
 
   return (

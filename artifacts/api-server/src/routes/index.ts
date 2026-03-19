@@ -5,6 +5,7 @@ import insulinRouter from "./insulin";
 import foodRouter from "./food";
 import cgmRouter from "./cgm";
 import chatRouter from "./chat";
+import doctorRouter from "./doctor";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use("/insulin", insulinRouter);
 router.use("/food", foodRouter);
 router.use("/cgm", cgmRouter);
 router.use("/chat", chatRouter);
+router.use("/doctor", doctorRouter);
 
 export default router;

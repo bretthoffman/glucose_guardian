@@ -16,6 +16,8 @@ tags:
     description: Insulin calculations
   - name: food
     description: Food carb estimation
+  - name: doctor
+    description: Doctor portal — patient data sync and messaging
 paths:
   /healthz:
     get:
@@ -110,6 +112,117 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FoodEstimateResponse"
+
+  /doctor/login:
+    post:
+      operationId: doctorLogin
+      tags: [doctor]
+      summary: Doctor login with access code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DoctorLoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorLoginResponse"
+        "401":
+          description: Invalid access code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /doctor/sync:
+    post:
+      operationId: syncPatientData
+      tags: [doctor]
+      summary: Mobile app syncs patient snapshot to server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatientSnapshot"
+      responses:
+        "200":
+          description: Sync successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /doctor/patient/{accessCode}:
+    get:
+      operationId: getPatientData
+      tags: [doctor]
+      summary: Get patient data for a doctor access code
+      parameters:
+        - in: path
+          name: accessCode
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Patient data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientSnapshot"
+        "404":
+          description: No patient data found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /doctor/messages/{accessCode}:
+    get:
+      operationId: getDoctorMessages
+      tags: [doctor]
+      summary: Get messages for a patient
+      parameters:
+        - in: path
+          name: accessCode
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorMessagesResponse"
+    post:
+      operationId: sendDoctorMessage
+      tags: [doctor]
+      summary: Doctor sends a message to patient
+      parameters:
+        - in: path
+          name: accessCode
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "200":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorMessage"
 
 components:
   schemas:
@@ -265,3 +378,216 @@ components:
       required:
         - success
         - message
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    DoctorLoginRequest:
+      type: object
+      properties:
+        accessCode:
+          type: string
+      required:
+        - accessCode
+
+    DoctorLoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        accessCode:
+          type: string
+        patientName:
+          type: string
+        hasData:
+          type: boolean
+      required:
+        - success
+        - accessCode
+        - hasData
+
+    DoctorMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+        text:
+          type: string
+        sender:
+          type: string
+          enum: [doctor, guardian]
+        read:
+          type: boolean
+      required:
+        - id
+        - timestamp
+        - text
+        - sender
+        - read
+
+    DoctorMessagesResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/DoctorMessage"
+      required:
+        - messages
+
+    SendMessageRequest:
+      type: object
+      properties:
+        text:
+          type: string
+        sender:
+          type: string
+          enum: [doctor, guardian]
+      required:
+        - text
+        - sender
+
+    InsulinLogEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+        units:
+          type: number
+        type:
+          type: string
+          enum: [bolus, correction, manual]
+        note:
+          type: string
+        foodLogId:
+          type: string
+      required:
+        - id
+        - timestamp
+        - units
+        - type
+
+    FoodLogEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+        foodName:
+          type: string
+        estimatedCarbs:
+          type: number
+        insulinUnits:
+          type: number
+        confidence:
+          type: string
+          enum: [high, medium, low]
+        fromPhoto:
+          type: boolean
+      required:
+        - id
+        - timestamp
+        - foodName
+        - estimatedCarbs
+        - insulinUnits
+        - confidence
+        - fromPhoto
+
+    CGMReading:
+      type: object
+      properties:
+        value:
+          type: number
+        trend:
+          type: string
+        timestamp:
+          type: string
+      required:
+        - value
+        - trend
+        - timestamp
+
+    PatientProfile:
+      type: object
+      properties:
+        childName:
+          type: string
+        parentName:
+          type: string
+        diabetesType:
+          type: string
+        dateOfBirth:
+          type: string
+        weightLbs:
+          type: number
+        doctorName:
+          type: string
+        insulinTypes:
+          type: array
+          items:
+            type: string
+        carbRatio:
+          type: number
+        targetGlucose:
+          type: number
+        correctionFactor:
+          type: number
+      required:
+        - childName
+        - diabetesType
+        - dateOfBirth
+
+    PatientSnapshot:
+      type: object
+      properties:
+        accessCode:
+          type: string
+        profile:
+          $ref: "#/components/schemas/PatientProfile"
+        glucoseReadings:
+          type: array
+          items:
+            $ref: "#/components/schemas/CGMReading"
+        insulinLog:
+          type: array
+          items:
+            $ref: "#/components/schemas/InsulinLogEntry"
+        foodLog:
+          type: array
+          items:
+            $ref: "#/components/schemas/FoodLogEntry"
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/DoctorMessage"
+        alertPreferences:
+          type: object
+          properties:
+            lowThreshold:
+              type: number
+            highThreshold:
+              type: number
+            urgentLowThreshold:
+              type: number
+            urgentHighThreshold:
+              type: number
+        syncedAt:
+          type: string
+      required:
+        - accessCode
+        - profile
+        - glucoseReadings
+        - insulinLog
+        - foodLog
+        - messages
+        - syncedAt

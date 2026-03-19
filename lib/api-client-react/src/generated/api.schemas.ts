@@ -87,3 +87,125 @@ export interface SuccessResponse {
   success: boolean;
   message: string;
 }
+
+export interface ErrorResponse {
+  error: string;
+}
+
+export interface DoctorLoginRequest {
+  accessCode: string;
+}
+
+export interface DoctorLoginResponse {
+  success: boolean;
+  accessCode: string;
+  patientName?: string;
+  hasData: boolean;
+}
+
+export type DoctorMessageSender =
+  (typeof DoctorMessageSender)[keyof typeof DoctorMessageSender];
+
+export const DoctorMessageSender = {
+  doctor: "doctor",
+  guardian: "guardian",
+} as const;
+
+export interface DoctorMessage {
+  id: string;
+  timestamp: string;
+  text: string;
+  sender: DoctorMessageSender;
+  read: boolean;
+}
+
+export interface DoctorMessagesResponse {
+  messages: DoctorMessage[];
+}
+
+export type SendMessageRequestSender =
+  (typeof SendMessageRequestSender)[keyof typeof SendMessageRequestSender];
+
+export const SendMessageRequestSender = {
+  doctor: "doctor",
+  guardian: "guardian",
+} as const;
+
+export interface SendMessageRequest {
+  text: string;
+  sender: SendMessageRequestSender;
+}
+
+export type InsulinLogEntryType =
+  (typeof InsulinLogEntryType)[keyof typeof InsulinLogEntryType];
+
+export const InsulinLogEntryType = {
+  bolus: "bolus",
+  correction: "correction",
+  manual: "manual",
+} as const;
+
+export interface InsulinLogEntry {
+  id: string;
+  timestamp: string;
+  units: number;
+  type: InsulinLogEntryType;
+  note?: string;
+  foodLogId?: string;
+}
+
+export type FoodLogEntryConfidence =
+  (typeof FoodLogEntryConfidence)[keyof typeof FoodLogEntryConfidence];
+
+export const FoodLogEntryConfidence = {
+  high: "high",
+  medium: "medium",
+  low: "low",
+} as const;
+
+export interface FoodLogEntry {
+  id: string;
+  timestamp: string;
+  foodName: string;
+  estimatedCarbs: number;
+  insulinUnits: number;
+  confidence: FoodLogEntryConfidence;
+  fromPhoto: boolean;
+}
+
+export interface CGMReading {
+  value: number;
+  trend: string;
+  timestamp: string;
+}
+
+export interface PatientProfile {
+  childName: string;
+  parentName?: string;
+  diabetesType: string;
+  dateOfBirth: string;
+  weightLbs?: number;
+  doctorName?: string;
+  insulinTypes?: string[];
+  carbRatio?: number;
+  targetGlucose?: number;
+  correctionFactor?: number;
+}
+
+export type PatientSnapshotAlertPreferences = {
+  lowThreshold?: number;
+  highThreshold?: number;
+  urgentLowThreshold?: number;
+  urgentHighThreshold?: number;
+};
+
+export interface PatientSnapshot {
+  accessCode: string;
+  profile: PatientProfile;
+  glucoseReadings: CGMReading[];
+  insulinLog: InsulinLogEntry[];
+  foodLog: FoodLogEntry[];
+  messages: DoctorMessage[];
+  alertPreferences?: PatientSnapshotAlertPreferences;
+  syncedAt: string;
+}

@@ -17,6 +17,11 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  DoctorLoginRequest,
+  DoctorLoginResponse,
+  DoctorMessage,
+  DoctorMessagesResponse,
+  ErrorResponse,
   FoodEstimateRequest,
   FoodEstimateResponse,
   GlucoseHistoryResponse,
@@ -25,6 +30,8 @@ import type {
   HealthStatus,
   InsulinRequest,
   InsulinResponse,
+  PatientSnapshot,
+  SendMessageRequest,
   SuccessResponse,
 } from "./api.schemas";
 
@@ -524,4 +531,443 @@ export const useEstimateFoodCarbs = <
   TContext
 > => {
   return useMutation(getEstimateFoodCarbsMutationOptions(options));
+};
+
+/**
+ * @summary Doctor login with access code
+ */
+export const getDoctorLoginUrl = () => {
+  return `/api/doctor/login`;
+};
+
+export const doctorLogin = async (
+  doctorLoginRequest: DoctorLoginRequest,
+  options?: RequestInit,
+): Promise<DoctorLoginResponse> => {
+  return customFetch<DoctorLoginResponse>(getDoctorLoginUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(doctorLoginRequest),
+  });
+};
+
+export const getDoctorLoginMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof doctorLogin>>,
+    TError,
+    { data: BodyType<DoctorLoginRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof doctorLogin>>,
+  TError,
+  { data: BodyType<DoctorLoginRequest> },
+  TContext
+> => {
+  const mutationKey = ["doctorLogin"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof doctorLogin>>,
+    { data: BodyType<DoctorLoginRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return doctorLogin(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DoctorLoginMutationResult = NonNullable<
+  Awaited<ReturnType<typeof doctorLogin>>
+>;
+export type DoctorLoginMutationBody = BodyType<DoctorLoginRequest>;
+export type DoctorLoginMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Doctor login with access code
+ */
+export const useDoctorLogin = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof doctorLogin>>,
+    TError,
+    { data: BodyType<DoctorLoginRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof doctorLogin>>,
+  TError,
+  { data: BodyType<DoctorLoginRequest> },
+  TContext
+> => {
+  return useMutation(getDoctorLoginMutationOptions(options));
+};
+
+/**
+ * @summary Mobile app syncs patient snapshot to server
+ */
+export const getSyncPatientDataUrl = () => {
+  return `/api/doctor/sync`;
+};
+
+export const syncPatientData = async (
+  patientSnapshot: PatientSnapshot,
+  options?: RequestInit,
+): Promise<SuccessResponse> => {
+  return customFetch<SuccessResponse>(getSyncPatientDataUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(patientSnapshot),
+  });
+};
+
+export const getSyncPatientDataMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof syncPatientData>>,
+    TError,
+    { data: BodyType<PatientSnapshot> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof syncPatientData>>,
+  TError,
+  { data: BodyType<PatientSnapshot> },
+  TContext
+> => {
+  const mutationKey = ["syncPatientData"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof syncPatientData>>,
+    { data: BodyType<PatientSnapshot> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return syncPatientData(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SyncPatientDataMutationResult = NonNullable<
+  Awaited<ReturnType<typeof syncPatientData>>
+>;
+export type SyncPatientDataMutationBody = BodyType<PatientSnapshot>;
+export type SyncPatientDataMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mobile app syncs patient snapshot to server
+ */
+export const useSyncPatientData = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof syncPatientData>>,
+    TError,
+    { data: BodyType<PatientSnapshot> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof syncPatientData>>,
+  TError,
+  { data: BodyType<PatientSnapshot> },
+  TContext
+> => {
+  return useMutation(getSyncPatientDataMutationOptions(options));
+};
+
+/**
+ * @summary Get patient data for a doctor access code
+ */
+export const getGetPatientDataUrl = (accessCode: string) => {
+  return `/api/doctor/patient/${accessCode}`;
+};
+
+export const getPatientData = async (
+  accessCode: string,
+  options?: RequestInit,
+): Promise<PatientSnapshot> => {
+  return customFetch<PatientSnapshot>(getGetPatientDataUrl(accessCode), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPatientDataQueryKey = (accessCode: string) => {
+  return [`/api/doctor/patient/${accessCode}`] as const;
+};
+
+export const getGetPatientDataQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPatientData>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  accessCode: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPatientData>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetPatientDataQueryKey(accessCode);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPatientData>>> = ({
+    signal,
+  }) => getPatientData(accessCode, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!accessCode,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPatientData>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPatientDataQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPatientData>>
+>;
+export type GetPatientDataQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get patient data for a doctor access code
+ */
+
+export function useGetPatientData<
+  TData = Awaited<ReturnType<typeof getPatientData>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  accessCode: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPatientData>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPatientDataQueryOptions(accessCode, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get messages for a patient
+ */
+export const getGetDoctorMessagesUrl = (accessCode: string) => {
+  return `/api/doctor/messages/${accessCode}`;
+};
+
+export const getDoctorMessages = async (
+  accessCode: string,
+  options?: RequestInit,
+): Promise<DoctorMessagesResponse> => {
+  return customFetch<DoctorMessagesResponse>(
+    getGetDoctorMessagesUrl(accessCode),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetDoctorMessagesQueryKey = (accessCode: string) => {
+  return [`/api/doctor/messages/${accessCode}`] as const;
+};
+
+export const getGetDoctorMessagesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDoctorMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  accessCode: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDoctorMessages>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetDoctorMessagesQueryKey(accessCode);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDoctorMessages>>
+  > = ({ signal }) =>
+    getDoctorMessages(accessCode, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!accessCode,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDoctorMessages>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDoctorMessagesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDoctorMessages>>
+>;
+export type GetDoctorMessagesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get messages for a patient
+ */
+
+export function useGetDoctorMessages<
+  TData = Awaited<ReturnType<typeof getDoctorMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  accessCode: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDoctorMessages>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDoctorMessagesQueryOptions(accessCode, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Doctor sends a message to patient
+ */
+export const getSendDoctorMessageUrl = (accessCode: string) => {
+  return `/api/doctor/messages/${accessCode}`;
+};
+
+export const sendDoctorMessage = async (
+  accessCode: string,
+  sendMessageRequest: SendMessageRequest,
+  options?: RequestInit,
+): Promise<DoctorMessage> => {
+  return customFetch<DoctorMessage>(getSendDoctorMessageUrl(accessCode), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(sendMessageRequest),
+  });
+};
+
+export const getSendDoctorMessageMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendDoctorMessage>>,
+    TError,
+    { accessCode: string; data: BodyType<SendMessageRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendDoctorMessage>>,
+  TError,
+  { accessCode: string; data: BodyType<SendMessageRequest> },
+  TContext
+> => {
+  const mutationKey = ["sendDoctorMessage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendDoctorMessage>>,
+    { accessCode: string; data: BodyType<SendMessageRequest> }
+  > = (props) => {
+    const { accessCode, data } = props ?? {};
+
+    return sendDoctorMessage(accessCode, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendDoctorMessageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendDoctorMessage>>
+>;
+export type SendDoctorMessageMutationBody = BodyType<SendMessageRequest>;
+export type SendDoctorMessageMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Doctor sends a message to patient
+ */
+export const useSendDoctorMessage = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendDoctorMessage>>,
+    TError,
+    { accessCode: string; data: BodyType<SendMessageRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendDoctorMessage>>,
+  TError,
+  { accessCode: string; data: BodyType<SendMessageRequest> },
+  TContext
+> => {
+  return useMutation(getSendDoctorMessageMutationOptions(options));
 };
