@@ -40,17 +40,42 @@ export default function Dashboard() {
   }
 
   if (error || !patientData) {
+    const isNetworkError = !!error;
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background">
-        <div className="text-center space-y-4 max-w-md p-6 bg-card rounded-2xl border border-border">
-          <Activity className="w-12 h-12 text-destructive mx-auto" />
-          <h2 className="text-xl font-bold text-foreground">Patient Data Unavailable</h2>
-          <p className="text-muted-foreground text-sm">
-            We couldn't load data for this access code. The patient may need to connect to the internet to sync their data.
-          </p>
-          <button onClick={logout} className="text-primary hover:underline mt-4">
-            Return to Login
-          </button>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background p-6">
+        <div className="text-center space-y-5 max-w-md p-8 bg-card rounded-2xl border border-border shadow-xl">
+          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
+            <Activity className="w-8 h-8 text-primary animate-pulse" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-foreground mb-2">
+              {isNetworkError ? "Connection Error" : "Waiting for Patient Data"}
+            </h2>
+            <p className="text-muted-foreground text-sm leading-relaxed">
+              {isNetworkError
+                ? "Could not reach the server. Check your connection and try again."
+                : "No data has synced yet for this access code. Ask the patient to open their Glucose Guardian app — data will appear here automatically."}
+            </p>
+          </div>
+          {!isNetworkError && (
+            <div className="bg-muted/30 rounded-xl p-4 text-left space-y-2">
+              <p className="text-xs font-semibold text-foreground uppercase tracking-wide">To sync data:</p>
+              <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                <li>Patient opens Glucose Guardian app</li>
+                <li>Goes to Profile → Access Management</li>
+                <li>Confirms doctor code is set</li>
+                <li>Data syncs automatically within seconds</li>
+              </ol>
+            </div>
+          )}
+          <div className="flex flex-col gap-2 pt-2">
+            <p className="text-xs text-muted-foreground">
+              Access code: <span className="font-mono font-semibold text-primary">{accessCode}</span> &bull; Checking every 30s&hellip;
+            </p>
+            <button onClick={logout} className="text-sm text-muted-foreground hover:text-primary underline-offset-4 hover:underline transition-colors">
+              Use a different access code
+            </button>
+          </div>
         </div>
       </div>
     );
