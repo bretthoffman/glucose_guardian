@@ -1,34 +1,53 @@
 # Deploying `@workspace/api-server` on Vercel
 
-## What was failing
+## Why Vercel failed after `pnpm run build` (“Emit skipped” on `src/routes/health.ts`)
 
-Vercel runs a TypeScript pass on the Express app **after** your `build` script (esbuild → `dist/index.cjs`). The api-server `tsconfig` inherited `moduleResolution: "bundler"` from the monorepo base while also declaring `outDir` / `rootDir`, which led to **per-file “Emit skipped”** errors during that step.
+Vercel’s **zero-configuration Express** integration looks for known entry filenames (for example `src/index.ts`, `src/app.ts`, `src/server.ts`, etc.). When it finds one, it runs a **second** TypeScript compile over the **Express dependency graph** (including every `import`ed route module). That pass is **not** your `esbuild` step; it happens **after** `dist/index.cjs` is already built. Your route files then hit the earlier `bundler`/`emit` tsconfig mismatch → **`health.ts: Emit skipped`**.
 
-**Fix:** `artifacts/api-server/tsconfig.json` sets **`compilerOptions.noEmit: true`**, matching how this package is built in production (**esbuild** in `build.ts`, not `tsc` emit).
+This deployment shape fixes that by:
 
-> **Note:** `module` / `moduleResolution` were **not** switched to `NodeNext` here: that would require `.js` extensions on every relative import and would fight the workspace’s `bundler`-style setup. `noEmit` alone avoids the bad emit path on Vercel without rewriting imports.
+1. **Removing** Express entry files from Vercel’s discovery paths (no `src/index.ts` / `src/app.ts`).
+2. Putting the app under **`internal/`** (not scanned as a default Express entry).
+3. Using a **single serverless entry**: **`api/index.js`** (plain JavaScript) that **`require()`s** the **pre-bundled** `dist/index.cjs` only.
+4. **`vercel.json`** rewrites all traffic to that **`/api`** function.
 
-## Vercel project settings (pnpm workspace)
+Local development uses **`pnpm run dev`** → **`dev.ts`** (long-running `listen`). The esbuild step produces:
 
-| Setting | Recommended value |
-|--------|---------------------|
-| **Root Directory** | `artifacts/api-server` (or repo root if you use a filtered build — see below) |
-| **Install Command** | `pnpm install` (run from the **repository root** where `pnpm-lock.yaml` lives; Vercel usually detects the monorepo lockfile) |
+- **`dist/index.cjs`** — Express app **only** (from `internal/handler.ts`), loaded by **`api/index.js`** on Vercel.
+- **`dist/server.cjs`** — app + **`listen`** (from `dev.ts`), for Replit/Docker/VM-style hosts that run `node dist/server.cjs`.
+
+## TypeScript / libs (still relevant)
+
+- `artifacts/api-server/tsconfig.json` uses **`noEmit: true`** for `tsc` checks; JS output is **esbuild** only.
+- The build script still runs **`@workspace/api-zod`** and **`@workspace/db`** `tsc` emits so composite `.d.ts` stay valid for local typechecking.
+
+## Single set of Vercel project settings
+
+Use **one** project configuration (do **not** also enable a separate “Express” framework preset that re-scans `src/`).
+
+| Setting | Value |
+|--------|--------|
+| **Root Directory** | **`artifacts/api-server`** (recommended) |
+| **Framework Preset** | **Other** |
+| **Install Command** | `pnpm install` (monorepo root; lockfile at repo root) |
 | **Build Command** | `pnpm run build` |
-| **Output Directory** | Leave **empty** / default (this is a Node serverless bundle, not a static export) |
-| **Framework Preset** | **Other** (or Vercel’s Express detection if offered) |
+| **Output Directory** | *(empty / default — not a static export)* |
+| **Node.js version** | 20.x (or match your `package.json` / team standard) |
 
-If **Root Directory** is the monorepo root instead of `artifacts/api-server`:
+**Do not** set a custom “Output” to `dist` as a static site. The runtime is the **`api/`** serverless bundle + `dist/index.cjs`.
 
-- **Build Command:** `pnpm --filter @workspace/api-server run build`
+If the project was previously imported with **Framework = Express** or custom settings that pointed at `src/`, **clear** those: use **Other**, Root **`artifacts/api-server`**, and rely on **`vercel.json`** + **`api/index.js`** only.
 
-## Workspace libs (`@workspace/api-zod`, `@workspace/db`)
+### Monorepo root as Root Directory (optional)
 
-The api-server `build` script runs **`pnpm --filter @workspace/api-zod run build`** and **`pnpm --filter @workspace/db run build`** first so **composite `.d.ts` outputs** exist for TypeScript project references.
+If Root Directory is the **repo root** instead:
 
-`@workspace/api-zod`’s barrel **`src/index.ts`** exports only **`./generated/api`** (Zod schemas). Orval also generates **interfaces** under `./generated/types` with **duplicate names** (e.g. `DoctorLoginResponse`) which used to break `export *` from both barrels (**TS2308**). TS-only types are available from **`@workspace/api-zod/types`**.
+| Setting | Value |
+|--------|--------|
+| **Root Directory** | *(repo root)* |
+| **Build Command** | `pnpm --filter @workspace/api-server run build` |
 
-## Verify locally before push
+## Verify locally
 
 ```bash
 pnpm install
@@ -36,13 +55,7 @@ pnpm --filter @workspace/api-server run build
 pnpm --filter @workspace/api-server exec tsc -p tsconfig.json --noEmit
 ```
 
-Package `typecheck` script:
-
-```bash
-pnpm --filter @workspace/api-server run typecheck
-```
-
-Optional, closest to Vercel’s pipeline (requires [Vercel CLI](https://vercel.com/docs/cli)):
+Optional:
 
 ```bash
 cd artifacts/api-server && npx vercel build

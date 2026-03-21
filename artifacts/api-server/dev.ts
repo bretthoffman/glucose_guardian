@@ -1,4 +1,8 @@
-import app from "./app";
+/**
+ * Local / long-running dev server (not used on Vercel).
+ * Vercel uses api/index.cjs + dist/index.cjs instead of scanning TypeScript under src/.
+ */
+import app from "./internal/app";
 
 const rawPort = process.env["PORT"];
 

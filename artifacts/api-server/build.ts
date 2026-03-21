@@ -54,18 +54,30 @@ async function buildAll() {
       !(pkg.dependencies?.[dep]?.startsWith("workspace:")),
   );
 
-  await esbuild({
-    entryPoints: [path.resolve(__dirname, "src/index.ts")],
-    platform: "node",
+  const shared = {
+    platform: "node" as const,
     bundle: true,
-    format: "cjs",
-    outfile: path.resolve(distDir, "index.cjs"),
+    format: "cjs" as const,
     define: {
       "process.env.NODE_ENV": '"production"',
     },
     minify: true,
     external: externals,
-    logLevel: "info",
+    logLevel: "info" as const,
+  };
+
+  // Vercel / api/index.js — Express app only (no listen)
+  await esbuild({
+    ...shared,
+    entryPoints: [path.resolve(__dirname, "internal/handler.ts")],
+    outfile: path.resolve(distDir, "index.cjs"),
+  });
+
+  // Docker / Replit / any long-running Node host — listen on PORT
+  await esbuild({
+    ...shared,
+    entryPoints: [path.resolve(__dirname, "dev.ts")],
+    outfile: path.resolve(distDir, "server.cjs"),
   });
 }
 

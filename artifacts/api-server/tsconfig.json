@@ -3,10 +3,10 @@
   "compilerOptions": {
     "noEmit": true,
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["src"],
+  "include": ["internal/**/*.ts", "dev.ts", "build.ts"],
   "references": [
     {
       "path": "../../lib/db"
