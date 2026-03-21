@@ -21,6 +21,14 @@ Local development uses **`pnpm run dev`** → **`dev.ts`** (long-running `listen
 - `artifacts/api-server/tsconfig.json` uses **`noEmit: true`** for `tsc` checks; JS output is **esbuild** only.
 - The build script still runs **`@workspace/api-zod`** and **`@workspace/db`** `tsc` emits so composite `.d.ts` stay valid for local typechecking.
 
+## “No Output Directory named `public` found”
+
+For **Framework Preset: Other**, Vercel still runs the **static** deployment step and may default the **Output Directory** to **`public`**. This API project does not produce a static site in `public/`, so the build fails unless the output directory is overridden.
+
+**Fix (in repo):** [`vercel.json`](vercel.json) sets **`"outputDirectory": "."`** so the static step uses the **project root** instead of requiring a `public/` folder (see [Configure a Build → Output Directory](https://vercel.com/docs/deployments/configure-a-build#output-directory) and [`outputDirectory` in vercel.json](https://vercel.com/docs/project-configuration/vercel-json#outputdirectory)). The same file declares **`functions`** for **`api/index.js`** so the deployment is explicitly **function-based**.
+
+If you ever pinned **Output Directory** to `public` in the dashboard, remove that override so **`vercel.json`** controls the value.
+
 ## Single set of Vercel project settings
 
 Use **one** project configuration (do **not** also enable a separate “Express” framework preset that re-scans `src/`).
@@ -31,7 +39,7 @@ Use **one** project configuration (do **not** also enable a separate “Express�
 | **Framework Preset** | **Other** |
 | **Install Command** | `pnpm install` (monorepo root; lockfile at repo root) |
 | **Build Command** | `pnpm run build` |
-| **Output Directory** | *(empty / default — not a static export)* |
+| **Output Directory** | **Leave override OFF** — [`vercel.json`](vercel.json) sets `outputDirectory` to **`.`** |
 | **Node.js version** | 20.x (or match your `package.json` / team standard) |
 
 **Do not** set a custom “Output” to `dist` as a static site. The runtime is the **`api/`** serverless bundle + `dist/index.cjs`.
