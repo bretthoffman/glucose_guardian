@@ -158,6 +158,7 @@ router.post("/analyze-photo", async (req, res) => {
     const openai = new OpenAI({
       apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY!,
       baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      fetch: globalThis.fetch,
     });
 
     const prompt = `You are a diabetes nutrition expert helping a child manage their blood sugar. Analyze this food photo and provide carbohydrate estimates.

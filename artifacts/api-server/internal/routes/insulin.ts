@@ -1,6 +1,5 @@
 import { Router, type IRouter } from "express";
 import { CalculateInsulinBody, CalculateInsulinResponse } from "@workspace/api-zod";
-import OpenAI from "openai";
 
 const router: IRouter = Router();
 

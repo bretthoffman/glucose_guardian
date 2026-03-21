@@ -63,6 +63,10 @@ async function buildAll() {
     },
     minify: true,
     external: externals,
+    // node-fetch@3 is ESM-only; OpenAI SDK may still resolve it. Map to native fetch (CJS).
+    alias: {
+      "node-fetch": path.resolve(__dirname, "shims/node-fetch.cjs"),
+    },
     logLevel: "info" as const,
   };
 
