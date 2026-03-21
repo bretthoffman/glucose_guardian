@@ -150,7 +150,7 @@ router.post("/dexcom/readings", async (req, res) => {
       return;
     }
 
-    let data: any[];
+    let data: unknown;
     try {
       data = JSON.parse(rawText);
     } catch {

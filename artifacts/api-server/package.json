@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "NODE_ENV=development tsx ./src/index.ts",
-    "build": "tsx ./build.ts",
+    "build": "pnpm --filter @workspace/api-zod run build && pnpm --filter @workspace/db run build && tsx ./build.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
