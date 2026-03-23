@@ -19,10 +19,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
-
-const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
-  ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
-  : "";
+import { apiUrl } from "@/utils/api-base-url";
 
 type CGMType = "dexcom" | "libre";
 
@@ -61,7 +58,7 @@ export default function CGMSetupScreen() {
           ? { username: username.trim(), password, outsideUS }
           : { email: username.trim(), password };
 
-      const res = await fetch(`${BASE_URL}${endpoint}`, {
+      const res = await fetch(apiUrl(endpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

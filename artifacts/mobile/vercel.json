@@ -1,4 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "env": {
+    "EXPO_PUBLIC_API_BASE_URL": "https://glucose-guardian-ashen.vercel.app"
+  },
   "outputDirectory": "dist"
 }

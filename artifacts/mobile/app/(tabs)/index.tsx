@@ -26,13 +26,9 @@ import { CGMChart } from "@/components/CGMChart";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
+import { apiUrl } from "@/utils/api-base-url";
 
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
-
-const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
-  ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
-  : "";
-
 
 function TrendAlertBanner({
   trend,
@@ -168,7 +164,7 @@ export default function HomeScreen() {
           ? { sessionId: cgmConnection.sessionId, outsideUS: cgmConnection.outsideUS, count: needsBackfill ? 288 : 5 }
           : { token: cgmConnection.token };
 
-      const res = await fetch(`${BASE_URL}${endpoint}`, {
+      const res = await fetch(apiUrl(endpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

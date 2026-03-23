@@ -23,10 +23,7 @@ import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 
 import { getEffectiveTrend } from "@/utils/trend";
-
-const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
-  ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
-  : "";
+import { apiUrl } from "@/utils/api-base-url";
 
 interface FoodResult {
   foodName: string;
@@ -110,7 +107,7 @@ export default function FoodScreen() {
   async function fetchGuidance(carbs: number) {
     setIsFetchingGuidance(true);
     try {
-      const res = await fetch(`${BASE_URL}/api/insulin/predict`, {
+      const res = await fetch(apiUrl("/api/insulin/predict"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -143,7 +140,7 @@ export default function FoodScreen() {
     setLogged(false);
     setDoseTaken(false);
     try {
-      const res = await fetch(`${BASE_URL}/api/food/estimate`, {
+      const res = await fetch(apiUrl("/api/food/estimate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ foodName: q }),
@@ -232,7 +229,7 @@ export default function FoodScreen() {
     }
 
     try {
-      const res = await fetch(`${BASE_URL}/api/food/analyze-photo`, {
+      const res = await fetch(apiUrl("/api/food/analyze-photo"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

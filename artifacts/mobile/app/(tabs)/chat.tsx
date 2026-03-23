@@ -21,10 +21,7 @@ import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { getEffectiveTrend } from "@/utils/trend";
 import DoctorMessaging from "@/components/DoctorMessaging";
-
-const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
-  ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
-  : "";
+import { apiUrl } from "@/utils/api-base-url";
 
 interface Message {
   id: string;
@@ -304,7 +301,7 @@ export default function ChatScreen() {
         .slice(-10)
         .map((h) => ({ glucose: h.glucose, timestamp: h.timestamp }));
 
-      const res = await fetch(`${BASE_URL}/api/chat`, {
+      const res = await fetch(apiUrl("/api/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
