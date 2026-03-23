@@ -81,11 +81,7 @@ export default function CGMSetupScreen() {
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert(
-        "Connected!",
-        `Your ${selectedType === "dexcom" ? "Dexcom" : "FreeStyle Libre"} is now connected. Pull to refresh on the home screen to sync readings.`,
-        [{ text: "Great!", onPress: () => router.back() }]
-      );
+      router.replace("/(tabs)");
     } catch {
       Alert.alert("Error", "Could not connect. Check your internet connection.");
     } finally {

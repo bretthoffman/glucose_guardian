@@ -311,6 +311,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     setIsSignedIn(false);
     setIsGuardianUnlocked(false);
+    setCaregiverSession(false);
+    setDoctorSession(false);
     await AsyncStorage.removeItem(SESSION_KEY);
   }, []);
 

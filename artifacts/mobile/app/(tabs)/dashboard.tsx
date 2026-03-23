@@ -294,6 +294,7 @@ export default function DashboardScreen() {
           style: "destructive",
           onPress: async () => {
             await signOut();
+            router.replace("/auth");
           },
         },
       ]
