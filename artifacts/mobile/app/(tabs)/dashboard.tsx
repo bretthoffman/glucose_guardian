@@ -284,6 +284,21 @@ export default function DashboardScreen() {
   }
 
   function confirmLogout() {
+    const doSignOut = async () => {
+      await signOut();
+      router.replace("/auth");
+    };
+
+    if (Platform.OS === "web") {
+      const confirmed =
+        typeof window !== "undefined" &&
+        window.confirm("Sign out of Glucose Guardian? Your data will be saved.");
+      if (confirmed) {
+        void doSignOut();
+      }
+      return;
+    }
+
     Alert.alert(
       "Sign Out",
       "Sign out of Glucose Guardian? Your data will be saved.",
@@ -293,8 +308,7 @@ export default function DashboardScreen() {
           text: "Sign Out",
           style: "destructive",
           onPress: async () => {
-            await signOut();
-            router.replace("/auth");
+            await doSignOut();
           },
         },
       ]
