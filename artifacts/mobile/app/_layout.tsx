@@ -12,6 +12,7 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import { Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -33,22 +34,27 @@ function RootLayoutNav() {
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
   const permissionsRequested = useRef(false);
   const lastHandledNotifId = useRef<string | null>(null);
-
-  // Handles cold-start taps: app was killed, user tapped notification, app opened.
-  // useLastNotificationResponse holds the pending response across the initial render.
-  const lastNotificationResponse = Notifications.useLastNotificationResponse();
+  const isWeb = Platform.OS === "web";
 
   useEffect(() => {
-    if (!isLoggedIn) return;
-    if (!lastNotificationResponse) return;
-    // De-duplicate: only navigate once per unique notification response
-    const notifId = lastNotificationResponse.notification.request.identifier;
-    if (lastHandledNotifId.current === notifId) return;
-    lastHandledNotifId.current = notifId;
-    // Small delay to ensure the router and tab navigator are mounted
-    const t = setTimeout(() => handleNotificationResponse(lastNotificationResponse), 300);
-    return () => clearTimeout(t);
-  }, [isLoggedIn, lastNotificationResponse]);
+    if (isWeb || !isLoggedIn) return;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    // Handles cold-start taps: app was killed, user tapped notification, app opened.
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (cancelled || !response) return;
+      const notifId = response.notification.request.identifier;
+      if (lastHandledNotifId.current === notifId) return;
+      lastHandledNotifId.current = notifId;
+      timeoutId = setTimeout(() => handleNotificationResponse(response), 300);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [isLoggedIn, isWeb]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -66,7 +72,7 @@ function RootLayoutNav() {
   }, [isSignedIn, isLoggedIn, isLoading, caregiverSession, doctorSession, segments]);
 
   useEffect(() => {
-    if (!isLoggedIn || permissionsRequested.current) return;
+    if (isWeb || !isLoggedIn || permissionsRequested.current) return;
     permissionsRequested.current = true;
 
     (async () => {
@@ -91,7 +97,7 @@ function RootLayoutNav() {
       notificationListener.current?.remove();
       responseListener.current?.remove();
     };
-  }, [isLoggedIn, alertPrefs.notificationsEnabled]);
+  }, [isLoggedIn, alertPrefs.notificationsEnabled, isWeb]);
 
   return (
     <Stack screenOptions={{ headerBackTitle: "Back" }}>

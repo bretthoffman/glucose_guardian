@@ -1,17 +1,23 @@
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
+import { Platform } from "react-native";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+const isWeb = Platform.OS === "web";
+
+if (!isWeb) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 export async function registerNotificationCategories() {
+  if (isWeb) return;
   await Notifications.setNotificationCategoryAsync("GLUCOSE_ALERT", [
     {
       identifier: "REPLY",
@@ -36,6 +42,14 @@ export interface NotificationPermissionStatus {
 }
 
 export async function getNotificationPermissionStatus(): Promise<NotificationPermissionStatus> {
+  if (isWeb) {
+    return {
+      granted: false,
+      soundEnabled: false,
+      criticalAlertsEnabled: false,
+      canAskAgain: false,
+    };
+  }
   const perms = await Notifications.getPermissionsAsync();
   const granted = perms.status === "granted";
   const soundEnabled = granted && (perms.ios?.allowsSound !== false);
@@ -45,6 +59,7 @@ export async function getNotificationPermissionStatus(): Promise<NotificationPer
 }
 
 export async function requestNotificationPermissions(): Promise<boolean> {
+  if (isWeb) return false;
   const existing = await Notifications.getPermissionsAsync();
   if (existing.status === "granted") return true;
   const { status } = await Notifications.requestPermissionsAsync({
@@ -59,6 +74,7 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 }
 
 export async function requestCriticalAlerts(): Promise<boolean> {
+  if (isWeb) return false;
   const { status, ios } = await Notifications.requestPermissionsAsync({
     ios: {
       allowAlert: true,
@@ -83,6 +99,7 @@ export async function scheduleGlucoseAlert(params: {
   status: GlucoseAlertStatus;
   trendLabel: string;
 }) {
+  if (isWeb) return;
   const { childName, glucose, status, trendLabel } = params;
   const isHigh = status === "high" || status === "critically_high";
   const isCritical = status === "critically_low" || status === "critically_high";
