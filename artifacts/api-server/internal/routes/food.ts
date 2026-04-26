@@ -175,7 +175,7 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no extr
 Be specific about what you see. If multiple foods, combine the total carbs and describe all items in foodName. Estimate generously for safety in diabetes management.`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "openai/gpt-5.2",
       max_completion_tokens: 500,
       messages: [
         {

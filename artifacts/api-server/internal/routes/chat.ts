@@ -296,7 +296,7 @@ router.post("/", async (req, res) => {
     ];
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "openai/gpt-5.2",
       max_completion_tokens: 180,
       messages: chatMessages,
     });

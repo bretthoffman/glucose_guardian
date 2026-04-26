@@ -1,4 +1,10 @@
 import { Router, type IRouter } from "express";
+import { api } from "../../../../convex/_generated/api.js";
+import {
+  createConvexDoctorHttpClient,
+  getConvexDoctorIngestSecret,
+  isConvexDoctorConfigured,
+} from "../convex-doctor.js";
 
 const router: IRouter = Router();
 
@@ -52,10 +58,10 @@ interface PatientSnapshot {
   syncedAt: string;
 }
 
+// ─── Legacy in-memory store (when Convex env is not configured) ─────────────
 const patientStore = new Map<string, PatientSnapshot>();
 const messagesStore = new Map<string, DoctorMessage[]>();
 
-// ─── Seed demo patient ────────────────────────────────────────────────────────
 function generateDemoReadings() {
   const readings: { value: number; trend: string; timestamp: string }[] = [];
   const now = Date.now();
@@ -67,7 +73,7 @@ function generateDemoReadings() {
     if (bg > 280) bg = 240 - Math.random() * 20;
     readings.push({
       value: Math.round(bg),
-      trend: trends[Math.floor(Math.random() * trends.length)],
+      trend: trends[Math.floor(Math.random() * trends.length)]!,
       timestamp: new Date(now - i * 5 * 60 * 1000).toISOString(),
     });
   }
@@ -139,86 +145,251 @@ const demoSnapshot: PatientSnapshot = {
 
 patientStore.set(DEMO_CODE, demoSnapshot);
 messagesStore.set(DEMO_CODE, demoMessages);
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ConvexDoctorDoc = {
+  accessCode: string;
+  messages: DoctorMessage[];
+  profile?: PatientSnapshot["profile"];
+  glucoseReadings?: PatientSnapshot["glucoseReadings"];
+  insulinLog?: PatientSnapshot["insulinLog"];
+  foodLog?: PatientSnapshot["foodLog"];
+  alertPreferences?: PatientSnapshot["alertPreferences"];
+  syncedAt?: string;
+};
+
+function toPatientSnapshot(doc: ConvexDoctorDoc | null): PatientSnapshot | null {
+  if (!doc?.profile) return null;
+  return {
+    accessCode: doc.accessCode,
+    profile: doc.profile,
+    glucoseReadings: doc.glucoseReadings ?? [],
+    insulinLog: doc.insulinLog ?? [],
+    foodLog: doc.foodLog ?? [],
+    messages: doc.messages,
+    alertPreferences: doc.alertPreferences,
+    syncedAt: doc.syncedAt ?? new Date().toISOString(),
+  };
+}
+
+if (isConvexDoctorConfigured()) {
+  void (async () => {
+    try {
+      const client = createConvexDoctorHttpClient();
+      await client.mutation(api.doctor.seedDemo, {
+        serverSecret: getConvexDoctorIngestSecret(),
+      });
+    } catch (e) {
+      console.warn("[doctor] Convex DEMO seed failed (ok until Convex is deployed):", e);
+    }
+  })();
+}
 
 router.post("/login", (req, res) => {
-  const { accessCode } = req.body as { accessCode?: string };
-  if (!accessCode || typeof accessCode !== "string" || accessCode.trim().length < 3) {
-    res.status(401).json({ error: "Invalid access code" });
-    return;
-  }
-  const code = accessCode.trim().toUpperCase();
-  const snapshot = patientStore.get(code);
-  res.json({
-    success: true,
-    accessCode: code,
-    patientName: snapshot?.profile?.childName ?? null,
-    hasData: !!snapshot,
-  });
+  void (async () => {
+    try {
+      const { accessCode } = req.body as { accessCode?: string };
+      if (!accessCode || typeof accessCode !== "string" || accessCode.trim().length < 3) {
+        res.status(401).json({ error: "Invalid access code" });
+        return;
+      }
+      const code = accessCode.trim().toUpperCase();
+
+      if (isConvexDoctorConfigured()) {
+        const client = createConvexDoctorHttpClient();
+        const secret = getConvexDoctorIngestSecret();
+        const doc = (await client.query(api.doctor.getState, {
+          serverSecret: secret,
+          accessCode: code,
+        })) as ConvexDoctorDoc | null;
+        const snapshot = toPatientSnapshot(doc);
+        res.json({
+          success: true,
+          accessCode: code,
+          patientName: snapshot?.profile?.childName ?? null,
+          hasData: !!doc?.profile,
+        });
+        return;
+      }
+
+      const snapshot = patientStore.get(code);
+      res.json({
+        success: true,
+        accessCode: code,
+        patientName: snapshot?.profile?.childName ?? null,
+        hasData: !!snapshot,
+      });
+    } catch (e) {
+      console.error("[doctor] /login", e);
+      res.status(500).json({ error: "Doctor service error" });
+    }
+  })();
 });
 
 router.post("/sync", (req, res) => {
-  const body = req.body as PatientSnapshot;
-  if (!body?.accessCode) {
-    res.status(400).json({ error: "accessCode required" });
-    return;
-  }
-  const code = body.accessCode.trim().toUpperCase();
+  void (async () => {
+    try {
+      const body = req.body as PatientSnapshot;
+      if (!body?.accessCode) {
+        res.status(400).json({ error: "accessCode required" });
+        return;
+      }
+      const code = body.accessCode.trim().toUpperCase();
 
-  const existing = messagesStore.get(code) ?? [];
-  const incomingIds = new Set((body.messages ?? []).map((m) => m.id));
-  const serverOnlyMessages = existing.filter((m) => !incomingIds.has(m.id));
-  const merged = [...(body.messages ?? []), ...serverOnlyMessages].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-  );
+      if (isConvexDoctorConfigured()) {
+        const client = createConvexDoctorHttpClient();
+        const secret = getConvexDoctorIngestSecret();
+        const existingDoc = (await client.query(api.doctor.getState, {
+          serverSecret: secret,
+          accessCode: code,
+        })) as ConvexDoctorDoc | null;
+        const existing = existingDoc?.messages ?? [];
+        const incomingIds = new Set((body.messages ?? []).map((m) => m.id));
+        const serverOnlyMessages = existing.filter((m) => !incomingIds.has(m.id));
+        const merged = [...(body.messages ?? []), ...serverOnlyMessages].sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+        );
 
-  messagesStore.set(code, merged);
-  patientStore.set(code, { ...body, accessCode: code, messages: merged, syncedAt: new Date().toISOString() });
+        await client.mutation(api.doctor.upsertFromSync, {
+          serverSecret: secret,
+          accessCode: code,
+          profile: body.profile,
+          glucoseReadings: body.glucoseReadings ?? [],
+          insulinLog: body.insulinLog ?? [],
+          foodLog: body.foodLog ?? [],
+          messages: merged,
+          alertPreferences: body.alertPreferences,
+          syncedAt: new Date().toISOString(),
+        });
 
-  res.json({ success: true, message: "Sync successful" });
+        res.json({ success: true, message: "Sync successful" });
+        return;
+      }
+
+      const existing = messagesStore.get(code) ?? [];
+      const incomingIds = new Set((body.messages ?? []).map((m) => m.id));
+      const serverOnlyMessages = existing.filter((m) => !incomingIds.has(m.id));
+      const merged = [...(body.messages ?? []), ...serverOnlyMessages].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+      );
+
+      messagesStore.set(code, merged);
+      patientStore.set(code, { ...body, accessCode: code, messages: merged, syncedAt: new Date().toISOString() });
+
+      res.json({ success: true, message: "Sync successful" });
+    } catch (e) {
+      console.error("[doctor] /sync", e);
+      res.status(500).json({ error: "Doctor service error" });
+    }
+  })();
 });
 
 router.get("/patient/:accessCode", (req, res) => {
-  const code = req.params.accessCode.trim().toUpperCase();
-  const snapshot = patientStore.get(code);
-  if (!snapshot) {
-    res.status(404).json({ error: "No patient data found for this access code" });
-    return;
-  }
-  const messages = messagesStore.get(code) ?? snapshot.messages ?? [];
-  res.json({ ...snapshot, messages });
+  void (async () => {
+    try {
+      const code = req.params.accessCode.trim().toUpperCase();
+
+      if (isConvexDoctorConfigured()) {
+        const client = createConvexDoctorHttpClient();
+        const secret = getConvexDoctorIngestSecret();
+        const doc = (await client.query(api.doctor.getState, {
+          serverSecret: secret,
+          accessCode: code,
+        })) as ConvexDoctorDoc | null;
+        const snapshot = toPatientSnapshot(doc);
+        if (!snapshot) {
+          res.status(404).json({ error: "No patient data found for this access code" });
+          return;
+        }
+        const messages = doc?.messages ?? snapshot.messages ?? [];
+        res.json({ ...snapshot, messages });
+        return;
+      }
+
+      const snapshot = patientStore.get(code);
+      if (!snapshot) {
+        res.status(404).json({ error: "No patient data found for this access code" });
+        return;
+      }
+      const messages = messagesStore.get(code) ?? snapshot.messages ?? [];
+      res.json({ ...snapshot, messages });
+    } catch (e) {
+      console.error("[doctor] GET /patient", e);
+      res.status(500).json({ error: "Doctor service error" });
+    }
+  })();
 });
 
 router.get("/messages/:accessCode", (req, res) => {
-  const code = req.params.accessCode.trim().toUpperCase();
-  const messages = messagesStore.get(code) ?? [];
-  res.json({ messages });
+  void (async () => {
+    try {
+      const code = req.params.accessCode.trim().toUpperCase();
+
+      if (isConvexDoctorConfigured()) {
+        const client = createConvexDoctorHttpClient();
+        const secret = getConvexDoctorIngestSecret();
+        const doc = (await client.query(api.doctor.getState, {
+          serverSecret: secret,
+          accessCode: code,
+        })) as ConvexDoctorDoc | null;
+        const messages = doc?.messages ?? [];
+        res.json({ messages });
+        return;
+      }
+
+      const messages = messagesStore.get(code) ?? [];
+      res.json({ messages });
+    } catch (e) {
+      console.error("[doctor] GET /messages", e);
+      res.status(500).json({ error: "Doctor service error" });
+    }
+  })();
 });
 
 router.post("/messages/:accessCode", (req, res) => {
-  const code = req.params.accessCode.trim().toUpperCase();
-  const { text, sender } = req.body as { text?: string; sender?: "doctor" | "guardian" };
-  if (!text || !sender) {
-    res.status(400).json({ error: "text and sender required" });
-    return;
-  }
-  const message: DoctorMessage = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    timestamp: new Date().toISOString(),
-    text,
-    sender,
-    read: false,
-  };
-  const existing = messagesStore.get(code) ?? [];
-  existing.push(message);
-  messagesStore.set(code, existing);
+  void (async () => {
+    try {
+      const code = req.params.accessCode.trim().toUpperCase();
+      const { text, sender } = req.body as { text?: string; sender?: "doctor" | "guardian" };
+      if (!text || !sender) {
+        res.status(400).json({ error: "text and sender required" });
+        return;
+      }
+      const message: DoctorMessage = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        timestamp: new Date().toISOString(),
+        text,
+        sender,
+        read: false,
+      };
 
-  const snapshot = patientStore.get(code);
-  if (snapshot) {
-    patientStore.set(code, { ...snapshot, messages: existing });
-  }
+      if (isConvexDoctorConfigured()) {
+        const client = createConvexDoctorHttpClient();
+        const secret = getConvexDoctorIngestSecret();
+        await client.mutation(api.doctor.appendMessage, {
+          serverSecret: secret,
+          accessCode: code,
+          message,
+        });
+        res.json(message);
+        return;
+      }
 
-  res.json(message);
+      const existing = messagesStore.get(code) ?? [];
+      existing.push(message);
+      messagesStore.set(code, existing);
+
+      const snapshot = patientStore.get(code);
+      if (snapshot) {
+        patientStore.set(code, { ...snapshot, messages: existing });
+      }
+
+      res.json(message);
+    } catch (e) {
+      console.error("[doctor] POST /messages", e);
+      res.status(500).json({ error: "Doctor service error" });
+    }
+  })();
 });
 
 export default router;
