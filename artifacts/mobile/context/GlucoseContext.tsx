@@ -4,8 +4,13 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
+import type { Id } from "../../../convex/_generated/dataModel";
+import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY } from "@/constants/storage-keys";
+import { useAuth } from "@/context/AuthContext";
+import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 
 export interface GlucoseEntry {
   glucose: number;
@@ -33,15 +38,93 @@ export interface GlucoseContextType {
 
 const GlucoseContext = createContext<GlucoseContextType | null>(null);
 
-const STORAGE_KEY = "@gluco_guardian_history";
-const SETTINGS_KEY = "@gluco_guardian_settings";
+const STORAGE_KEY = GLUCOSE_HISTORY_STORAGE_KEY;
+const SETTINGS_KEY = GLUCOSE_SETTINGS_STORAGE_KEY;
+
+function toConvexGlucosePayload(e: GlucoseEntry) {
+  const payload: {
+    glucose: number;
+    timestamp: string;
+    anomaly: { warning: boolean; message?: string };
+    dexcomTrend?: number | string;
+  } = {
+    glucose: e.glucose,
+    timestamp: e.timestamp,
+    anomaly: {
+      warning: e.anomaly?.warning ?? false,
+      ...(e.anomaly?.message != null && e.anomaly.message !== ""
+        ? { message: e.anomaly.message }
+        : {}),
+    },
+  };
+  if (e.dexcomTrend != null) payload.dexcomTrend = e.dexcomTrend;
+  return payload;
+}
+
+function normalizeRemoteEntry(r: {
+  glucose: number;
+  timestamp: string;
+  anomaly: { warning: boolean; message?: string };
+  dexcomTrend?: number | string;
+}): GlucoseEntry {
+  return {
+    glucose: r.glucose,
+    timestamp: r.timestamp,
+    anomaly: r.anomaly,
+    ...(r.dexcomTrend != null ? { dexcomTrend: r.dexcomTrend } : {}),
+  };
+}
+
+function parseLocalHistory(raw: string | null): GlucoseEntry[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (x): x is GlucoseEntry =>
+        !!x &&
+        typeof x === "object" &&
+        typeof (x as GlucoseEntry).glucose === "number" &&
+        typeof (x as GlucoseEntry).timestamp === "string",
+    );
+  } catch {
+    return [];
+  }
+}
 
 export function GlucoseProvider({ children }: { children: React.ReactNode }) {
+  const { account, isSignedIn, isLoading: authLoading } = useAuth();
   const [history, setHistory] = useState<GlucoseEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [carbRatio, setCarbRatioState] = useState(15);
   const [targetGlucose, setTargetGlucoseState] = useState(120);
   const [correctionFactor, setCorrectionFactorState] = useState(50);
+
+  const accountRef = useRef(account);
+  useEffect(() => {
+    accountRef.current = account;
+  }, [account]);
+
+  const flushHistoryToConvex = useCallback(async (entries: GlucoseEntry[]) => {
+    const acc = accountRef.current;
+    if (!acc?.convexUserId || entries.length === 0) return;
+    const client = createConvexAuthClient();
+    const userId = acc.convexUserId as Id<"users">;
+    const payloads = entries.map(toConvexGlucosePayload);
+    const chunk = 120;
+    for (let i = 0; i < payloads.length; i += chunk) {
+      const slice = payloads.slice(i, i + chunk);
+      try {
+        await client.mutation(api.patientGlucose.upsertBatch, {
+          userId,
+          passwordHash: acc.passwordHash,
+          entries: slice,
+        });
+      } catch {
+        break;
+      }
+    }
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -50,7 +133,10 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(STORAGE_KEY),
           AsyncStorage.getItem(SETTINGS_KEY),
         ]);
-        if (stored) setHistory(JSON.parse(stored));
+        if (stored) {
+          const parsed = parseLocalHistory(stored);
+          if (parsed.length > 0) setHistory(parsed);
+        }
         if (settings) {
           const s = JSON.parse(settings);
           if (s.carbRatio) setCarbRatioState(s.carbRatio);
@@ -63,31 +149,128 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     load();
   }, []);
 
-  const addReading = useCallback((entry: GlucoseEntry) => {
-    setHistory((prev) => {
-      const next = [...prev, entry].slice(-300);
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
-      return next;
-    });
-  }, []);
+  useEffect(() => {
+    if (authLoading) return;
+    if (!account?.convexUserId || !isSignedIn) return;
+    let cancelled = false;
+    (async () => {
+      const settings = await AsyncStorage.getItem(SETTINGS_KEY);
+      if (cancelled) return;
+      if (settings) {
+        try {
+          const s = JSON.parse(settings) as Record<string, unknown>;
+          if (typeof s.carbRatio === "number") setCarbRatioState(s.carbRatio);
+          if (typeof s.targetGlucose === "number") setTargetGlucoseState(s.targetGlucose);
+          if (typeof s.correctionFactor === "number") setCorrectionFactorState(s.correctionFactor);
+        } catch {
+          /* ignore */
+        }
+      } else {
+        setCarbRatioState(15);
+        setTargetGlucoseState(120);
+        setCorrectionFactorState(50);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, account?.convexUserId, isSignedIn]);
 
-  const bulkAddReadings = useCallback((entries: GlucoseEntry[]) => {
-    if (entries.length === 0) return;
-    setHistory((prev) => {
-      const existingTs = new Set(prev.map((e) => e.timestamp));
-      const newEntries = entries.filter((e) => !existingTs.has(e.timestamp));
-      if (newEntries.length === 0) return prev;
-      const combined = [...prev, ...newEntries];
-      combined.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-      const next = combined.slice(-300);
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
-      return next;
-    });
-  }, []);
+  useEffect(() => {
+    if (authLoading) return;
+    if (!account?.convexUserId || !isSignedIn) return;
+    let cancelled = false;
+    (async () => {
+      const client = createConvexAuthClient();
+      const userId = account.convexUserId as Id<"users">;
+      const passwordHash = account.passwordHash;
+      try {
+        const remote = await client.query(api.patientGlucose.listRecent, {
+          userId,
+          passwordHash,
+          limit: 300,
+        });
+        if (cancelled) return;
+        const storedRaw = await AsyncStorage.getItem(STORAGE_KEY);
+        const localParsed = parseLocalHistory(storedRaw);
+
+        let next: GlucoseEntry[];
+        if (remote.length > 0) {
+          next = remote.map(normalizeRemoteEntry);
+        } else if (localParsed.length > 0) {
+          const capped = localParsed.slice(-300);
+          const payloads = capped.map(toConvexGlucosePayload);
+          const chunk = 120;
+          for (let i = 0; i < payloads.length; i += chunk) {
+            const slice = payloads.slice(i, i + chunk);
+            await client.mutation(api.patientGlucose.upsertBatch, {
+              userId,
+              passwordHash,
+              entries: slice,
+            });
+          }
+          if (cancelled) return;
+          next = capped;
+        } else {
+          next = [];
+        }
+        setHistory(next);
+        if (next.length > 0) {
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        } else {
+          await AsyncStorage.removeItem(STORAGE_KEY);
+        }
+      } catch {
+        /* offline — keep AsyncStorage / in-memory from initial load */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, account?.convexUserId, account?.passwordHash, isSignedIn]);
+
+  const addReading = useCallback(
+    (entry: GlucoseEntry) => {
+      setHistory((prev) => {
+        const next = [...prev, entry].slice(-300);
+        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+        void flushHistoryToConvex([entry]);
+        return next;
+      });
+    },
+    [flushHistoryToConvex],
+  );
+
+  const bulkAddReadings = useCallback(
+    (entries: GlucoseEntry[]) => {
+      if (entries.length === 0) return;
+      setHistory((prev) => {
+        const existingTs = new Set(prev.map((e) => e.timestamp));
+        const newEntries = entries.filter((e) => !existingTs.has(e.timestamp));
+        if (newEntries.length === 0) return prev;
+        const combined = [...prev, ...newEntries];
+        combined.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        const next = combined.slice(-300);
+        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+        void flushHistoryToConvex(newEntries);
+        return next;
+      });
+    },
+    [flushHistoryToConvex],
+  );
 
   const clearHistory = useCallback(() => {
     setHistory([]);
     AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
+    const acc = accountRef.current;
+    if (acc?.convexUserId) {
+      void createConvexAuthClient()
+        .mutation(api.patientGlucose.clearAll, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const resetGlucoseData = useCallback(() => {
@@ -96,6 +279,15 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     setTargetGlucoseState(120);
     setCorrectionFactorState(50);
     AsyncStorage.multiRemove([STORAGE_KEY, SETTINGS_KEY]).catch(() => {});
+    const acc = accountRef.current;
+    if (acc?.convexUserId) {
+      void createConvexAuthClient()
+        .mutation(api.patientGlucose.clearAll, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const setCarbRatio = useCallback((v: number) => {
@@ -137,7 +329,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
         const curr = s ? JSON.parse(s) : {};
         return AsyncStorage.setItem(
           SETTINGS_KEY,
-          JSON.stringify({ ...curr, carbRatio: cr, targetGlucose: tg, correctionFactor: cf })
+          JSON.stringify({ ...curr, carbRatio: cr, targetGlucose: tg, correctionFactor: cf }),
         );
       })
       .catch(() => {});

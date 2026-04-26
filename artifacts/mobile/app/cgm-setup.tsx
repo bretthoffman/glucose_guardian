@@ -45,7 +45,16 @@ export default function CGMSetupScreen() {
 
   async function connect() {
     if (!username.trim() || !password.trim()) {
-      Alert.alert("Missing Info", "Please enter both username/email and password.");
+      const credLabel = selectedType === "dexcom" ? "username" : "email";
+      Alert.alert("Missing Info", `Please enter both ${credLabel} and password.`);
+      return;
+    }
+
+    if (selectedType === "dexcom" && username.includes("@")) {
+      Alert.alert(
+        "Use Your Dexcom Username",
+        "Dexcom Share requires your Dexcom username, not the email address you sign in to the Dexcom app with. Open the Dexcom app → Settings → Account to find your username.",
+      );
       return;
     }
 
@@ -220,7 +229,7 @@ export default function CGMSetupScreen() {
             </View>
             <View style={styles.requirementRow}>
               <Text style={[styles.requirementBullet, { color: COLORS.primary }]}>2.</Text>
-              <Text style={[styles.requirementText, { color: colors.textSecondary }]}>Use the email address you log into the Dexcom app with</Text>
+              <Text style={[styles.requirementText, { color: colors.textSecondary }]}>Use your Dexcom username — not your email. Find it in the Dexcom app under Settings → Account.</Text>
             </View>
             <View style={styles.requirementRow}>
               <Text style={[styles.requirementBullet, { color: COLORS.primary }]}>3.</Text>
@@ -236,7 +245,7 @@ export default function CGMSetupScreen() {
           ]}
         >
           <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
-            {selectedType === "dexcom" ? "Dexcom Account Email" : "LibreLink Email"}
+            {selectedType === "dexcom" ? "Dexcom Username" : "LibreLink Email"}
           </Text>
           <TextInput
             style={[
@@ -250,10 +259,10 @@ export default function CGMSetupScreen() {
             value={username}
             onChangeText={setUsername}
             placeholder={
-              selectedType === "dexcom" ? "your@email.com" : "your@email.com"
+              selectedType === "dexcom" ? "yourdexcomusername" : "your@email.com"
             }
             placeholderTextColor={colors.textMuted}
-            keyboardType="email-address"
+            keyboardType={selectedType === "dexcom" ? "default" : "email-address"}
             autoCapitalize="none"
             autoCorrect={false}
           />
@@ -306,7 +315,7 @@ export default function CGMSetupScreen() {
           <Feather name="lock" size={14} color={COLORS.primary} />
           <Text style={[styles.infoText, { color: colors.textSecondary }]}>
             {selectedType === "dexcom"
-              ? "Uses your Dexcom Share credentials. Readings sync through Dexcom's servers."
+              ? "Uses your Dexcom Share username and password (not your email). Readings sync through Dexcom's servers."
               : "Uses your LibreLink Up account. Share must be enabled in your LibreLink app."}
           </Text>
         </View>

@@ -30,6 +30,15 @@ import { apiUrl } from "@/utils/api-base-url";
 
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
+type SyncResultStatus = "ok" | "zero" | "session_expired" | "error";
+
+type SyncResult = {
+  status: SyncResultStatus;
+  count?: number;
+  at: Date;
+  message?: string;
+};
+
 function TrendAlertBanner({
   trend,
   glucose,
@@ -85,6 +94,39 @@ function formatLastSync(date: Date | null): string {
   return `${Math.floor(diff / 3600)}h ago`;
 }
 
+function syncResultColor(result: SyncResult | null): string {
+  if (!result) return COLORS.success + "99";
+  switch (result.status) {
+    case "ok":
+      return COLORS.success + "99";
+    case "zero":
+      return COLORS.warning;
+    case "session_expired":
+    case "error":
+      return COLORS.danger;
+  }
+}
+
+function syncResultLabel(
+  result: SyncResult | null,
+  fallbackTime: Date | null,
+): string {
+  if (!result) {
+    return formatLastSync(fallbackTime);
+  }
+  const when = formatLastSync(result.at);
+  switch (result.status) {
+    case "ok":
+      return result.count != null ? `${result.count} new · ${when}` : when;
+    case "zero":
+      return `0 readings · ${when}`;
+    case "session_expired":
+      return `Session expired · ${when}`;
+    case "error":
+      return `Sync failed · ${when}`;
+  }
+}
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
@@ -96,6 +138,7 @@ export default function HomeScreen() {
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const [cgmLatestReading, setCgmLatestReading] = useState<{ glucose: number; timestamp: string } | null>(null);
   const [, forceUpdate] = useState(0);
   const isConnected = !!cgmConnection.type;
@@ -120,6 +163,7 @@ export default function HomeScreen() {
     prevConnectedRef.current = isConnected;
     if (wasConnected && !isConnected) {
       setCgmLatestReading(null);
+      setLastSyncResult(null);
       clearHistory();
     }
   }, [isConnected, clearHistory]);
@@ -171,11 +215,24 @@ export default function HomeScreen() {
       });
 
       if (!res.ok) {
-        if (!silent) {
+        let errMessage: string | undefined;
+        try {
           const err = await res.json();
+          errMessage = err?.error;
+        } catch {
+          /* non-JSON error body */
+        }
+        const isSessionExpired =
+          res.status === 401 || (errMessage ? /session|expired|reconnect/i.test(errMessage) : false);
+        setLastSyncResult({
+          status: isSessionExpired ? "session_expired" : "error",
+          at: new Date(),
+          message: errMessage,
+        });
+        if (!silent) {
           Alert.alert(
             "Sync Failed",
-            err.error || "Could not fetch CGM readings.",
+            errMessage || "Could not fetch CGM readings.",
             [
               { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
               { text: "OK", style: "cancel" },
@@ -228,8 +285,10 @@ export default function HomeScreen() {
           }
         }
       }
+      const now = new Date();
       if (readings.length > 0) {
-        setLastSyncTime(new Date());
+        setLastSyncTime(now);
+        setLastSyncResult({ status: "ok", count: readings.length, at: now });
         if (!silent) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           Alert.alert(
@@ -237,9 +296,31 @@ export default function HomeScreen() {
             `${readings.length} readings imported from ${cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre"}.`
           );
         }
+      } else {
+        setLastSyncResult({ status: "zero", count: 0, at: now });
+        if (!silent) {
+          const deviceName = cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre";
+          const hint =
+            cgmConnection.type === "dexcom"
+              ? "Make sure Share is enabled in your Dexcom app, the sensor is active, and the Outside US toggle matches your region."
+              : "Make sure LibreLinkUp Sharing is enabled and your sensor is active.";
+          Alert.alert(
+            "No Readings Returned",
+            `${deviceName} responded but returned 0 readings. ${hint}`,
+            [
+              { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
+              { text: "OK", style: "cancel" },
+            ]
+          );
+        }
       }
       return true;
     } catch {
+      setLastSyncResult({
+        status: "error",
+        at: new Date(),
+        message: "Network error",
+      });
       if (!silent) {
         Alert.alert("Error", "Could not sync CGM. Check your connection.");
       }
@@ -342,9 +423,14 @@ export default function HomeScreen() {
                     : "Libre"
                   : "Connect CGM"}
               </Text>
-              {isConnected && lastSyncTime && (
-                <Text style={[styles.lastSyncText, { color: COLORS.success + "99" }]}>
-                  {formatLastSync(lastSyncTime)}
+              {isConnected && (lastSyncResult || lastSyncTime) && (
+                <Text
+                  style={[
+                    styles.lastSyncText,
+                    { color: syncResultColor(lastSyncResult) },
+                  ]}
+                >
+                  {syncResultLabel(lastSyncResult, lastSyncTime)}
                 </Text>
               )}
             </View>

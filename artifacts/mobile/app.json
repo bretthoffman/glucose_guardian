@@ -14,12 +14,10 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "bundleIdentifier": "com.bretthoffman.glucoseguardian",
       "supportsTablet": false,
       "infoPlist": {
-        "NSCriticalAlertUsageDescription": "Glucose Guardian uses critical alerts to notify you of urgent glucose readings that require immediate attention, even when your phone is on silent or in Do Not Disturb."
-      },
-      "entitlements": {
-        "com.apple.developer.usernotifications.critical-alerts": true
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {},
@@ -27,18 +25,18 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
-      [
-        "expo-router",
-        {
-          "origin": "https://replit.com/"
-        }
-      ],
+      "expo-router",
       "expo-font",
       "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "febbed6c-81e8-475e-aa62-93bc0128fef3"
+      }
     }
   }
 }

@@ -7,6 +7,10 @@ import React, {
   useRef,
   useState,
 } from "react";
+import type { Id } from "../../../convex/_generated/dataModel";
+import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY } from "@/constants/storage-keys";
+import { apiUrl } from "@/utils/api-base-url";
+import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 
 export type AccountRole = "parent" | "adult";
 
@@ -44,6 +48,10 @@ export interface UserProfile {
   doctorCode?: string;
   doctorCodeIssuedAt?: string;
   accessLog?: AccessLogEntry[];
+  /** Optional — may mirror bolus settings for doctor sync payload. */
+  carbRatio?: number;
+  targetGlucose?: number;
+  correctionFactor?: number;
 }
 
 export interface InsulinLogEntry {
@@ -58,6 +66,8 @@ export interface InsulinLogEntry {
 export interface UserAccount {
   email: string;
   passwordHash: string;
+  /** Convex document id for `users` — set for cloud-backed accounts. */
+  convexUserId?: string;
 }
 
 export interface CGMConnection {
@@ -175,6 +185,25 @@ function hashPassword(password: string): string {
   return encoded;
 }
 
+/** Local profile can be seeded to Convex once if it has the minimum required fields. */
+function isMigratableLocalProfile(p: unknown): p is UserProfile {
+  if (!p || typeof p !== "object") return false;
+  const o = p as Record<string, unknown>;
+  return (
+    typeof o.childName === "string" &&
+    o.childName.length > 0 &&
+    typeof o.dateOfBirth === "string" &&
+    o.dateOfBirth.length > 0 &&
+    (o.diabetesType === "type1" || o.diabetesType === "type2" || o.diabetesType === "other")
+  );
+}
+
+function isMigratableLocalCgm(c: unknown): c is CGMConnection {
+  if (!c || typeof c !== "object") return false;
+  const o = c as CGMConnection;
+  return o.type === "dexcom" || o.type === "libre";
+}
+
 function computeAge(dateOfBirth: string): number | null {
   if (!dateOfBirth) return null;
   const dob = new Date(dateOfBirth);
@@ -186,6 +215,27 @@ function computeAge(dateOfBirth: string): number | null {
     age--;
   }
   return age;
+}
+
+/** Max wait for Convex `getUser` during cold start — avoids hanging boot if network stalls. */
+const CONVEX_SESSION_RESTORE_MS = 10_000;
+
+async function restoreConvexBackedSession(acc: UserAccount): Promise<boolean> {
+  if (!acc.convexUserId) return true;
+  try {
+    const client = createConvexAuthClient();
+    const stillThere = await Promise.race([
+      client.query(api.auth.getUser, {
+        userId: acc.convexUserId as Id<"users">,
+      }),
+      new Promise<null>((_, reject) => {
+        setTimeout(() => reject(new Error("convex session restore timeout")), CONVEX_SESSION_RESTORE_MS);
+      }),
+    ]);
+    return !!stillThere;
+  } catch {
+    return false;
+  }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -205,17 +255,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [doctorMessages, setDoctorMessages] = useState<DoctorMessage[]>([]);
 
   const profileRef = useRef(profile);
+  const accountRef = useRef<UserAccount | null>(null);
   const insulinLogRef = useRef(insulinLog);
   const foodLogRef = useRef(foodLog);
   const alertPrefsRef = useRef(alertPrefs);
   const doctorMessagesRef = useRef(doctorMessages);
   useEffect(() => { profileRef.current = profile; }, [profile]);
+  useEffect(() => { accountRef.current = account; }, [account]);
   useEffect(() => { insulinLogRef.current = insulinLog; }, [insulinLog]);
   useEffect(() => { foodLogRef.current = foodLog; }, [foodLog]);
   useEffect(() => { alertPrefsRef.current = alertPrefs; }, [alertPrefs]);
   useEffect(() => { doctorMessagesRef.current = doctorMessages; }, [doctorMessages]);
 
+  const commitProfile = useCallback(async (updated: UserProfile) => {
+    profileRef.current = updated;
+    setProfile(updated);
+    try {
+      await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(updated));
+    } catch {
+      /* ignore */
+    }
+    const acc = accountRef.current;
+    if (!acc?.convexUserId) return;
+    try {
+      const client = createConvexAuthClient();
+      const profilePayload = JSON.parse(JSON.stringify(updated));
+      await client.mutation(api.patientProfile.replace, {
+        userId: acc.convexUserId as Id<"users">,
+        passwordHash: acc.passwordHash,
+        profile: profilePayload,
+      });
+    } catch {
+      /* offline — local cache remains */
+    }
+  }, []);
+
+  const commitCGMConnection = useCallback(async (conn: CGMConnection) => {
+    setCGMConnectionState(conn);
+    try {
+      await AsyncStorage.setItem(CGM_KEY, JSON.stringify(conn));
+    } catch {
+      /* ignore */
+    }
+    const acc = accountRef.current;
+    if (!acc?.convexUserId) return;
+    try {
+      const client = createConvexAuthClient();
+      const userId = acc.convexUserId as Id<"users">;
+      if (conn.type === null) {
+        await client.mutation(api.patientCgm.clear, {
+          userId,
+          passwordHash: acc.passwordHash,
+        });
+      } else {
+        const connection = JSON.parse(JSON.stringify(conn));
+        await client.mutation(api.patientCgm.replace, {
+          userId,
+          passwordHash: acc.passwordHash,
+          connection,
+        });
+      }
+    } catch {
+      /* offline — local cache remains */
+    }
+  }, []);
+
   useEffect(() => {
+    let cancelled = false;
     async function load() {
       try {
         const [
@@ -241,33 +347,155 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(SESSION_KEY),
           AsyncStorage.getItem(DOCTOR_MESSAGES_KEY),
         ]);
-        if (storedProfile) setProfile(JSON.parse(storedProfile));
-        if (storedCGM) setCGMConnectionState(JSON.parse(storedCGM));
+
+        if (storedSession === "true" && !storedAccount) {
+          await AsyncStorage.removeItem(SESSION_KEY);
+        }
+
+        let localProfileFromStorage: UserProfile | null = null;
+        if (storedProfile) {
+          try {
+            const parsed = JSON.parse(storedProfile) as UserProfile;
+            localProfileFromStorage = parsed;
+            profileRef.current = parsed;
+            setProfile(parsed);
+          } catch {
+            /* ignore corrupt profile */
+          }
+        }
+        let localCgmFromStorage: CGMConnection | null = null;
+        if (storedCGM) {
+          try {
+            const parsed = JSON.parse(storedCGM) as CGMConnection;
+            localCgmFromStorage = parsed;
+            setCGMConnectionState(parsed);
+          } catch {
+            /* ignore corrupt cgm */
+          }
+        }
         if (storedFoodLog) setFoodLog(JSON.parse(storedFoodLog));
         if (storedInsulinLog) setInsulinLog(JSON.parse(storedInsulinLog));
         if (storedContacts) setEmergencyContacts(JSON.parse(storedContacts));
         if (storedAlertPrefs) setAlertPrefsState({ ...DEFAULT_ALERT_PREFS, ...JSON.parse(storedAlertPrefs) });
         if (storedPin) setGuardianPinState(storedPin);
         if (storedDoctorMessages) setDoctorMessages(JSON.parse(storedDoctorMessages));
+
         if (storedAccount) {
-          const acc = JSON.parse(storedAccount) as UserAccount;
+          let acc: UserAccount;
+          try {
+            acc = JSON.parse(storedAccount) as UserAccount;
+          } catch {
+            await AsyncStorage.multiRemove([ACCOUNT_KEY, SESSION_KEY]);
+            return;
+          }
+          if (cancelled) return;
+          accountRef.current = acc;
           setAccount(acc);
           if (storedSession === "true") {
-            setIsSignedIn(true);
+            if (acc.convexUserId) {
+              const ok = await restoreConvexBackedSession(acc);
+              if (cancelled) return;
+              if (ok) {
+                setIsSignedIn(true);
+                const client = createConvexAuthClient();
+                const userId = acc.convexUserId as Id<"users">;
+                try {
+                  const remote = await client.query(api.patientProfile.get, {
+                    userId,
+                    passwordHash: acc.passwordHash,
+                  });
+                  if (cancelled) return;
+                  if (remote) {
+                    const p = remote as UserProfile;
+                    profileRef.current = p;
+                    setProfile(p);
+                    await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+                  } else if (localProfileFromStorage && isMigratableLocalProfile(localProfileFromStorage)) {
+                    const profilePayload = JSON.parse(JSON.stringify(localProfileFromStorage));
+                    await client.mutation(api.patientProfile.replace, {
+                      userId,
+                      passwordHash: acc.passwordHash,
+                      profile: profilePayload,
+                    });
+                    if (cancelled) return;
+                    profileRef.current = localProfileFromStorage;
+                    setProfile(localProfileFromStorage);
+                    await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(localProfileFromStorage));
+                  } else if (!localProfileFromStorage) {
+                    profileRef.current = null;
+                    setProfile(null);
+                    await AsyncStorage.removeItem(PROFILE_KEY);
+                  }
+
+                  const remoteCgm = await client.query(api.patientCgm.get, {
+                    userId,
+                    passwordHash: acc.passwordHash,
+                  });
+                  if (cancelled) return;
+                  if (remoteCgm) {
+                    const cgm = remoteCgm as CGMConnection;
+                    setCGMConnectionState(cgm);
+                    await AsyncStorage.setItem(CGM_KEY, JSON.stringify(cgm));
+                  } else if (localCgmFromStorage && isMigratableLocalCgm(localCgmFromStorage)) {
+                    const connection = JSON.parse(JSON.stringify(localCgmFromStorage));
+                    await client.mutation(api.patientCgm.replace, {
+                      userId,
+                      passwordHash: acc.passwordHash,
+                      connection,
+                    });
+                    if (cancelled) return;
+                    setCGMConnectionState(localCgmFromStorage);
+                    await AsyncStorage.setItem(CGM_KEY, JSON.stringify(localCgmFromStorage));
+                  } else {
+                    setCGMConnectionState({ type: null });
+                    await AsyncStorage.removeItem(CGM_KEY);
+                  }
+                } catch {
+                  /* offline: keep AsyncStorage-hydrated profile and CGM */
+                }
+              } else {
+                await AsyncStorage.removeItem(SESSION_KEY);
+              }
+            } else {
+              setIsSignedIn(true);
+            }
           }
         }
-      } catch {}
-      setIsLoading(false);
+      } catch {
+        try {
+          await AsyncStorage.removeItem(SESSION_KEY);
+        } catch {
+          /* ignore */
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
     }
     load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const ageYears = profile?.dateOfBirth ? computeAge(profile.dateOfBirth) : null;
   const isMinor = ageYears !== null ? ageYears < 18 : false;
 
   const createAccount = useCallback(async (email: string, password: string) => {
-    const acc: UserAccount = { email: email.trim().toLowerCase(), passwordHash: hashPassword(password) };
+    const normalizedEmail = email.trim().toLowerCase();
+    const passwordHash = hashPassword(password);
+    const client = createConvexAuthClient();
+    const convexUserId = await client.mutation(api.auth.register, {
+      email: normalizedEmail,
+      passwordHash,
+    });
+    const acc: UserAccount = {
+      email: normalizedEmail,
+      passwordHash,
+      convexUserId: String(convexUserId),
+    };
+    accountRef.current = acc;
     setProfile(null);
+    profileRef.current = null;
     setCGMConnectionState({ type: null });
     setFoodLog([]);
     setInsulinLog([]);
@@ -289,17 +517,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       EMERGENCY_CONTACTS_KEY,
       ALERT_PREFS_KEY,
       GUARDIAN_PIN_KEY,
+      GLUCOSE_HISTORY_STORAGE_KEY,
+      GLUCOSE_SETTINGS_STORAGE_KEY,
     ]);
   }, []);
 
   const signIn = useCallback(async (email: string, password: string): Promise<boolean> => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const passwordHash = hashPassword(password);
+    const client = createConvexAuthClient();
+    try {
+      const result = await client.query(api.auth.login, {
+        email: normalizedEmail,
+        passwordHash,
+      });
+      if (result) {
+        const acc: UserAccount = {
+          email: result.email,
+          passwordHash,
+          convexUserId: String(result.userId),
+        };
+        accountRef.current = acc;
+        setAccount(acc);
+        setIsSignedIn(true);
+        profileRef.current = null;
+        setProfile(null);
+        await AsyncStorage.multiSet([
+          [ACCOUNT_KEY, JSON.stringify(acc)],
+          [SESSION_KEY, "true"],
+        ]);
+        await AsyncStorage.removeItem(PROFILE_KEY);
+        await AsyncStorage.removeItem(CGM_KEY);
+        await AsyncStorage.removeItem(GLUCOSE_HISTORY_STORAGE_KEY);
+        await AsyncStorage.removeItem(GLUCOSE_SETTINGS_STORAGE_KEY);
+        setCGMConnectionState({ type: null });
+        try {
+          const remote = await client.query(api.patientProfile.get, {
+            userId: acc.convexUserId as Id<"users">,
+            passwordHash: acc.passwordHash,
+          });
+          if (remote) {
+            const p = remote as UserProfile;
+            profileRef.current = p;
+            setProfile(p);
+            await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+          }
+          const remoteCgm = await client.query(api.patientCgm.get, {
+            userId: acc.convexUserId as Id<"users">,
+            passwordHash: acc.passwordHash,
+          });
+          if (remoteCgm) {
+            const cgm = remoteCgm as CGMConnection;
+            setCGMConnectionState(cgm);
+            await AsyncStorage.setItem(CGM_KEY, JSON.stringify(cgm));
+          }
+        } catch {
+          /* offline — profile / CGM empty until network */
+        }
+        return true;
+      }
+    } catch {
+      // Offline or Convex error — try legacy single-device account below.
+    }
     const storedRaw = await AsyncStorage.getItem(ACCOUNT_KEY);
     if (!storedRaw) return false;
     const stored = JSON.parse(storedRaw) as UserAccount;
     if (
-      stored.email === email.trim().toLowerCase() &&
-      stored.passwordHash === hashPassword(password)
+      stored.email === normalizedEmail &&
+      stored.passwordHash === passwordHash &&
+      !stored.convexUserId
     ) {
+      accountRef.current = stored;
       setAccount(stored);
       setIsSignedIn(true);
       await AsyncStorage.setItem(SESSION_KEY, "true");
@@ -317,23 +605,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setupProfile = useCallback(async (p: UserProfile) => {
-    setProfile(p);
-    await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(p));
-  }, []);
+    await commitProfile(p);
+  }, [commitProfile]);
 
   const updateProfile = useCallback(async (partial: Partial<UserProfile>) => {
-    setProfile((prev) => {
-      if (!prev) return prev;
-      const updated = { ...prev, ...partial };
-      AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(updated)).catch(() => {});
-      return updated;
-    });
-  }, []);
+    const prev = profileRef.current;
+    if (!prev) return;
+    await commitProfile({ ...prev, ...partial });
+  }, [commitProfile]);
 
   const setCGMConnection = useCallback(async (conn: CGMConnection) => {
-    setCGMConnectionState(conn);
-    await AsyncStorage.setItem(CGM_KEY, JSON.stringify(conn));
-  }, []);
+    await commitCGMConnection(conn);
+  }, [commitCGMConnection]);
 
   const addFoodLogEntry = useCallback((entry: Omit<FoodLogEntry, "id">) => {
     const id = `food_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -366,6 +649,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    profileRef.current = null;
+    accountRef.current = null;
     setProfile(null);
     setAccount(null);
     setCGMConnectionState({ type: null });
@@ -386,6 +671,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       GUARDIAN_PIN_KEY,
       SESSION_KEY,
       ACCOUNT_KEY,
+      GLUCOSE_HISTORY_STORAGE_KEY,
+      GLUCOSE_SETTINGS_STORAGE_KEY,
     ]);
   }, []);
 
@@ -439,30 +726,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [updateProfile]);
 
   const addAccessLogEntry = useCallback(async (action: string, actor: "owner" | "caregiver" | "doctor" = "owner") => {
+    const prev = profileRef.current;
+    if (!prev) return;
     const entry: AccessLogEntry = { id: `log_${Date.now()}`, timestamp: new Date().toISOString(), action, actor };
-    setProfile((prev) => {
-      if (!prev) return prev;
-      const newLog = [...(prev.accessLog ?? []), entry].slice(-50);
-      const updated = { ...prev, accessLog: newLog };
-      AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(updated)).catch(() => {});
-      return updated;
-    });
-  }, []);
+    const newLog = [...(prev.accessLog ?? []), entry].slice(-50);
+    await commitProfile({ ...prev, accessLog: newLog });
+  }, [commitProfile]);
 
   const generateCaregiverCode = useCallback(async (): Promise<string> => {
+    const prev = profileRef.current;
+    if (!prev) return "";
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
     const now = new Date().toISOString();
     const entry: AccessLogEntry = { id: `log_${Date.now()}`, timestamp: now, action: "Caregiver code generated", actor: "owner" };
-    await updateProfile({ caregiverCode: code, caregiverCodeIssuedAt: now });
-    setProfile((prev) => {
-      if (!prev) return prev;
-      const updated = { ...prev, accessLog: [...(prev.accessLog ?? []), entry].slice(-50) };
-      AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(updated)).catch(() => {});
-      return updated;
-    });
+    const updated = {
+      ...prev,
+      caregiverCode: code,
+      caregiverCodeIssuedAt: now,
+      accessLog: [...(prev.accessLog ?? []), entry].slice(-50),
+    };
+    await commitProfile(updated);
     return code;
-  }, [updateProfile]);
+  }, [commitProfile]);
 
   const enterCaregiverMode = useCallback((code: string): boolean => {
     if (!profile?.caregiverCode) return false;
@@ -478,35 +764,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const generateDoctorCode = useCallback(async (): Promise<string> => {
+    const prev = profileRef.current;
+    if (!prev) return "";
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
     const now = new Date().toISOString();
     const entry: AccessLogEntry = { id: `log_${Date.now()}`, timestamp: now, action: "Doctor code generated", actor: "owner" };
-    await updateProfile({ doctorCode: code, doctorCodeIssuedAt: now });
-    setProfile((prev) => {
-      if (!prev) return prev;
-      const updated = { ...prev, accessLog: [...(prev.accessLog ?? []), entry].slice(-50) };
-      AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(updated)).catch(() => {});
-      return updated;
-    });
+    const updated = {
+      ...prev,
+      doctorCode: code,
+      doctorCodeIssuedAt: now,
+      accessLog: [...(prev.accessLog ?? []), entry].slice(-50),
+    };
+    await commitProfile(updated);
     return code;
-  }, [updateProfile]);
+  }, [commitProfile]);
 
   const enterDoctorMode = useCallback((code: string): boolean => {
-    if (!profile?.doctorCode) return false;
-    if (code.trim().toUpperCase() === profile.doctorCode.toUpperCase()) {
-      setDoctorSession(true);
-      const entry: AccessLogEntry = { id: `log_${Date.now()}`, timestamp: new Date().toISOString(), action: "Doctor accessed account", actor: "doctor" };
-      setProfile((prev) => {
-        if (!prev) return prev;
-        const updated = { ...prev, accessLog: [...(prev.accessLog ?? []), entry].slice(-50) };
-        AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(updated)).catch(() => {});
-        return updated;
-      });
-      return true;
-    }
-    return false;
-  }, [profile]);
+    const prev = profileRef.current;
+    if (!prev?.doctorCode) return false;
+    if (code.trim().toUpperCase() !== prev.doctorCode.toUpperCase()) return false;
+    setDoctorSession(true);
+    const entry: AccessLogEntry = {
+      id: `log_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      action: "Doctor accessed account",
+      actor: "doctor",
+    };
+    const updated = { ...prev, accessLog: [...(prev.accessLog ?? []), entry].slice(-50) };
+    void commitProfile(updated);
+    return true;
+  }, [commitProfile]);
 
   const exitDoctorMode = useCallback(() => {
     setDoctorSession(false);
@@ -545,9 +833,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const currentMessages = doctorMessagesRef.current;
     if (!currentProfile?.doctorCode) return;
     try {
-      const apiBase = process.env.EXPO_PUBLIC_DOMAIN
-        ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`
-        : "http://localhost:8080/api";
       const snapshot = {
         accessCode: currentProfile.doctorCode.toUpperCase(),
         profile: {
@@ -574,7 +859,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
         syncedAt: new Date().toISOString(),
       };
-      await fetch(`${apiBase}/doctor/sync`, {
+      await fetch(apiUrl("/api/doctor/sync"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(snapshot),

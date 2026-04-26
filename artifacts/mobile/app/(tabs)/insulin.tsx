@@ -754,7 +754,7 @@ const chartStyles = StyleSheet.create({
 });
 
 type ScreenTab = "predict" | "log";
-type TimeRange = 1 | 3 | 6 | 9 | 12;
+type TimeRange = 3 | 7 | 14 | 30 | 90;
 
 function estimateA1C(avgBg: number): number {
   return Math.round(((avgBg + 46.7) / 28.7) * 10) / 10;
@@ -769,8 +769,8 @@ function a1cLabel(a1c: number): { label: string; emoji: string; color: string } 
 function a1cInsight(avgBg: number, timeRange: TimeRange): string {
   const a1c = estimateA1C(avgBg);
   if (a1c < 7) {
-    if (timeRange <= 3) return `Your estimated A1C is looking great over the last ${timeRange} month${timeRange > 1 ? "s" : ""}. Keep up the current routine!`;
-    return `Excellent glucose control over the last ${timeRange} months. Consistent time-in-range is the key driver.`;
+    if (timeRange <= 7) return `Your estimated A1C is looking great over the last ${timeRange} day${timeRange > 1 ? "s" : ""}. Keep up the current routine!`;
+    return `Excellent glucose control over the last ${timeRange} days. Consistent time-in-range is the key driver.`;
   }
   if (a1c < 8) {
     return `Your A1C estimate suggests some room for improvement. Focus on post-meal control and consistent meal timing to bring this down.`;
@@ -787,7 +787,7 @@ export default function InsulinScreen() {
   const { isMinor, alertPrefs, profile, foodLog, insulinLog, caregiverSession, doctorSession, isChildMode } = useAuth();
 
   const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
-  const [timeRange, setTimeRange] = useState<TimeRange>(3);
+  const [timeRange, setTimeRange] = useState<TimeRange>(14);
 
 
   const [carbInput, setCarbInput] = useState("");
@@ -811,7 +811,7 @@ export default function InsulinScreen() {
   }, [history]);
 
   const rangeReadings = useMemo(() => {
-    const cutoff = Date.now() - timeRange * 30 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - timeRange * 24 * 60 * 60 * 1000;
     return history.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
   }, [history, timeRange]);
 
@@ -824,9 +824,10 @@ export default function InsulinScreen() {
     const pctHigh = Math.round((rangeReadings.filter((r) => r.glucose > HIGH_THRESH).length / rangeReadings.length) * 100);
     const pctLow = Math.round((rangeReadings.filter((r) => r.glucose < LOW_THRESH).length / rangeReadings.length) * 100);
     const a1c = estimateA1C(avg);
-    const foodInRange = (foodLog ?? []).filter((f) => new Date(f.timestamp).getTime() >= Date.now() - timeRange * 30 * 24 * 60 * 60 * 1000);
-    const insulinInRange = (insulinLog ?? []).filter((i) => new Date(i.timestamp).getTime() >= Date.now() - timeRange * 30 * 24 * 60 * 60 * 1000);
-    const totalDays = timeRange * 30;
+    const windowStart = Date.now() - timeRange * 24 * 60 * 60 * 1000;
+    const foodInRange = (foodLog ?? []).filter((f) => new Date(f.timestamp).getTime() >= windowStart);
+    const insulinInRange = (insulinLog ?? []).filter((i) => new Date(i.timestamp).getTime() >= windowStart);
+    const totalDays = timeRange;
     const avgCarbs = foodInRange.length > 0 ? Math.round(foodInRange.reduce((s, f) => s + f.estimatedCarbs, 0) / totalDays) : 0;
     const avgInsulin = insulinInRange.length > 0 ? Math.round((insulinInRange.reduce((s, i) => s + i.units, 0) / totalDays) * 10) / 10 : 0;
     return { avg, tir, pctHigh, pctLow, a1c, avgCarbs, avgInsulin };
@@ -872,7 +873,7 @@ export default function InsulinScreen() {
     router.push({ pathname: "/(tabs)/chat", params: { prompt } });
   }
 
-  const TIME_RANGES: TimeRange[] = [1, 3, 6, 9, 12];
+  const TIME_RANGES: TimeRange[] = [3, 7, 14, 30, 90];
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -930,7 +931,7 @@ export default function InsulinScreen() {
               onPress={() => setTimeRange(r)}
             >
               <Text style={[styles.rangeBtnText, { color: timeRange === r ? "#fff" : colors.textSecondary }]}>
-                {r}M
+                {r}D
               </Text>
             </Pressable>
           ))}
@@ -943,7 +944,7 @@ export default function InsulinScreen() {
           <View style={styles.a1cTop}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.a1cLabel, { color: colors.textSecondary }]}>
-                Estimated A1C · {timeRange}-month avg
+                Estimated A1C · {timeRange}-day avg
               </Text>
               <View style={styles.a1cValueRow}>
                 <Text style={[styles.a1cValue, { color: a1cLabel(rangeStats.a1c).color }]}>

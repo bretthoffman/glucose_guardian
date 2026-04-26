@@ -12,9 +12,10 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { Platform } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { COLORS } from "@/constants/colors";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { GlucoseProvider } from "@/context/GlucoseContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
@@ -98,6 +99,21 @@ function RootLayoutNav() {
       responseListener.current?.remove();
     };
   }, [isLoggedIn, alertPrefs.notificationsEnabled, isWeb]);
+
+  if (isLoading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "#0B1120",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <ActivityIndicator color={COLORS.primary} size="large" />
+      </View>
+    );
+  }
 
   return (
     <Stack screenOptions={{ headerBackTitle: "Back" }}>

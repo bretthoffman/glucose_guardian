@@ -444,14 +444,15 @@ export default function DashboardScreen() {
     }
   }
 
-  function a1cForMonths(months: number): string | null {
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - months);
-    const filtered = history.filter((r) => new Date(r.timestamp) >= cutoff);
+  function a1cForDays(days: number): string | null {
+    const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
+    const filtered = history.filter((r) => new Date(r.timestamp).getTime() >= cutoffMs);
     if (filtered.length < 3) return null;
     const avg = filtered.reduce((s, r) => s + r.glucose, 0) / filtered.length;
     return ((avg + 46.7) / 28.7).toFixed(1);
   }
+
+  const A1C_EXPORT_RANGES = [3, 7, 14, 30, 90] as const;
 
   async function downloadSelectedLogs() {
     setIsSharing(true);
@@ -479,9 +480,9 @@ export default function DashboardScreen() {
       }
       if (dlA1C) {
         lines.push("=== A1C ESTIMATES ===");
-        ([3, 6, 9, 12] as const).forEach((m) => {
-          const val = a1cForMonths(m);
-          lines.push(`${m}-Month A1C Estimate: ${val != null ? `${val}%` : "Not enough data"}`);
+        A1C_EXPORT_RANGES.forEach((d) => {
+          const val = a1cForDays(d);
+          lines.push(`${d}-Day A1C Estimate: ${val != null ? `${val}%` : "Not enough data"}`);
         });
       }
       const content = lines.join("\n");
@@ -502,10 +503,10 @@ export default function DashboardScreen() {
       const name = profile?.childName ?? "Patient";
       const age = ageYears != null ? `${ageYears} yrs old` : "";
       const diabetesType = profile?.diabetesType === "type1" ? "Type 1" : profile?.diabetesType === "type2" ? "Type 2" : "Diabetes";
-      const a1cRows = ([3, 6, 9, 12] as const).map((m) => {
-        const val = a1cForMonths(m);
+      const a1cRows = A1C_EXPORT_RANGES.map((d) => {
+        const val = a1cForDays(d);
         const color = val == null ? "#888" : parseFloat(val) < 7 ? "#22c55e" : parseFloat(val) < 8 ? "#f59e0b" : "#ef4444";
-        return `<tr><td>${m}-Month</td><td style="color:${color};font-weight:700">${val != null ? `${val}%` : "—"}</td><td>${val ? (parseFloat(val) < 7 ? "Good" : parseFloat(val) < 8 ? "Needs Attention" : "High Risk") : "Insufficient data"}</td></tr>`;
+        return `<tr><td>${d}-Day</td><td style="color:${color};font-weight:700">${val != null ? `${val}%` : "—"}</td><td>${val ? (parseFloat(val) < 7 ? "Good" : parseFloat(val) < 8 ? "Needs Attention" : "High Risk") : "Insufficient data"}</td></tr>`;
       }).join("");
       const recentBSRows = [...history].reverse().slice(0, 50).map((r) => {
         const color = r.glucose < 70 ? "#ef4444" : r.glucose < 80 || r.glucose > 180 ? "#f59e0b" : "#22c55e";
@@ -1336,7 +1337,7 @@ export default function DashboardScreen() {
               { label: "Blood Sugar Readings", icon: "activity", value: dlBSLogs, set: setDlBSLogs },
               { label: "Food & Meal Diary", icon: "coffee", value: dlFoodLogs, set: setDlFoodLogs },
               { label: "Insulin Dose Log", icon: "droplet", value: dlInsulinLogs, set: setDlInsulinLogs },
-              { label: "A1C Estimates (3 / 6 / 9 / 12 mo)", icon: "bar-chart-2", value: dlA1C, set: setDlA1C },
+              { label: "A1C Estimates (3 / 7 / 14 / 30 / 90 days)", icon: "bar-chart-2", value: dlA1C, set: setDlA1C },
             ].map((item) => (
               <Pressable
                 key={item.label}

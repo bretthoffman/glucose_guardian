@@ -7,11 +7,15 @@
     "dev": "sh -c 'if [ ! -d node_modules ]; then pnpm install; fi; PORT=${PORT:-5173} BASE_PATH=${BASE_PATH:-/} pnpm --filter @workspace/doctor-portal dev'",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy"
   },
   "private": true,
   "devDependencies": {
-    "typescript": "~5.9.2",
-    "prettier": "^3.8.1"
+    "@types/node": "catalog:",
+    "convex": "^1.35.1",
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.2"
   }
 }

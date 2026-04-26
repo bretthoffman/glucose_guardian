@@ -79,8 +79,9 @@ export default function AuthScreen() {
       try {
         resetGlucoseData();
         await createAccount(trimmedEmail, password);
-      } catch {
-        Alert.alert("Error", "Could not create account. Please try again.");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Could not create account. Please try again.";
+        Alert.alert("Error", msg);
       } finally {
         setIsSubmitting(false);
       }
