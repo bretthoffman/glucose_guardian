@@ -88,6 +88,18 @@ const patientCgmConnections = defineTable({
   updatedAt: v.number(),
 }).index("by_userId", ["userId"]);
 
+/**
+ * Server-only Dexcom Share credentials (API + Convex secret gate).
+ * Not exposed to mobile queries; used for silent session refresh.
+ */
+const patientDexcomCredentials = defineTable({
+  userId: v.id("users"),
+  dexcomUsername: v.string(),
+  dexcomPassword: v.string(),
+  outsideUS: v.boolean(),
+  updatedAt: v.number(),
+}).index("by_userId", ["userId"]);
+
 /** Patient glucose readings (mobile `GlucoseEntry`); dedupe by `userId` + `timestamp`. */
 const patientGlucoseReadings = defineTable({
   userId: v.id("users"),
@@ -105,6 +117,7 @@ export default defineSchema({
   users,
   patientProfiles,
   patientCgmConnections,
+  patientDexcomCredentials,
   patientGlucoseReadings,
   doctorPortalState: defineTable({
     accessCode: v.string(),

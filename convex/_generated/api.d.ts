@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as doctor from "../doctor.js";
 import type * as patientCgm from "../patientCgm.js";
+import type * as patientDexcomSecrets from "../patientDexcomSecrets.js";
 import type * as patientGlucose from "../patientGlucose.js";
 import type * as patientProfile from "../patientProfile.js";
 
@@ -24,6 +25,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   doctor: typeof doctor;
   patientCgm: typeof patientCgm;
+  patientDexcomSecrets: typeof patientDexcomSecrets;
   patientGlucose: typeof patientGlucose;
   patientProfile: typeof patientProfile;
 }>;

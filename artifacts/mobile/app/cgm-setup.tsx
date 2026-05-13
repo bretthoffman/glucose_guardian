@@ -28,7 +28,7 @@ export default function CGMSetupScreen() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { cgmConnection, setCGMConnection } = useAuth();
+  const { cgmConnection, setCGMConnection, account } = useAuth();
 
   const [selectedType, setSelectedType] = useState<CGMType>(
     (cgmConnection.type as CGMType) ?? "dexcom"
@@ -89,6 +89,31 @@ export default function CGMSetupScreen() {
         connectedAt: new Date().toISOString(),
       });
 
+      if (selectedType === "dexcom" && account?.convexUserId && account.passwordHash) {
+        try {
+          const storeRes = await fetch(apiUrl("/api/cgm/dexcom/credentials"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: account.convexUserId,
+              passwordHash: account.passwordHash,
+              username: username.trim(),
+              password,
+              outsideUS,
+            }),
+          });
+          if (!storeRes.ok) {
+            console.warn(
+              "[Glucose Guardian] Dexcom credential backup to server failed; CGM connection is still active.",
+            );
+          }
+        } catch {
+          console.warn(
+            "[Glucose Guardian] Dexcom credential backup to server failed; CGM connection is still active.",
+          );
+        }
+      }
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)");
     } catch {
@@ -109,10 +134,27 @@ export default function CGMSetupScreen() {
           style: "destructive",
           onPress: async () => {
             setIsDisconnecting(true);
-            await setCGMConnection({ type: null });
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setIsDisconnecting(false);
-            router.back();
+            try {
+              if (cgmConnection.type === "dexcom" && account?.convexUserId && account.passwordHash) {
+                try {
+                  await fetch(apiUrl("/api/cgm/dexcom/clear-credentials"), {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      userId: account.convexUserId,
+                      passwordHash: account.passwordHash,
+                    }),
+                  });
+                } catch {
+                  /* non-fatal — local disconnect still proceeds */
+                }
+              }
+              await setCGMConnection({ type: null });
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              router.back();
+            } finally {
+              setIsDisconnecting(false);
+            }
           },
         },
       ]

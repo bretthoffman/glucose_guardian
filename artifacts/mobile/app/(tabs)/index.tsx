@@ -133,7 +133,7 @@ export default function HomeScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose } = useGlucose();
-  const { profile, cgmConnection, emergencyContacts, alertPrefs } = useAuth();
+  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, setCGMConnection } = useAuth();
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -203,24 +203,87 @@ export default function HomeScreen() {
         cgmConnection.type === "dexcom" ? "/api/cgm/dexcom/readings" : "/api/cgm/libre/readings";
       const coverageMs = historyOldestRef.current > 0 ? Date.now() - historyOldestRef.current : 0;
       const needsBackfill = historyLenRef.current < 20 || coverageMs < FULL_WINDOW_MS - 30 * 60 * 1000;
-      const body =
+      const dexcomCount = needsBackfill ? 288 : 5;
+      const initialBody =
         cgmConnection.type === "dexcom"
-          ? { sessionId: cgmConnection.sessionId, outsideUS: cgmConnection.outsideUS, count: needsBackfill ? 288 : 5 }
+          ? {
+              sessionId: cgmConnection.sessionId,
+              outsideUS: cgmConnection.outsideUS,
+              count: dexcomCount,
+            }
           : { token: cgmConnection.token };
 
-      const res = await fetch(apiUrl(endpoint), {
+      let res = await fetch(apiUrl(endpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(initialBody),
       });
 
+      let errMessage: string | undefined;
       if (!res.ok) {
-        let errMessage: string | undefined;
         try {
           const err = await res.json();
           errMessage = err?.error;
         } catch {
           /* non-JSON error body */
+        }
+        const isSessionExpired =
+          res.status === 401 || (errMessage ? /session|expired|reconnect/i.test(errMessage) : false);
+
+        if (
+          cgmConnection.type === "dexcom" &&
+          isSessionExpired &&
+          account?.convexUserId &&
+          account.passwordHash
+        ) {
+          try {
+            const refreshRes = await fetch(apiUrl("/api/cgm/dexcom/refresh-session"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userId: account.convexUserId,
+                passwordHash: account.passwordHash,
+              }),
+            });
+            if (refreshRes.ok) {
+              const refreshData = (await refreshRes.json()) as {
+                sessionId?: string;
+                outsideUS?: boolean;
+              };
+              if (refreshData.sessionId) {
+                const nextOutsideUS = refreshData.outsideUS ?? cgmConnection.outsideUS ?? false;
+                await setCGMConnection({
+                  type: "dexcom",
+                  sessionId: refreshData.sessionId,
+                  outsideUS: nextOutsideUS,
+                  connectedAt: new Date().toISOString(),
+                });
+                res = await fetch(apiUrl(endpoint), {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    sessionId: refreshData.sessionId,
+                    outsideUS: nextOutsideUS,
+                    count: dexcomCount,
+                  }),
+                });
+                errMessage = undefined;
+              }
+            }
+          } catch {
+            /* fall through to error handling */
+          }
+        }
+      }
+
+      if (!res.ok) {
+        if (errMessage === undefined) {
+          try {
+            const err = await res.json();
+            errMessage = err?.error;
+          } catch {
+            /* non-JSON error body */
+          }
         }
         const isSessionExpired =
           res.status === 401 || (errMessage ? /session|expired|reconnect/i.test(errMessage) : false);
@@ -330,7 +393,7 @@ export default function HomeScreen() {
       setIsSyncingCGM(false);
       setIsAutoSyncing(false);
     }
-  }, [cgmConnection, bulkAddReadings, setCgmLatestReading, alertPrefs, profile]);
+  }, [cgmConnection, bulkAddReadings, setCgmLatestReading, alertPrefs, profile, account, setCGMConnection]);
 
   useEffect(() => {
     if (!isConnected) return;

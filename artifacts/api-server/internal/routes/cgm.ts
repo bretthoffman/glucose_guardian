@@ -1,4 +1,11 @@
 import { Router, type IRouter } from "express";
+import { api } from "../../../../convex/_generated/api.js";
+import {
+  createConvexPatientBackendClient,
+  getConvexPatientBackendSecret,
+  isConvexPatientBackendConfigured,
+} from "../convex-patient-backend.js";
+import { dexcomShareLogin } from "../dexcom-share-login.js";
 
 const router: IRouter = Router();
 
@@ -8,115 +15,164 @@ const LIBRE_BASE = "https://api.libreview.io";
 
 const DEXCOM_HEADERS = {
   "Content-Type": "application/json",
-  "Accept": "application/json",
+  Accept: "application/json",
   "User-Agent": "Dexcom Share/3.0.2.11 CFNetwork/978.0.7 Darwin/18.7.0",
-};
+} as const;
 
 const LIBRE_HEADERS = {
   "Content-Type": "application/json",
   "Accept-Encoding": "gzip",
   "Cache-Control": "no-cache",
-  "Connection": "Keep-Alive",
-  "product": "llu.android",
-  "version": "4.7.0",
+  Connection: "Keep-Alive",
+  product: "llu.android",
+  version: "4.7.0",
 };
 
 router.post("/dexcom/connect", async (req, res) => {
   try {
-    const { username, password, outsideUS = false } = req.body;
-    if (!username || !password) {
-      res.status(400).json({ error: "Username and password required" });
-      return;
-    }
-
-    const base = outsideUS ? DEXCOM_BASE_OUS : DEXCOM_BASE;
-    const appId = "d8665ade-9673-4e27-9ff6-92db4ce13d13";
-
-    // Step 1: Authenticate to get account ID
-    const authResp = await fetch(`${base}/General/AuthenticatePublisherAccount`, {
-      method: "POST",
-      headers: DEXCOM_HEADERS,
-      body: JSON.stringify({ accountName: username, password, applicationId: appId }),
+    const { username, password, outsideUS = false } = req.body ?? {};
+    const result = await dexcomShareLogin({
+      username,
+      password,
+      outsideUS: Boolean(outsideUS),
     });
-
-    const authText = await authResp.text();
-    console.log("Dexcom auth response:", authResp.status, authText.slice(0, 200));
-
-    if (!authResp.ok) {
-      let msg = "Could not sign in to Dexcom. Check your email and password.";
-      try {
-        const parsed = JSON.parse(authText);
-        const code = parsed?.Code ?? "";
-        if (code === "AccountPasswordInvalid") {
-          msg = "Incorrect password. Check the password for your Dexcom account.";
-        } else if (code === "AccountNotFound") {
-          msg = "No Dexcom account found with that email. Make sure you're using the email you log into the Dexcom app with.";
-        } else if (code === "AccountLockout") {
-          msg = "Your Dexcom account is temporarily locked due to too many failed attempts. Try again in a few minutes.";
-        } else if (parsed?.Message) {
-          msg = parsed.Message;
-        } else if (typeof parsed === "string" && parsed.length < 200) {
-          msg = parsed;
-        }
-      } catch {}
-      res.status(401).json({ error: msg });
+    if (!result.ok) {
+      res.status(result.httpStatus).json({ error: result.error });
       return;
     }
-
-    let accountId: string;
-    try {
-      accountId = JSON.parse(authText);
-    } catch {
-      accountId = authText.replace(/^"|"$/g, "").trim();
-    }
-
-    if (!accountId || typeof accountId !== "string" || accountId.length < 10) {
-      res.status(401).json({ error: "Could not get Dexcom account ID. Check your credentials." });
-      return;
-    }
-
-    // Step 2: Login with account ID to get session ID
-    const loginResp = await fetch(`${base}/General/LoginPublisherAccountById`, {
-      method: "POST",
-      headers: DEXCOM_HEADERS,
-      body: JSON.stringify({ accountId, password, applicationId: appId }),
-    });
-
-    const loginText = await loginResp.text();
-    console.log("Dexcom login response:", loginResp.status, loginText.slice(0, 200));
-
-    if (!loginResp.ok) {
-      let msg = "Dexcom login failed. Please try again.";
-      try {
-        const parsed = JSON.parse(loginText);
-        if (parsed?.Message) msg = parsed.Message;
-      } catch {}
-      res.status(401).json({ error: msg });
-      return;
-    }
-
-    let sessionId: string;
-    try {
-      sessionId = JSON.parse(loginText);
-    } catch {
-      sessionId = loginText.replace(/^"|"$/g, "").trim();
-    }
-
-    if (!sessionId || typeof sessionId !== "string" || sessionId.length < 10) {
-      res.status(401).json({ error: "Invalid Dexcom session returned. Please try again." });
-      return;
-    }
-
-    res.json({ sessionId, outsideUS });
+    res.json({ sessionId: result.sessionId, outsideUS: result.outsideUS });
   } catch (err) {
-    console.error("Dexcom connect error:", err);
+    console.error("Dexcom connect error:", err instanceof Error ? err.message : "unknown");
     res.status(500).json({ error: "Could not reach Dexcom servers. Check your internet connection." });
+  }
+});
+
+router.post("/dexcom/credentials", async (req, res) => {
+  try {
+    if (!isConvexPatientBackendConfigured()) {
+      res.status(503).json({ error: "Dexcom credential storage is not configured on this server." });
+      return;
+    }
+    const { userId, passwordHash, username, password, outsideUS = false } = req.body ?? {};
+    if (!userId || !passwordHash || !username || !password) {
+      res.status(400).json({ error: "userId, passwordHash, username, and password are required" });
+      return;
+    }
+    const client = createConvexPatientBackendClient();
+    const secret = getConvexPatientBackendSecret();
+    try {
+      await client.mutation(api.patientDexcomSecrets.upsertCredentials, {
+        serverSecret: secret,
+        userId,
+        passwordHash,
+        dexcomUsername: String(username).trim(),
+        dexcomPassword: String(password),
+        outsideUS: Boolean(outsideUS),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg === "Unauthorized" || msg.includes("Unauthorized patient backend")) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      throw e;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Dexcom credentials store error:", err instanceof Error ? err.message : "unknown");
+    res.status(500).json({ error: "Could not store Dexcom credentials." });
+  }
+});
+
+router.post("/dexcom/refresh-session", async (req, res) => {
+  try {
+    if (!isConvexPatientBackendConfigured()) {
+      res.status(503).json({ error: "Dexcom credential storage is not configured on this server." });
+      return;
+    }
+    const { userId, passwordHash } = req.body ?? {};
+    if (!userId || !passwordHash) {
+      res.status(400).json({ error: "userId and passwordHash are required" });
+      return;
+    }
+    const client = createConvexPatientBackendClient();
+    const secret = getConvexPatientBackendSecret();
+    let creds: {
+      dexcomUsername: string;
+      dexcomPassword: string;
+      outsideUS: boolean;
+    } | null;
+    try {
+      creds = await client.mutation(api.patientDexcomSecrets.getCredentialsForServer, {
+        serverSecret: secret,
+        userId,
+        passwordHash,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.includes("Unauthorized patient backend")) {
+        res.status(503).json({ error: "Server configuration error." });
+        return;
+      }
+      throw e;
+    }
+    if (!creds) {
+      res.status(401).json({ error: "No stored Dexcom credentials or unauthorized." });
+      return;
+    }
+    const login = await dexcomShareLogin({
+      username: creds.dexcomUsername,
+      password: creds.dexcomPassword,
+      outsideUS: creds.outsideUS,
+    });
+    if (!login.ok) {
+      res.status(login.httpStatus).json({ error: login.error });
+      return;
+    }
+    res.json({ sessionId: login.sessionId, outsideUS: login.outsideUS });
+  } catch (err) {
+    console.error("Dexcom refresh-session error:", err instanceof Error ? err.message : "unknown");
+    res.status(500).json({ error: "Could not refresh Dexcom session." });
+  }
+});
+
+router.post("/dexcom/clear-credentials", async (req, res) => {
+  try {
+    if (!isConvexPatientBackendConfigured()) {
+      res.json({ ok: true });
+      return;
+    }
+    const { userId, passwordHash } = req.body ?? {};
+    if (!userId || !passwordHash) {
+      res.status(400).json({ error: "userId and passwordHash are required" });
+      return;
+    }
+    const client = createConvexPatientBackendClient();
+    const secret = getConvexPatientBackendSecret();
+    try {
+      await client.mutation(api.patientDexcomSecrets.clearCredentials, {
+        serverSecret: secret,
+        userId,
+        passwordHash,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg === "Unauthorized" || msg.includes("Unauthorized patient backend")) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      throw e;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Dexcom clear-credentials error:", err instanceof Error ? err.message : "unknown");
+    res.status(500).json({ error: "Could not clear stored Dexcom credentials." });
   }
 });
 
 router.post("/dexcom/readings", async (req, res) => {
   try {
-    const { sessionId, outsideUS = false, count = 10 } = req.body;
+    const { sessionId, outsideUS = false, count = 10 } = req.body ?? {};
     if (!sessionId) {
       res.status(400).json({ error: "sessionId required" });
       return;
@@ -131,21 +187,27 @@ router.post("/dexcom/readings", async (req, res) => {
     });
 
     const rawText = await response.text();
-    console.log("Dexcom readings response:", response.status, rawText.slice(0, 300));
+    if (!response.ok) {
+      console.log("Dexcom readings: non-OK status", response.status);
+    } else {
+      console.log("Dexcom readings: OK", response.status);
+    }
 
     if (!response.ok) {
       let msg = "Session expired. Please reconnect Dexcom.";
       try {
-        const parsed = JSON.parse(rawText);
+        const parsed = JSON.parse(rawText) as { Message?: string };
         if (parsed?.Message) msg = parsed.Message;
-        else if (typeof parsed === "string") {
-          if (parsed.includes("SessionNotValid") || parsed.includes("session")) {
+        else if (typeof rawText === "string") {
+          if (rawText.includes("SessionNotValid") || rawText.toLowerCase().includes("session")) {
             msg = "Dexcom session expired. Please reconnect.";
-          } else {
-            msg = parsed;
+          } else if (rawText.length < 200) {
+            msg = rawText;
           }
         }
-      } catch {}
+      } catch {
+        /* keep default */
+      }
       res.status(401).json({ error: msg });
       return;
     }
@@ -167,28 +229,29 @@ router.post("/dexcom/readings", async (req, res) => {
       return;
     }
 
-    const readings = data.map((item) => {
+    const readings = data.map((item: Record<string, unknown>) => {
       let timestamp: string;
       try {
-        const raw = item.ST ?? item.WT ?? "";
-        const match = raw.match(/Date\((\d+)/);
-        const ms = match ? parseInt(match[1]) : NaN;
+        const raw = (item.ST ?? item.WT ?? "") as string;
+        const match = String(raw).match(/Date\((\d+)/);
+        const ms = match ? parseInt(match[1]!, 10) : NaN;
         timestamp = isNaN(ms) ? new Date().toISOString() : new Date(ms).toISOString();
       } catch {
         timestamp = new Date().toISOString();
       }
+      const value = (item.Value ?? item.value ?? 0) as number;
       return {
-        glucose: item.Value ?? item.value ?? 0,
+        glucose: value,
         timestamp,
         trend: item.Trend ?? item.trend ?? 0,
         anomaly: {
-          warning: (item.Value ?? 0) < 70 || (item.Value ?? 0) > 240,
+          warning: value < 70 || value > 240,
           message:
-            (item.Value ?? 0) < 70
-              ? `Low glucose: ${item.Value} mg/dL`
-              : (item.Value ?? 0) > 240
-              ? `High glucose: ${item.Value} mg/dL`
-              : undefined,
+            value < 70
+              ? `Low glucose: ${value} mg/dL`
+              : value > 240
+                ? `High glucose: ${value} mg/dL`
+                : undefined,
         },
       };
     });
@@ -197,65 +260,78 @@ router.post("/dexcom/readings", async (req, res) => {
 
     res.json({ readings });
   } catch (err) {
-    console.error("Dexcom readings error:", err);
+    console.error("Dexcom readings error:", err instanceof Error ? err.message : "unknown");
     res.status(500).json({ error: "Could not fetch Dexcom readings. Check your connection and try again." });
   }
 });
 
 router.post("/libre/connect", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.body ?? {};
     if (!email || !password) {
       res.status(400).json({ error: "Email and password required" });
       return;
     }
 
-    // Step 1: Initial login — may return a regional redirect
     const loginUrl = `${LIBRE_BASE}/llu/auth/login`;
     const loginBody = JSON.stringify({ email, password });
 
     let loginResp = await fetch(loginUrl, {
       method: "POST",
-      headers: { ...LIBRE_HEADERS, "Accept": "application/json" },
+      headers: { ...LIBRE_HEADERS, Accept: "application/json" },
       body: loginBody,
     });
 
     let loginText = await loginResp.text();
     console.log("Libre login response:", loginResp.status, loginText.slice(0, 300));
 
-    let loginData: any;
-    try { loginData = JSON.parse(loginText); } catch { loginData = null; }
+    let loginData: Record<string, unknown> | null;
+    try {
+      loginData = JSON.parse(loginText) as Record<string, unknown>;
+    } catch {
+      loginData = null;
+    }
 
-    // Step 2: Handle regional redirect (status 2 = redirect to region-specific server)
-    if (loginData?.status === 2 && loginData?.data?.redirect === true) {
-      const region: string = loginData.data.region ?? "us";
+    if (loginData?.status === 2 && (loginData.data as Record<string, unknown> | undefined)?.redirect === true) {
+      const region = String((loginData.data as { region?: string })?.region ?? "us");
       const regionalBase = `https://api.${region}.libreview.io`;
-      console.log(`Libre redirect to region: ${region} (${regionalBase})`);
+      console.log("Libre redirect to region:", region);
 
       loginResp = await fetch(`${regionalBase}/llu/auth/login`, {
         method: "POST",
-        headers: { ...LIBRE_HEADERS, "Accept": "application/json" },
+        headers: { ...LIBRE_HEADERS, Accept: "application/json" },
         body: loginBody,
       });
 
       loginText = await loginResp.text();
       console.log("Libre regional login response:", loginResp.status, loginText.slice(0, 300));
-      try { loginData = JSON.parse(loginText); } catch { loginData = null; }
+      try {
+        loginData = JSON.parse(loginText) as Record<string, unknown>;
+      } catch {
+        loginData = null;
+      }
     }
 
     if (!loginResp.ok) {
-      const msg = loginData?.message ?? loginData?.error ?? "Invalid LibreLink credentials. Check your email and password.";
+      const msg =
+        (loginData?.message as string | undefined) ??
+        (loginData?.error as string | undefined) ??
+        "Invalid LibreLink credentials. Check your email and password.";
       res.status(401).json({ error: msg });
       return;
     }
 
-    const token = loginData?.data?.authTicket?.token;
-    const accountId = loginData?.data?.user?.id;
+    const token = (loginData?.data as { authTicket?: { token?: string } } | undefined)?.authTicket?.token;
 
     if (!token) {
-      res.status(401).json({ error: "Could not authenticate with LibreLink Up. Make sure LibreLinkUp Sharing is enabled in your LibreLink app." });
+      res.status(401).json({
+        error:
+          "Could not authenticate with LibreLink Up. Make sure LibreLinkUp Sharing is enabled in your LibreLink app.",
+      });
       return;
     }
+
+    const accountId = (loginData?.data as { user?: { id?: string } } | undefined)?.user?.id;
 
     res.json({ token, accountId });
   } catch (err) {
@@ -266,14 +342,14 @@ router.post("/libre/connect", async (req, res) => {
 
 router.post("/libre/readings", async (req, res) => {
   try {
-    const { token } = req.body;
+    const { token } = req.body ?? {};
     if (!token) {
       res.status(400).json({ error: "token required" });
       return;
     }
 
     const connectionsResp = await fetch(`${LIBRE_BASE}/llu/connections`, {
-      headers: { ...LIBRE_HEADERS, "Authorization": `Bearer ${token}`, "Accept": "application/json" },
+      headers: { ...LIBRE_HEADERS, Authorization: `Bearer ${token}`, Accept: "application/json" },
     });
 
     if (!connectionsResp.ok) {
@@ -281,16 +357,16 @@ router.post("/libre/readings", async (req, res) => {
       return;
     }
 
-    const connections: any = await connectionsResp.json();
+    const connections = (await connectionsResp.json()) as { data?: { patientId?: string }[] };
     const patients = connections?.data ?? [];
     if (patients.length === 0) {
       res.json({ readings: [] });
       return;
     }
 
-    const patientId = patients[0].patientId;
+    const patientId = patients[0]!.patientId;
     const graphResp = await fetch(`${LIBRE_BASE}/llu/connections/${patientId}/graph`, {
-      headers: { ...LIBRE_HEADERS, "Authorization": `Bearer ${token}`, "Accept": "application/json" },
+      headers: { ...LIBRE_HEADERS, Authorization: `Bearer ${token}`, Accept: "application/json" },
     });
 
     if (!graphResp.ok) {
@@ -298,14 +374,14 @@ router.post("/libre/readings", async (req, res) => {
       return;
     }
 
-    const graphData: any = await graphResp.json();
+    const graphData = (await graphResp.json()) as { data?: { graphData?: Record<string, unknown>[] } };
     const rawReadings = graphData?.data?.graphData ?? [];
 
-    const readings = rawReadings.map((item: any) => {
-      const glucose = item.ValueInMgPerDl ?? item.Value;
+    const readings = rawReadings.map((item) => {
+      const glucose = (item.ValueInMgPerDl ?? item.Value) as number;
       return {
         glucose,
-        timestamp: new Date(item.Timestamp * 1000).toISOString(),
+        timestamp: new Date((item.Timestamp as number) * 1000).toISOString(),
         trend: item.TrendArrow,
         anomaly: {
           warning: glucose < 70 || glucose > 240,
@@ -313,8 +389,8 @@ router.post("/libre/readings", async (req, res) => {
             glucose < 70
               ? `Low glucose: ${glucose} mg/dL`
               : glucose > 240
-              ? `High glucose: ${glucose} mg/dL`
-              : undefined,
+                ? `High glucose: ${glucose} mg/dL`
+                : undefined,
         },
       };
     });
