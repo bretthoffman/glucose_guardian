@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { Animated, Easing, StyleSheet, Text, View, useColorScheme } from "react-native";
 import { COLORS } from "@/constants/colors";
 import Colors from "@/constants/colors";
@@ -16,6 +16,8 @@ interface Props {
   trend?: GlucoseTrend;
   lowThreshold?: number;
   highThreshold?: number;
+  /** Oldest → newest; drives thin expanding ripple color + speed only. */
+  recentReadings?: { glucose: number; timestamp: string }[];
 }
 
 function getGlucoseStatus(value: number, lowThreshold = 80, highThreshold = 180): {
@@ -56,21 +58,61 @@ function getTrendColor(trend: GlucoseTrend, glucoseStatusColor: string): string 
   return glucoseStatusColor;
 }
 
-function getPulseConfig(trend: GlucoseTrend | undefined) {
-  if (trend === "rapidly_rising" || trend === "rapidly_falling") {
-    return { toScale: 1.06, ringDuration: 340, rippleDuration: 900 };
-  }
-  if (trend === "rising" || trend === "falling") {
-    return { toScale: 1.035, ringDuration: 650, rippleDuration: 1300 };
-  }
-  return { toScale: 1.018, ringDuration: 1400, rippleDuration: 2200 };
+/** mg/dL per minute from the two newest points (absolute change / elapsed minutes). */
+function computeAbsRateMgPerMin(readings: { glucose: number; timestamp: string }[]): number | null {
+  if (readings.length < 2) return null;
+  const prev = readings[readings.length - 2]!;
+  const last = readings[readings.length - 1]!;
+  const t0 = new Date(prev.timestamp).getTime();
+  const t1 = new Date(last.timestamp).getTime();
+  if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return null;
+  const dtMin = Math.max((t1 - t0) / 60_000, 0.5);
+  return Math.abs(last.glucose - prev.glucose) / dtMin;
 }
 
-export function GlucoseGauge({ value, size = 180, trend, lowThreshold = 80, highThreshold = 180 }: Props) {
+/** Below = slow (green); between = moderate (amber); at or above = fast (red). */
+const MOVEMENT_SLOW_MAX = 0.75;
+const MOVEMENT_MODERATE_MAX = 2.0;
+
+function getMovementPulseVisuals(rate: number | null): { ringColor: string; rippleDuration: number } {
+  if (rate == null || rate < MOVEMENT_SLOW_MAX) {
+    return { ringColor: COLORS.glucose.normal, rippleDuration: 2600 };
+  }
+  if (rate < MOVEMENT_MODERATE_MAX) {
+    return { ringColor: COLORS.warning, rippleDuration: 2150 };
+  }
+  return { ringColor: COLORS.danger, rippleDuration: 850 };
+}
+
+/** Thick ring “breathing” scale/timing — glucose range colors the stroke, not movement. */
+const MAIN_RING_PULSE_TO = 1.015;
+const MAIN_RING_PULSE_MS = 1750;
+
+export function GlucoseGauge({
+  value,
+  size = 180,
+  trend,
+  lowThreshold = 80,
+  highThreshold = 180,
+  recentReadings,
+}: Props) {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const status = getGlucoseStatus(value, lowThreshold, highThreshold);
+
+  const movementDep =
+    recentReadings && recentReadings.length >= 2
+      ? `${recentReadings[recentReadings.length - 2]!.timestamp}:${recentReadings[recentReadings.length - 2]!.glucose}|${recentReadings[recentReadings.length - 1]!.timestamp}:${recentReadings[recentReadings.length - 1]!.glucose}`
+      : "";
+
+  const movementVisuals = useMemo(() => {
+    const rate = recentReadings && recentReadings.length >= 2 ? computeAbsRateMgPerMin(recentReadings) : null;
+    return getMovementPulseVisuals(rate);
+  }, [movementDep]);
+
+  const pulseRingColor = movementVisuals.ringColor;
+  const mainRingColor = status.color;
 
   const ringStroke = Math.round(size * 0.07);
   const innerSize = size - ringStroke * 2;
@@ -82,7 +124,7 @@ export function GlucoseGauge({ value, size = 180, trend, lowThreshold = 80, high
   const r2Opacity  = useRef(new Animated.Value(0.65)).current;
 
   useEffect(() => {
-    const { toScale, ringDuration, rippleDuration } = getPulseConfig(trend);
+    const { rippleDuration } = movementVisuals;
 
     ringPulse.setValue(1);
     r1Scale.setValue(1);
@@ -93,14 +135,14 @@ export function GlucoseGauge({ value, size = 180, trend, lowThreshold = 80, high
     const ringAnim = Animated.loop(
       Animated.sequence([
         Animated.timing(ringPulse, {
-          toValue: toScale,
-          duration: ringDuration,
+          toValue: MAIN_RING_PULSE_TO,
+          duration: MAIN_RING_PULSE_MS,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
         Animated.timing(ringPulse, {
           toValue: 1,
-          duration: ringDuration,
+          duration: MAIN_RING_PULSE_MS,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
@@ -155,7 +197,7 @@ export function GlucoseGauge({ value, size = 180, trend, lowThreshold = 80, high
       ripple1.stop();
       clearTimeout(t);
     };
-  }, [trend]);
+  }, [movementVisuals]);
 
   const trendColor = trend ? getTrendColor(trend, status.color) : null;
 
@@ -169,7 +211,7 @@ export function GlucoseGauge({ value, size = 180, trend, lowThreshold = 80, high
             height: size,
             borderRadius: size / 2,
             borderWidth: 2,
-            borderColor: status.color + "55",
+            borderColor: pulseRingColor + "55",
             transform: [{ scale: r1Scale }],
             opacity: r1Opacity,
           }}
@@ -181,7 +223,7 @@ export function GlucoseGauge({ value, size = 180, trend, lowThreshold = 80, high
             height: size,
             borderRadius: size / 2,
             borderWidth: 1.5,
-            borderColor: status.color + "35",
+            borderColor: pulseRingColor + "35",
             transform: [{ scale: r2Scale }],
             opacity: r2Opacity,
           }}
@@ -194,7 +236,7 @@ export function GlucoseGauge({ value, size = 180, trend, lowThreshold = 80, high
             height: size,
             borderRadius: size / 2,
             borderWidth: ringStroke,
-            borderColor: status.color,
+            borderColor: mainRingColor,
             backgroundColor: "transparent",
             transform: [{ scale: ringPulse }],
           }}

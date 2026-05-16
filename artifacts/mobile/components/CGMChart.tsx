@@ -28,6 +28,9 @@ export const RANGE_MS: Record<TimeRange, number> = {
   "24H": 24 * 60 * 60 * 1000,
 };
 
+/** Dexcom-style CGM is ~5 min per point; beyond this delta we treat time as discontinuous and skip the line segment. */
+const CHART_LINE_GAP_BREAK_MS = 20 * 60 * 1000;
+
 export interface CGMReading {
   glucose: number;
   timestamp: string;
@@ -105,6 +108,12 @@ export function CGMChart({
     glucose: r.glucose,
   }));
 
+  const gapAfterIndex: boolean[] = filtered.map((r, i) => {
+    if (i >= filtered.length - 1) return false;
+    const dt = new Date(filtered[i + 1].timestamp).getTime() - new Date(r.timestamp).getTime();
+    return dt > CHART_LINE_GAP_BREAK_MS;
+  });
+
   const urgentLowLineY = yPct(urgentLowThreshold) * CHART_INNER_H;
   const lowLineY = yPct(lowThreshold) * CHART_INNER_H;
   const highLineY = yPct(highThreshold) * CHART_INNER_H;
@@ -159,6 +168,7 @@ export function CGMChart({
             <>
               {points.map((p, i) => {
                 if (i >= points.length - 1) return null;
+                if (gapAfterIndex[i]) return null;
                 const next = points[i + 1];
                 const dx = next.x - p.x;
                 const dy = next.y - p.y;
@@ -168,70 +178,45 @@ export function CGMChart({
                 const col = glucoseColor((p.glucose + next.glucose) / 2, lowThreshold, highThreshold, urgentLowThreshold);
                 const midY = (p.y + next.y) / 2;
                 return (
-                  <React.Fragment key={`seg-${i}`}>
-                    <View
-                      style={[
-                        styles.segmentGlow,
-                        {
-                          width: len + 4,
-                          left: p.x - 2,
-                          top: midY - 6,
-                          backgroundColor: col + "38",
-                          transform: [{ rotate: `${angle}deg` }],
-                        },
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.segment,
-                        {
-                          width: len,
-                          left: p.x,
-                          top: midY - 2.5,
-                          backgroundColor: col,
-                          transform: [{ rotate: `${angle}deg` }],
-                        },
-                      ]}
-                    />
-                  </React.Fragment>
+                  <View
+                    key={`seg-${i}`}
+                    style={[
+                      styles.segment,
+                      {
+                        width: len,
+                        left: p.x,
+                        top: midY - 2.5,
+                        backgroundColor: col,
+                        transform: [{ rotate: `${angle}deg` }],
+                      },
+                    ]}
+                  />
                 );
               })}
 
               {points.map((p, i) => {
                 const isLatest = i === points.length - 1;
                 const stride = points.length > 72 ? 4 : points.length > 36 ? 3 : points.length > 18 ? 2 : 1;
-                if (!isLatest && i % stride !== 0) return null;
+                const atLineBreak =
+                  (i > 0 && gapAfterIndex[i - 1]) || gapAfterIndex[i];
+                if (!isLatest && i % stride !== 0 && !atLineBreak) return null;
                 const col = glucoseColor(p.glucose, lowThreshold, highThreshold, urgentLowThreshold);
-                const sz = isLatest ? 13 : 3;
+                const sz = isLatest ? 7 : 2;
                 return (
-                  <React.Fragment key={`dot-${i}`}>
-                    {isLatest && (
-                      <View
-                        style={{
-                          position: "absolute",
-                          left: p.x - 10,
-                          top: p.y - 10,
-                          width: 20,
-                          height: 20,
-                          borderRadius: 10,
-                          backgroundColor: col + "30",
-                        }}
-                      />
-                    )}
-                    <View
-                      style={{
-                        position: "absolute",
-                        left: p.x - sz / 2,
-                        top: p.y - sz / 2,
-                        width: sz,
-                        height: sz,
-                        borderRadius: sz / 2,
-                        backgroundColor: col,
-                        borderWidth: isLatest ? 2 : 0,
-                        borderColor: isLatest ? "#fff" : undefined,
-                      }}
-                    />
-                  </React.Fragment>
+                  <View
+                    key={`dot-${i}`}
+                    style={{
+                      position: "absolute",
+                      left: p.x - sz / 2,
+                      top: p.y - sz / 2,
+                      width: sz,
+                      height: sz,
+                      borderRadius: sz / 2,
+                      backgroundColor: col,
+                      borderWidth: isLatest ? 2 : 0,
+                      borderColor: isLatest ? "#fff" : undefined,
+                    }}
+                  />
                 );
               })}
             </>
@@ -334,12 +319,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(99,102,241,0.60)",
   },
 
-  segmentGlow: {
-    position: "absolute",
-    height: 12,
-    borderRadius: 6,
-    transformOrigin: "left center",
-  },
   segment: {
     position: "absolute",
     height: 5,

@@ -22,8 +22,8 @@ function NativeTabLayout() {
       </NativeTabs.Trigger>
       {!hidePredictTab && (
         <NativeTabs.Trigger name="insulin">
-          <Icon sf={{ default: "chart.line.uptrend.xyaxis", selected: "chart.line.uptrend.xyaxis.circle.fill" }} />
-          <Label>Predict</Label>
+          <Icon sf={{ default: "cross.vial", selected: "cross.vial.fill" }} />
+          <Label>Dose</Label>
         </NativeTabs.Trigger>
       )}
       {!hideFoodTab && (
@@ -101,13 +101,13 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="insulin"
         options={{
-          title: "Predict",
+          title: "Dose",
           tabBarButton: hidePredictTab ? () => null : undefined,
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="chart.line.uptrend.xyaxis" tintColor={color} size={22} />
+              <SymbolView name="cross.vial.fill" tintColor={color} size={22} />
             ) : (
-              <Feather name="trending-up" size={22} color={color} />
+              <Feather name="droplet" size={22} color={color} />
             ),
         }}
       />

@@ -75,6 +75,7 @@ export interface CGMConnection {
   sessionId?: string;
   token?: string;
   outsideUS?: boolean;
+  libreApiBase?: string;
   connectedAt?: string;
 }
 
@@ -142,7 +143,7 @@ export interface AuthContextType {
   lockGuardian: () => void;
   setChildMode: (enabled: boolean) => Promise<void>;
   generateCaregiverCode: () => Promise<string>;
-  enterCaregiverMode: (code: string) => boolean;
+  enterCaregiverMode: (code: string) => Promise<boolean>;
   exitCaregiverMode: () => void;
   generateDoctorCode: () => Promise<string>;
   enterDoctorMode: (code: string) => boolean;
@@ -152,6 +153,8 @@ export interface AuthContextType {
   addDoctorMessage: (text: string, sender: "doctor" | "guardian") => void;
   markDoctorMessagesRead: () => void;
   syncToDoctor: (glucoseReadings?: { value: number; trend: string; timestamp: string }[]) => Promise<void>;
+  /** When set, glucose is loaded read-only from Convex using this caregiver code (standalone caregiver device). */
+  caregiverCloudCode: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -217,6 +220,10 @@ function computeAge(dateOfBirth: string): number | null {
   return age;
 }
 
+function normalizeCaregiverInputCode(code: string): string {
+  return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+}
+
 /** Max wait for Convex `getUser` during cold start — avoids hanging boot if network stalls. */
 const CONVEX_SESSION_RESTORE_MS = 10_000;
 
@@ -252,16 +259,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isGuardianUnlocked, setIsGuardianUnlocked] = useState(false);
   const [caregiverSession, setCaregiverSession] = useState(false);
   const [doctorSession, setDoctorSession] = useState(false);
+  const [caregiverCloudCode, setCaregiverCloudCode] = useState<string | null>(null);
   const [doctorMessages, setDoctorMessages] = useState<DoctorMessage[]>([]);
 
   const profileRef = useRef(profile);
   const accountRef = useRef<UserAccount | null>(null);
+  const caregiverCloudCodeRef = useRef<string | null>(null);
   const insulinLogRef = useRef(insulinLog);
   const foodLogRef = useRef(foodLog);
   const alertPrefsRef = useRef(alertPrefs);
   const doctorMessagesRef = useRef(doctorMessages);
   useEffect(() => { profileRef.current = profile; }, [profile]);
   useEffect(() => { accountRef.current = account; }, [account]);
+  useEffect(() => { caregiverCloudCodeRef.current = caregiverCloudCode; }, [caregiverCloudCode]);
   useEffect(() => { insulinLogRef.current = insulinLog; }, [insulinLog]);
   useEffect(() => { foodLogRef.current = foodLog; }, [foodLog]);
   useEffect(() => { alertPrefsRef.current = alertPrefs; }, [alertPrefs]);
@@ -503,6 +513,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
     setGuardianPinState(null);
     setIsGuardianUnlocked(false);
+    setCaregiverSession(false);
+    setCaregiverCloudCode(null);
+    setDoctorSession(false);
     setAccount(acc);
     setIsSignedIn(true);
     await AsyncStorage.multiSet([
@@ -540,6 +553,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         accountRef.current = acc;
         setAccount(acc);
         setIsSignedIn(true);
+        setCaregiverSession(false);
+        setCaregiverCloudCode(null);
+        setDoctorSession(false);
         profileRef.current = null;
         setProfile(null);
         await AsyncStorage.multiSet([
@@ -600,6 +616,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsSignedIn(false);
     setIsGuardianUnlocked(false);
     setCaregiverSession(false);
+    setCaregiverCloudCode(null);
     setDoctorSession(false);
     await AsyncStorage.removeItem(SESSION_KEY);
   }, []);
@@ -661,6 +678,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setGuardianPinState(null);
     setIsGuardianUnlocked(false);
     setIsSignedIn(false);
+    setCaregiverSession(false);
+    setCaregiverCloudCode(null);
+    setDoctorSession(false);
     await AsyncStorage.multiRemove([
       PROFILE_KEY,
       CGM_KEY,
@@ -750,18 +770,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return code;
   }, [commitProfile]);
 
-  const enterCaregiverMode = useCallback((code: string): boolean => {
-    if (!profile?.caregiverCode) return false;
-    if (code.trim().toUpperCase() === profile.caregiverCode.toUpperCase()) {
-      setCaregiverSession(true);
-      return true;
-    }
-    return false;
-  }, [profile]);
+  const enterCaregiverMode = useCallback(
+    async (code: string): Promise<boolean> => {
+      const normalized = normalizeCaregiverInputCode(code);
+      if (normalized.length !== 6) return false;
+
+      const localStored = profile?.caregiverCode;
+      if (localStored) {
+        const localNorm = normalizeCaregiverInputCode(localStored);
+        if (localNorm === normalized) {
+          setCaregiverCloudCode(null);
+          setCaregiverSession(true);
+          return true;
+        }
+      }
+
+      if (isSignedIn) {
+        return false;
+      }
+
+      try {
+        const client = createConvexAuthClient();
+        const remote = await client.query(api.patientProfile.getByCaregiverCode, { code: normalized });
+        if (!remote) return false;
+        const { userId: _userId, ...profileFields } = remote as UserProfile & { userId: Id<"users"> };
+        const nextProfile = profileFields as UserProfile;
+        profileRef.current = nextProfile;
+        setProfile(nextProfile);
+        await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+        setCaregiverCloudCode(normalized);
+        setCaregiverSession(true);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [profile?.caregiverCode, isSignedIn],
+  );
 
   const exitCaregiverMode = useCallback(() => {
+    const hadCloudCaregiver = caregiverCloudCodeRef.current != null;
     setCaregiverSession(false);
-  }, []);
+    setCaregiverCloudCode(null);
+    if (hadCloudCaregiver && !isSignedIn) {
+      profileRef.current = null;
+      setProfile(null);
+      void AsyncStorage.multiRemove([
+        PROFILE_KEY,
+        CGM_KEY,
+        FOOD_LOG_KEY,
+        INSULIN_LOG_KEY,
+        EMERGENCY_CONTACTS_KEY,
+        ALERT_PREFS_KEY,
+        GUARDIAN_PIN_KEY,
+      ]);
+    }
+  }, [isSignedIn]);
 
   const generateDoctorCode = useCallback(async (): Promise<string> => {
     const prev = profileRef.current;
@@ -889,6 +953,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         caregiverSession,
         doctorSession,
         isChildMode,
+        caregiverCloudCode,
         setupProfile,
         updateProfile,
         setCGMConnection,

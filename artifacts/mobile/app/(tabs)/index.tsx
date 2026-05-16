@@ -211,7 +211,10 @@ export default function HomeScreen() {
               outsideUS: cgmConnection.outsideUS,
               count: dexcomCount,
             }
-          : { token: cgmConnection.token };
+          : {
+              token: cgmConnection.token,
+              apiBase: cgmConnection.libreApiBase,
+            };
 
       let res = await fetch(apiUrl(endpoint), {
         method: "POST",
@@ -231,13 +234,16 @@ export default function HomeScreen() {
           res.status === 401 || (errMessage ? /session|expired|reconnect/i.test(errMessage) : false);
 
         if (
-          cgmConnection.type === "dexcom" &&
           isSessionExpired &&
           account?.convexUserId &&
           account.passwordHash
         ) {
           try {
-            const refreshRes = await fetch(apiUrl("/api/cgm/dexcom/refresh-session"), {
+            const refreshPath =
+              cgmConnection.type === "dexcom"
+                ? "/api/cgm/dexcom/refresh-session"
+                : "/api/cgm/libre/refresh-session";
+            const refreshRes = await fetch(apiUrl(refreshPath), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -249,8 +255,10 @@ export default function HomeScreen() {
               const refreshData = (await refreshRes.json()) as {
                 sessionId?: string;
                 outsideUS?: boolean;
+                token?: string;
+                apiBase?: string;
               };
-              if (refreshData.sessionId) {
+              if (cgmConnection.type === "dexcom" && refreshData.sessionId) {
                 const nextOutsideUS = refreshData.outsideUS ?? cgmConnection.outsideUS ?? false;
                 await setCGMConnection({
                   type: "dexcom",
@@ -265,6 +273,23 @@ export default function HomeScreen() {
                     sessionId: refreshData.sessionId,
                     outsideUS: nextOutsideUS,
                     count: dexcomCount,
+                  }),
+                });
+                errMessage = undefined;
+              } else if (cgmConnection.type === "libre" && refreshData.token) {
+                const nextApiBase = refreshData.apiBase ?? cgmConnection.libreApiBase;
+                await setCGMConnection({
+                  type: "libre",
+                  token: refreshData.token,
+                  libreApiBase: nextApiBase,
+                  connectedAt: new Date().toISOString(),
+                });
+                res = await fetch(apiUrl(endpoint), {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    token: refreshData.token,
+                    apiBase: nextApiBase,
                   }),
                 });
                 errMessage = undefined;
@@ -508,6 +533,7 @@ export default function HomeScreen() {
               trend={glucoseTrend}
               lowThreshold={alertPrefs.lowThreshold}
               highThreshold={alertPrefs.highThreshold}
+              recentReadings={history}
             />
           ) : (
             <View

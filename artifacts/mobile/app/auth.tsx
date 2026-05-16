@@ -39,6 +39,7 @@ export default function AuthScreen() {
   const [showCaregiverEntry, setShowCaregiverEntry] = useState(false);
   const [caregiverCode, setCaregiverCode] = useState("");
   const [caregiverError, setCaregiverError] = useState("");
+  const [caregiverSubmitting, setCaregiverSubmitting] = useState(false);
   const [showDoctorEntry, setShowDoctorEntry] = useState(false);
   const [doctorCode, setDoctorCode] = useState("");
   const [doctorError, setDoctorError] = useState("");
@@ -361,18 +362,29 @@ export default function AuthScreen() {
                 </Pressable>
                 <Pressable
                   style={[styles.caregiverSubmitBtn, { backgroundColor: caregiverCode.length === 6 ? COLORS.accent : "rgba(255,255,255,0.12)", opacity: caregiverCode.length === 6 ? 1 : 0.6 }]}
-                  disabled={caregiverCode.length < 6}
-                  onPress={() => {
-                    const ok = enterCaregiverMode(caregiverCode);
-                    if (ok) {
-                      router.replace("/(tabs)");
-                    } else {
-                      setCaregiverError("Invalid code. Ask the account owner to share their Caregiver/Family code.");
+                  disabled={caregiverCode.length < 6 || caregiverSubmitting}
+                  onPress={async () => {
+                    setCaregiverSubmitting(true);
+                    try {
+                      const ok = await enterCaregiverMode(caregiverCode);
+                      if (ok) {
+                        router.replace("/(tabs)");
+                      } else {
+                        setCaregiverError("Invalid code. Ask the account owner to share their Caregiver/Family code.");
+                      }
+                    } finally {
+                      setCaregiverSubmitting(false);
                     }
                   }}
                 >
-                  <Feather name="unlock" size={15} color="#fff" />
-                  <Text style={{ color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" }}>Enter</Text>
+                  {caregiverSubmitting ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <>
+                      <Feather name="unlock" size={15} color="#fff" />
+                      <Text style={{ color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" }}>Enter</Text>
+                    </>
+                  )}
                 </Pressable>
               </View>
             </View>

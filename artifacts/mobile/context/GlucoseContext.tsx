@@ -93,7 +93,7 @@ function parseLocalHistory(raw: string | null): GlucoseEntry[] {
 }
 
 export function GlucoseProvider({ children }: { children: React.ReactNode }) {
-  const { account, isSignedIn, isLoading: authLoading } = useAuth();
+  const { account, isSignedIn, isLoading: authLoading, caregiverSession, caregiverCloudCode, profile } = useAuth();
   const [history, setHistory] = useState<GlucoseEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [carbRatio, setCarbRatioState] = useState(15);
@@ -104,6 +104,8 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     accountRef.current = account;
   }, [account]);
+
+  const prevCaregiverCloudCodeRef = useRef<string | null>(null);
 
   const flushHistoryToConvex = useCallback(async (entries: GlucoseEntry[]) => {
     const acc = accountRef.current;
@@ -228,6 +230,55 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [authLoading, account?.convexUserId, account?.passwordHash, isSignedIn]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    const prev = prevCaregiverCloudCodeRef.current;
+    prevCaregiverCloudCodeRef.current = caregiverCloudCode;
+    if (prev && caregiverCloudCode === null && !caregiverSession) {
+      setHistory([]);
+      AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
+      setCarbRatioState(15);
+      setTargetGlucoseState(120);
+      setCorrectionFactorState(50);
+      AsyncStorage.removeItem(SETTINGS_KEY).catch(() => {});
+    }
+  }, [authLoading, caregiverSession, caregiverCloudCode]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!caregiverSession || !caregiverCloudCode) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const client = createConvexAuthClient();
+        const remote = await client.query(api.patientGlucose.listRecentForCaregiver, {
+          code: caregiverCloudCode,
+          limit: 300,
+        });
+        if (cancelled) return;
+        const next = remote.map(normalizeRemoteEntry);
+        setHistory(next);
+        if (next.length > 0) {
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        } else {
+          await AsyncStorage.removeItem(STORAGE_KEY);
+        }
+      } catch {
+        /* offline — keep prior history until retry */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, caregiverSession, caregiverCloudCode]);
+
+  useEffect(() => {
+    if (!caregiverSession || !caregiverCloudCode || !profile) return;
+    if (typeof profile.carbRatio === "number") setCarbRatioState(profile.carbRatio);
+    if (typeof profile.targetGlucose === "number") setTargetGlucoseState(profile.targetGlucose);
+    if (typeof profile.correctionFactor === "number") setCorrectionFactorState(profile.correctionFactor);
+  }, [caregiverSession, caregiverCloudCode, profile?.carbRatio, profile?.targetGlucose, profile?.correctionFactor]);
 
   const addReading = useCallback(
     (entry: GlucoseEntry) => {

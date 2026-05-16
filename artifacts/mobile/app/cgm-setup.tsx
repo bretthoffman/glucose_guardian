@@ -86,31 +86,57 @@ export default function CGMSetupScreen() {
         sessionId: data.sessionId,
         token: data.token,
         outsideUS,
+        libreApiBase: data.apiBase,
         connectedAt: new Date().toISOString(),
       });
 
-      if (selectedType === "dexcom" && account?.convexUserId && account.passwordHash) {
-        try {
-          const storeRes = await fetch(apiUrl("/api/cgm/dexcom/credentials"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              userId: account.convexUserId,
-              passwordHash: account.passwordHash,
-              username: username.trim(),
-              password,
-              outsideUS,
-            }),
-          });
-          if (!storeRes.ok) {
+      if (account?.convexUserId && account.passwordHash) {
+        if (selectedType === "dexcom") {
+          try {
+            const storeRes = await fetch(apiUrl("/api/cgm/dexcom/credentials"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userId: account.convexUserId,
+                passwordHash: account.passwordHash,
+                username: username.trim(),
+                password,
+                outsideUS,
+              }),
+            });
+            if (!storeRes.ok) {
+              console.warn(
+                "[Glucose Guardian] Dexcom credential backup to server failed; CGM connection is still active.",
+              );
+            }
+          } catch {
             console.warn(
               "[Glucose Guardian] Dexcom credential backup to server failed; CGM connection is still active.",
             );
           }
-        } catch {
-          console.warn(
-            "[Glucose Guardian] Dexcom credential backup to server failed; CGM connection is still active.",
-          );
+        } else {
+          try {
+            const storeRes = await fetch(apiUrl("/api/cgm/libre/credentials"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userId: account.convexUserId,
+                passwordHash: account.passwordHash,
+                email: username.trim(),
+                password,
+                apiBase: data.apiBase,
+              }),
+            });
+            if (!storeRes.ok) {
+              console.warn(
+                "[Glucose Guardian] Libre credential backup to server failed; CGM connection is still active.",
+              );
+            }
+          } catch {
+            console.warn(
+              "[Glucose Guardian] Libre credential backup to server failed; CGM connection is still active.",
+            );
+          }
         }
       }
 
@@ -135,9 +161,13 @@ export default function CGMSetupScreen() {
           onPress: async () => {
             setIsDisconnecting(true);
             try {
-              if (cgmConnection.type === "dexcom" && account?.convexUserId && account.passwordHash) {
+              if (account?.convexUserId && account.passwordHash) {
+                const clearEndpoint =
+                  cgmConnection.type === "dexcom"
+                    ? "/api/cgm/dexcom/clear-credentials"
+                    : "/api/cgm/libre/clear-credentials";
                 try {
-                  await fetch(apiUrl("/api/cgm/dexcom/clear-credentials"), {
+                  await fetch(apiUrl(clearEndpoint), {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
