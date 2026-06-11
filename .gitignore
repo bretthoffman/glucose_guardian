@@ -49,3 +49,6 @@ Thumbs.db
 .local/
 .vercel
 .env*.local
+
+.pnpm-store/
+_doctor-portal-standalone/
