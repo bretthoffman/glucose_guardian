@@ -11,4 +11,6 @@ export interface DoctorLoginResponse {
   accessCode: string;
   patientName?: string;
   hasData: boolean;
+  deprecated?: boolean;
+  migration?: string;
 }

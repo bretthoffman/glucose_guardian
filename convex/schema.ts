@@ -77,7 +77,42 @@ const patientProfiles = defineTable({
   updatedAt: v.number(),
 })
   .index("by_userId", ["userId"])
-  .index("by_caregiverCode", ["caregiverCode"]);
+  .index("by_caregiverCode", ["caregiverCode"])
+  .index("by_doctorCode", ["doctorCode"]);
+
+/** Doctor portal accounts (separate from patient `users`). */
+const doctorAccounts = defineTable({
+  email: v.string(),
+  passwordHash: v.string(),
+  displayName: v.string(),
+  institution: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index("by_email", ["email"]);
+
+/** Bearer session tokens for doctor API auth (token stored as SHA-256 hash). */
+const doctorSessions = defineTable({
+  doctorId: v.id("doctorAccounts"),
+  tokenHash: v.string(),
+  expiresAt: v.number(),
+  createdAt: v.number(),
+})
+  .index("by_tokenHash", ["tokenHash"])
+  .index("by_doctorId", ["doctorId"]);
+
+/** Persistent association between a doctor account and a patient access code. */
+const doctorPatientLinks = defineTable({
+  doctorId: v.id("doctorAccounts"),
+  accessCode: v.string(),
+  patientUserId: v.optional(v.id("users")),
+  displayName: v.optional(v.string()),
+  linkedAt: v.number(),
+  revokedAt: v.optional(v.number()),
+})
+  .index("by_doctorId", ["doctorId"])
+  .index("by_doctorId_accessCode", ["doctorId", "accessCode"])
+  .index("by_accessCode", ["accessCode"]);
 
 /** At most one CGM metadata row per Convex patient user (mobile `CGMConnection` when connected). */
 const patientCgmConnections = defineTable({
@@ -135,6 +170,9 @@ export default defineSchema({
   patientDexcomCredentials,
   patientLibreCredentials,
   patientGlucoseReadings,
+  doctorAccounts,
+  doctorSessions,
+  doctorPatientLinks,
   doctorPortalState: defineTable({
     accessCode: v.string(),
     messages: v.array(doctorMessage),

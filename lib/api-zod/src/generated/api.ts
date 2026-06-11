@@ -98,7 +98,102 @@ export const EstimateFoodCarbsResponse = zod.object({
 });
 
 /**
- * @summary Doctor login with access code
+ * @summary Register a doctor account
+ */
+export const DoctorAuthRegisterBody = zod.object({
+  email: zod.string(),
+  passwordHash: zod.string(),
+  displayName: zod.string(),
+  institution: zod.string().optional(),
+});
+
+/**
+ * @summary Doctor account login
+ */
+export const DoctorAuthLoginBody = zod.object({
+  email: zod.string(),
+  passwordHash: zod.string(),
+});
+
+export const DoctorAuthLoginResponse = zod.object({
+  token: zod.string(),
+  expiresAt: zod.number(),
+  doctor: zod.object({
+    doctorId: zod.string(),
+    email: zod.string(),
+    displayName: zod.string(),
+    institution: zod.string().optional(),
+  }),
+});
+
+/**
+ * @summary Revoke the current doctor session
+ */
+export const DoctorAuthLogoutResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string(),
+});
+
+/**
+ * @summary Get the authenticated doctor profile
+ */
+export const GetDoctorMeResponse = zod.object({
+  doctorId: zod.string(),
+  email: zod.string(),
+  displayName: zod.string(),
+  institution: zod.string().optional(),
+});
+
+/**
+ * @summary List patients linked to the authenticated doctor
+ */
+export const ListDoctorLinkedPatientsResponse = zod.object({
+  patients: zod.array(
+    zod.object({
+      accessCode: zod.string(),
+      displayName: zod.string().optional(),
+      patientUserId: zod.string().optional(),
+      linkedAt: zod.number(),
+      hasData: zod.boolean(),
+      syncedAt: zod.string().optional(),
+    }),
+  ),
+});
+
+/**
+ * @summary Link a patient using their access code
+ */
+export const LinkDoctorPatientBody = zod.object({
+  accessCode: zod.string(),
+});
+
+export const LinkDoctorPatientResponse = zod.object({
+  accessCode: zod.string(),
+  displayName: zod.string().optional(),
+  patientUserId: zod.string().optional(),
+  linkedAt: zod.number(),
+  alreadyLinked: zod.boolean(),
+  hasData: zod.boolean(),
+  syncedAt: zod.string().optional(),
+});
+
+/**
+ * @summary Revoke a linked patient
+ */
+export const UnlinkDoctorPatientParams = zod.object({
+  accessCode: zod.coerce.string(),
+});
+
+export const UnlinkDoctorPatientResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string(),
+});
+
+/**
+ * Does not create a doctor session and no longer grants access to patient snapshot routes. Use POST /doctor/auth/login and POST /doctor/me/patients/link.
+
+ * @deprecated
+ * @summary [Deprecated] Legacy access-code check — use doctor auth + link flow
  */
 export const DoctorLoginBody = zod.object({
   accessCode: zod.string(),
@@ -109,6 +204,8 @@ export const DoctorLoginResponse = zod.object({
   accessCode: zod.string(),
   patientName: zod.string().optional(),
   hasData: zod.boolean(),
+  deprecated: zod.boolean().optional(),
+  migration: zod.string().optional(),
 });
 
 /**
@@ -182,7 +279,7 @@ export const SyncPatientDataResponse = zod.object({
 });
 
 /**
- * @summary Get patient data for a doctor access code
+ * @summary Get patient snapshot for a linked access code
  */
 export const GetPatientDataParams = zod.object({
   accessCode: zod.coerce.string(),
@@ -251,7 +348,7 @@ export const GetPatientDataResponse = zod.object({
 });
 
 /**
- * @summary Get messages for a patient
+ * @summary Get messages for a linked patient
  */
 export const GetDoctorMessagesParams = zod.object({
   accessCode: zod.coerce.string(),
@@ -270,7 +367,7 @@ export const GetDoctorMessagesResponse = zod.object({
 });
 
 /**
- * @summary Doctor sends a message to patient
+ * @summary Doctor sends a message to a linked patient
  */
 export const SendDoctorMessageParams = zod.object({
   accessCode: zod.coerce.string(),

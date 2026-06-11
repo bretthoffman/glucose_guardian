@@ -3,6 +3,8 @@
 **Date:** 2026-06-11  
 **Scope:** Read-only audit of `artifacts/doctor-portal` for standalone repo extraction. No extraction changes were made.
 
+> **Update:** The embedded app was removed from this monorepo. The standalone copy lives in `_doctor-portal-standalone/`. See `artifacts/doctor-portal/README.md`.
+
 ---
 
 ## Executive summary

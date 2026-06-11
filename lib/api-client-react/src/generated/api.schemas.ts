@@ -101,6 +101,64 @@ export interface DoctorLoginResponse {
   accessCode: string;
   patientName?: string;
   hasData: boolean;
+  deprecated?: boolean;
+  migration?: string;
+}
+
+export interface DoctorRegisterRequest {
+  email: string;
+  passwordHash: string;
+  displayName: string;
+  institution?: string;
+}
+
+export interface DoctorRegisterResponse {
+  doctorId: string;
+}
+
+export interface DoctorAccountLoginRequest {
+  email: string;
+  passwordHash: string;
+}
+
+export interface DoctorProfile {
+  doctorId: string;
+  email: string;
+  displayName: string;
+  institution?: string;
+}
+
+export interface DoctorAccountLoginResponse {
+  token: string;
+  expiresAt: number;
+  doctor: DoctorProfile;
+}
+
+export interface DoctorLinkedPatient {
+  accessCode: string;
+  displayName?: string;
+  patientUserId?: string;
+  linkedAt: number;
+  hasData: boolean;
+  syncedAt?: string;
+}
+
+export interface DoctorLinkedPatientsResponse {
+  patients: DoctorLinkedPatient[];
+}
+
+export interface DoctorLinkPatientRequest {
+  accessCode: string;
+}
+
+export interface DoctorLinkPatientResponse {
+  accessCode: string;
+  displayName?: string;
+  patientUserId?: string;
+  linkedAt: number;
+  alreadyLinked: boolean;
+  hasData: boolean;
+  syncedAt?: string;
 }
 
 export type DoctorMessageSender =

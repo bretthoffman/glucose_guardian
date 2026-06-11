@@ -1,10 +1,26 @@
 import { Router, type IRouter } from "express";
+import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { api } from "../../../../convex/_generated/api.js";
+import {
+  createConvexDoctorAccountsClient,
+  DOCTOR_SESSION_TTL_MS,
+  getConvexDoctorApiSecret,
+  isConvexDoctorAccountsConfigured,
+} from "../convex-doctor-accounts.js";
 import {
   createConvexDoctorHttpClient,
   getConvexDoctorIngestSecret,
   isConvexDoctorConfigured,
 } from "../convex-doctor.js";
+import {
+  createDoctorSessionToken,
+  type DoctorAuthedRequest,
+  hashDoctorSessionToken,
+  normalizeDoctorAccessCode,
+  parseBearerToken,
+  requireDoctorAuth,
+  requireDoctorPatientLink,
+} from "../doctor-auth.js";
 
 const router: IRouter = Router();
 
@@ -158,6 +174,15 @@ type ConvexDoctorDoc = {
   syncedAt?: string;
 };
 
+function asDoctorId(id: string): Id<"doctorAccounts"> {
+  return id as Id<"doctorAccounts">;
+}
+
+function routeParam(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return value ?? "";
+}
+
 function toPatientSnapshot(doc: ConvexDoctorDoc | null): PatientSnapshot | null {
   if (!doc?.profile) return null;
   return {
@@ -185,15 +210,225 @@ if (isConvexDoctorConfigured()) {
   })();
 }
 
+// ─── Doctor account auth (Phase 1) ───────────────────────────────────────────
+
+router.post("/auth/register", (req, res) => {
+  void (async () => {
+    try {
+      if (!isConvexDoctorAccountsConfigured()) {
+        res.status(503).json({ error: "Doctor accounts are not configured" });
+        return;
+      }
+      const { email, passwordHash, displayName, institution } = req.body as {
+        email?: string;
+        passwordHash?: string;
+        displayName?: string;
+        institution?: string;
+      };
+      if (!email?.trim() || !passwordHash || !displayName?.trim()) {
+        res.status(400).json({ error: "email, passwordHash, and displayName are required" });
+        return;
+      }
+
+      const client = createConvexDoctorAccountsClient();
+      const result = await client.mutation(api.doctorAccounts.register, {
+        serverSecret: getConvexDoctorApiSecret(),
+        email,
+        passwordHash,
+        displayName,
+        institution,
+      });
+      res.status(201).json(result);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Registration failed";
+      if (message.includes("already registered")) {
+        res.status(409).json({ error: message });
+        return;
+      }
+      console.error("[doctor] POST /auth/register", e);
+      res.status(400).json({ error: message });
+    }
+  })();
+});
+
+router.post("/auth/login", (req, res) => {
+  void (async () => {
+    try {
+      if (!isConvexDoctorAccountsConfigured()) {
+        res.status(503).json({ error: "Doctor accounts are not configured" });
+        return;
+      }
+      const { email, passwordHash } = req.body as {
+        email?: string;
+        passwordHash?: string;
+      };
+      if (!email?.trim() || !passwordHash) {
+        res.status(400).json({ error: "email and passwordHash are required" });
+        return;
+      }
+
+      const client = createConvexDoctorAccountsClient();
+      const account = await client.query(api.doctorAccounts.login, {
+        serverSecret: getConvexDoctorApiSecret(),
+        email,
+        passwordHash,
+      });
+      if (!account) {
+        res.status(401).json({ error: "Invalid email or password" });
+        return;
+      }
+
+      const token = createDoctorSessionToken();
+      const expiresAt = Date.now() + DOCTOR_SESSION_TTL_MS;
+      await client.mutation(api.doctorAccounts.createSession, {
+        serverSecret: getConvexDoctorApiSecret(),
+        doctorId: asDoctorId(account.doctorId),
+        tokenHash: hashDoctorSessionToken(token),
+        expiresAt,
+      });
+
+      res.json({
+        token,
+        expiresAt,
+        doctor: account,
+      });
+    } catch (e) {
+      console.error("[doctor] POST /auth/login", e);
+      res.status(500).json({ error: "Doctor login failed" });
+    }
+  })();
+});
+
+router.post("/auth/logout", requireDoctorAuth, (req, res) => {
+  void (async () => {
+    try {
+      const token = parseBearerToken(req);
+      if (token) {
+        const client = createConvexDoctorAccountsClient();
+        await client.mutation(api.doctorAccounts.revokeSession, {
+          serverSecret: getConvexDoctorApiSecret(),
+          tokenHash: hashDoctorSessionToken(token),
+        });
+      }
+      res.json({ success: true });
+    } catch (e) {
+      console.error("[doctor] POST /auth/logout", e);
+      res.status(500).json({ error: "Logout failed" });
+    }
+  })();
+});
+
+router.get("/me", requireDoctorAuth, (req, res) => {
+  void (async () => {
+    try {
+      const { doctorId } = req as DoctorAuthedRequest;
+      const client = createConvexDoctorAccountsClient();
+      const doctor = await client.query(api.doctorAccounts.getById, {
+        serverSecret: getConvexDoctorApiSecret(),
+        doctorId: asDoctorId(doctorId),
+      });
+      if (!doctor) {
+        res.status(404).json({ error: "Doctor not found" });
+        return;
+      }
+      res.json(doctor);
+    } catch (e) {
+      console.error("[doctor] GET /me", e);
+      res.status(500).json({ error: "Doctor profile error" });
+    }
+  })();
+});
+
+router.get("/me/patients", requireDoctorAuth, (req, res) => {
+  void (async () => {
+    try {
+      const { doctorId } = req as DoctorAuthedRequest;
+      const client = createConvexDoctorAccountsClient();
+      const result = await client.query(api.doctorAccounts.listLinks, {
+        serverSecret: getConvexDoctorApiSecret(),
+        doctorId: asDoctorId(doctorId),
+      });
+      res.json(result);
+    } catch (e) {
+      console.error("[doctor] GET /me/patients", e);
+      res.status(500).json({ error: "Failed to list linked patients" });
+    }
+  })();
+});
+
+router.post("/me/patients/link", requireDoctorAuth, (req, res) => {
+  void (async () => {
+    try {
+      const { doctorId } = req as DoctorAuthedRequest;
+      const { accessCode } = req.body as { accessCode?: string };
+      if (!accessCode?.trim()) {
+        res.status(400).json({ error: "accessCode is required" });
+        return;
+      }
+
+      const client = createConvexDoctorAccountsClient();
+      const link = await client.mutation(api.doctorAccounts.createLink, {
+        serverSecret: getConvexDoctorApiSecret(),
+        doctorId: asDoctorId(doctorId),
+        accessCode,
+      });
+      res.status(link.alreadyLinked ? 200 : 201).json(link);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Link failed";
+      if (message.includes("Invalid") || message.includes("unknown")) {
+        res.status(404).json({ error: message });
+        return;
+      }
+      console.error("[doctor] POST /me/patients/link", e);
+      res.status(400).json({ error: message });
+    }
+  })();
+});
+
+router.delete("/me/patients/:accessCode", requireDoctorAuth, (req, res) => {
+  void (async () => {
+    try {
+      const { doctorId } = req as DoctorAuthedRequest;
+      const client = createConvexDoctorAccountsClient();
+      const result = await client.mutation(api.doctorAccounts.revokeLink, {
+        serverSecret: getConvexDoctorApiSecret(),
+        doctorId: asDoctorId(doctorId),
+        accessCode: routeParam(req.params.accessCode),
+      });
+      res.json(result);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unlink failed";
+      if (message.includes("not found")) {
+        res.status(404).json({ error: message });
+        return;
+      }
+      console.error("[doctor] DELETE /me/patients/:accessCode", e);
+      res.status(400).json({ error: message });
+    }
+  })();
+});
+
+// ─── Legacy code-only login (deprecated; does not grant snapshot access) ─────
+
 router.post("/login", (req, res) => {
   void (async () => {
     try {
+      res.setHeader("Deprecation", "true");
+      res.setHeader(
+        "Link",
+        '</api/doctor/auth/login>; rel="successor-version"',
+      );
+
       const { accessCode } = req.body as { accessCode?: string };
       if (!accessCode || typeof accessCode !== "string" || accessCode.trim().length < 3) {
         res.status(401).json({ error: "Invalid access code" });
         return;
       }
-      const code = accessCode.trim().toUpperCase();
+      const code = normalizeDoctorAccessCode(accessCode);
+      if (code.length < 3) {
+        res.status(401).json({ error: "Invalid access code" });
+        return;
+      }
 
       if (isConvexDoctorConfigured()) {
         const client = createConvexDoctorHttpClient();
@@ -208,6 +443,9 @@ router.post("/login", (req, res) => {
           accessCode: code,
           patientName: snapshot?.profile?.childName ?? null,
           hasData: !!doc?.profile,
+          deprecated: true,
+          migration:
+            "Use POST /api/doctor/auth/login, POST /api/doctor/me/patients/link, and Bearer auth on patient routes.",
         });
         return;
       }
@@ -218,6 +456,9 @@ router.post("/login", (req, res) => {
         accessCode: code,
         patientName: snapshot?.profile?.childName ?? null,
         hasData: !!snapshot,
+        deprecated: true,
+        migration:
+          "Use POST /api/doctor/auth/login, POST /api/doctor/me/patients/link, and Bearer auth on patient routes.",
       });
     } catch (e) {
       console.error("[doctor] /login", e);
@@ -284,10 +525,16 @@ router.post("/sync", (req, res) => {
   })();
 });
 
-router.get("/patient/:accessCode", (req, res) => {
+router.get(
+  "/patient/:accessCode",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
   void (async () => {
     try {
-      const code = req.params.accessCode.trim().toUpperCase();
+      const code =
+        (req as DoctorAuthedRequest).doctorAccessCode ??
+        normalizeDoctorAccessCode(routeParam(req.params.accessCode));
 
       if (isConvexDoctorConfigured()) {
         const client = createConvexDoctorHttpClient();
@@ -318,12 +565,19 @@ router.get("/patient/:accessCode", (req, res) => {
       res.status(500).json({ error: "Doctor service error" });
     }
   })();
-});
+  },
+);
 
-router.get("/messages/:accessCode", (req, res) => {
+router.get(
+  "/messages/:accessCode",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
   void (async () => {
     try {
-      const code = req.params.accessCode.trim().toUpperCase();
+      const code =
+        (req as DoctorAuthedRequest).doctorAccessCode ??
+        normalizeDoctorAccessCode(routeParam(req.params.accessCode));
 
       if (isConvexDoctorConfigured()) {
         const client = createConvexDoctorHttpClient();
@@ -344,22 +598,29 @@ router.get("/messages/:accessCode", (req, res) => {
       res.status(500).json({ error: "Doctor service error" });
     }
   })();
-});
+  },
+);
 
-router.post("/messages/:accessCode", (req, res) => {
+router.post(
+  "/messages/:accessCode",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
   void (async () => {
     try {
-      const code = req.params.accessCode.trim().toUpperCase();
-      const { text, sender } = req.body as { text?: string; sender?: "doctor" | "guardian" };
-      if (!text || !sender) {
-        res.status(400).json({ error: "text and sender required" });
+      const code =
+        (req as DoctorAuthedRequest).doctorAccessCode ??
+        normalizeDoctorAccessCode(routeParam(req.params.accessCode));
+      const { text } = req.body as { text?: string; sender?: "doctor" | "guardian" };
+      if (!text?.trim()) {
+        res.status(400).json({ error: "text is required" });
         return;
       }
       const message: DoctorMessage = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         timestamp: new Date().toISOString(),
-        text,
-        sender,
+        text: text.trim(),
+        sender: "doctor",
         read: false,
       };
 
@@ -390,6 +651,7 @@ router.post("/messages/:accessCode", (req, res) => {
       res.status(500).json({ error: "Doctor service error" });
     }
   })();
-});
+  },
+);
 
 export default router;

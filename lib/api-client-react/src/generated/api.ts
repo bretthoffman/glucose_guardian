@@ -17,10 +17,18 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  DoctorAccountLoginRequest,
+  DoctorAccountLoginResponse,
+  DoctorLinkPatientRequest,
+  DoctorLinkPatientResponse,
+  DoctorLinkedPatientsResponse,
   DoctorLoginRequest,
   DoctorLoginResponse,
   DoctorMessage,
   DoctorMessagesResponse,
+  DoctorProfile,
+  DoctorRegisterRequest,
+  DoctorRegisterResponse,
   ErrorResponse,
   FoodEstimateRequest,
   FoodEstimateResponse,
@@ -534,7 +542,587 @@ export const useEstimateFoodCarbs = <
 };
 
 /**
- * @summary Doctor login with access code
+ * @summary Register a doctor account
+ */
+export const getDoctorAuthRegisterUrl = () => {
+  return `/api/doctor/auth/register`;
+};
+
+export const doctorAuthRegister = async (
+  doctorRegisterRequest: DoctorRegisterRequest,
+  options?: RequestInit,
+): Promise<DoctorRegisterResponse> => {
+  return customFetch<DoctorRegisterResponse>(getDoctorAuthRegisterUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(doctorRegisterRequest),
+  });
+};
+
+export const getDoctorAuthRegisterMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof doctorAuthRegister>>,
+    TError,
+    { data: BodyType<DoctorRegisterRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof doctorAuthRegister>>,
+  TError,
+  { data: BodyType<DoctorRegisterRequest> },
+  TContext
+> => {
+  const mutationKey = ["doctorAuthRegister"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof doctorAuthRegister>>,
+    { data: BodyType<DoctorRegisterRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return doctorAuthRegister(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DoctorAuthRegisterMutationResult = NonNullable<
+  Awaited<ReturnType<typeof doctorAuthRegister>>
+>;
+export type DoctorAuthRegisterMutationBody = BodyType<DoctorRegisterRequest>;
+export type DoctorAuthRegisterMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Register a doctor account
+ */
+export const useDoctorAuthRegister = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof doctorAuthRegister>>,
+    TError,
+    { data: BodyType<DoctorRegisterRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof doctorAuthRegister>>,
+  TError,
+  { data: BodyType<DoctorRegisterRequest> },
+  TContext
+> => {
+  return useMutation(getDoctorAuthRegisterMutationOptions(options));
+};
+
+/**
+ * @summary Doctor account login
+ */
+export const getDoctorAuthLoginUrl = () => {
+  return `/api/doctor/auth/login`;
+};
+
+export const doctorAuthLogin = async (
+  doctorAccountLoginRequest: DoctorAccountLoginRequest,
+  options?: RequestInit,
+): Promise<DoctorAccountLoginResponse> => {
+  return customFetch<DoctorAccountLoginResponse>(getDoctorAuthLoginUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(doctorAccountLoginRequest),
+  });
+};
+
+export const getDoctorAuthLoginMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof doctorAuthLogin>>,
+    TError,
+    { data: BodyType<DoctorAccountLoginRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof doctorAuthLogin>>,
+  TError,
+  { data: BodyType<DoctorAccountLoginRequest> },
+  TContext
+> => {
+  const mutationKey = ["doctorAuthLogin"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof doctorAuthLogin>>,
+    { data: BodyType<DoctorAccountLoginRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return doctorAuthLogin(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DoctorAuthLoginMutationResult = NonNullable<
+  Awaited<ReturnType<typeof doctorAuthLogin>>
+>;
+export type DoctorAuthLoginMutationBody = BodyType<DoctorAccountLoginRequest>;
+export type DoctorAuthLoginMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Doctor account login
+ */
+export const useDoctorAuthLogin = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof doctorAuthLogin>>,
+    TError,
+    { data: BodyType<DoctorAccountLoginRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof doctorAuthLogin>>,
+  TError,
+  { data: BodyType<DoctorAccountLoginRequest> },
+  TContext
+> => {
+  return useMutation(getDoctorAuthLoginMutationOptions(options));
+};
+
+/**
+ * @summary Revoke the current doctor session
+ */
+export const getDoctorAuthLogoutUrl = () => {
+  return `/api/doctor/auth/logout`;
+};
+
+export const doctorAuthLogout = async (
+  options?: RequestInit,
+): Promise<SuccessResponse> => {
+  return customFetch<SuccessResponse>(getDoctorAuthLogoutUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getDoctorAuthLogoutMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof doctorAuthLogout>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof doctorAuthLogout>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["doctorAuthLogout"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof doctorAuthLogout>>,
+    void
+  > = () => {
+    return doctorAuthLogout(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DoctorAuthLogoutMutationResult = NonNullable<
+  Awaited<ReturnType<typeof doctorAuthLogout>>
+>;
+
+export type DoctorAuthLogoutMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Revoke the current doctor session
+ */
+export const useDoctorAuthLogout = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof doctorAuthLogout>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof doctorAuthLogout>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getDoctorAuthLogoutMutationOptions(options));
+};
+
+/**
+ * @summary Get the authenticated doctor profile
+ */
+export const getGetDoctorMeUrl = () => {
+  return `/api/doctor/me`;
+};
+
+export const getDoctorMe = async (
+  options?: RequestInit,
+): Promise<DoctorProfile> => {
+  return customFetch<DoctorProfile>(getGetDoctorMeUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetDoctorMeQueryKey = () => {
+  return [`/api/doctor/me`] as const;
+};
+
+export const getGetDoctorMeQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDoctorMe>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDoctorMe>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetDoctorMeQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getDoctorMe>>> = ({
+    signal,
+  }) => getDoctorMe({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDoctorMe>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDoctorMeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDoctorMe>>
+>;
+export type GetDoctorMeQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get the authenticated doctor profile
+ */
+
+export function useGetDoctorMe<
+  TData = Awaited<ReturnType<typeof getDoctorMe>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDoctorMe>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDoctorMeQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List patients linked to the authenticated doctor
+ */
+export const getListDoctorLinkedPatientsUrl = () => {
+  return `/api/doctor/me/patients`;
+};
+
+export const listDoctorLinkedPatients = async (
+  options?: RequestInit,
+): Promise<DoctorLinkedPatientsResponse> => {
+  return customFetch<DoctorLinkedPatientsResponse>(
+    getListDoctorLinkedPatientsUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListDoctorLinkedPatientsQueryKey = () => {
+  return [`/api/doctor/me/patients`] as const;
+};
+
+export const getListDoctorLinkedPatientsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listDoctorLinkedPatients>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDoctorLinkedPatients>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListDoctorLinkedPatientsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listDoctorLinkedPatients>>
+  > = ({ signal }) => listDoctorLinkedPatients({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listDoctorLinkedPatients>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListDoctorLinkedPatientsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listDoctorLinkedPatients>>
+>;
+export type ListDoctorLinkedPatientsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary List patients linked to the authenticated doctor
+ */
+
+export function useListDoctorLinkedPatients<
+  TData = Awaited<ReturnType<typeof listDoctorLinkedPatients>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDoctorLinkedPatients>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListDoctorLinkedPatientsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Link a patient using their access code
+ */
+export const getLinkDoctorPatientUrl = () => {
+  return `/api/doctor/me/patients/link`;
+};
+
+export const linkDoctorPatient = async (
+  doctorLinkPatientRequest: DoctorLinkPatientRequest,
+  options?: RequestInit,
+): Promise<DoctorLinkPatientResponse> => {
+  return customFetch<DoctorLinkPatientResponse>(getLinkDoctorPatientUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(doctorLinkPatientRequest),
+  });
+};
+
+export const getLinkDoctorPatientMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof linkDoctorPatient>>,
+    TError,
+    { data: BodyType<DoctorLinkPatientRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof linkDoctorPatient>>,
+  TError,
+  { data: BodyType<DoctorLinkPatientRequest> },
+  TContext
+> => {
+  const mutationKey = ["linkDoctorPatient"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof linkDoctorPatient>>,
+    { data: BodyType<DoctorLinkPatientRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return linkDoctorPatient(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type LinkDoctorPatientMutationResult = NonNullable<
+  Awaited<ReturnType<typeof linkDoctorPatient>>
+>;
+export type LinkDoctorPatientMutationBody = BodyType<DoctorLinkPatientRequest>;
+export type LinkDoctorPatientMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Link a patient using their access code
+ */
+export const useLinkDoctorPatient = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof linkDoctorPatient>>,
+    TError,
+    { data: BodyType<DoctorLinkPatientRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof linkDoctorPatient>>,
+  TError,
+  { data: BodyType<DoctorLinkPatientRequest> },
+  TContext
+> => {
+  return useMutation(getLinkDoctorPatientMutationOptions(options));
+};
+
+/**
+ * @summary Revoke a linked patient
+ */
+export const getUnlinkDoctorPatientUrl = (accessCode: string) => {
+  return `/api/doctor/me/patients/${accessCode}`;
+};
+
+export const unlinkDoctorPatient = async (
+  accessCode: string,
+  options?: RequestInit,
+): Promise<SuccessResponse> => {
+  return customFetch<SuccessResponse>(getUnlinkDoctorPatientUrl(accessCode), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getUnlinkDoctorPatientMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unlinkDoctorPatient>>,
+    TError,
+    { accessCode: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unlinkDoctorPatient>>,
+  TError,
+  { accessCode: string },
+  TContext
+> => {
+  const mutationKey = ["unlinkDoctorPatient"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unlinkDoctorPatient>>,
+    { accessCode: string }
+  > = (props) => {
+    const { accessCode } = props ?? {};
+
+    return unlinkDoctorPatient(accessCode, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnlinkDoctorPatientMutationResult = NonNullable<
+  Awaited<ReturnType<typeof unlinkDoctorPatient>>
+>;
+
+export type UnlinkDoctorPatientMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Revoke a linked patient
+ */
+export const useUnlinkDoctorPatient = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unlinkDoctorPatient>>,
+    TError,
+    { accessCode: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof unlinkDoctorPatient>>,
+  TError,
+  { accessCode: string },
+  TContext
+> => {
+  return useMutation(getUnlinkDoctorPatientMutationOptions(options));
+};
+
+/**
+ * Does not create a doctor session and no longer grants access to patient snapshot routes. Use POST /doctor/auth/login and POST /doctor/me/patients/link.
+
+ * @deprecated
+ * @summary [Deprecated] Legacy access-code check — use doctor auth + link flow
  */
 export const getDoctorLoginUrl = () => {
   return `/api/doctor/login`;
@@ -597,7 +1185,8 @@ export type DoctorLoginMutationBody = BodyType<DoctorLoginRequest>;
 export type DoctorLoginMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Doctor login with access code
+ * @deprecated
+ * @summary [Deprecated] Legacy access-code check — use doctor auth + link flow
  */
 export const useDoctorLogin = <
   TError = ErrorType<ErrorResponse>,
@@ -706,7 +1295,7 @@ export const useSyncPatientData = <
 };
 
 /**
- * @summary Get patient data for a doctor access code
+ * @summary Get patient snapshot for a linked access code
  */
 export const getGetPatientDataUrl = (accessCode: string) => {
   return `/api/doctor/patient/${accessCode}`;
@@ -767,7 +1356,7 @@ export type GetPatientDataQueryResult = NonNullable<
 export type GetPatientDataQueryError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Get patient data for a doctor access code
+ * @summary Get patient snapshot for a linked access code
  */
 
 export function useGetPatientData<
@@ -794,7 +1383,7 @@ export function useGetPatientData<
 }
 
 /**
- * @summary Get messages for a patient
+ * @summary Get messages for a linked patient
  */
 export const getGetDoctorMessagesUrl = (accessCode: string) => {
   return `/api/doctor/messages/${accessCode}`;
@@ -819,7 +1408,7 @@ export const getGetDoctorMessagesQueryKey = (accessCode: string) => {
 
 export const getGetDoctorMessagesQueryOptions = <
   TData = Awaited<ReturnType<typeof getDoctorMessages>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
 >(
   accessCode: string,
   options?: {
@@ -856,15 +1445,15 @@ export const getGetDoctorMessagesQueryOptions = <
 export type GetDoctorMessagesQueryResult = NonNullable<
   Awaited<ReturnType<typeof getDoctorMessages>>
 >;
-export type GetDoctorMessagesQueryError = ErrorType<unknown>;
+export type GetDoctorMessagesQueryError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Get messages for a patient
+ * @summary Get messages for a linked patient
  */
 
 export function useGetDoctorMessages<
   TData = Awaited<ReturnType<typeof getDoctorMessages>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
 >(
   accessCode: string,
   options?: {
@@ -886,7 +1475,7 @@ export function useGetDoctorMessages<
 }
 
 /**
- * @summary Doctor sends a message to patient
+ * @summary Doctor sends a message to a linked patient
  */
 export const getSendDoctorMessageUrl = (accessCode: string) => {
   return `/api/doctor/messages/${accessCode}`;
@@ -906,7 +1495,7 @@ export const sendDoctorMessage = async (
 };
 
 export const getSendDoctorMessageMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -947,13 +1536,13 @@ export type SendDoctorMessageMutationResult = NonNullable<
   Awaited<ReturnType<typeof sendDoctorMessage>>
 >;
 export type SendDoctorMessageMutationBody = BodyType<SendMessageRequest>;
-export type SendDoctorMessageMutationError = ErrorType<unknown>;
+export type SendDoctorMessageMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Doctor sends a message to patient
+ * @summary Doctor sends a message to a linked patient
  */
 export const useSendDoctorMessage = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<

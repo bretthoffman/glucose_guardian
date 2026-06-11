@@ -17,7 +17,7 @@ tags:
   - name: food
     description: Food carb estimation
   - name: doctor
-    description: Doctor portal — patient data sync and messaging
+    description: Doctor portal — accounts, patient links, snapshots, and messaging
 paths:
   /healthz:
     get:
@@ -113,11 +113,188 @@ paths:
               schema:
                 $ref: "#/components/schemas/FoodEstimateResponse"
 
+  /doctor/auth/register:
+    post:
+      operationId: doctorAuthRegister
+      tags: [doctor]
+      summary: Register a doctor account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DoctorRegisterRequest"
+      responses:
+        "201":
+          description: Doctor registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorRegisterResponse"
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /doctor/auth/login:
+    post:
+      operationId: doctorAuthLogin
+      tags: [doctor]
+      summary: Doctor account login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DoctorAccountLoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorAccountLoginResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /doctor/auth/logout:
+    post:
+      operationId: doctorAuthLogout
+      tags: [doctor]
+      summary: Revoke the current doctor session
+      security:
+        - doctorBearerAuth: []
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /doctor/me:
+    get:
+      operationId: getDoctorMe
+      tags: [doctor]
+      summary: Get the authenticated doctor profile
+      security:
+        - doctorBearerAuth: []
+      responses:
+        "200":
+          description: Doctor profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorProfile"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /doctor/me/patients:
+    get:
+      operationId: listDoctorLinkedPatients
+      tags: [doctor]
+      summary: List patients linked to the authenticated doctor
+      security:
+        - doctorBearerAuth: []
+      responses:
+        "200":
+          description: Linked patients
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorLinkedPatientsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /doctor/me/patients/link:
+    post:
+      operationId: linkDoctorPatient
+      tags: [doctor]
+      summary: Link a patient using their access code
+      security:
+        - doctorBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DoctorLinkPatientRequest"
+      responses:
+        "201":
+          description: Patient linked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorLinkPatientResponse"
+        "200":
+          description: Patient was already linked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorLinkPatientResponse"
+        "404":
+          description: Invalid access code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /doctor/me/patients/{accessCode}:
+    delete:
+      operationId: unlinkDoctorPatient
+      tags: [doctor]
+      summary: Revoke a linked patient
+      security:
+        - doctorBearerAuth: []
+      parameters:
+        - in: path
+          name: accessCode
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Link revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "404":
+          description: Link not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /doctor/login:
     post:
       operationId: doctorLogin
       tags: [doctor]
-      summary: Doctor login with access code
+      deprecated: true
+      summary: "[Deprecated] Legacy access-code check — use doctor auth + link flow"
+      description: >
+        Does not create a doctor session and no longer grants access to patient
+        snapshot routes. Use POST /doctor/auth/login and POST /doctor/me/patients/link.
       requestBody:
         required: true
         content:
@@ -126,7 +303,7 @@ paths:
               $ref: "#/components/schemas/DoctorLoginRequest"
       responses:
         "200":
-          description: Login successful
+          description: Legacy response (deprecated)
           content:
             application/json:
               schema:
@@ -161,7 +338,9 @@ paths:
     get:
       operationId: getPatientData
       tags: [doctor]
-      summary: Get patient data for a doctor access code
+      summary: Get patient snapshot for a linked access code
+      security:
+        - doctorBearerAuth: []
       parameters:
         - in: path
           name: accessCode
@@ -175,6 +354,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PatientSnapshot"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Doctor is not linked to this patient
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: No patient data found
           content:
@@ -186,7 +377,9 @@ paths:
     get:
       operationId: getDoctorMessages
       tags: [doctor]
-      summary: Get messages for a patient
+      summary: Get messages for a linked patient
+      security:
+        - doctorBearerAuth: []
       parameters:
         - in: path
           name: accessCode
@@ -200,10 +393,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DoctorMessagesResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Doctor is not linked to this patient
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     post:
       operationId: sendDoctorMessage
       tags: [doctor]
-      summary: Doctor sends a message to patient
+      summary: Doctor sends a message to a linked patient
+      security:
+        - doctorBearerAuth: []
       parameters:
         - in: path
           name: accessCode
@@ -223,8 +430,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DoctorMessage"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Doctor is not linked to this patient
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
 components:
+  securitySchemes:
+    doctorBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: Bearer token from POST /doctor/auth/login
   schemas:
     HealthStatus:
       type: object
@@ -406,9 +631,139 @@ components:
           type: string
         hasData:
           type: boolean
+        deprecated:
+          type: boolean
+        migration:
+          type: string
       required:
         - success
         - accessCode
+        - hasData
+
+    DoctorRegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        passwordHash:
+          type: string
+        displayName:
+          type: string
+        institution:
+          type: string
+      required:
+        - email
+        - passwordHash
+        - displayName
+
+    DoctorRegisterResponse:
+      type: object
+      properties:
+        doctorId:
+          type: string
+      required:
+        - doctorId
+
+    DoctorAccountLoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        passwordHash:
+          type: string
+      required:
+        - email
+        - passwordHash
+
+    DoctorProfile:
+      type: object
+      properties:
+        doctorId:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+        institution:
+          type: string
+      required:
+        - doctorId
+        - email
+        - displayName
+
+    DoctorAccountLoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        expiresAt:
+          type: number
+        doctor:
+          $ref: "#/components/schemas/DoctorProfile"
+      required:
+        - token
+        - expiresAt
+        - doctor
+
+    DoctorLinkedPatient:
+      type: object
+      properties:
+        accessCode:
+          type: string
+        displayName:
+          type: string
+        patientUserId:
+          type: string
+        linkedAt:
+          type: number
+        hasData:
+          type: boolean
+        syncedAt:
+          type: string
+      required:
+        - accessCode
+        - linkedAt
+        - hasData
+
+    DoctorLinkedPatientsResponse:
+      type: object
+      properties:
+        patients:
+          type: array
+          items:
+            $ref: "#/components/schemas/DoctorLinkedPatient"
+      required:
+        - patients
+
+    DoctorLinkPatientRequest:
+      type: object
+      properties:
+        accessCode:
+          type: string
+      required:
+        - accessCode
+
+    DoctorLinkPatientResponse:
+      type: object
+      properties:
+        accessCode:
+          type: string
+        displayName:
+          type: string
+        patientUserId:
+          type: string
+        linkedAt:
+          type: number
+        alreadyLinked:
+          type: boolean
+        hasData:
+          type: boolean
+        syncedAt:
+          type: string
+      required:
+        - accessCode
+        - linkedAt
+        - alreadyLinked
         - hasData
 
     DoctorMessage:
