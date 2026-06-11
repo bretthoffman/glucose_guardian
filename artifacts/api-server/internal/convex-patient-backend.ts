@@ -1,7 +1,7 @@
 import { ConvexHttpClient } from "convex/browser";
 
 /**
- * Convex-backed patient server operations (Dexcom credential store).
+ * Convex-backed patient server operations (Dexcom/Libre credential store).
  * Requires CONVEX_URL + CONVEX_PATIENT_BACKEND_SECRET on the API host.
  */
 export function isConvexPatientBackendConfigured(): boolean {

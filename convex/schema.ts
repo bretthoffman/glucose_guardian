@@ -75,7 +75,9 @@ const patientProfiles = defineTable({
   targetGlucose: v.optional(v.number()),
   correctionFactor: v.optional(v.number()),
   updatedAt: v.number(),
-}).index("by_userId", ["userId"]);
+})
+  .index("by_userId", ["userId"])
+  .index("by_caregiverCode", ["caregiverCode"]);
 
 /** At most one CGM metadata row per Convex patient user (mobile `CGMConnection` when connected). */
 const patientCgmConnections = defineTable({
@@ -84,6 +86,7 @@ const patientCgmConnections = defineTable({
   sessionId: v.optional(v.string()),
   token: v.optional(v.string()),
   outsideUS: v.optional(v.boolean()),
+  libreApiBase: v.optional(v.string()),
   connectedAt: v.optional(v.string()),
   updatedAt: v.number(),
 }).index("by_userId", ["userId"]);
@@ -97,6 +100,18 @@ const patientDexcomCredentials = defineTable({
   dexcomUsername: v.string(),
   dexcomPassword: v.string(),
   outsideUS: v.boolean(),
+  updatedAt: v.number(),
+}).index("by_userId", ["userId"]);
+
+/**
+ * Server-only LibreLink Up credentials (API + Convex secret gate).
+ * Not exposed to mobile queries; used for silent session refresh.
+ */
+const patientLibreCredentials = defineTable({
+  userId: v.id("users"),
+  libreEmail: v.string(),
+  librePassword: v.string(),
+  libreApiBase: v.optional(v.string()),
   updatedAt: v.number(),
 }).index("by_userId", ["userId"]);
 
@@ -118,6 +133,7 @@ export default defineSchema({
   patientProfiles,
   patientCgmConnections,
   patientDexcomCredentials,
+  patientLibreCredentials,
   patientGlucoseReadings,
   doctorPortalState: defineTable({
     accessCode: v.string(),

@@ -22,6 +22,42 @@ async function assertPatientAuth(
   return user !== null && user.passwordHash === passwordHash;
 }
 
+function normalizeCaregiverCode(raw: string): string {
+  return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+}
+
+/** Read-only glucose for devices that only have a caregiver/family code (no password). */
+export const listRecentForCaregiver = query({
+  args: {
+    code: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const normalized = normalizeCaregiverCode(args.code);
+    if (normalized.length !== 6) return [];
+    const profileRow = await ctx.db
+      .query("patientProfiles")
+      .withIndex("by_caregiverCode", (q) => q.eq("caregiverCode", normalized))
+      .first();
+    if (!profileRow?.caregiverCode) return [];
+    if (profileRow.caregiverCode.toUpperCase() !== normalized) return [];
+    const lim = Math.min(Math.max(args.limit ?? 300, 1), 500);
+    const rows = await ctx.db
+      .query("patientGlucoseReadings")
+      .withIndex("by_user_time", (q) => q.eq("userId", profileRow.userId))
+      .order("desc")
+      .take(lim);
+    const mapped = rows.map((r) => ({
+      glucose: r.glucose,
+      timestamp: r.timestamp,
+      anomaly: r.anomaly,
+      dexcomTrend: r.dexcomTrend,
+    }));
+    mapped.reverse();
+    return mapped;
+  },
+});
+
 export const listRecent = query({
   args: {
     userId: v.id("users"),

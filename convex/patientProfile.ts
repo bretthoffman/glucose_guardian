@@ -44,6 +44,49 @@ async function assertPatientAuth(
   return user !== null && user.passwordHash === passwordHash;
 }
 
+function normalizeCaregiverCode(raw: string): string {
+  return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+}
+
+/** Public lookup for caregiver login (code is the credential). */
+export const getByCaregiverCode = query({
+  args: { code: v.string() },
+  handler: async (ctx, args) => {
+    const normalized = normalizeCaregiverCode(args.code);
+    if (normalized.length !== 6) return null;
+    const row = await ctx.db
+      .query("patientProfiles")
+      .withIndex("by_caregiverCode", (q) => q.eq("caregiverCode", normalized))
+      .first();
+    if (!row?.caregiverCode) return null;
+    if (row.caregiverCode.toUpperCase() !== normalized) return null;
+    return {
+      userId: row.userId,
+      childName: row.childName,
+      parentName: row.parentName,
+      accountRole: row.accountRole,
+      diabetesType: row.diabetesType,
+      dateOfBirth: row.dateOfBirth,
+      weightLbs: row.weightLbs,
+      doctorName: row.doctorName,
+      doctorEmail: row.doctorEmail,
+      doctorPhone: row.doctorPhone,
+      doctorInstitution: row.doctorInstitution,
+      insulinTypes: row.insulinTypes,
+      profilePhotoUri: row.profilePhotoUri,
+      childModeEnabled: row.childModeEnabled,
+      caregiverCode: row.caregiverCode,
+      caregiverCodeIssuedAt: row.caregiverCodeIssuedAt,
+      doctorCode: row.doctorCode,
+      doctorCodeIssuedAt: row.doctorCodeIssuedAt,
+      accessLog: row.accessLog,
+      carbRatio: row.carbRatio,
+      targetGlucose: row.targetGlucose,
+      correctionFactor: row.correctionFactor,
+    };
+  },
+});
+
 export const get = query({
   args: {
     userId: v.id("users"),

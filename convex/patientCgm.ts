@@ -9,6 +9,7 @@ export const cgmConnectionPayload = v.object({
   sessionId: v.optional(v.string()),
   token: v.optional(v.string()),
   outsideUS: v.optional(v.boolean()),
+  libreApiBase: v.optional(v.string()),
   connectedAt: v.optional(v.string()),
 });
 
@@ -39,6 +40,7 @@ export const get = query({
       sessionId: row.sessionId,
       token: row.token,
       outsideUS: row.outsideUS,
+      libreApiBase: row.libreApiBase,
       connectedAt: row.connectedAt,
     };
   },

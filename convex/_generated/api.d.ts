@@ -13,6 +13,7 @@ import type * as doctor from "../doctor.js";
 import type * as patientCgm from "../patientCgm.js";
 import type * as patientDexcomSecrets from "../patientDexcomSecrets.js";
 import type * as patientGlucose from "../patientGlucose.js";
+import type * as patientLibreSecrets from "../patientLibreSecrets.js";
 import type * as patientProfile from "../patientProfile.js";
 
 import type {
@@ -27,6 +28,7 @@ declare const fullApi: ApiFromModules<{
   patientCgm: typeof patientCgm;
   patientDexcomSecrets: typeof patientDexcomSecrets;
   patientGlucose: typeof patientGlucose;
+  patientLibreSecrets: typeof patientLibreSecrets;
   patientProfile: typeof patientProfile;
 }>;
 
