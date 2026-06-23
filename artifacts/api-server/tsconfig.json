@@ -3,7 +3,10 @@
   "compilerOptions": {
     "noEmit": true,
     "outDir": "dist",
-    "rootDir": ".",
+    // Repo root: this package imports Convex's generated `api` types (e.g. `api.patientDexcomSecrets`),
+    // whose type graph reaches Convex source under `../../convex` (including `convex/cgm/*`). Building
+    // (dist) is done by esbuild, not tsc, so this only governs the type-check's source-layout check.
+    "rootDir": "../..",
     "types": ["node"]
   },
   "include": ["internal/**/*.ts", "dev.ts", "build.ts"],

@@ -58,7 +58,11 @@ overrides:
   '@tailwindcss/oxide>@tailwindcss/oxide-linux-x64-musl': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-arm64-msvc': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-x64-msvc': '-'
-  esbuild: 0.27.3
+  # Pinned to match the prebuilt esbuild binary present in the store. The `@esbuild/*` platform
+  # packages are intentionally disabled below, so esbuild uses its bundled binary; bumping the JS
+  # host past that binary (e.g. to 0.27.3) breaks vitest/vite and the api-server build with a
+  # host/binary version mismatch.
+  esbuild: 0.27.0
   esbuild>@esbuild/aix-ppc64: '-'
   esbuild>@esbuild/android-arm: '-'
   esbuild>@esbuild/android-arm64: '-'

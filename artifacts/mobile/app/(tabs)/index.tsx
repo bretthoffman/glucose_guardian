@@ -26,7 +26,8 @@ import { CGMChart } from "@/components/CGMChart";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
-import { apiUrl } from "@/utils/api-base-url";
+import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
+import type { Id } from "../../../../convex/_generated/dataModel";
 
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -133,30 +134,25 @@ export default function HomeScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose } = useGlucose();
-  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, setCGMConnection } = useAuth();
+  const { profile, cgmConnection, emergencyContacts, alertPrefs, account } = useAuth();
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const [cgmLatestReading, setCgmLatestReading] = useState<{ glucose: number; timestamp: string } | null>(null);
+  const [backupMissing, setBackupMissing] = useState(false);
   const [, forceUpdate] = useState(0);
   const isConnected = !!cgmConnection.type;
   const autoSyncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isSyncingRef = useRef(false);
   const prevConnectedRef = useRef(isConnected);
-  const historyLenRef = useRef(history.length);
-  const historyOldestRef = useRef<number>(0);
   const lastAlertTimeRef = useRef<number>(0);
+  const lastSilentSyncRef = useRef<number>(0);
   const ALERT_COOLDOWN_MS = 15 * 60 * 1000;
-  const FULL_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-  useEffect(() => {
-    historyLenRef.current = history.length;
-    historyOldestRef.current = history.length > 0
-      ? new Date(history[0].timestamp).getTime()
-      : 0;
-  }, [history]);
+  // Client-side debounce so rapid foreground/tab/timer events don't spam the expedited-sync action.
+  // The server also throttles actual provider hits (`minSinceAttemptMs`), which is authoritative.
+  const SILENT_SYNC_MIN_GAP_MS = 20 * 1000;
 
   useEffect(() => {
     const wasConnected = prevConnectedRef.current;
@@ -167,6 +163,43 @@ export default function HomeScreen() {
       clearHistory();
     }
   }, [isConnected, clearHistory]);
+
+  // Opportunistic credential-backup check. A connected patient with no server-stored credentials is
+  // silently excluded from the ingestion cron and can't be auto-reconnected when the session expires.
+  // This catches connect-time backup failures, an app killed mid-connect, and pre-existing
+  // connections; the banner nudges a one-tap reconnect (the password isn't recoverable client-side).
+  useEffect(() => {
+    if (!isConnected || !account?.convexUserId || !account.passwordHash) {
+      setBackupMissing(false);
+      return;
+    }
+    const userId = account.convexUserId as Id<"users">;
+    const passwordHash = account.passwordHash;
+    const connectionType = cgmConnection.type;
+    let cancelled = false;
+    (async () => {
+      try {
+        const client = createConvexAuthClient();
+        const result = await client.query(api.patientCgm.hasCredentials, {
+          userId,
+          passwordHash,
+        });
+        if (cancelled || !result) return; // null/unknown or offline → don't raise a false alarm
+        const missing =
+          connectionType === "dexcom"
+            ? !result.hasDexcom
+            : connectionType === "libre"
+              ? !result.hasLibre
+              : false;
+        setBackupMissing(missing);
+      } catch {
+        /* offline / transient — leave the banner hidden rather than show a false alarm */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isConnected, cgmConnection.type, cgmConnection.connectedAt, account?.convexUserId, account?.passwordHash]);
 
   const displayGlucose = isConnected && cgmLatestReading
     ? cgmLatestReading.glucose
@@ -192,6 +225,15 @@ export default function HomeScreen() {
 
   const performSync = useCallback(async (silent: boolean) => {
     if (isSyncingRef.current || !cgmConnection.type) return false;
+    // Convex is the single ingestion + cursor authority. The app requests an expedited canonical
+    // sync and renders the canonical history Convex returns; it no longer calls Dexcom/Libre
+    // directly, computes a backfill count, or refreshes provider sessions itself.
+    if (!account?.convexUserId || !account.passwordHash) {
+      if (!silent) {
+        Alert.alert("Sign in required", "Reconnect your account to enable CGM monitoring.");
+      }
+      return false;
+    }
     isSyncingRef.current = true;
     if (silent) {
       setIsAutoSyncing(true);
@@ -199,146 +241,20 @@ export default function HomeScreen() {
       setIsSyncingCGM(true);
     }
     try {
-      const endpoint =
-        cgmConnection.type === "dexcom" ? "/api/cgm/dexcom/readings" : "/api/cgm/libre/readings";
-      const coverageMs = historyOldestRef.current > 0 ? Date.now() - historyOldestRef.current : 0;
-      const needsBackfill = historyLenRef.current < 20 || coverageMs < FULL_WINDOW_MS - 30 * 60 * 1000;
-      const dexcomCount = needsBackfill ? 288 : 5;
-      const initialBody =
-        cgmConnection.type === "dexcom"
-          ? {
-              sessionId: cgmConnection.sessionId,
-              outsideUS: cgmConnection.outsideUS,
-              count: dexcomCount,
-            }
-          : {
-              token: cgmConnection.token,
-              apiBase: cgmConnection.libreApiBase,
-            };
-
-      let res = await fetch(apiUrl(endpoint), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(initialBody),
+      const client = createConvexAuthClient();
+      const result = await client.action(api.cgmIngest.requestExpeditedSync, {
+        userId: account.convexUserId as Id<"users">,
+        passwordHash: account.passwordHash,
       });
 
-      let errMessage: string | undefined;
-      if (!res.ok) {
-        try {
-          const err = await res.json();
-          errMessage = err?.error;
-        } catch {
-          /* non-JSON error body */
-        }
-        const isSessionExpired =
-          res.status === 401 || (errMessage ? /session|expired|reconnect/i.test(errMessage) : false);
-
-        if (
-          isSessionExpired &&
-          account?.convexUserId &&
-          account.passwordHash
-        ) {
-          try {
-            const refreshPath =
-              cgmConnection.type === "dexcom"
-                ? "/api/cgm/dexcom/refresh-session"
-                : "/api/cgm/libre/refresh-session";
-            const refreshRes = await fetch(apiUrl(refreshPath), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                userId: account.convexUserId,
-                passwordHash: account.passwordHash,
-              }),
-            });
-            if (refreshRes.ok) {
-              const refreshData = (await refreshRes.json()) as {
-                sessionId?: string;
-                outsideUS?: boolean;
-                token?: string;
-                apiBase?: string;
-              };
-              if (cgmConnection.type === "dexcom" && refreshData.sessionId) {
-                const nextOutsideUS = refreshData.outsideUS ?? cgmConnection.outsideUS ?? false;
-                await setCGMConnection({
-                  type: "dexcom",
-                  sessionId: refreshData.sessionId,
-                  outsideUS: nextOutsideUS,
-                  connectedAt: new Date().toISOString(),
-                });
-                res = await fetch(apiUrl(endpoint), {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    sessionId: refreshData.sessionId,
-                    outsideUS: nextOutsideUS,
-                    count: dexcomCount,
-                  }),
-                });
-                errMessage = undefined;
-              } else if (cgmConnection.type === "libre" && refreshData.token) {
-                const nextApiBase = refreshData.apiBase ?? cgmConnection.libreApiBase;
-                await setCGMConnection({
-                  type: "libre",
-                  token: refreshData.token,
-                  libreApiBase: nextApiBase,
-                  connectedAt: new Date().toISOString(),
-                });
-                res = await fetch(apiUrl(endpoint), {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    token: refreshData.token,
-                    apiBase: nextApiBase,
-                  }),
-                });
-                errMessage = undefined;
-              }
-            }
-          } catch {
-            /* fall through to error handling */
-          }
-        }
-      }
-
-      if (!res.ok) {
-        if (errMessage === undefined) {
-          try {
-            const err = await res.json();
-            errMessage = err?.error;
-          } catch {
-            /* non-JSON error body */
-          }
-        }
-        const isSessionExpired =
-          res.status === 401 || (errMessage ? /session|expired|reconnect/i.test(errMessage) : false);
-        setLastSyncResult({
-          status: isSessionExpired ? "session_expired" : "error",
-          at: new Date(),
-          message: errMessage,
-        });
-        if (!silent) {
-          Alert.alert(
-            "Sync Failed",
-            errMessage || "Could not fetch CGM readings.",
-            [
-              { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
-              { text: "OK", style: "cancel" },
-            ]
-          );
-        }
-        return false;
-      }
-
-      const data = await res.json();
-      const readings: any[] = data.readings ?? [];
-      const entries = readings.map((r) => ({
+      const entries = (result.readings ?? []).map((r) => ({
         glucose: r.glucose,
         timestamp: r.timestamp,
         anomaly: r.anomaly,
-        dexcomTrend: r.trend != null ? r.trend : undefined,
+        dexcomTrend: r.dexcomTrend != null ? r.dexcomTrend : undefined,
       }));
       bulkAddReadings(entries);
+
       if (entries.length > 0) {
         const mostRecent = entries[entries.length - 1];
         setCgmLatestReading({ glucose: mostRecent.glucose, timestamp: mostRecent.timestamp });
@@ -349,11 +265,11 @@ export default function HomeScreen() {
           const low = alertPrefs.lowThreshold;
           const high = alertPrefs.highThreshold;
           const urgHigh = alertPrefs.urgentHighThreshold;
-          const now = Date.now();
+          const nowMs = Date.now();
           const overThreshold = g <= urgLow || (g < low && g > urgLow) || g >= urgHigh || (g > high && g < urgHigh);
 
-          if (overThreshold && now - lastAlertTimeRef.current > ALERT_COOLDOWN_MS) {
-            lastAlertTimeRef.current = now;
+          if (overThreshold && nowMs - lastAlertTimeRef.current > ALERT_COOLDOWN_MS) {
+            lastAlertTimeRef.current = nowMs;
             const latestDexcomTrend = mostRecent.dexcomTrend;
             const trendLabel = latestDexcomTrend != null
               ? mapDexcomTrend(latestDexcomTrend).label
@@ -373,15 +289,50 @@ export default function HomeScreen() {
           }
         }
       }
+
       const now = new Date();
-      if (readings.length > 0) {
-        setLastSyncTime(now);
-        setLastSyncResult({ status: "ok", count: readings.length, at: now });
+
+      if (
+        result.status === "unauthorized" ||
+        result.status === "needs_reconnect" ||
+        result.status === "no_credentials"
+      ) {
+        setLastSyncResult({ status: "session_expired", at: now, message: "Reconnect your CGM" });
+        if (!silent) {
+          Alert.alert(
+            "Reconnect Needed",
+            "We couldn't keep your CGM connected. Reconnect to resume monitoring.",
+            [
+              { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
+              { text: "OK", style: "cancel" },
+            ]
+          );
+        }
+        return false;
+      }
+
+      if (result.status === "retrying") {
+        setLastSyncResult({ status: "error", at: now, message: "Temporary sync issue" });
+        if (!silent) {
+          Alert.alert(
+            "Sync Delayed",
+            "Couldn't reach your CGM right now. We'll keep retrying automatically in the background."
+          );
+        }
+        return false;
+      }
+
+      // result.status === "ok"
+      setLastSyncTime(now);
+      if (entries.length > 0) {
+        setLastSyncResult({ status: "ok", count: result.inserted, at: now });
         if (!silent) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           Alert.alert(
             "Synced!",
-            `${readings.length} readings imported from ${cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre"}.`
+            result.inserted > 0
+              ? `${result.inserted} new reading${result.inserted === 1 ? "" : "s"} from ${cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre"}.`
+              : "You're up to date."
           );
         }
       } else {
@@ -393,8 +344,8 @@ export default function HomeScreen() {
               ? "Make sure Share is enabled in your Dexcom app, the sensor is active, and the Outside US toggle matches your region."
               : "Make sure LibreLinkUp Sharing is enabled and your sensor is active.";
           Alert.alert(
-            "No Readings Returned",
-            `${deviceName} responded but returned 0 readings. ${hint}`,
+            "No Readings Yet",
+            `No readings available from ${deviceName} yet. ${hint}`,
             [
               { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
               { text: "OK", style: "cancel" },
@@ -418,23 +369,29 @@ export default function HomeScreen() {
       setIsSyncingCGM(false);
       setIsAutoSyncing(false);
     }
-  }, [cgmConnection, bulkAddReadings, setCgmLatestReading, alertPrefs, profile, account, setCGMConnection]);
+  }, [cgmConnection.type, account?.convexUserId, account?.passwordHash, bulkAddReadings, alertPrefs, profile?.childName]);
 
   useEffect(() => {
     if (!isConnected) return;
 
-    performSync(true);
-
-    autoSyncTimerRef.current = setInterval(() => {
+    // Debounced freshness trigger: mount, the 5-min timer, and every return-to-foreground ask Convex
+    // for an expedited canonical sync, but never more than once per SILENT_SYNC_MIN_GAP_MS — so a
+    // burst of AppState/tab/timer events can't pile up. (Convex additionally throttles real provider
+    // hits server-side, so this is purely to avoid redundant action calls.)
+    const triggerSilentSync = () => {
+      const nowMs = Date.now();
+      if (nowMs - lastSilentSyncRef.current < SILENT_SYNC_MIN_GAP_MS) return;
+      lastSilentSyncRef.current = nowMs;
       performSync(true);
       forceUpdate((n) => n + 1);
-    }, AUTO_SYNC_INTERVAL_MS);
+    };
+
+    triggerSilentSync();
+
+    autoSyncTimerRef.current = setInterval(triggerSilentSync, AUTO_SYNC_INTERVAL_MS);
 
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        performSync(true);
-        forceUpdate((n) => n + 1);
-      }
+      if (state === "active") triggerSilentSync();
     });
 
     const labelTimer = setInterval(() => forceUpdate((n) => n + 1), 30_000);
@@ -524,6 +481,32 @@ export default function HomeScreen() {
             </View>
           </Pressable>
         </View>
+
+        {backupMissing && (
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push("/cgm-setup");
+            }}
+            style={[
+              styles.backupBanner,
+              { backgroundColor: COLORS.warning + "15", borderColor: COLORS.warning + "50" },
+            ]}
+          >
+            <Feather name="alert-triangle" size={16} color={COLORS.warning} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.backupBannerTitle, { color: COLORS.warning }]}>
+                Background monitoring not fully enabled
+              </Text>
+              <Text style={[styles.backupBannerSub, { color: colors.textSecondary }]}>
+                Reconnect your {cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre"} so we
+                can refresh your connection automatically. Without it, monitoring may stop until you
+                reopen the app and reconnect.
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={18} color={colors.textMuted} />
+          </Pressable>
+        )}
 
         <View style={styles.gaugeSection}>
           {latestReading ? (
@@ -785,4 +768,15 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   emergencyContactBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  backupBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  backupBannerTitle: { fontSize: 13, fontFamily: "Inter_700Bold", marginBottom: 2 },
+  backupBannerSub: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
 });

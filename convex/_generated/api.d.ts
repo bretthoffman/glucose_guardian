@@ -9,6 +9,11 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as cgm_config from "../cgm/config.js";
+import type * as cgm_core from "../cgm/core.js";
+import type * as cgm_providers from "../cgm/providers.js";
+import type * as cgmIngest from "../cgmIngest.js";
+import type * as crons from "../crons.js";
 import type * as doctor from "../doctor.js";
 import type * as doctorAccounts from "../doctorAccounts.js";
 import type * as patientCgm from "../patientCgm.js";
@@ -25,6 +30,11 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  "cgm/config": typeof cgm_config;
+  "cgm/core": typeof cgm_core;
+  "cgm/providers": typeof cgm_providers;
+  cgmIngest: typeof cgmIngest;
+  crons: typeof crons;
   doctor: typeof doctor;
   doctorAccounts: typeof doctorAccounts;
   patientCgm: typeof patientCgm;

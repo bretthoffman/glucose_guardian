@@ -23,6 +23,30 @@ import { apiUrl } from "@/utils/api-base-url";
 
 type CGMType = "dexcom" | "libre";
 
+/**
+ * Back up CGM credentials to the server, retrying with short backoff. The raw CGM password only
+ * exists in memory during connect, so this is the one chance to store it reliably; a transient
+ * failure here (cold serverless start, flaky network) would otherwise silently exclude the patient
+ * from the server-side ingestion cron. Resolves true once stored, false if every attempt failed.
+ */
+async function backupCredentialsWithRetry(endpoint: string, body: object): Promise<boolean> {
+  const delaysMs = [0, 1000, 2500];
+  for (const delay of delaysMs) {
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      const res = await fetch(apiUrl(endpoint), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) return true;
+    } catch {
+      /* network error — fall through and retry */
+    }
+  }
+  return false;
+}
+
 export default function CGMSetupScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
@@ -90,53 +114,35 @@ export default function CGMSetupScreen() {
         connectedAt: new Date().toISOString(),
       });
 
+      let credentialsBackedUp = true;
       if (account?.convexUserId && account.passwordHash) {
-        if (selectedType === "dexcom") {
-          try {
-            const storeRes = await fetch(apiUrl("/api/cgm/dexcom/credentials"), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
+        const backupEndpoint =
+          selectedType === "dexcom"
+            ? "/api/cgm/dexcom/credentials"
+            : "/api/cgm/libre/credentials";
+        const backupBody =
+          selectedType === "dexcom"
+            ? {
                 userId: account.convexUserId,
                 passwordHash: account.passwordHash,
                 username: username.trim(),
                 password,
                 outsideUS,
-              }),
-            });
-            if (!storeRes.ok) {
-              console.warn(
-                "[Glucose Guardian] Dexcom credential backup to server failed; CGM connection is still active.",
-              );
-            }
-          } catch {
-            console.warn(
-              "[Glucose Guardian] Dexcom credential backup to server failed; CGM connection is still active.",
-            );
-          }
-        } else {
-          try {
-            const storeRes = await fetch(apiUrl("/api/cgm/libre/credentials"), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
+              }
+            : {
                 userId: account.convexUserId,
                 passwordHash: account.passwordHash,
                 email: username.trim(),
                 password,
                 apiBase: data.apiBase,
-              }),
-            });
-            if (!storeRes.ok) {
-              console.warn(
-                "[Glucose Guardian] Libre credential backup to server failed; CGM connection is still active.",
-              );
-            }
-          } catch {
-            console.warn(
-              "[Glucose Guardian] Libre credential backup to server failed; CGM connection is still active.",
-            );
-          }
+              };
+        credentialsBackedUp = await backupCredentialsWithRetry(backupEndpoint, backupBody);
+        if (!credentialsBackedUp) {
+          // Connection is still live; the home screen surfaces a non-blocking banner (driven by the
+          // actual Convex credential state) that nudges a reconnect until the backup succeeds.
+          console.warn(
+            "[Glucose Guardian] CGM credential backup to server failed after retries; connection is still active.",
+          );
         }
       }
 

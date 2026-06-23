@@ -79,8 +79,12 @@ router.post("/dexcom/credentials", async (req, res) => {
   }
 });
 
+// DEPRECATED ingestion path. Convex (`convex/cgmIngest.ts`) now owns unattended ingestion and
+// silent session refresh; the current app delegates refresh to Convex. Retained as a compatibility
+// surface for older app builds — do not build new behavior on it.
 router.post("/dexcom/refresh-session", async (req, res) => {
   try {
+    res.setHeader("Deprecation", "true");
     if (!isConvexPatientBackendConfigured()) {
       res.status(503).json({ error: "Dexcom credential storage is not configured on this server." });
       return;
@@ -165,8 +169,12 @@ router.post("/dexcom/clear-credentials", async (req, res) => {
   }
 });
 
+// DEPRECATED ingestion path. Canonical CGM readings now flow through Convex (`convex/cgmIngest.ts`)
+// into `patientGlucoseReadings`; the current app reads canonical history from Convex and triggers
+// `cgmIngest.requestExpeditedSync` instead of calling this. Retained for older app builds only.
 router.post("/dexcom/readings", async (req, res) => {
   try {
+    res.setHeader("Deprecation", "true");
     const { sessionId, outsideUS = false, count = 10 } = req.body ?? {};
     if (!sessionId) {
       res.status(400).json({ error: "sessionId required" });
@@ -316,8 +324,11 @@ router.post("/libre/credentials", async (req, res) => {
   }
 });
 
+// DEPRECATED ingestion path. Convex (`convex/cgmIngest.ts`) now owns unattended ingestion and
+// silent session refresh for Libre too. Retained as a compatibility surface for older app builds.
 router.post("/libre/refresh-session", async (req, res) => {
   try {
+    res.setHeader("Deprecation", "true");
     if (!isConvexPatientBackendConfigured()) {
       res.status(503).json({ error: "Libre credential storage is not configured on this server." });
       return;
@@ -406,8 +417,11 @@ router.post("/libre/clear-credentials", async (req, res) => {
   }
 });
 
+// DEPRECATED ingestion path. Canonical Libre readings now flow through Convex
+// (`convex/cgmIngest.ts`) into `patientGlucoseReadings`. Retained for older app builds only.
 router.post("/libre/readings", async (req, res) => {
   try {
+    res.setHeader("Deprecation", "true");
     const { token, apiBase } = req.body ?? {};
     if (!token) {
       res.status(400).json({ error: "token required" });

@@ -162,6 +162,56 @@ const patientGlucoseReadings = defineTable({
   dexcomTrend: v.optional(v.union(v.number(), v.string())),
 }).index("by_user_time", ["userId", "timestamp"]);
 
+/**
+ * Durable per-(user, provider) ingestion health + work-queue state for the Convex-owned CGM
+ * ingestion system (`convex/cgmIngest.ts`). This is the source of truth for scheduling, leasing,
+ * cursor, retry/backoff, and connection health — never console logs.
+ *
+ * One row per connected provider per user. Created/reset on connect (`patientCgm.replace`),
+ * deleted on disconnect (`patientCgm.clear`), and lazily seeded for pre-existing connections by the
+ * dispatcher. All operational fields beyond identity are optional so existing rows (and any future
+ * migration) stay backward compatible.
+ */
+const cgmSyncState = defineTable({
+  userId: v.id("users"),
+  provider: v.union(v.literal("dexcom"), v.literal("libre")),
+
+  // --- cursor / progress ---
+  /** ISO timestamp of the latest successfully PERSISTED provider reading. Advances only after persistence. */
+  lastReadingTimestamp: v.optional(v.string()),
+  lastSuccessAt: v.optional(v.number()),
+  lastAttemptAt: v.optional(v.number()),
+  /** Last time a deep/reconcile fetch ran (drives interior-gap reconciliation cadence). */
+  lastBackfillAt: v.optional(v.number()),
+
+  // --- retry / health ---
+  consecutiveFailures: v.number(),
+  status: v.union(
+    v.literal("ok"),
+    v.literal("pending"),
+    v.literal("retrying"),
+    v.literal("needs_reconnect"), // invalid/expired credentials — user must reconnect
+    v.literal("no_credentials"), // connected but no server-stored credentials to ingest with
+  ),
+  /** Sanitized failure category (enum string from `cgm/core`); never raw provider/error text. */
+  lastFailureCategory: v.optional(v.string()),
+  lastFailureAt: v.optional(v.number()),
+  /** Due time: the dispatcher only processes rows whose `nextEligibleAt <= now`. */
+  nextEligibleAt: v.number(),
+  /** True when inactivity exceeded provider retention so an interior period is unrecoverable. */
+  unrecoverableGap: v.optional(v.boolean()),
+
+  // --- lease (mutual exclusion across cron runs + expedited syncs) ---
+  leaseOwner: v.optional(v.string()),
+  leaseExpiresAt: v.optional(v.number()),
+  /** Monotonic; bumped on every committed state update so stale workers cannot overwrite newer state. */
+  generation: v.number(),
+
+  updatedAt: v.number(),
+})
+  .index("by_user_provider", ["userId", "provider"])
+  .index("by_due", ["nextEligibleAt"]);
+
 /** One row per doctor access code: optional full patient payload (after sync), always carries messages thread. */
 export default defineSchema({
   users,
@@ -170,6 +220,7 @@ export default defineSchema({
   patientDexcomCredentials,
   patientLibreCredentials,
   patientGlucoseReadings,
+  cgmSyncState,
   doctorAccounts,
   doctorSessions,
   doctorPatientLinks,
