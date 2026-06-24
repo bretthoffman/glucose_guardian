@@ -677,10 +677,10 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   scroll: { paddingHorizontal: T.space.xl },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: T.space.md },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: T.space.xs },
   headerText: { flex: 1 },
   /** Centered pull-to-sync helper row above the glucose summary card (page-centered, own row). */
-  syncHintRow: { alignItems: "center", gap: 3, marginBottom: T.space.md },
+  syncHintRow: { alignItems: "center", gap: 3, marginBottom: T.space.xs },
   syncHintLine: { fontSize: 8.25, fontWeight: T.font.regular, textAlign: "center" },
   syncHintSub: { opacity: 0.82 },
   cgmChip: {
