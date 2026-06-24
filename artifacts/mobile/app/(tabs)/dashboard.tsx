@@ -18,12 +18,15 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
+import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TrendChart } from "@/components/TrendChart";
 import ProfileChip from "@/components/ProfileChip";
+import { SettingsModal } from "@/components/SettingsModal";
+import { useProfilePhotoPicker } from "@/hooks/useProfilePhotoPicker";
 import Colors, { COLORS } from "@/constants/colors";
+import { TYPE } from "@/constants/theme";
 import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constants/insulin";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
@@ -61,8 +64,8 @@ function GuardianLock({ colors, onPress }: { colors: (typeof Colors)["light"]; o
 const guardianStyles = StyleSheet.create({
   container: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, marginTop: 4 },
   iconWrap: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  title: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 3 },
-  sub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  title: { fontSize: 14, fontWeight: "700", marginBottom: 3 },
+  sub: { fontSize: 13, fontWeight: "400", lineHeight: 18 },
 });
 
 function PinDots({ entered, total = 4, shake }: { entered: number; total?: number; shake?: boolean }) {
@@ -127,12 +130,12 @@ const pinStyles = StyleSheet.create({
   keypad: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 14, width: "100%", maxWidth: 300, alignSelf: "center", marginTop: 8 },
   key: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center" },
   keyEmpty: { width: 76, height: 76 },
-  keyText: { fontSize: 26, fontFamily: "Inter_600SemiBold" },
+  keyText: { fontSize: 26, fontWeight: "600" },
 });
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
-  const scheme = useColorScheme();
+  const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const {
@@ -159,10 +162,16 @@ export default function DashboardScreen() {
     addEmergencyContact,
     removeEmergencyContact,
     updateAlertPrefs,
-    guardianPin,
+    guardianPinStatus,
+    guardianPinConfigured,
+    guardianPinLockoutRemainingMs,
     isGuardianUnlocked,
     unlockGuardian,
+    verifyGuardianPin,
+    setupGuardianPin,
     lockGuardian,
+    isSignedIn,
+    account,
     isChildMode,
     caregiverSession,
     doctorSession,
@@ -192,6 +201,15 @@ export default function DashboardScreen() {
 
   const isGuarded = isMinor && !isGuardianUnlocked && !doctorSession;
 
+  // Settings popup (opened from the profile/avatar control) + shared profile-photo picker.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { pickPhoto, uploading: photoUploading } = useProfilePhotoPicker();
+  const handleUpdatePhoto = () => {
+    // Close the popup first, then launch the system picker (avoids modal-over-modal presentation
+    // issues); the avatar shows the upload spinner via `photoUploading`.
+    setSettingsOpen(false);
+    pickPhoto();
+  };
   const [editing, setEditing] = useState(false);
   const [editCarbRatio, setEditCarbRatio] = useState(String(carbRatio));
   const [editCarbUnit, setEditCarbUnit] = useState<"full" | "half">("full");
@@ -218,7 +236,8 @@ export default function DashboardScreen() {
   const [pinEntry, setPinEntry] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinShake, setPinShake] = useState(false);
-  const [pinPurpose, setPinPurpose] = useState<"unlock" | "disable_child_mode">("unlock");
+  const [pinPurpose, setPinPurpose] = useState<"unlock" | "disable_child_mode" | "setup" | "setup_confirm">("unlock");
+  const [setupPinDraft, setSetupPinDraft] = useState("");
 
   const [editingThresholds, setEditingThresholds] = useState(false);
   const [editUrgentLow, setEditUrgentLow] = useState(String(alertPrefs.urgentLowThreshold));
@@ -589,28 +608,89 @@ export default function DashboardScreen() {
     setPinEntry(next);
     setPinError("");
     if (next.length === 4) {
-      setTimeout(() => {
+      setTimeout(async () => {
+        if (pinPurpose === "setup") {
+          setSetupPinDraft(next);
+          setPinEntry("");
+          setPinPurpose("setup_confirm");
+          return;
+        }
+        if (pinPurpose === "setup_confirm") {
+          const res = await setupGuardianPin(setupPinDraft, next);
+          if (res.ok) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setShowPinModal(false);
+            setPinEntry("");
+            setSetupPinDraft("");
+            setPinError("");
+            setPinPurpose("unlock");
+          } else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            setPinShake(true);
+            setTimeout(() => {
+              setPinShake(false);
+              setPinEntry("");
+              setSetupPinDraft("");
+              setPinPurpose("setup");
+              setPinError(res.error ?? "Could not save PIN");
+            }, 600);
+          }
+          return;
+        }
         if (pinPurpose === "disable_child_mode") {
-          const ok = next === guardianPin;
-          if (ok) {
+          const res = await verifyGuardianPin(next);
+          if (res.result === "verified") {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setShowPinModal(false);
             setPinEntry("");
             setPinError("");
             setPinPurpose("unlock");
             setChildMode(false);
+          } else if (res.result === "temporarily_locked") {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            setPinShake(true);
+            setTimeout(() => {
+              setPinShake(false);
+              setPinEntry("");
+              setPinError("Too many attempts — try again later");
+            }, 600);
+          } else if (res.result === "setup_required") {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            setPinShake(true);
+            setTimeout(() => {
+              setPinShake(false);
+              setPinEntry("");
+              setPinError("Guardian PIN not configured — set a new PIN first");
+            }, 600);
           } else {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             setPinShake(true);
             setTimeout(() => { setPinShake(false); setPinEntry(""); setPinError("Incorrect PIN — try again"); }, 600);
           }
         } else {
-          const ok = unlockGuardian(next);
-          if (ok) {
+          const res = await unlockGuardian(next);
+          if (res.result === "verified") {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setShowPinModal(false);
             setPinEntry("");
             setPinError("");
+          } else if (res.result === "temporarily_locked") {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            setPinShake(true);
+            setTimeout(() => {
+              setPinShake(false);
+              setPinEntry("");
+              setPinError("Too many attempts — try again later");
+            }, 600);
+          } else if (res.result === "setup_required") {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            setPinShake(true);
+            setTimeout(() => {
+              setPinShake(false);
+              setPinEntry("");
+              setPinPurpose("setup");
+              setPinError("Set a new Guardian PIN to continue");
+            }, 600);
           } else {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             setPinShake(true);
@@ -631,12 +711,24 @@ export default function DashboardScreen() {
     setPinEntry("");
     setPinError("");
     setPinShake(false);
+    setSetupPinDraft("");
     setPinPurpose("unlock");
   }
 
   function openPinUnlock() {
+    if (guardianPinStatus === "temporarily_locked") {
+      setPinError("Too many attempts — try again later");
+    }
     setPinPurpose("unlock");
     setPinEntry("");
+    setPinError("");
+    setShowPinModal(true);
+  }
+
+  function openPinSetup() {
+    setPinPurpose("setup");
+    setPinEntry("");
+    setSetupPinDraft("");
     setPinError("");
     setShowPinModal(true);
   }
@@ -650,16 +742,17 @@ export default function DashboardScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.pageHeader}>
-          <View>
-            <Text style={[styles.pageTitle, { color: colors.text }]}>Dashboard</Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              {profile?.childName ? `${profile.childName}'s health summary` : "Health summary"}
-            </Text>
+          <View style={styles.pageTitleWrap}>
+            <Text style={[TYPE.pageTitle, { color: colors.text }]}>Dashboard</Text>
           </View>
-          <ProfileChip
-            colors={colors}
-            canEdit={!caregiverSession && !doctorSession && !isChildMode}
-          />
+          <View style={styles.profileChipWrap}>
+            <ProfileChip
+              colors={colors}
+              canEdit={!caregiverSession && !doctorSession && !isChildMode}
+              onPress={() => setSettingsOpen(true)}
+              uploading={photoUploading}
+            />
+          </View>
         </View>
 
         {caregiverSession && (
@@ -722,7 +815,7 @@ export default function DashboardScreen() {
                 ) : (
                   <View style={[styles.patientAvatar, { backgroundColor: "#6366F1" + "20", alignItems: "center", justifyContent: "center" }]}>
                     {initials ? (
-                      <Text style={{ fontSize: 18, fontFamily: "Inter_700Bold", color: "#6366F1" }}>{initials}</Text>
+                      <Text style={{ fontSize: 18, fontWeight: "700", color: "#6366F1" }}>{initials}</Text>
                     ) : (
                       <Feather name="user" size={20} color="#6366F1" />
                     )}
@@ -783,7 +876,33 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {!isChildMode && !caregiverSession && isMinor && guardianPin && (
+        {!isChildMode && !caregiverSession && isMinor && guardianPinStatus === "not_set" && isSignedIn && account && (
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: COLORS.warning + "50" }]}>
+            <View style={styles.guardianAccessHeader}>
+              <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.warning + "18" }]}>
+                <Feather name="shield" size={20} color={COLORS.warning} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Set Guardian PIN</Text>
+                <Text style={[styles.guardianAccessSub, { color: colors.textMuted }]}>
+                  Guardian PIN protection is required but not configured for this account yet.
+                </Text>
+              </View>
+              <Pressable
+                style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.warning + "18", opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  openPinSetup();
+                }}
+              >
+                <Feather name="plus" size={14} color={COLORS.warning} />
+                <Text style={[styles.guardianBtnText, { color: COLORS.warning }]}>Set PIN</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {!isChildMode && !caregiverSession && isMinor && guardianPinConfigured && (
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: isGuardianUnlocked ? COLORS.success + "50" : colors.border }]}>
             <View style={styles.guardianAccessHeader}>
               <View style={[styles.guardianAccessIcon, { backgroundColor: isGuardianUnlocked ? COLORS.success + "18" : COLORS.warning + "18" }]}>
@@ -1614,7 +1733,7 @@ export default function DashboardScreen() {
                 style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "15", opacity: pressed ? 0.7 : 1 }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  if (guardianPin) {
+                  if (guardianPinConfigured) {
                     setPinPurpose("disable_child_mode");
                     setPinEntry("");
                     setPinError("");
@@ -1822,11 +1941,23 @@ export default function DashboardScreen() {
             </View>
 
             <Text style={[modalStyles.title, { color: colors.text }]}>
-              {pinPurpose === "disable_child_mode" ? "Turn Off Child View" : "Guardian Access"}
+              {pinPurpose === "disable_child_mode"
+                ? "Turn Off Child View"
+                : pinPurpose === "setup" || pinPurpose === "setup_confirm"
+                ? pinPurpose === "setup"
+                  ? "Set Guardian PIN"
+                  : "Confirm Guardian PIN"
+                : "Guardian Access"}
             </Text>
             <Text style={[modalStyles.sub, { color: colors.textSecondary }]}>
               {pinPurpose === "disable_child_mode"
                 ? "Enter your guardian PIN to turn off Child View Mode"
+                : pinPurpose === "setup"
+                ? "Choose a 4-digit PIN that only you know"
+                : pinPurpose === "setup_confirm"
+                ? "Enter the same PIN again to confirm"
+                : guardianPinStatus === "temporarily_locked" && guardianPinLockoutRemainingMs
+                ? "Too many attempts — try again later"
                 : "Enter the 4-digit guardian PIN to unlock settings"}
             </Text>
 
@@ -1847,6 +1978,14 @@ export default function DashboardScreen() {
           </View>
         </View>
       </Modal>
+
+      <SettingsModal
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onUpdatePhoto={handleUpdatePhoto}
+        uploading={photoUploading}
+        canEditPhoto={!caregiverSession && !doctorSession && !isChildMode}
+      />
     </View>
   );
 }
@@ -1857,12 +1996,12 @@ const modalStyles = StyleSheet.create({
   sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingBottom: 40, paddingTop: 16, alignItems: "center", gap: 12 },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#ccc", marginBottom: 8 },
   iconCircle: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center" },
-  title: { fontSize: 22, fontFamily: "Inter_700Bold", textAlign: "center" },
-  sub: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20, marginTop: -4 },
+  title: { fontSize: 22, fontWeight: "700", textAlign: "center" },
+  sub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20, marginTop: -4 },
   errorBadge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
-  errorText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  errorText: { fontSize: 13, fontWeight: "500" },
   cancelBtn: { paddingVertical: 12, paddingHorizontal: 24, marginTop: 4 },
-  cancelBtnText: { fontSize: 15, fontFamily: "Inter_500Medium" },
+  cancelBtnText: { fontSize: 15, fontWeight: "500" },
 });
 
 function ToggleRow({
@@ -1982,186 +2121,186 @@ function SettingRow({ label, description, value, onChange, editing, displayValue
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingHorizontal: 20 },
-  pageHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 },
-  pageTitle: { fontSize: 28, fontFamily: "Inter_700Bold", marginBottom: 4 },
-  subtitle: { fontSize: 15, fontFamily: "Inter_400Regular" },
+  pageHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+  pageTitleWrap: { flex: 1, minWidth: 0, marginRight: 12 },
+  profileChipWrap: { flexShrink: 0 },
   patientCard: { flexDirection: "row", borderRadius: 16, borderWidth: 1, padding: 14, gap: 14, marginTop: 12, marginBottom: 4 },
   patientCardLeft: { justifyContent: "flex-start" },
   patientAvatar: { width: 52, height: 52, borderRadius: 26, overflow: "hidden" },
   patientCardBody: { flex: 1, gap: 6 },
-  patientName: { fontSize: 17, fontFamily: "Inter_700Bold" },
+  patientName: { fontSize: 17, fontWeight: "700" },
   patientMetaRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   patientPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
-  patientPillText: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  patientMeta: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  patientPillText: { fontSize: 11, fontWeight: "700" },
+  patientMeta: { fontSize: 12, fontWeight: "400" },
   patientFormulaRow: { flexDirection: "row", alignItems: "center", paddingTop: 8, marginTop: 2, borderTopWidth: 1, gap: 0 },
   patientFormulaItem: { flex: 1, alignItems: "center", gap: 2 },
   patientFormulaDivider: { width: 1, height: 28, opacity: 0.4 },
-  patientFormulaLabel: { fontSize: 10, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 0.4 },
-  patientFormulaValue: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  patientFormulaLabel: { fontSize: 10, fontWeight: "500", textTransform: "uppercase", letterSpacing: 0.4 },
+  patientFormulaValue: { fontSize: 14, fontWeight: "700" },
   childBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 16 },
-  childBannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  childBannerText: { flex: 1, fontSize: 13, fontWeight: "400", lineHeight: 18 },
 
   guardianAccessHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   guardianAccessIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  guardianAccessTitle: { fontSize: 15, fontFamily: "Inter_700Bold", marginBottom: 2 },
-  guardianAccessSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  guardianAccessTitle: { fontSize: 15, fontWeight: "700", marginBottom: 2 },
+  guardianAccessSub: { fontSize: 12, fontWeight: "400" },
   guardianBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
-  guardianBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  guardianBtnText: { fontSize: 13, fontWeight: "600" },
   unlockedNote: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1 },
-  unlockedNoteText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  unlockedNoteText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 17 },
 
   profileTop: { flexDirection: "row", alignItems: "center", gap: 14 },
   avatarCircle: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
-  avatarInitial: { fontSize: 24, fontFamily: "Inter_700Bold", color: COLORS.primary },
-  profileName: { fontSize: 18, fontFamily: "Inter_700Bold" },
-  profileMeta: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  avatarInitial: { fontSize: 24, fontWeight: "700", color: COLORS.primary },
+  profileName: { fontSize: 18, fontWeight: "700" },
+  profileMeta: { fontSize: 13, fontWeight: "400" },
   logoutBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1, justifyContent: "center", marginTop: 4 },
-  logoutBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  logoutBtnText: { fontSize: 15, fontWeight: "600" },
 
   toggleRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14 },
-  toggleLabel: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  toggleDesc: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 16 },
+  toggleLabel: { fontSize: 15, fontWeight: "600" },
+  toggleDesc: { fontSize: 12, fontWeight: "400", lineHeight: 16 },
 
   addContactBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
-  addContactBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  addContactBtnText: { fontSize: 13, fontWeight: "600", color: "#fff" },
   emptyContacts: { padding: 20, borderRadius: 12, alignItems: "center", gap: 8 },
-  emptyContactsText: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 18 },
+  emptyContactsText: { fontSize: 13, fontWeight: "400", textAlign: "center", lineHeight: 18 },
 
   contactRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14, borderRadius: 12, borderWidth: 1, marginBottom: 10 },
   contactAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  contactAvatarText: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  contactName: { fontSize: 14, fontFamily: "Inter_600SemiBold", marginBottom: 5 },
-  contactPhone: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  contactAvatarText: { fontSize: 16, fontWeight: "700" },
+  contactName: { fontSize: 14, fontWeight: "600", marginBottom: 5 },
+  contactPhone: { fontSize: 12, fontWeight: "400", lineHeight: 18 },
   contactAlertBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-  contactAlertBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  contactAlertBtnText: { fontSize: 12, fontWeight: "600" },
   contactRemoveBtn: { padding: 4 },
 
   addContactForm: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 8, marginTop: 8 },
   formActions: { flexDirection: "row", gap: 8, marginTop: 4 },
   cancelFormBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, alignItems: "center" },
-  cancelFormBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  cancelFormBtnText: { fontSize: 14, fontWeight: "500" },
   saveFormBtn: { flex: 2, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 10 },
-  saveFormBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  saveFormBtnText: { fontSize: 14, fontWeight: "600", color: "#fff" },
 
   alertNote: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 10, borderWidth: 1, marginTop: 4 },
-  alertNoteText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  alertNoteText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 17 },
 
   thresholdGrid: { flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" },
   thresholdCell: { flex: 1, minWidth: "44%", borderRadius: 12, borderWidth: 1, padding: 12, alignItems: "center", gap: 4 },
-  thresholdCellLabel: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
-  thresholdCellValue: { fontSize: 26, fontFamily: "Inter_700Bold", lineHeight: 30 },
-  thresholdCellInput: { fontSize: 24, fontFamily: "Inter_700Bold", width: 70, textAlign: "center", borderWidth: 1.5, borderRadius: 8, paddingVertical: 4 },
-  thresholdCellUnit: { fontSize: 10, fontFamily: "Inter_400Regular" },
+  thresholdCellLabel: { fontSize: 9, fontWeight: "700", letterSpacing: 0.8 },
+  thresholdCellValue: { fontSize: 26, fontWeight: "700", lineHeight: 30 },
+  thresholdCellInput: { fontSize: 24, fontWeight: "700", width: 70, textAlign: "center", borderWidth: 1.5, borderRadius: 8, paddingVertical: 4 },
+  thresholdCellUnit: { fontSize: 10, fontWeight: "400" },
   threshSaveBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 11, borderRadius: 11 },
-  threshSaveBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  threshSaveBtnText: { fontSize: 14, fontWeight: "600", color: "#fff" },
   threshCancelBtn: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 11, borderRadius: 11, borderWidth: 1 },
-  threshCancelBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  threshCancelBtnText: { fontSize: 14, fontWeight: "500" },
   threshLegend: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, marginTop: 12 },
-  threshLegendText: { flex: 1, fontSize: 11, fontFamily: "Inter_400Regular", lineHeight: 16 },
+  threshLegendText: { flex: 1, fontSize: 11, fontWeight: "400", lineHeight: 16 },
 
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 },
   statCard: { width: "48%", borderRadius: 14, borderWidth: 1, padding: 14, gap: 4 },
   statIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center", marginBottom: 6 },
-  statValue: { fontSize: 24, fontFamily: "Inter_700Bold", lineHeight: 28 },
-  statUnit: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  statLabel: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  statValue: { fontSize: 24, fontWeight: "700", lineHeight: 28 },
+  statUnit: { fontSize: 12, fontWeight: "500" },
+  statLabel: { fontSize: 12, fontWeight: "400" },
 
   card: { borderRadius: 16, borderWidth: 1, padding: 18, marginBottom: 16, gap: 14 },
   cardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  cardTitle: { fontSize: 17, fontFamily: "Inter_700Bold" },
-  cardSub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18, marginTop: 3 },
+  cardTitle: { fontSize: 17, fontWeight: "700" },
+  cardSub: { fontSize: 13, fontWeight: "400", lineHeight: 18, marginTop: 3 },
   editBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  editBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  editBtnText: { fontSize: 13, fontWeight: "600" },
 
   rangeRow: { flexDirection: "row", justifyContent: "space-around" },
   rangeItem: { alignItems: "center", gap: 2 },
-  rangeValue: { fontSize: 22, fontFamily: "Inter_700Bold" },
-  rangeUnit: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  rangeLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  rangeValue: { fontSize: 22, fontWeight: "700" },
+  rangeUnit: { fontSize: 11, fontWeight: "400" },
+  rangeLabel: { fontSize: 11, fontWeight: "400" },
 
   settingRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, gap: 12 },
   settingInfo: { flex: 1 },
-  settingLabel: { fontSize: 15, fontFamily: "Inter_500Medium", marginBottom: 2 },
-  settingDesc: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  settingValue: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  settingInput: { width: 80, borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7, fontSize: 14, fontFamily: "Inter_500Medium", textAlign: "right" },
+  settingLabel: { fontSize: 15, fontWeight: "500", marginBottom: 2 },
+  settingDesc: { fontSize: 12, fontWeight: "400" },
+  settingValue: { fontSize: 14, fontWeight: "700" },
+  settingInput: { width: 80, borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7, fontSize: 14, fontWeight: "500", textAlign: "right" },
   carbUnitToggleBtn: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 7, borderRadius: 8, borderWidth: 1.5 },
-  carbUnitToggleBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  carbUnitToggleBtnText: { fontSize: 13, fontWeight: "600" },
 
-  fieldLabel: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  smallInput: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontFamily: "Inter_400Regular" },
+  fieldLabel: { fontSize: 13, fontWeight: "500" },
+  smallInput: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontWeight: "400" },
 
   dangerBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, alignSelf: "flex-start" },
-  dangerBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  dangerBtnText: { fontSize: 13, fontWeight: "600" },
   outlineBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, alignSelf: "flex-start" },
-  outlineBtnText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  outlineBtnText: { fontSize: 13, fontWeight: "500" },
   shareBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 14, borderRadius: 14 },
-  shareBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
-  shareNote: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 16 },
+  shareBtnText: { fontSize: 15, fontWeight: "600", color: "#fff" },
+  shareNote: { fontSize: 12, fontWeight: "400", lineHeight: 16 },
   dlRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1 },
-  dlRowLabel: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium" },
+  dlRowLabel: { flex: 1, fontSize: 14, fontWeight: "500" },
   dlCheckbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
-  doctorInfo: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  doctorInfo: { fontSize: 14, fontWeight: "400" },
 
-  foodLogCount: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: -8 },
+  foodLogCount: { fontSize: 13, fontWeight: "400", marginTop: -8 },
   foodLogRow: { paddingVertical: 10, borderBottomWidth: 1, gap: 2 },
-  foodLogName: { fontSize: 14, fontFamily: "Inter_500Medium" },
-  foodLogMeta: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  foodLogMore: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 4 },
+  foodLogName: { fontSize: 14, fontWeight: "500" },
+  foodLogMeta: { fontSize: 12, fontWeight: "400" },
+  foodLogMore: { fontSize: 13, fontWeight: "400", marginTop: 4 },
 
-  logDayHeader: { fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.5, paddingBottom: 6, borderBottomWidth: 1, marginTop: 4, marginBottom: 4 },
+  logDayHeader: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5, paddingBottom: 6, borderBottomWidth: 1, marginTop: 4, marginBottom: 4 },
   logEntryRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: 1 },
   logEntryIcon: { width: 30, height: 30, borderRadius: 9, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  logEntryName: { fontSize: 13, fontFamily: "Inter_600SemiBold", marginBottom: 1 },
-  logEntryMeta: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  logEntryName: { fontSize: 13, fontWeight: "600", marginBottom: 1 },
+  logEntryMeta: { fontSize: 11, fontWeight: "400" },
   dangerBtnSmall: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1 },
 
   insulinTypesSection: { borderTopWidth: 1, paddingTop: 14, gap: 12 },
   insulinGroup: { gap: 6 },
-  insulinGroupLabel: { fontSize: 10, fontFamily: "Inter_600SemiBold", letterSpacing: 0.8 },
+  insulinGroupLabel: { fontSize: 10, fontWeight: "600", letterSpacing: 0.8 },
   insulinChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   insulinChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
-  insulinChipName: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  insulinChipConc: { fontSize: 10, fontFamily: "Inter_400Regular" },
-  insulinChipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  insulinTypesEmpty: { fontSize: 12, fontFamily: "Inter_400Regular", fontStyle: "italic" },
+  insulinChipName: { fontSize: 13, fontWeight: "600" },
+  insulinChipConc: { fontSize: 10, fontWeight: "400" },
+  insulinChipText: { fontSize: 13, fontWeight: "500" },
+  insulinTypesEmpty: { fontSize: 12, fontWeight: "400", fontStyle: "italic" },
 
   disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 14, borderRadius: 12, marginTop: 4 },
-  disclaimerText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  disclaimerText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 18 },
 
   modeBanner: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 12 },
   modeBannerLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  modeBannerTitle: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 1 },
-  modeBannerSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  modeBannerTitle: { fontSize: 14, fontWeight: "700", marginBottom: 1 },
+  modeBannerSub: { fontSize: 12, fontWeight: "400" },
   modeBannerBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
-  modeBannerBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  modeBannerBtnText: { fontSize: 13, fontWeight: "600" },
 
   caregiverCodeDisplay: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 12, borderWidth: 1, gap: 12 },
-  caregiverCodeLabel: { fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 },
-  caregiverCodeValue: { fontSize: 22, fontFamily: "Inter_700Bold", letterSpacing: 3 },
-  accessTimestamp: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 3 },
+  caregiverCodeLabel: { fontSize: 11, fontWeight: "400", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 },
+  caregiverCodeValue: { fontSize: 22, fontWeight: "700", letterSpacing: 3 },
+  accessTimestamp: { fontSize: 11, fontWeight: "400", marginTop: 3 },
 
   accessSection: { borderTopWidth: 1, paddingTop: 14, gap: 10 },
   accessSectionHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  accessSectionTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1 },
-  accessSectionBadge: { fontSize: 10, fontFamily: "Inter_700Bold", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: "hidden", textTransform: "uppercase", letterSpacing: 0.4 },
-  accessSectionDesc: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  accessSectionTitle: { fontSize: 14, fontWeight: "600", flex: 1 },
+  accessSectionBadge: { fontSize: 10, fontWeight: "700", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: "hidden", textTransform: "uppercase", letterSpacing: 0.4 },
+  accessSectionDesc: { fontSize: 12, fontWeight: "400", lineHeight: 17 },
 
   accessLogRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 8, borderBottomWidth: 1 },
   accessLogDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5, flexShrink: 0 },
-  accessLogAction: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1, lineHeight: 18 },
-  accessLogTime: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
+  accessLogAction: { fontSize: 13, fontWeight: "400", flex: 1, lineHeight: 18 },
+  accessLogTime: { fontSize: 11, fontWeight: "400", marginTop: 2 },
   accessLogActorBadge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, alignSelf: "flex-start" },
-  accessLogActorText: { fontSize: 10, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 0.4 },
+  accessLogActorText: { fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
 
   notifPermRow: { borderTopWidth: 1, paddingTop: 14, gap: 8 },
   notifPermStatus: { flexDirection: "row", alignItems: "center", gap: 8 },
   notifPermDot: { width: 9, height: 9, borderRadius: 5 },
-  notifPermLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  notifPermHint: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  notifPermLabel: { fontSize: 13, fontWeight: "600" },
+  notifPermHint: { fontSize: 12, fontWeight: "400", lineHeight: 17 },
   notifPermBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 10, borderRadius: 11, marginTop: 2 },
-  notifPermBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  notifPermBtnText: { fontSize: 13, fontWeight: "600", color: "#fff" },
   notifCriticalNote: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 },
-  notifCriticalNoteText: { fontSize: 11, fontFamily: "Inter_400Regular", color: "#F97316", flex: 1, lineHeight: 15 },
+  notifCriticalNoteText: { fontSize: 11, fontWeight: "400", color: "#F97316", flex: 1, lineHeight: 15 },
 });

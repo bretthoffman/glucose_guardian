@@ -1,19 +1,23 @@
 import { Feather } from "@expo/vector-icons";
-import React from "react";
-import { StyleSheet, Text, View, useColorScheme } from "react-native";
-import Colors, { COLORS } from "@/constants/colors";
+import React, { useMemo } from "react";
+import { StyleSheet, Text, View } from "react-native";
+import { T, withAlpha, type ThemeColors } from "@/constants/theme";
+import { useThemeColors } from "@/context/ThemeContext";
 import { GlucoseEntry } from "@/context/GlucoseContext";
 
 interface Props {
   entry: GlucoseEntry;
+  /** Last row in the card → no bottom separator. */
+  last?: boolean;
 }
 
+/** Clinical color for a value. Boundaries unchanged from the previous ReadingCard — only hexes differ. */
 function getGlucoseColor(value: number): string {
-  if (value < 70) return COLORS.glucose.low;
-  if (value < 80) return COLORS.glucose.lowRange;
-  if (value <= 180) return COLORS.glucose.normal;
-  if (value <= 250) return COLORS.glucose.high;
-  return COLORS.glucose.veryHigh;
+  if (value < 70) return T.color.coral;
+  if (value < 80) return T.color.amber;
+  if (value <= 180) return T.color.emerald;
+  if (value <= 250) return T.color.amber;
+  return T.color.coral;
 }
 
 function getGlucoseLabel(value: number): string {
@@ -31,95 +35,51 @@ function formatTime(ts: string): string {
   });
 }
 
-export function ReadingCard({ entry }: Props) {
-  const scheme = useColorScheme();
-  const isDark = scheme === "dark";
-  const colors = isDark ? Colors.dark : Colors.light;
-  const glucoseColor = getGlucoseColor(entry.glucose);
+export function ReadingCard({ entry, last }: Props) {
+  const c = useThemeColors();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const color = getGlucoseColor(entry.glucose);
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <View style={styles.left}>
-        <View
-          style={[
-            styles.dot,
-            { backgroundColor: glucoseColor },
-          ]}
-        />
-        <View>
-          <Text style={[styles.value, { color: glucoseColor }]}>
-            {entry.glucose}
-            <Text style={[styles.unit, { color: colors.textSecondary }]}>
-              {" "}mg/dL
-            </Text>
-          </Text>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>
-            {getGlucoseLabel(entry.glucose)}
-          </Text>
+    <View style={[styles.row, !last && styles.divider]}>
+      <View style={[styles.dot, { backgroundColor: color }]} />
+      <Text style={[styles.value, { color: c.textPrimary }]}>
+        {entry.glucose}
+        <Text style={[styles.unit, { color: c.textMuted }]}> mg/dL</Text>
+      </Text>
+      <Text style={[styles.label, { color }]}>{getGlucoseLabel(entry.glucose)}</Text>
+      {entry.anomaly.warning && (
+        <View style={[styles.alertBadge, { backgroundColor: withAlpha(T.color.coral, 0.16) }]}>
+          <Feather name="alert-triangle" size={11} color={T.color.coral} />
         </View>
-      </View>
-      <View style={styles.right}>
-        {entry.anomaly.warning && (
-          <View style={[styles.alertBadge, { backgroundColor: COLORS.dangerLight }]}>
-            <Feather name="alert-triangle" size={12} color={COLORS.danger} />
-          </View>
-        )}
-        <Text style={[styles.time, { color: colors.textMuted }]}>
-          {formatTime(entry.timestamp)}
-        </Text>
-      </View>
+      )}
+      <Text style={[styles.time, { color: c.textSecondary }]}>{formatTime(entry.timestamp)}</Text>
+      <Feather name="chevron-right" size={16} color={c.textMuted} />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 8,
+    gap: 10,
+    paddingVertical: 14,
   },
-  left: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+  divider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: c.border,
   },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  value: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-  },
-  unit: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-  },
-  label: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    marginTop: 2,
-  },
-  right: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
+  dot: { width: 9, height: 9, borderRadius: 4.5 },
+  value: { fontSize: 16, fontWeight: T.font.bold },
+  unit: { fontSize: 12, fontWeight: T.font.regular },
+  label: { flex: 1, fontSize: 12.5, fontWeight: T.font.medium },
   alertBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
   },
-  time: {
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
-  },
+  time: { fontSize: 12.5, fontWeight: T.font.medium },
 });

@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -6,16 +6,17 @@ import { scheduleGlucoseAlert } from "@/services/notifications";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   AppState,
   Linking,
   Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
-  useColorScheme,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlucoseGauge } from "@/components/GlucoseGauge";
@@ -23,13 +24,17 @@ import type { GlucoseTrend } from "@/components/GlucoseGauge";
 import { mapDexcomTrend, trendFromDiff } from "@/utils/trend";
 import { ReadingCard } from "@/components/ReadingCard";
 import { CGMChart } from "@/components/CGMChart";
-import Colors, { COLORS } from "@/constants/colors";
+import { Surface } from "@/components/Surface";
+import { T, withAlpha } from "@/constants/theme";
+import { useThemeColors } from "@/context/ThemeContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+/** Visual pull threshold — aligned with iOS RefreshControl release distance (~72pt). */
+const PULL_REFRESH_THRESHOLD = 72;
 
 type SyncResultStatus = "ok" | "zero" | "session_expired" | "error";
 
@@ -43,29 +48,28 @@ type SyncResult = {
 function TrendAlertBanner({
   trend,
   glucose,
-  colors,
 }: {
   trend: "rapidly_falling" | "rapidly_rising";
   glucose: number;
-  colors: (typeof Colors)["light"];
 }) {
   const [dismissed, setDismissed] = React.useState(false);
+  const c = useThemeColors();
   if (dismissed) return null;
   const isFalling = trend === "rapidly_falling";
-  const bannerColor = isFalling ? COLORS.danger : COLORS.warning;
+  const bannerColor = isFalling ? T.color.coral : T.color.amber;
   const icon = isFalling ? "trending-down" : "trending-up";
   const title = isFalling ? "Glucose Dropping Fast ↓↓" : "Glucose Rising Fast ↑↑";
   const message = isFalling
     ? `At ${glucose} mg/dL and dropping quickly — eat 15g fast-acting carbs (juice or glucose tabs) now. Do not take insulin.`
     : `At ${glucose} mg/dL and rising quickly — avoid high-carb food now. Consider a short walk or consult your dose plan.`;
   return (
-    <View style={[trendBannerStyles.banner, { backgroundColor: bannerColor + "15", borderColor: bannerColor + "50" }]}>
-      <View style={[trendBannerStyles.iconWrap, { backgroundColor: bannerColor + "20" }]}>
+    <View style={[styles.banner, { backgroundColor: withAlpha(bannerColor, 0.12), borderColor: withAlpha(bannerColor, 0.4) }]}>
+      <View style={[styles.bannerIcon, { backgroundColor: withAlpha(bannerColor, 0.18) }]}>
         <Feather name={icon} size={18} color={bannerColor} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={[trendBannerStyles.title, { color: bannerColor }]}>{title}</Text>
-        <Text style={[trendBannerStyles.message, { color: colors.textSecondary }]}>{message}</Text>
+        <Text style={[styles.bannerTitle, { color: bannerColor }]}>{title}</Text>
+        <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>{message}</Text>
       </View>
       <Pressable
         onPress={() => {
@@ -74,18 +78,11 @@ function TrendAlertBanner({
         }}
         hitSlop={10}
       >
-        <Feather name="x" size={16} color={colors.textMuted} />
+        <Feather name="x" size={16} color={c.textMuted} />
       </Pressable>
     </View>
   );
 }
-
-const trendBannerStyles = StyleSheet.create({
-  banner: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 8, width: "100%" },
-  iconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  title: { fontSize: 13, fontFamily: "Inter_700Bold", marginBottom: 2 },
-  message: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
-});
 
 function formatLastSync(date: Date | null): string {
   if (!date) return "";
@@ -93,19 +90,6 @@ function formatLastSync(date: Date | null): string {
   if (diff < 60) return "Just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   return `${Math.floor(diff / 3600)}h ago`;
-}
-
-function syncResultColor(result: SyncResult | null): string {
-  if (!result) return COLORS.success + "99";
-  switch (result.status) {
-    case "ok":
-      return COLORS.success + "99";
-    case "zero":
-      return COLORS.warning;
-    case "session_expired":
-    case "error":
-      return COLORS.danger;
-  }
 }
 
 function syncResultLabel(
@@ -130,10 +114,8 @@ function syncResultLabel(
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const scheme = useColorScheme();
-  const isDark = scheme === "dark";
-  const colors = isDark ? Colors.dark : Colors.light;
-  const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose } = useGlucose();
+  const c = useThemeColors();
+  const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose, notifyCgmSyncSuccess } = useGlucose();
   const { profile, cgmConnection, emergencyContacts, alertPrefs, account } = useAuth();
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
@@ -149,6 +131,9 @@ export default function HomeScreen() {
   const prevConnectedRef = useRef(isConnected);
   const lastAlertTimeRef = useRef<number>(0);
   const lastSilentSyncRef = useRef<number>(0);
+  const pullHapticFiredRef = useRef(false);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const [pullArmed, setPullArmed] = useState(false);
   const ALERT_COOLDOWN_MS = 15 * 60 * 1000;
   // Client-side debounce so rapid foreground/tab/timer events don't spam the expedited-sync action.
   // The server also throttles actual provider hits (`minSinceAttemptMs`), which is authoritative.
@@ -222,6 +207,9 @@ export default function HomeScreen() {
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
   const childName = profile?.childName ?? "Glucose Guardian";
+  const updatedLabel = (lastSyncResult || lastSyncTime)
+    ? `Updated ${formatLastSync(lastSyncResult?.at ?? lastSyncTime).toLowerCase()}`
+    : undefined;
 
   const performSync = useCallback(async (silent: boolean) => {
     if (isSyncingRef.current || !cgmConnection.type) return false;
@@ -353,6 +341,7 @@ export default function HomeScreen() {
           );
         }
       }
+      notifyCgmSyncSuccess();
       return true;
     } catch {
       setLastSyncResult({
@@ -369,7 +358,7 @@ export default function HomeScreen() {
       setIsSyncingCGM(false);
       setIsAutoSyncing(false);
     }
-  }, [cgmConnection.type, account?.convexUserId, account?.passwordHash, bulkAddReadings, alertPrefs, profile?.childName]);
+  }, [cgmConnection.type, account?.convexUserId, account?.passwordHash, bulkAddReadings, alertPrefs, profile?.childName, notifyCgmSyncSuccess]);
 
   useEffect(() => {
     if (!isConnected) return;
@@ -412,72 +401,114 @@ export default function HomeScreen() {
     setRefreshing(true);
     await syncCGM();
     setRefreshing(false);
+    pullHapticFiredRef.current = false;
+    setPullArmed(false);
   }
 
+  const handleScroll = Animated.event(
+    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+    {
+      useNativeDriver: false,
+      listener: (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+        const y = e.nativeEvent.contentOffset.y;
+        const armed = y <= -PULL_REFRESH_THRESHOLD;
+        setPullArmed(armed);
+        if (armed && !pullHapticFiredRef.current) {
+          pullHapticFiredRef.current = true;
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+        if (y > -PULL_REFRESH_THRESHOLD * 0.45) {
+          pullHapticFiredRef.current = false;
+        }
+      },
+    },
+  );
+
+  const pullOpacity = scrollY.interpolate({
+    inputRange: [-PULL_REFRESH_THRESHOLD, -PULL_REFRESH_THRESHOLD * 0.25, 0],
+    outputRange: [1, 0.35, 0],
+    extrapolate: "clamp",
+  });
+  const pullTranslateY = scrollY.interpolate({
+    inputRange: [-PULL_REFRESH_THRESHOLD, 0],
+    outputRange: [10, -32],
+    extrapolate: "clamp",
+  });
+  const pullScale = scrollY.interpolate({
+    inputRange: [-PULL_REFRESH_THRESHOLD, 0],
+    outputRange: [1, 0.8],
+    extrapolate: "clamp",
+  });
+
+  const deviceLabel = cgmConnection.type === "dexcom" ? "Dexcom" : cgmConnection.type === "libre" ? "FreeStyle Libre" : "";
+
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingTop: topPadding + 12, paddingBottom: 120 },
-        ]}
+    <View style={[styles.root, { backgroundColor: c.screen }]}>
+      {!refreshing && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.pullDroplet,
+            { top: topPadding + 2, opacity: pullOpacity, transform: [{ translateY: pullTranslateY }, { scale: pullScale }] },
+          ]}
+        >
+          <MaterialCommunityIcons
+            name="water"
+            size={28}
+            color={pullArmed ? T.color.emerald : T.color.violetActive}
+          />
+        </Animated.View>
+      )}
+      <Animated.ScrollView
+        contentContainerStyle={[styles.scroll, { paddingTop: topPadding + 8, paddingBottom: 130 }]}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={handleScroll}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={COLORS.primary}
+            tintColor="transparent"
+            colors={["transparent"]}
+            progressBackgroundColor="transparent"
           />
         }
       >
         <View style={styles.header}>
-          <View>
-            <Text style={[styles.greeting, { color: colors.textSecondary }]}>
-              Good {getTimeOfDay()}
-            </Text>
-            <Text style={[styles.title, { color: colors.text }]}>{childName}</Text>
+          <View style={styles.headerText}>
+            <Text style={[styles.greeting, { color: c.textSecondary }]}>Good {getTimeOfDay()}</Text>
+            <Text style={[styles.title, { color: c.textPrimary }]}>{childName}</Text>
           </View>
+          {/* CGM connector — restored from the pre-redesign Glucose screen, restyled dark-clinical.
+              Shows the connected provider (Dexcom/Libre) + new-count/recency, or "Connect CGM" when
+              disconnected; taps to the same /cgm-setup destination. Independent of the sync card. */}
           <Pressable
             onPress={() => router.push("/cgm-setup")}
             style={[
-              styles.cgmButton,
+              styles.cgmChip,
               {
-                backgroundColor: isConnected
-                  ? COLORS.success + "20"
-                  : colors.backgroundTertiary,
-                borderWidth: 1,
-                borderColor: isConnected ? COLORS.success + "50" : colors.border,
+                backgroundColor: isConnected ? withAlpha(T.color.emerald, 0.1) : c.card,
+                borderColor: isConnected ? withAlpha(T.color.emerald, 0.4) : c.border,
               },
             ]}
           >
             {isAutoSyncing ? (
-              <ActivityIndicator size={12} color={COLORS.success} />
+              <ActivityIndicator size={10} color={T.color.emerald} />
             ) : (
-              <View style={[styles.liveDot, { backgroundColor: isConnected ? COLORS.success : colors.textMuted }]} />
+              <View style={[styles.cgmDot, { backgroundColor: isConnected ? T.color.emerald : c.textMuted }]} />
             )}
-            <View>
+            <View style={{ flexShrink: 1 }}>
               <Text
-                style={[
-                  styles.cgmButtonText,
-                  { color: isConnected ? COLORS.success : colors.textMuted },
-                ]}
+                style={[styles.cgmChipText, { color: isConnected ? T.color.emerald : c.textMuted }]}
+                numberOfLines={1}
               >
-                {isConnected
-                  ? cgmConnection.type === "dexcom"
-                    ? "Dexcom"
-                    : "Libre"
-                  : "Connect CGM"}
+                {isConnected ? (cgmConnection.type === "dexcom" ? "Dexcom" : "Libre") : "Connect CGM"}
               </Text>
-              {isConnected && (lastSyncResult || lastSyncTime) && (
-                <Text
-                  style={[
-                    styles.lastSyncText,
-                    { color: syncResultColor(lastSyncResult) },
-                  ]}
-                >
+              {isConnected && (lastSyncResult || lastSyncTime) ? (
+                <Text style={[styles.cgmChipSub, { color: c.textMuted }]} numberOfLines={1}>
                   {syncResultLabel(lastSyncResult, lastSyncTime)}
                 </Text>
-              )}
+              ) : null}
             </View>
           </Pressable>
         </View>
@@ -488,175 +519,143 @@ export default function HomeScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               router.push("/cgm-setup");
             }}
-            style={[
-              styles.backupBanner,
-              { backgroundColor: COLORS.warning + "15", borderColor: COLORS.warning + "50" },
-            ]}
+            style={[styles.banner, { backgroundColor: withAlpha(T.color.amber, 0.12), borderColor: withAlpha(T.color.amber, 0.4) }]}
           >
-            <Feather name="alert-triangle" size={16} color={COLORS.warning} />
+            <Feather name="alert-triangle" size={16} color={T.color.amber} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.backupBannerTitle, { color: COLORS.warning }]}>
-                Background monitoring not fully enabled
-              </Text>
-              <Text style={[styles.backupBannerSub, { color: colors.textSecondary }]}>
-                Reconnect your {cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre"} so we
-                can refresh your connection automatically. Without it, monitoring may stop until you
-                reopen the app and reconnect.
+              <Text style={[styles.bannerTitle, { color: T.color.amber }]}>Background monitoring not fully enabled</Text>
+              <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>
+                Reconnect your {deviceLabel} so we can refresh your connection automatically. Without it,
+                monitoring may stop until you reopen the app and reconnect.
               </Text>
             </View>
-            <Feather name="chevron-right" size={18} color={colors.textMuted} />
+            <Feather name="chevron-right" size={18} color={c.textMuted} />
           </Pressable>
         )}
 
-        <View style={styles.gaugeSection}>
-          {latestReading ? (
-              <GlucoseGauge
+        {/* Pull-to-sync helper — centered in the open header space, above the glucose summary card.
+            Page-centered (its own full-width row), not anchored to the greeting or the Dexcom card. */}
+        {isConnected && (
+          <View style={styles.syncHintRow}>
+            <Text style={[styles.syncHintLine, { color: c.textMuted }]}>Pull down to sync</Text>
+            <Text style={[styles.syncHintLine, styles.syncHintSub, { color: c.textMuted }]}>
+              (Auto-sync every 5 min)
+            </Text>
+          </View>
+        )}
+
+        {/* Glucose summary */}
+        {latestReading ? (
+          <Surface style={styles.section} padding={T.space.xl}>
+            <GlucoseGauge
               value={displayGlucose}
-              size={200}
+              size={172}
               trend={glucoseTrend}
               lowThreshold={alertPrefs.lowThreshold}
               highThreshold={alertPrefs.highThreshold}
               recentReadings={history}
+              updatedLabel={updatedLabel}
             />
-          ) : (
-            <View
-              style={[
-                styles.emptyGaugeBox,
-                { backgroundColor: colors.backgroundTertiary, borderColor: colors.border },
-              ]}
-            >
-              <Feather name="activity" size={32} color={colors.textMuted} />
-              <Text style={[styles.emptyGaugeText, { color: colors.text }]}>No readings yet</Text>
-              <Text style={[styles.emptyGaugeSub, { color: colors.textSecondary }]}>
-                {isConnected ? "Pull down to sync CGM" : 'Tap "Simulate Reading" or connect a CGM'}
+          </Surface>
+        ) : (
+          <Surface style={styles.section}>
+            <View style={styles.emptyGauge}>
+              <Feather name="activity" size={30} color={c.textMuted} />
+              <Text style={[styles.emptyGaugeText, { color: c.textPrimary }]}>No readings yet</Text>
+              <Text style={[styles.emptyGaugeSub, { color: c.textSecondary }]}>
+                {isConnected ? "Pull down to sync your CGM" : "Connect a CGM to start monitoring"}
               </Text>
+            </View>
+          </Surface>
+        )}
+
+        {(glucoseTrend === "rapidly_falling" || glucoseTrend === "rapidly_rising") && history.length > 1 && (
+          <View style={styles.section}>
+            <TrendAlertBanner trend={glucoseTrend} glucose={displayGlucose} />
+          </View>
+        )}
+
+        {latestReading?.anomaly.warning && (
+          <View style={[styles.section, styles.banner, { backgroundColor: withAlpha(T.color.coral, 0.12), borderColor: withAlpha(T.color.coral, 0.4) }]}>
+            <Feather name="alert-triangle" size={16} color={T.color.coral} />
+            <Text style={[styles.bannerMessage, { color: c.textSecondary, flex: 1 }]}>
+              {latestReading.anomaly.message}
+            </Text>
+          </View>
+        )}
+
+        {latestReading && alertPrefs.emergencyAlertsEnabled && emergencyContacts.length > 0 &&
+          (latestReading.glucose < alertPrefs.lowThreshold || latestReading.glucose > alertPrefs.highThreshold) && (
+            <View style={[styles.section, styles.emergencyBanner, { backgroundColor: withAlpha(T.color.coral, 0.1), borderColor: withAlpha(T.color.coral, 0.4) }]}>
+              <View style={styles.emergencyTop}>
+                <Feather name="phone-call" size={15} color={T.color.coral} />
+                <Text style={[styles.emergencyTitle, { color: T.color.coral }]}>Emergency Alert Ready</Text>
+              </View>
+              <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>
+                Glucose is {latestReading.glucose < alertPrefs.lowThreshold ? "critically low" : "critically high"} — tap to alert your emergency contact{emergencyContacts.length > 1 ? "s" : ""}.
+              </Text>
+              <View style={styles.emergencyList}>
+                {emergencyContacts.map((c) => (
+                  <Pressable
+                    key={c.id}
+                    style={({ pressed }) => [styles.emergencyBtn, { backgroundColor: T.color.coral, opacity: pressed ? 0.85 : 1 }]}
+                    onPress={() => {
+                      const name = profile?.childName ?? "your child";
+                      const level = latestReading!.glucose;
+                      const status = level < alertPrefs.lowThreshold ? "DANGEROUSLY LOW" : "DANGEROUSLY HIGH";
+                      const msg = `🚨 GLUCO GUARDIAN ALERT: ${name}'s blood sugar is ${status} at ${level} mg/dL. Please check on them immediately!`;
+                      const url = Platform.OS === "ios"
+                        ? `sms:${c.phone}&body=${encodeURIComponent(msg)}`
+                        : `sms:${c.phone}?body=${encodeURIComponent(msg)}`;
+                      Linking.openURL(url).catch(() => Alert.alert("Could not open SMS", "Please check the phone number for " + c.name));
+                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    }}
+                  >
+                    <Feather name="send" size={13} color="#fff" />
+                    <Text style={styles.emergencyBtnText}>Alert {c.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
           )}
 
-          {(glucoseTrend === "rapidly_falling" || glucoseTrend === "rapidly_rising") && history.length > 1 && (
-            <TrendAlertBanner trend={glucoseTrend} glucose={displayGlucose} colors={colors} />
-          )}
-
-          {latestReading?.anomaly.warning && (
-            <View style={[styles.anomalyBanner, { backgroundColor: COLORS.dangerLight }]}>
-              <Feather name="alert-triangle" size={16} color={COLORS.danger} />
-              <Text style={[styles.anomalyText, { color: COLORS.danger }]}>
-                {latestReading.anomaly.message}
-              </Text>
-            </View>
-          )}
-
-          {latestReading && alertPrefs.emergencyAlertsEnabled && emergencyContacts.length > 0 &&
-            (latestReading.glucose < alertPrefs.lowThreshold || latestReading.glucose > alertPrefs.highThreshold) && (
-              <View style={[styles.emergencyBanner, { backgroundColor: COLORS.danger + "12", borderColor: COLORS.danger + "40" }]}>
-                <View style={styles.emergencyBannerTop}>
-                  <Feather name="phone-call" size={15} color={COLORS.danger} />
-                  <Text style={[styles.emergencyBannerTitle, { color: COLORS.danger }]}>Emergency Alert Ready</Text>
-                </View>
-                <Text style={[styles.emergencyBannerSub, { color: colors.textSecondary }]}>
-                  Glucose is {latestReading.glucose < alertPrefs.lowThreshold ? "critically low" : "critically high"} — tap to alert your emergency contact{emergencyContacts.length > 1 ? "s" : ""}.
-                </Text>
-                <View style={styles.emergencyContactList}>
-                  {emergencyContacts.map((c) => (
-                    <Pressable
-                      key={c.id}
-                      style={({ pressed }) => [
-                        styles.emergencyContactBtn,
-                        { backgroundColor: COLORS.danger, opacity: pressed ? 0.85 : 1 },
-                      ]}
-                      onPress={() => {
-                        const name = profile?.childName ?? "your child";
-                        const level = latestReading!.glucose;
-                        const status = level < alertPrefs.lowThreshold ? "DANGEROUSLY LOW" : "DANGEROUSLY HIGH";
-                        const msg = `🚨 GLUCO GUARDIAN ALERT: ${name}'s blood sugar is ${status} at ${level} mg/dL. Please check on them immediately!`;
-                        const url = Platform.OS === "ios"
-                          ? `sms:${c.phone}&body=${encodeURIComponent(msg)}`
-                          : `sms:${c.phone}?body=${encodeURIComponent(msg)}`;
-                        Linking.openURL(url).catch(() => Alert.alert("Could not open SMS", "Please check the phone number for " + c.name));
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                      }}
-                    >
-                      <Feather name="send" size={13} color="#fff" />
-                      <Text style={styles.emergencyContactBtnText}>Alert {c.name}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            )}
-        </View>
-
-        <View style={styles.actionRow}>
-          {isConnected ? (
-            <Pressable
-              style={({ pressed }) => [
-                styles.syncBtn,
-                { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1, flex: 1 },
-              ]}
-              onPress={syncCGM}
-              disabled={isSyncingCGM || isAutoSyncing}
-            >
-              {isSyncingCGM || isAutoSyncing ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Feather name="refresh-cw" size={18} color="#fff" />
-              )}
-              <View style={{ alignItems: "flex-start" }}>
-                <Text style={styles.actionBtnText}>
-                  {isSyncingCGM || isAutoSyncing ? "Syncing..." : "Sync Now"}
-                </Text>
-                <Text style={styles.syncSubText}>Auto every 5 min</Text>
-              </View>
-            </Pressable>
-          ) : (
-            <Pressable
-              style={({ pressed }) => [
-                styles.syncBtn,
-                { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1, flex: 1 },
-              ]}
-              onPress={() => router.push("/cgm-setup")}
-            >
-              <Feather name="bluetooth" size={18} color="#fff" />
-              <View style={{ alignItems: "flex-start" }}>
-                <Text style={styles.actionBtnText}>Connect CGM</Text>
-                <Text style={styles.syncSubText}>Dexcom · FreeStyle Libre</Text>
-              </View>
-            </Pressable>
-          )}
-        </View>
-
+        {/* Trend chart */}
         {history.length > 1 && (
-          <View style={[styles.cgmCard, { backgroundColor: isDark ? "#0D1526" : "#0F172A" }]}>
+          <Surface style={styles.section} padding={T.space.lg}>
             <CGMChart
               readings={history}
               targetGlucose={targetGlucose}
-              chartHeight={300}
+              chartHeight={264}
               paddingHorizontal={34}
               urgentLowThreshold={alertPrefs.urgentLowThreshold}
               lowThreshold={alertPrefs.lowThreshold}
               highThreshold={alertPrefs.highThreshold}
               urgentHighThreshold={alertPrefs.urgentHighThreshold}
             />
-          </View>
+          </Surface>
         )}
 
-        <View style={styles.historySection}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Recent Readings</Text>
-          {recentHistory.length === 0 ? (
-            <View
-              style={[styles.emptyList, { backgroundColor: colors.backgroundTertiary }]}
-            >
-              <Feather name="clipboard" size={24} color={colors.textMuted} />
-              <Text style={[styles.emptyListText, { color: colors.textMuted }]}>
-                {isConnected
-                  ? "Pull down to sync readings from your CGM"
-                  : "No readings yet. Simulate your first one above!"}
+        {/* Recent readings */}
+        <View style={styles.sectionTitleRow}>
+          <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Recent Readings</Text>
+        </View>
+        {recentHistory.length === 0 ? (
+          <Surface>
+            <View style={styles.emptyList}>
+              <Feather name="clipboard" size={22} color={c.textMuted} />
+              <Text style={[styles.emptyListText, { color: c.textMuted }]}>
+                {isConnected ? "Pull down to sync readings from your CGM" : "No readings yet. Connect a CGM to begin."}
               </Text>
             </View>
-          ) : (
-            recentHistory.map((entry, i) => <ReadingCard key={i} entry={entry} />)
-          )}
-        </View>
-      </ScrollView>
+          </Surface>
+        ) : (
+          <Surface padding={T.space.lg}>
+            {recentHistory.map((entry, i) => (
+              <ReadingCard key={i} entry={entry} last={i === recentHistory.length - 1} />
+            ))}
+          </Surface>
+        )}
+      </Animated.ScrollView>
     </View>
   );
 }
@@ -670,113 +669,65 @@ function getTimeOfDay(): string {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scroll: { paddingHorizontal: 20 },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 28,
+  pullDroplet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 10,
   },
-  greeting: { fontSize: 14, fontFamily: "Inter_400Regular" },
-  title: { fontSize: 26, fontFamily: "Inter_700Bold", marginTop: 2 },
-  cgmButton: {
+  scroll: { paddingHorizontal: T.space.xl },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: T.space.md },
+  headerText: { flex: 1 },
+  /** Centered pull-to-sync helper row above the glucose summary card (page-centered, own row). */
+  syncHintRow: { alignItems: "center", gap: 3, marginBottom: T.space.md },
+  syncHintLine: { fontSize: 8.25, fontWeight: T.font.regular, textAlign: "center" },
+  syncHintSub: { opacity: 0.82 },
+  cgmChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 20,
-  },
-  cgmButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  lastSyncText: { fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 1 },
-  liveDot: { width: 8, height: 8, borderRadius: 4 },
-  syncSubText: { fontSize: 10, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.7)", marginTop: 1 },
-  gaugeSection: { alignItems: "center", marginBottom: 24, gap: 14 },
-  emptyGaugeBox: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    borderWidth: 3,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    padding: 24,
-  },
-  emptyGaugeText: { fontSize: 16, fontFamily: "Inter_600SemiBold", textAlign: "center" },
-  emptyGaugeSub: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-    lineHeight: 16,
-  },
-  anomalyBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    padding: 12,
-    borderRadius: 12,
-    width: "100%",
-  },
-  anomalyText: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium", lineHeight: 20 },
-  actionRow: { flexDirection: "row", gap: 10, marginBottom: 24 },
-  syncBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    paddingVertical: 16,
-    borderRadius: 16,
-  },
-  simulateBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 16,
-  },
-  actionBtnText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#fff" },
-  chartCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 24, gap: 12 },
-  cgmCard: { borderRadius: 18, overflow: "hidden", marginBottom: 20, padding: 14, paddingBottom: 10 },
-  historySection: { gap: 0 },
-  sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold", marginBottom: 12 },
-  emptyList: { borderRadius: 14, padding: 24, alignItems: "center", gap: 10 },
-  emptyListText: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-    lineHeight: 20,
-  },
-  emergencyBanner: {
-    width: "100%",
-    borderRadius: 14,
+    borderRadius: 18,
     borderWidth: 1,
-    padding: 14,
-    gap: 8,
+    maxWidth: 184,
+    marginTop: 4,
   },
-  emergencyBannerTop: { flexDirection: "row", alignItems: "center", gap: 7 },
-  emergencyBannerTitle: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  emergencyBannerSub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
-  emergencyContactList: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
-  emergencyContactBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 10,
-  },
-  emergencyContactBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
-  backupBanner: {
+  cgmDot: { width: 8, height: 8, borderRadius: 4 },
+  cgmChipText: { fontSize: 13, fontWeight: T.font.semibold },
+  cgmChipSub: { fontSize: 10.5, fontWeight: T.font.regular, marginTop: 1 },
+  greeting: { fontSize: 14, fontWeight: T.font.regular },
+  title: { fontSize: 26, fontWeight: T.font.heavy, marginTop: 2, letterSpacing: -0.5 },
+
+  section: { marginBottom: T.space.lg },
+
+  banner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     padding: 14,
-    borderRadius: 14,
+    borderRadius: T.radius.control,
     borderWidth: 1,
-    marginBottom: 16,
   },
-  backupBannerTitle: { fontSize: 13, fontFamily: "Inter_700Bold", marginBottom: 2 },
-  backupBannerSub: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  bannerIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  bannerTitle: { fontSize: 13, fontWeight: T.font.bold, marginBottom: 2 },
+  bannerMessage: { fontSize: 12, fontWeight: T.font.regular, lineHeight: 17 },
+
+  emptyGauge: { alignItems: "center", gap: 8, paddingVertical: 24 },
+  emptyGaugeText: { fontSize: 16, fontWeight: T.font.semibold },
+  emptyGaugeSub: { fontSize: 12.5, fontWeight: T.font.regular, textAlign: "center" },
+
+  emergencyBanner: { borderRadius: T.radius.control, borderWidth: 1, padding: 14, gap: 8 },
+  emergencyTop: { flexDirection: "row", alignItems: "center", gap: 7 },
+  emergencyTitle: { fontSize: 14, fontWeight: T.font.bold },
+  emergencyList: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  emergencyBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10 },
+  emergencyBtnText: { fontSize: 13, fontWeight: T.font.semibold, color: "#fff" },
+
+  sectionTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12, marginTop: 4 },
+  sectionTitle: { fontSize: 18, fontWeight: T.font.bold, letterSpacing: -0.2 },
+
+  emptyList: { padding: 12, alignItems: "center", gap: 10 },
+  emptyListText: { fontSize: 14, fontWeight: T.font.regular, textAlign: "center", lineHeight: 20 },
 });

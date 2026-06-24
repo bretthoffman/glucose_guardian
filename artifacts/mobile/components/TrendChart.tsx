@@ -1,5 +1,6 @@
 import React from "react";
-import { Dimensions, StyleSheet, Text, View, useColorScheme } from "react-native";
+import { Dimensions, StyleSheet, Text, View } from "react-native";
+import { useTheme } from "@/context/ThemeContext";
 import Colors, { COLORS } from "@/constants/colors";
 
 interface Reading {
@@ -23,7 +24,7 @@ function getColor(value: number): string {
 }
 
 export function TrendChart({ readings, height = 120 }: Props) {
-  const scheme = useColorScheme();
+  const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
 
@@ -109,7 +110,7 @@ const styles = StyleSheet.create({
   },
   labelText: {
     fontSize: 11,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
   },
   empty: {
     borderRadius: 12,
@@ -117,7 +118,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   emptyText: {
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     fontSize: 14,
   },
 });

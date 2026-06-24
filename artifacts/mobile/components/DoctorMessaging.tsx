@@ -222,29 +222,29 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 2,
   },
-  headerTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  headerSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  headerTitle: { fontSize: 16, fontWeight: "700" },
+  headerSub: { fontSize: 12, fontWeight: "400", marginTop: 2 },
 
   listContent: { paddingTop: 16, paddingHorizontal: 16, gap: 4 },
 
   emptyWrap: { flex: 1, alignItems: "center", paddingTop: 80, paddingHorizontal: 32, gap: 10 },
-  emptyTitle: { fontSize: 17, fontFamily: "Inter_700Bold" },
-  emptySub: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
+  emptyTitle: { fontSize: 17, fontWeight: "700" },
+  emptySub: { fontSize: 13, fontWeight: "400", textAlign: "center", lineHeight: 20 },
 
   dateSep: { flexDirection: "row", alignItems: "center", gap: 8, marginVertical: 16 },
   dateLine: { flex: 1, height: 1 },
-  dateLabel: { fontSize: 11, fontFamily: "Inter_500Medium", paddingHorizontal: 4 },
+  dateLabel: { fontSize: 11, fontWeight: "500", paddingHorizontal: 4 },
 
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginBottom: 6 },
   avatar: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  senderLabel: { fontSize: 10, fontFamily: "Inter_500Medium", marginBottom: 2, marginLeft: 2 },
+  senderLabel: { fontSize: 10, fontWeight: "500", marginBottom: 2, marginLeft: 2 },
   bubble: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 18,
   },
-  bubbleText: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
-  timeLabel: { fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 3, marginHorizontal: 4 },
+  bubbleText: { fontSize: 14, fontWeight: "400", lineHeight: 20 },
+  timeLabel: { fontSize: 10, fontWeight: "400", marginTop: 3, marginHorizontal: 4 },
 
   inputBar: {
     flexDirection: "row",
@@ -261,7 +261,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 14,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     maxHeight: 120,
   },
   sendBtn: {

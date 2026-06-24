@@ -14,8 +14,10 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 
 import { COLORS } from "@/constants/colors";
+import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { GlucoseProvider } from "@/context/GlucoseContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
@@ -30,6 +32,7 @@ const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   const { isLoggedIn, isLoading, isSignedIn, caregiverSession, doctorSession, alertPrefs } = useAuth();
+  const { colors } = useTheme();
   const segments = useSegments();
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
@@ -105,7 +108,7 @@ function RootLayoutNav() {
       <View
         style={{
           flex: 1,
-          backgroundColor: "#0B1120",
+          backgroundColor: colors.screen,
           justifyContent: "center",
           alignItems: "center",
         }}
@@ -116,7 +119,12 @@ function RootLayoutNav() {
   }
 
   return (
-    <Stack screenOptions={{ headerBackTitle: "Back" }}>
+    <Stack
+      screenOptions={{
+        headerBackTitle: "Back",
+        contentStyle: { backgroundColor: colors.screen },
+      }}
+    >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="auth" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
@@ -126,11 +134,19 @@ function RootLayoutNav() {
           headerShown: true,
           title: "Connect CGM",
           presentation: "modal",
-          headerStyle: { backgroundColor: "transparent" },
+          headerStyle: { backgroundColor: colors.screen },
+          headerTintColor: colors.textPrimary,
+          headerTitleStyle: { color: colors.textPrimary },
         }}
       />
     </Stack>
   );
+}
+
+/** Status-bar content follows the effective theme: dark theme → light text, light theme → dark text. */
+function ThemedStatusBar() {
+  const { scheme } = useTheme();
+  return <StatusBar style={scheme === "dark" ? "light" : "dark"} />;
 }
 
 export default function RootLayout() {
@@ -152,7 +168,9 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <ErrorBoundary>
+      <ThemeProvider>
+        <ThemedStatusBar />
+        <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <GlucoseProvider>
@@ -164,7 +182,8 @@ export default function RootLayout() {
             </GlucoseProvider>
           </AuthProvider>
         </QueryClientProvider>
-      </ErrorBoundary>
+        </ErrorBoundary>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }

@@ -80,6 +80,25 @@ const patientProfiles = defineTable({
   .index("by_caregiverCode", ["caregiverCode"])
   .index("by_doctorCode", ["doctorCode"]);
 
+/**
+ * Guardian Mode PIN verifier — one row per authenticated patient account (`users`).
+ * Hash/salt are server-only; client queries return safe status via `patientGuardianPin.getStatus`.
+ */
+const patientGuardianPins = defineTable({
+  userId: v.id("users"),
+  pinHash: v.string(),
+  pinSalt: v.string(),
+  hashVersion: v.number(),
+  state: v.union(v.literal("active")),
+  failedAttempts: v.number(),
+  lastFailedAt: v.optional(v.number()),
+  lockoutUntil: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  /** Sanitized marker when row was created via legacy missing-PIN recovery. */
+  migrationMarker: v.optional(v.string()),
+}).index("by_userId", ["userId"]);
+
 /** Doctor portal accounts (separate from patient `users`). */
 const doctorAccounts = defineTable({
   email: v.string(),
@@ -216,6 +235,7 @@ const cgmSyncState = defineTable({
 export default defineSchema({
   users,
   patientProfiles,
+  patientGuardianPins,
   patientCgmConnections,
   patientDexcomCredentials,
   patientLibreCredentials,

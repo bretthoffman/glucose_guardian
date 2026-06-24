@@ -34,6 +34,9 @@ export interface GlucoseContextType {
   setTargetGlucose: (v: number) => void;
   setCorrectionFactor: (v: number) => void;
   saveFormula: (carbRatio: number, targetGlucose: number, correctionFactor: number) => void;
+  /** Incremented after each successful CGM sync (Convex status ok). Transient UI signals only. */
+  cgmSyncSuccessTick: number;
+  notifyCgmSyncSuccess: () => void;
 }
 
 const GlucoseContext = createContext<GlucoseContextType | null>(null);
@@ -99,6 +102,11 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
   const [carbRatio, setCarbRatioState] = useState(15);
   const [targetGlucose, setTargetGlucoseState] = useState(120);
   const [correctionFactor, setCorrectionFactorState] = useState(50);
+  const [cgmSyncSuccessTick, setCgmSyncSuccessTick] = useState(0);
+
+  const notifyCgmSyncSuccess = useCallback(() => {
+    setCgmSyncSuccessTick((t) => t + 1);
+  }, []);
 
   const accountRef = useRef(account);
   useEffect(() => {
@@ -405,6 +413,8 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
         setTargetGlucose,
         setCorrectionFactor,
         saveFormula,
+        cgmSyncSuccessTick,
+        notifyCgmSyncSuccess,
       }}
     >
       {children}

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Dimensions,
   Pressable,
@@ -6,8 +6,22 @@ import {
   Text,
   View,
 } from "react-native";
+import Svg, {
+  Circle,
+  ClipPath,
+  Defs,
+  G,
+  Line,
+  LinearGradient as SvgLinearGradient,
+  Path,
+  Polyline,
+  Rect,
+  Stop,
+} from "react-native-svg";
 import * as Haptics from "expo-haptics";
 import { COLORS } from "@/constants/colors";
+import { T, glucoseTone, withAlpha, type ThemeColors } from "@/constants/theme";
+import { useThemeColors } from "@/context/ThemeContext";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -36,6 +50,11 @@ export interface CGMReading {
   timestamp: string;
 }
 
+/**
+ * Shared glucose→color helper. UNCHANGED hex values: the Dose screen (`app/(tabs)/insulin.tsx`)
+ * imports this for its own inline chart, so its colors must stay identical. The redesigned chart
+ * below uses the clinical `glucoseTone` palette instead — this remains for external callers.
+ */
 export function glucoseColor(val: number, low = LOW_THRESH, high = HIGH_THRESH, urgentLow = 55): string {
   if (val < urgentLow) return COLORS.danger;
   if (val < low) return "#F97316";
@@ -63,12 +82,14 @@ interface CGMChartProps {
   urgentHighThreshold?: number;
 }
 
+type Pt = { x: number; y: number; glucose: number };
+
 export function CGMChart({
   readings,
   targetGlucose = 120,
   chartHeight = 220,
   paddingHorizontal = 36,
-  darkBg = "#0F172A",
+  darkBg,
   timeRange: controlledRange,
   onRangeChange,
   urgentLowThreshold = 55,
@@ -76,13 +97,15 @@ export function CGMChart({
   highThreshold = HIGH_THRESH,
   urgentHighThreshold = 250,
 }: CGMChartProps) {
+  const c = useThemeColors();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const isControlled = controlledRange !== undefined;
   const [internalRange, setInternalRange] = useState<TimeRange>("6H");
   const timeRange = isControlled ? controlledRange : internalRange;
 
-  const CHART_INNER_H = chartHeight;
-  const yAxisW = 38;
-  const plotW = SCREEN_WIDTH - paddingHorizontal * 2 - yAxisW;
+  const H = chartHeight;
+  const yAxisW = 40;
+  const plotW = Math.max(60, SCREEN_WIDTH - paddingHorizontal * 2 - yAxisW);
 
   const now = Date.now();
   const windowMs = RANGE_MS[timeRange];
@@ -102,9 +125,9 @@ export function CGMChart({
     }
   }
 
-  const points = filtered.map((r) => ({
+  const points: Pt[] = filtered.map((r) => ({
     x: Math.max(0, Math.min(plotW, ((new Date(r.timestamp).getTime() - windowStart) / windowMs) * plotW)),
-    y: yPct(r.glucose) * CHART_INNER_H,
+    y: yPct(r.glucose) * H,
     glucose: r.glucose,
   }));
 
@@ -114,11 +137,11 @@ export function CGMChart({
     return dt > CHART_LINE_GAP_BREAK_MS;
   });
 
-  const urgentLowLineY = yPct(urgentLowThreshold) * CHART_INNER_H;
-  const lowLineY = yPct(lowThreshold) * CHART_INNER_H;
-  const highLineY = yPct(highThreshold) * CHART_INNER_H;
-  const urgentHighLineY = yPct(urgentHighThreshold) * CHART_INNER_H;
-  const targetLineY = yPct(Math.max(lowThreshold, Math.min(highThreshold, targetGlucose))) * CHART_INNER_H;
+  const urgentLowLineY = yPct(urgentLowThreshold) * H;
+  const lowLineY = yPct(lowThreshold) * H;
+  const highLineY = yPct(highThreshold) * H;
+  const urgentHighLineY = yPct(urgentHighThreshold) * H;
+  const targetLineY = yPct(Math.max(lowThreshold, Math.min(highThreshold, targetGlucose))) * H;
 
   function xLabel(msFromStart: number): string {
     const hoursAgo = Math.round((windowMs - msFromStart) / (60 * 60 * 1000));
@@ -129,106 +152,177 @@ export function CGMChart({
   const startTime = xLabel(0);
   const midTime = xLabel(windowMs / 2);
 
+  // Split into contiguous runs (gap breaks), preserving the discontinuity logic above.
+  const runs: Pt[][] = [];
+  {
+    let cur: Pt[] = [];
+    for (let i = 0; i < points.length; i++) {
+      cur.push(points[i]);
+      if (gapAfterIndex[i]) {
+        runs.push(cur);
+        cur = [];
+      }
+    }
+    if (cur.length) runs.push(cur);
+  }
+
+  // Within a run, group adjacent segments by clinical color into joined polylines (rounded joins).
+  function colorRuns(run: Pt[]): { color: string; d: string }[] {
+    if (run.length < 2) return [];
+    // Four-state by the ACCOUNT's thresholds: <low coral, in-range emerald, high<urgentHigh amber, >=urgentHigh coral.
+    const tone = (a: Pt, b: Pt) => glucoseTone((a.glucose + b.glucose) / 2, lowThreshold, highThreshold, urgentHighThreshold);
+    const out: { color: string; pts: Pt[] }[] = [];
+    let cur = { color: tone(run[0], run[1]), pts: [run[0], run[1]] };
+    for (let i = 1; i < run.length - 1; i++) {
+      const c = tone(run[i], run[i + 1]);
+      if (c === cur.color) {
+        cur.pts.push(run[i + 1]);
+      } else {
+        out.push(cur);
+        cur = { color: c, pts: [run[i], run[i + 1]] };
+      }
+    }
+    out.push(cur);
+    return out.map((r) => ({ color: r.color, d: r.pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ") }));
+  }
+
+  // Deviation band polygon: along the trend line, then back along the midline. Filled twice — clipped
+  // to above/below the midline — so it is emerald above target and coral below, never a full area fill.
+  function bandPath(run: Pt[]): string | null {
+    if (run.length < 2) return null;
+    let d = `M ${run[0].x.toFixed(1)} ${run[0].y.toFixed(1)}`;
+    for (let i = 1; i < run.length; i++) d += ` L ${run[i].x.toFixed(1)} ${run[i].y.toFixed(1)}`;
+    d += ` L ${run[run.length - 1].x.toFixed(1)} ${targetLineY.toFixed(1)}`;
+    d += ` L ${run[0].x.toFixed(1)} ${targetLineY.toFixed(1)} Z`;
+    return d;
+  }
+
+  const tMid = Math.max(0.001, Math.min(0.999, targetLineY / H));
+  const last = points[points.length - 1];
+  const lastColor = last ? glucoseTone(last.glucose, lowThreshold, highThreshold, urgentHighThreshold) : T.color.emerald;
+
+  const axisColor = (v: number) =>
+    v === 250 ? T.color.coral : v === 180 ? T.color.emerald : v === 70 ? T.color.violet : c.axis;
+
+  const inView = (y: number) => y >= -0.5 && y <= H + 0.5;
+
   return (
     <View style={styles.wrapper}>
-      <View style={styles.rangeRow}>
-        {TIME_RANGES.map((r) => (
-          <Pressable
-            key={r}
-            style={[
-              styles.rangeTab,
-              { backgroundColor: timeRange === r ? "rgba(255,255,255,0.18)" : "transparent" },
-            ]}
-            onPress={() => handleRangePress(r)}
-          >
-            <Text style={[styles.rangeTabText, { color: timeRange === r ? "#fff" : "rgba(255,255,255,0.45)" }]}>
-              {r}
-            </Text>
-          </Pressable>
-        ))}
+      <View style={styles.topRow}>
+        <View style={styles.segment}>
+          {TIME_RANGES.map((r) => {
+            const active = timeRange === r;
+            return (
+              <Pressable
+                key={r}
+                style={[styles.segTab, active && styles.segTabActive]}
+                onPress={() => handleRangePress(r)}
+                hitSlop={6}
+              >
+                <Text style={[styles.segText, { color: active ? c.chartControlActiveText : c.textMuted }]}>{r}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={styles.unitLabel}>mg/dL</Text>
       </View>
 
-      <View style={[styles.chartRow, { height: CHART_INNER_H }]}>
-        <View style={[styles.plotArea, { width: plotW, height: CHART_INNER_H, backgroundColor: darkBg === "#0F172A" ? "#1a2540" : darkBg }]}>
-          <View style={[styles.zoneLow, { height: CHART_INNER_H - lowLineY, bottom: 0 }]} />
-          <View style={[styles.zoneTarget, { top: highLineY, height: lowLineY - highLineY }]} />
-          <View style={[styles.zoneHigh, { height: highLineY }]} />
+      <View style={[styles.chartRow, { height: H }]}>
+        <View style={{ width: plotW, height: H }}>
+          <Svg width={plotW} height={H}>
+            <Defs>
+              <SvgLinearGradient id="devUp" x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
+                <Stop offset="0" stopColor={T.color.emerald} stopOpacity={0.3} />
+                <Stop offset={tMid} stopColor={T.color.emerald} stopOpacity={0.04} />
+                <Stop offset="1" stopColor={T.color.emerald} stopOpacity={0.04} />
+              </SvgLinearGradient>
+              <SvgLinearGradient id="devDown" x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
+                <Stop offset="0" stopColor={T.color.coral} stopOpacity={0.04} />
+                <Stop offset={tMid} stopColor={T.color.coral} stopOpacity={0.04} />
+                <Stop offset="1" stopColor={T.color.coral} stopOpacity={0.3} />
+              </SvgLinearGradient>
+              <ClipPath id="aboveMid">
+                <Rect x="0" y="0" width={plotW} height={Math.max(0, targetLineY)} />
+              </ClipPath>
+              <ClipPath id="belowMid">
+                <Rect x="0" y={Math.max(0, targetLineY)} width={plotW} height={Math.max(0, H - targetLineY)} />
+              </ClipPath>
+            </Defs>
 
-          <View style={[styles.threshLineDashed, { top: urgentLowLineY, borderColor: "#EF4444" }]} />
-          <View style={[styles.threshLine, { top: lowLineY, backgroundColor: "#F97316CC" }]} />
-          <View style={[styles.threshLine, { top: highLineY, backgroundColor: "#F59E0BAA" }]} />
-          <View style={[styles.threshLineDashed, { top: urgentHighLineY, borderColor: "#EF4444" }]} />
-          <View style={[styles.targetLine, { top: targetLineY }]} />
+            {/* faint horizontal grid */}
+            {Y_LABELS.map((v) => {
+              const y = yPct(v) * H;
+              if (!inView(y)) return null;
+              return <Line key={`g-${v}`} x1={0} y1={y} x2={plotW} y2={y} stroke={c.grid} strokeWidth={1} />;
+            })}
 
-          {filtered.length === 0 ? (
-            <View style={styles.emptyOverlay}>
+            {/* deviation shading — clipped to each side of the midline */}
+            <G clipPath="url(#aboveMid)">
+              {runs.map((run, i) => {
+                const d = bandPath(run);
+                return d ? <Path key={`bu-${i}`} d={d} fill="url(#devUp)" /> : null;
+              })}
+            </G>
+            <G clipPath="url(#belowMid)">
+              {runs.map((run, i) => {
+                const d = bandPath(run);
+                return d ? <Path key={`bd-${i}`} d={d} fill="url(#devDown)" /> : null;
+              })}
+            </G>
+
+            {/* threshold references (restrained) */}
+            {inView(urgentHighLineY) && (
+              <Line x1={0} y1={urgentHighLineY} x2={plotW} y2={urgentHighLineY} stroke={T.color.coral} strokeWidth={1} strokeDasharray="5 6" opacity={0.7} />
+            )}
+            {inView(highLineY) && (
+              <Line x1={0} y1={highLineY} x2={plotW} y2={highLineY} stroke={T.color.emerald} strokeWidth={1} strokeDasharray="5 6" opacity={0.55} />
+            )}
+            {inView(lowLineY) && (
+              <Line x1={0} y1={lowLineY} x2={plotW} y2={lowLineY} stroke={T.color.coral} strokeWidth={1} strokeDasharray="4 7" opacity={0.4} />
+            )}
+            {/* optimal midline — solid violet-blue */}
+            {inView(targetLineY) && (
+              <Line x1={0} y1={targetLineY} x2={plotW} y2={targetLineY} stroke={T.color.violet} strokeWidth={1.5} opacity={0.9} />
+            )}
+
+            {/* continuous trend line, colored by range, rounded joins/caps */}
+            {runs.map((run, ri) =>
+              colorRuns(run).map((cr, ci) => (
+                <Polyline
+                  key={`l-${ri}-${ci}`}
+                  points={cr.d}
+                  fill="none"
+                  stroke={cr.color}
+                  strokeWidth={2.75}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+              )),
+            )}
+
+            {/* single emphasized current point */}
+            {last && (
+              <>
+                <Circle cx={last.x} cy={last.y} r={9} fill={withAlpha(lastColor, 0.18)} />
+                <Circle cx={last.x} cy={last.y} r={5} fill={c.pointCenter} stroke={lastColor} strokeWidth={2.5} />
+              </>
+            )}
+          </Svg>
+
+          {filtered.length === 0 && (
+            <View style={styles.emptyOverlay} pointerEvents="none">
               <Text style={styles.emptyText}>No readings in this window</Text>
             </View>
-          ) : (
-            <>
-              {points.map((p, i) => {
-                if (i >= points.length - 1) return null;
-                if (gapAfterIndex[i]) return null;
-                const next = points[i + 1];
-                const dx = next.x - p.x;
-                const dy = next.y - p.y;
-                const len = Math.sqrt(dx * dx + dy * dy);
-                if (len < 0.5) return null;
-                const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-                const col = glucoseColor((p.glucose + next.glucose) / 2, lowThreshold, highThreshold, urgentLowThreshold);
-                const midY = (p.y + next.y) / 2;
-                return (
-                  <View
-                    key={`seg-${i}`}
-                    style={[
-                      styles.segment,
-                      {
-                        width: len,
-                        left: p.x,
-                        top: midY - 2.5,
-                        backgroundColor: col,
-                        transform: [{ rotate: `${angle}deg` }],
-                      },
-                    ]}
-                  />
-                );
-              })}
-
-              {points.map((p, i) => {
-                const isLatest = i === points.length - 1;
-                const stride = points.length > 72 ? 4 : points.length > 36 ? 3 : points.length > 18 ? 2 : 1;
-                const atLineBreak =
-                  (i > 0 && gapAfterIndex[i - 1]) || gapAfterIndex[i];
-                if (!isLatest && i % stride !== 0 && !atLineBreak) return null;
-                const col = glucoseColor(p.glucose, lowThreshold, highThreshold, urgentLowThreshold);
-                const sz = isLatest ? 7 : 2;
-                return (
-                  <View
-                    key={`dot-${i}`}
-                    style={{
-                      position: "absolute",
-                      left: p.x - sz / 2,
-                      top: p.y - sz / 2,
-                      width: sz,
-                      height: sz,
-                      borderRadius: sz / 2,
-                      backgroundColor: col,
-                      borderWidth: isLatest ? 2 : 0,
-                      borderColor: isLatest ? "#fff" : undefined,
-                    }}
-                  />
-                );
-              })}
-            </>
           )}
         </View>
 
-        <View style={[styles.yAxis, { width: yAxisW, height: CHART_INNER_H }]}>
+        {/* y-axis on the right, matching the reference */}
+        <View style={[styles.yAxis, { width: yAxisW, height: H }]}>
           {Y_LABELS.map((v) => {
-            const top = yPct(v) * CHART_INNER_H - 7;
-            if (top < -8 || top > CHART_INNER_H - 6) return null;
+            const top = yPct(v) * H - 7;
+            if (top < -8 || top > H - 6) return null;
             return (
-              <Text key={v} style={[styles.yLabel, { top }]}>
+              <Text key={v} style={[styles.yLabel, { top, color: axisColor(v) }]}>
                 {v}
               </Text>
             );
@@ -245,86 +339,38 @@ export function CGMChart({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
   wrapper: { width: "100%" },
 
-  rangeRow: {
+  topRow: {
     flexDirection: "row",
-    justifyContent: "center",
-    gap: 4,
-    marginBottom: 10,
-    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
   },
-  rangeTab: {
+  segment: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: c.chartControlTrack,
+    borderRadius: T.radius.pill,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  segTab: {
     paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
-    minWidth: 50,
+    paddingVertical: 6,
+    borderRadius: T.radius.pill - 4,
+    minWidth: 46,
     alignItems: "center",
   },
-  rangeTabText: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
+  segTabActive: {
+    backgroundColor: c.chartControlActive,
   },
+  segText: { fontSize: 12.5, fontWeight: T.font.semibold, letterSpacing: 0.2 },
+  unitLabel: { fontSize: 11, fontWeight: T.font.medium, color: c.textMuted },
 
-  chartRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-  plotArea: {
-    position: "relative",
-    borderRadius: 6,
-    overflow: "hidden",
-  },
-
-  zoneLow: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    backgroundColor: "rgba(239,68,68,0.10)",
-  },
-  zoneTarget: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    backgroundColor: "rgba(34,197,94,0.07)",
-  },
-  zoneHigh: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    backgroundColor: "rgba(245,158,11,0.07)",
-  },
-
-  threshLine: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 2,
-  },
-  threshLineDashed: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 0,
-    borderTopWidth: 1.5,
-    borderStyle: "dashed",
-  },
-  targetLine: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 1.5,
-    backgroundColor: "rgba(99,102,241,0.60)",
-  },
-
-  segment: {
-    position: "absolute",
-    height: 5,
-    borderRadius: 2.5,
-    transformOrigin: "left center",
-  },
+  chartRow: { flexDirection: "row", alignItems: "flex-start" },
 
   emptyOverlay: {
     position: "absolute",
@@ -335,35 +381,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  emptyText: {
-    color: "rgba(255,255,255,0.3)",
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-  },
+  emptyText: { color: c.textMuted, fontSize: 13, fontWeight: T.font.regular },
 
-  yAxis: {
-    position: "relative",
-    marginLeft: 5,
-  },
+  yAxis: { position: "relative", marginLeft: 6 },
   yLabel: {
     position: "absolute",
-    fontSize: 9,
-    fontFamily: "Inter_400Regular",
-    color: "rgba(255,255,255,0.35)",
+    fontSize: 9.5,
+    fontWeight: T.font.medium,
     right: 0,
     textAlign: "right",
-    width: 33,
+    width: 34,
   },
 
   xAxis: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 5,
+    marginTop: 8,
     paddingHorizontal: 2,
   },
-  xLabel: {
-    fontSize: 10,
-    fontFamily: "Inter_400Regular",
-    color: "rgba(255,255,255,0.35)",
-  },
+  xLabel: { fontSize: 10.5, fontWeight: T.font.regular, color: c.textMuted },
 });

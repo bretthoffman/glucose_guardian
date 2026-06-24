@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { Animated, Easing, StyleSheet, Text, View, useColorScheme } from "react-native";
+import { Animated, Easing, StyleSheet, Text, View } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
-import Colors from "@/constants/colors";
+import { T, TYPE, withAlpha } from "@/constants/theme";
+import { useThemeColors } from "@/context/ThemeContext";
 
 export type GlucoseTrend =
   | "rapidly_rising"
@@ -18,7 +20,11 @@ interface Props {
   highThreshold?: number;
   /** Oldest → newest; drives thin expanding ripple color + speed only. */
   recentReadings?: { glucose: number; timestamp: string }[];
+  /** Small recency line under the trend pill, e.g. "Updated just now". */
+  updatedLabel?: string;
 }
+
+// --- ORIGINAL status/trend/movement logic (unchanged: controls ring color + pulse behavior) ---
 
 function getGlucoseStatus(value: number, lowThreshold = 80, highThreshold = 180): {
   label: string;
@@ -88,6 +94,9 @@ function getMovementPulseVisuals(rate: number | null): { ringColor: string; ripp
 const MAIN_RING_PULSE_TO = 1.015;
 const MAIN_RING_PULSE_MS = 1750;
 
+/** Thin the SOLID ring's STROKE to 75% of its original thickness; the diameter stays full-size. */
+const RING_THICKNESS_RATIO = 0.75;
+
 export function GlucoseGauge({
   value,
   size = 180,
@@ -95,11 +104,10 @@ export function GlucoseGauge({
   lowThreshold = 80,
   highThreshold = 180,
   recentReadings,
+  updatedLabel,
 }: Props) {
-  const scheme = useColorScheme();
-  const isDark = scheme === "dark";
-  const colors = isDark ? Colors.dark : Colors.light;
   const status = getGlucoseStatus(value, lowThreshold, highThreshold);
+  const c = useThemeColors();
 
   const movementDep =
     recentReadings && recentReadings.length >= 2
@@ -109,12 +117,17 @@ export function GlucoseGauge({
   const movementVisuals = useMemo(() => {
     const rate = recentReadings && recentReadings.length >= 2 ? computeAbsRateMgPerMin(recentReadings) : null;
     return getMovementPulseVisuals(rate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [movementDep]);
 
   const pulseRingColor = movementVisuals.ringColor;
   const mainRingColor = status.color;
 
-  const ringStroke = Math.round(size * 0.07);
+  // Full-size gauge: the solid ring diameter, inner disc, and ripple container are ALL `size`. Only
+  // the solid ring's STROKE is reduced to 75% of its original thickness for a thinner, refined ring.
+  // Ripple container (`size`) + ripple scale (1.55) are unchanged, so the outward pulse keeps its reach.
+  const baseRingStroke = Math.round(size * 0.07); // original thickness (= 12 at size 172)
+  const ringStroke = Math.round(baseRingStroke * RING_THICKNESS_RATIO); // 75% → 9 at size 172
   const innerSize = size - ringStroke * 2;
 
   const ringPulse  = useRef(new Animated.Value(1)).current;
@@ -203,7 +216,9 @@ export function GlucoseGauge({
 
   return (
     <View style={styles.outerRow}>
+      {/* gauge area stays full `size` so ripple reach + trend alignment are unchanged */}
       <View style={[styles.gaugeArea, { width: size, height: size }]}>
+        {/* ORIGINAL expanding ripple rings (full-size container, 1.55 reach — unchanged) */}
         <Animated.View
           style={{
             position: "absolute",
@@ -229,6 +244,7 @@ export function GlucoseGauge({
           }}
         />
 
+        {/* SOLID breathing ring — FULL diameter (= size); only the stroke is thinner (75%) */}
         <Animated.View
           style={{
             position: "absolute",
@@ -242,40 +258,44 @@ export function GlucoseGauge({
           }}
         />
 
+        {/* Inner content — restored full-size layout; NEW dark-clinical typography */}
         <View
           style={{
             width: innerSize,
             height: innerSize,
             borderRadius: innerSize / 2,
-            backgroundColor: isDark ? `${status.color}22` : `${status.color}18`,
+            backgroundColor: withAlpha(status.color, 0.12),
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <Text style={[styles.value, { color: status.color, fontSize: size * 0.27 }]}>
+          <Text style={[styles.value, TYPE.display, { color: c.textPrimary, fontSize: size * 0.27 }]}>
             {value}
           </Text>
-          <Text style={[styles.unit, { color: colors.textSecondary, fontSize: size * 0.09 }]}>
-            mg/dL
-          </Text>
-          <View style={[styles.badge, { backgroundColor: status.bg, marginTop: size * 0.04 }]}>
-            <Text style={[styles.badgeText, { color: status.color, fontSize: size * 0.085 }]}>
-              {status.label}
-            </Text>
+          <Text style={[styles.unit, { color: c.textSecondary, fontSize: size * 0.09 }]}>mg/dL</Text>
+          <View
+            style={[
+              styles.badge,
+              { backgroundColor: withAlpha(status.color, 0.14), borderColor: withAlpha(status.color, 0.4), marginTop: size * 0.04 },
+            ]}
+          >
+            <Text style={[styles.badgeText, { color: status.color, fontSize: size * 0.08 }]}>{status.label}</Text>
           </View>
         </View>
       </View>
 
+      {/* Trend column — centered cluster balancing the gauge ring. The pull-to-sync helper now lives
+          in the page header (Home screen), so the trend content keeps its original centered position. */}
       {trend && trendColor && (
         <View style={styles.trendSide}>
-          <View style={[styles.arrowWrap, { transform: [{ rotate: TREND_ROTATE[trend] }] }]}>
-            <Text style={[styles.arrowText, { color: trendColor }]}>↑</Text>
+          <View style={{ transform: [{ rotate: TREND_ROTATE[trend] }] }}>
+            <Feather name="arrow-up" size={30} color={trendColor} />
           </View>
-          <View style={[styles.trendLabelPill, { backgroundColor: trendColor + "1A", borderColor: trendColor + "40" }]}>
-            <Text style={[styles.trendLabelText, { color: trendColor }]}>
-              {TREND_LABEL[trend]}
-            </Text>
+          <Text style={[styles.trendCaption, { color: c.textSecondary }]}>Trend</Text>
+          <View style={[styles.trendPill, { backgroundColor: withAlpha(trendColor, 0.14), borderColor: withAlpha(trendColor, 0.4) }]}>
+            <Text style={[styles.trendPillText, { color: trendColor }]}>{TREND_LABEL[trend]}</Text>
           </View>
+          {updatedLabel ? <Text style={[styles.updated, { color: c.textMuted }]}>{updatedLabel}</Text> : null}
         </View>
       )}
     </View>
@@ -283,55 +303,25 @@ export function GlucoseGauge({
 }
 
 const styles = StyleSheet.create({
-  outerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  gaugeArea: {
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-  value: {
-    fontFamily: "Inter_700Bold",
-  },
-  unit: {
-    fontFamily: "Inter_500Medium",
-    marginTop: 2,
-  },
+  outerRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  gaugeArea: { alignItems: "center", justifyContent: "center", position: "relative" },
+  value: { color: "#fff" },
+  unit: { fontWeight: T.font.medium, marginTop: 2 },
   badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderRadius: 20,
+    borderWidth: 1,
   },
-  badgeText: {
-    fontFamily: "Inter_600SemiBold",
-  },
-  trendSide: {
-    alignItems: "center",
-    gap: 8,
-    minWidth: 80,
-  },
-  arrowWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  arrowText: {
-    fontSize: 38,
-    fontFamily: "Inter_700Bold",
-    lineHeight: 42,
-  },
-  trendLabelPill: {
-    paddingHorizontal: 10,
+  badgeText: { fontWeight: T.font.semibold },
+  trendSide: { flex: 1, alignItems: "center", gap: 6 },
+  trendCaption: { fontSize: 11, fontWeight: T.font.medium, marginTop: 2 },
+  trendPill: {
+    paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 20,
-    borderWidth: 1.5,
-    alignItems: "center",
+    borderWidth: 1,
   },
-  trendLabelText: {
-    fontSize: 12,
-    fontFamily: "Inter_700Bold",
-    textAlign: "center",
-  },
+  trendPillText: { fontSize: 12.5, fontWeight: T.font.semibold },
+  updated: { fontSize: 11, fontWeight: T.font.regular, marginTop: 2, textAlign: "center" },
 });

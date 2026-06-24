@@ -1,11 +1,7 @@
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
-import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system/legacy";
-import React, { useState } from "react";
+import React from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   StyleSheet,
@@ -17,7 +13,12 @@ import { useAuth } from "@/context/AuthContext";
 
 interface Props {
   colors: (typeof Colors)["light"];
+  /** Whether the profile photo can be edited (drives the camera badge hint). */
   canEdit: boolean;
+  /** Tap opens the Settings popup (the profile-image action lives inside it now). */
+  onPress: () => void;
+  /** Driven by the shared photo-picker hook so the avatar shows the upload spinner. */
+  uploading?: boolean;
 }
 
 function diabetesLabel(type?: string): string {
@@ -34,9 +35,8 @@ function ageLabel(ageYears: number | null): string {
   return `${ageYears} yrs old`;
 }
 
-export default function ProfileChip({ colors, canEdit }: Props) {
-  const { profile, ageYears, updateProfile } = useAuth();
-  const [uploading, setUploading] = useState(false);
+export default function ProfileChip({ colors, canEdit, onPress, uploading = false }: Props) {
+  const { profile, ageYears } = useAuth();
 
   const name = profile?.childName ?? "";
   const initials = name
@@ -50,48 +50,12 @@ export default function ProfileChip({ colors, canEdit }: Props) {
   const age = ageLabel(ageYears);
   const type = diabetesLabel(profile?.diabetesType);
 
-  async function pickPhoto() {
-    if (!canEdit) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permission needed",
-        "Allow photo library access in Settings to add a profile photo.",
-        [{ text: "OK" }]
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.75,
-    });
-
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-
-    setUploading(true);
-    try {
-      const src = result.assets[0].uri;
-      const ext = src.split(".").pop() ?? "jpg";
-      const dest = (FileSystem.documentDirectory ?? "") + `profile_photo.${ext}`;
-      await FileSystem.copyAsync({ from: src, to: dest });
-      await updateProfile({ profilePhotoUri: dest });
-    } catch {
-      Alert.alert("Error", "Could not save the photo. Please try again.");
-    } finally {
-      setUploading(false);
-    }
-  }
-
   return (
     <Pressable
       style={styles.chip}
-      onPress={pickPhoto}
-      disabled={!canEdit || uploading}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Open settings"
     >
       <View style={styles.photoWrap}>
         {uploading ? (
@@ -147,7 +111,7 @@ const styles = StyleSheet.create({
   },
   initials: {
     fontSize: 16,
-    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
   },
   editBadge: {
     position: "absolute",
@@ -165,10 +129,10 @@ const styles = StyleSheet.create({
   },
   ageLine: {
     fontSize: 13,
-    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
   },
   typeLine: {
     fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
+    fontWeight: "600",
   },
 });

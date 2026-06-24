@@ -1,160 +1,140 @@
-import { BlurView } from "expo-blur";
-import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
-import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
-import { SymbolView } from "expo-symbols";
-import { Feather } from "@expo/vector-icons";
-import React from "react";
-import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import React, { useMemo } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
+import { useTheme } from "@/context/ThemeContext";
+import { T, withAlpha, type ThemeColors } from "@/constants/theme";
 
-function NativeTabLayout() {
+// Derive the tab-bar props type from expo-router's Tabs so we don't import @react-navigation directly
+// (it isn't hoisted in this workspace). VISUAL ONLY — navigation behavior uses the standard pattern.
+type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>["tabBar"]>>[0];
+
+type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+
+const TAB_META: Record<string, { label: string; icon: IconName }> = {
+  index: { label: "Glucose", icon: "water" },
+  insulin: { label: "Dose", icon: "needle" },
+  food: { label: "Food", icon: "silverware-fork-knife" },
+  chat: { label: "Chat", icon: "message-text-outline" },
+  dashboard: { label: "Dashboard", icon: "chart-bar" },
+};
+
+/**
+ * Dark-clinical floating tab bar matching the redesign reference. VISUAL ONLY: route set, order, the
+ * caregiver/doctor hide rules, and navigation all use the standard React Navigation custom-tabBar
+ * pattern (emit `tabPress`, then `navigate` if not focused / not prevented).
+ */
+function FloatingTabBar({ state, navigation }: TabBarProps) {
+  const insets = useSafeAreaInsets();
+  const { scheme, colors: c } = useTheme();
+  const styles = useMemo(() => makeStyles(c, scheme === "dark"), [c, scheme]);
   const { isChildMode, caregiverSession, doctorSession } = useAuth();
   const hidePredictTab = isChildMode && !caregiverSession;
   const hideFoodTab = !!doctorSession;
-  return (
-    <NativeTabs>
-      <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "drop", selected: "drop.fill" }} />
-        <Label>Glucose</Label>
-      </NativeTabs.Trigger>
-      {!hidePredictTab && (
-        <NativeTabs.Trigger name="insulin">
-          <Icon sf={{ default: "cross.vial", selected: "cross.vial.fill" }} />
-          <Label>Dose</Label>
-        </NativeTabs.Trigger>
-      )}
-      {!hideFoodTab && (
-        <NativeTabs.Trigger name="food">
-          <Icon sf={{ default: "fork.knife", selected: "fork.knife" }} />
-          <Label>Food</Label>
-        </NativeTabs.Trigger>
-      )}
-      <NativeTabs.Trigger name="chat">
-        <Icon sf={{ default: "message", selected: "message.fill" }} />
-        <Label>Chat</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="dashboard">
-        <Icon sf={{ default: "chart.bar", selected: "chart.bar.fill" }} />
-        <Label>Dashboard</Label>
-      </NativeTabs.Trigger>
-    </NativeTabs>
-  );
-}
 
-function ClassicTabLayout() {
-  const { isChildMode, caregiverSession, doctorSession } = useAuth();
-  const hidePredictTab = isChildMode && !caregiverSession;
-  const hideFoodTab = !!doctorSession;
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const isIOS = Platform.OS === "ios";
-  const isWeb = Platform.OS === "web";
-  const safeAreaInsets = useSafeAreaInsets();
+  const routes = state.routes.filter((r) => {
+    if (!TAB_META[r.name]) return false;
+    if (r.name === "insulin" && hidePredictTab) return false;
+    if (r.name === "food" && hideFoodTab) return false;
+    return true;
+  });
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: isDark ? Colors.dark.tabIconDefault : Colors.light.tabIconDefault,
-        headerShown: false,
-        tabBarStyle: {
-          position: "absolute",
-          backgroundColor: isIOS ? "transparent" : isDark ? "#0F172A" : "#fff",
-          borderTopWidth: isWeb ? 1 : 0,
-          borderTopColor: isDark ? "#334155" : "#E2E8F0",
-          elevation: 0,
-          paddingBottom: safeAreaInsets.bottom,
-          ...(isWeb ? { height: 84 } : {}),
-        },
-        tabBarBackground: () =>
-          isIOS ? (
-            <BlurView
-              intensity={100}
-              tint={isDark ? "dark" : "light"}
-              style={StyleSheet.absoluteFill}
-            />
-          ) : isWeb ? (
-            <View
-              style={[
-                StyleSheet.absoluteFill,
-                { backgroundColor: isDark ? "#0F172A" : "#fff" },
-              ]}
-            />
-          ) : null,
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Glucose",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="drop.fill" tintColor={color} size={22} />
-            ) : (
-              <Feather name="activity" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="insulin"
-        options={{
-          title: "Dose",
-          tabBarButton: hidePredictTab ? () => null : undefined,
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="cross.vial.fill" tintColor={color} size={22} />
-            ) : (
-              <Feather name="droplet" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="food"
-        options={{
-          title: "Food",
-          tabBarButton: hideFoodTab ? () => null : undefined,
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="fork.knife" tintColor={color} size={22} />
-            ) : (
-              <Feather name="search" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="chat"
-        options={{
-          title: "Chat",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="message.fill" tintColor={color} size={22} />
-            ) : (
-              <Feather name="message-circle" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="dashboard"
-        options={{
-          title: "Dashboard",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="chart.bar.fill" tintColor={color} size={22} />
-            ) : (
-              <Feather name="bar-chart-2" size={22} color={color} />
-            ),
-        }}
-      />
-    </Tabs>
+    <View style={[styles.wrap, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]} pointerEvents="box-none">
+      <View style={styles.bar}>
+        {routes.map((route) => {
+          const focused = state.routes[state.index]?.key === route.key;
+          const meta = TAB_META[route.name]!;
+          const color = focused ? T.color.violetActive : c.textMuted;
+
+          const onPress = () => {
+            Haptics.selectionAsync();
+            const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
+            if (!focused && !event.defaultPrevented) {
+              navigation.navigate(route.name);
+            }
+          };
+
+          return (
+            <Pressable
+              key={route.key}
+              onPress={onPress}
+              style={styles.item}
+              accessibilityRole="button"
+              accessibilityState={{ selected: focused }}
+              accessibilityLabel={meta.label}
+              hitSlop={6}
+            >
+              <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
+                <MaterialCommunityIcons name={meta.icon} size={22} color={color} />
+              </View>
+              <Text style={[styles.label, { color }]} numberOfLines={1}>
+                {meta.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
 export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
-  return <ClassicTabLayout />;
+  // A single custom dark tab bar so the redesigned navigation renders consistently in Expo Go (the
+  // native liquid-glass tab bar can't express this floating-pill treatment). Routes are unchanged.
+  return (
+    <Tabs
+      tabBar={(props) => <FloatingTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
+    >
+      <Tabs.Screen name="index" options={{ title: "Glucose" }} />
+      <Tabs.Screen name="insulin" options={{ title: "Dose" }} />
+      <Tabs.Screen name="food" options={{ title: "Food" }} />
+      <Tabs.Screen name="chat" options={{ title: "Chat" }} />
+      <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
+    </Tabs>
+  );
 }
+
+const makeStyles = (c: ThemeColors, isDark: boolean) => StyleSheet.create({
+  wrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  bar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    backgroundColor: withAlpha(c.card, 0.96),
+    borderRadius: T.radius.nav,
+    borderWidth: 1,
+    borderColor: c.border,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    shadowColor: "#000",
+    shadowOpacity: isDark ? 0.4 : 0.12,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
+  },
+  item: { flex: 1, alignItems: "center", gap: 4, paddingVertical: 2 },
+  iconWrap: {
+    width: 44,
+    height: 30,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconWrapActive: {
+    backgroundColor: withAlpha(T.color.violet, 0.16),
+  },
+  label: { fontSize: 10.5, fontWeight: T.font.medium, letterSpacing: 0.1 },
+});

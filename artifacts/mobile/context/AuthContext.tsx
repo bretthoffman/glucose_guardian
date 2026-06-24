@@ -106,6 +106,20 @@ export interface AlertPreferences {
   urgentHighThreshold: number;
 }
 
+export type GuardianPinStatus =
+  | "loading"
+  | "not_set"
+  | "active"
+  | "temporarily_locked"
+  | "unauthorized";
+
+export type GuardianPinVerifyResult =
+  | { result: "verified" }
+  | { result: "invalid" }
+  | { result: "temporarily_locked"; lockoutRemainingMs: number }
+  | { result: "setup_required" }
+  | { result: "unauthorized" };
+
 export interface AuthContextType {
   profile: UserProfile | null;
   account: UserAccount | null;
@@ -118,7 +132,10 @@ export interface AuthContextType {
   foodLog: FoodLogEntry[];
   emergencyContacts: EmergencyContact[];
   alertPrefs: AlertPreferences;
-  guardianPin: string | null;
+  guardianPinStatus: GuardianPinStatus;
+  guardianPinLockoutRemainingMs: number | null;
+  /** True when a backend (or legacy local) PIN is configured. */
+  guardianPinConfigured: boolean;
   isGuardianUnlocked: boolean;
   caregiverSession: boolean;
   doctorSession: boolean;
@@ -138,8 +155,10 @@ export interface AuthContextType {
   addEmergencyContact: (contact: Omit<EmergencyContact, "id">) => Promise<void>;
   removeEmergencyContact: (id: string) => Promise<void>;
   updateAlertPrefs: (prefs: Partial<AlertPreferences>) => Promise<void>;
-  setGuardianPin: (pin: string) => Promise<void>;
-  unlockGuardian: (pin: string) => boolean;
+  setupGuardianPin: (pin: string, pinConfirm: string) => Promise<{ ok: boolean; error?: string }>;
+  verifyGuardianPin: (pin: string) => Promise<GuardianPinVerifyResult>;
+  unlockGuardian: (pin: string) => Promise<GuardianPinVerifyResult>;
+  refreshGuardianPinStatus: () => Promise<void>;
   lockGuardian: () => void;
   setChildMode: (enabled: boolean) => Promise<void>;
   generateCaregiverCode: () => Promise<string>;
@@ -165,6 +184,7 @@ const FOOD_LOG_KEY = "@gluco_guardian_food_log";
 const INSULIN_LOG_KEY = "@gluco_guardian_insulin_log";
 const EMERGENCY_CONTACTS_KEY = "@gluco_guardian_emergency_contacts";
 const ALERT_PREFS_KEY = "@gluco_guardian_alert_prefs";
+/** @deprecated Legacy local-only PIN storage — backend is authoritative when signed into Convex. */
 const GUARDIAN_PIN_KEY = "@gluco_guardian_pin";
 const ACCOUNT_KEY = "@gluco_guardian_account";
 const SESSION_KEY = "@gluco_guardian_session";
@@ -255,7 +275,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [insulinLog, setInsulinLog] = useState<InsulinLogEntry[]>([]);
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [alertPrefs, setAlertPrefsState] = useState<AlertPreferences>(DEFAULT_ALERT_PREFS);
-  const [guardianPin, setGuardianPinState] = useState<string | null>(null);
+  const [guardianPinStatus, setGuardianPinStatus] = useState<GuardianPinStatus>("loading");
+  const [guardianPinLockoutRemainingMs, setGuardianPinLockoutRemainingMs] = useState<number | null>(null);
+  const [legacyLocalPinPresent, setLegacyLocalPinPresent] = useState(false);
   const [isGuardianUnlocked, setIsGuardianUnlocked] = useState(false);
   const [caregiverSession, setCaregiverSession] = useState(false);
   const [doctorSession, setDoctorSession] = useState(false);
@@ -276,6 +298,121 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { foodLogRef.current = foodLog; }, [foodLog]);
   useEffect(() => { alertPrefsRef.current = alertPrefs; }, [alertPrefs]);
   useEffect(() => { doctorMessagesRef.current = doctorMessages; }, [doctorMessages]);
+
+  const refreshGuardianPinStatus = useCallback(async () => {
+    const acc = accountRef.current;
+    if (!acc?.convexUserId) {
+      try {
+        const stored = await AsyncStorage.getItem(GUARDIAN_PIN_KEY);
+        setLegacyLocalPinPresent(!!stored);
+        setGuardianPinStatus(stored ? "active" : "not_set");
+        setGuardianPinLockoutRemainingMs(null);
+      } catch {
+        setLegacyLocalPinPresent(false);
+        setGuardianPinStatus("not_set");
+        setGuardianPinLockoutRemainingMs(null);
+      }
+      return;
+    }
+    try {
+      const client = createConvexAuthClient();
+      const status = await client.query(api.patientGuardianPin.getStatus, {
+        userId: acc.convexUserId as Id<"users">,
+        passwordHash: acc.passwordHash,
+      });
+      if (status.status === "unauthorized") {
+        setGuardianPinStatus("unauthorized");
+        setGuardianPinLockoutRemainingMs(null);
+        return;
+      }
+      if (status.status === "temporarily_locked") {
+        setGuardianPinStatus("temporarily_locked");
+        setGuardianPinLockoutRemainingMs(status.lockoutRemainingMs);
+        return;
+      }
+      setGuardianPinStatus(status.status);
+      setGuardianPinLockoutRemainingMs(null);
+      setLegacyLocalPinPresent(false);
+    } catch {
+      setGuardianPinStatus("not_set");
+      setGuardianPinLockoutRemainingMs(null);
+    }
+  }, []);
+
+  const verifyGuardianPin = useCallback(async (pin: string): Promise<GuardianPinVerifyResult> => {
+    const acc = accountRef.current;
+    if (!acc?.convexUserId) {
+      try {
+        const stored = await AsyncStorage.getItem(GUARDIAN_PIN_KEY);
+        if (!stored) return { result: "setup_required" };
+        if (stored === pin) return { result: "verified" };
+        return { result: "invalid" };
+      } catch {
+        return { result: "invalid" };
+      }
+    }
+    try {
+      const client = createConvexAuthClient();
+      const res = await client.action(api.patientGuardianPinActions.verifyPin, {
+        userId: acc.convexUserId as Id<"users">,
+        passwordHash: acc.passwordHash,
+        pin,
+      });
+      if (res.result === "temporarily_locked") {
+        setGuardianPinStatus("temporarily_locked");
+        setGuardianPinLockoutRemainingMs(res.lockoutRemainingMs);
+      }
+      return res;
+    } catch {
+      return { result: "invalid" };
+    }
+  }, []);
+
+  const setupGuardianPin = useCallback(async (pin: string, pinConfirm: string) => {
+    const acc = accountRef.current;
+    if (!acc?.convexUserId) {
+      if (pin !== pinConfirm) return { ok: false, error: "PINs don't match" };
+      if (!/^\d{4}$/.test(pin)) return { ok: false, error: "PIN must be exactly 4 digits" };
+      await AsyncStorage.setItem(GUARDIAN_PIN_KEY, pin);
+      setLegacyLocalPinPresent(true);
+      setGuardianPinStatus("active");
+      return { ok: true };
+    }
+    try {
+      const client = createConvexAuthClient();
+      const res = await client.action(api.patientGuardianPinActions.setupPin, {
+        userId: acc.convexUserId as Id<"users">,
+        passwordHash: acc.passwordHash,
+        pin,
+        pinConfirm,
+      });
+      if (res.result === "ok") {
+        await AsyncStorage.removeItem(GUARDIAN_PIN_KEY);
+        setLegacyLocalPinPresent(false);
+        setGuardianPinStatus("active");
+        setGuardianPinLockoutRemainingMs(null);
+        return { ok: true };
+      }
+      if (res.result === "mismatch") return { ok: false, error: "PINs don't match" };
+      if (res.result === "invalid_format") return { ok: false, error: "PIN must be exactly 4 digits" };
+      if (res.result === "already_active") return { ok: false, error: "Guardian PIN is already configured" };
+      if (res.result === "unauthorized") return { ok: false, error: "Not authorized to set Guardian PIN" };
+      return { ok: false, error: "Could not save Guardian PIN. Try again." };
+    } catch {
+      return { ok: false, error: "Could not save Guardian PIN. Check your connection." };
+    }
+  }, []);
+
+  const unlockGuardian = useCallback(async (pin: string): Promise<GuardianPinVerifyResult> => {
+    const res = await verifyGuardianPin(pin);
+    if (res.result === "verified") {
+      setIsGuardianUnlocked(true);
+    }
+    return res;
+  }, [verifyGuardianPin]);
+
+  const guardianPinConfigured =
+    guardianPinStatus === "active" || (legacyLocalPinPresent && !account?.convexUserId);
 
   const commitProfile = useCallback(async (updated: UserProfile) => {
     profileRef.current = updated;
@@ -387,7 +524,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (storedInsulinLog) setInsulinLog(JSON.parse(storedInsulinLog));
         if (storedContacts) setEmergencyContacts(JSON.parse(storedContacts));
         if (storedAlertPrefs) setAlertPrefsState({ ...DEFAULT_ALERT_PREFS, ...JSON.parse(storedAlertPrefs) });
-        if (storedPin) setGuardianPinState(storedPin);
+        if (storedPin) setLegacyLocalPinPresent(true);
         if (storedDoctorMessages) setDoctorMessages(JSON.parse(storedDoctorMessages));
 
         if (storedAccount) {
@@ -463,6 +600,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 } catch {
                   /* offline: keep AsyncStorage-hydrated profile and CGM */
                 }
+                await refreshGuardianPinStatus();
               } else {
                 await AsyncStorage.removeItem(SESSION_KEY);
               }
@@ -470,6 +608,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setIsSignedIn(true);
             }
           }
+        } else if (storedPin) {
+          setLegacyLocalPinPresent(true);
+          setGuardianPinStatus("active");
+        } else {
+          setGuardianPinStatus("not_set");
         }
       } catch {
         try {
@@ -511,7 +654,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setInsulinLog([]);
     setEmergencyContacts([]);
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
-    setGuardianPinState(null);
+    setGuardianPinStatus("not_set");
+    setGuardianPinLockoutRemainingMs(null);
+    setLegacyLocalPinPresent(false);
     setIsGuardianUnlocked(false);
     setCaregiverSession(false);
     setCaregiverCloudCode(null);
@@ -590,6 +735,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch {
           /* offline — profile / CGM empty until network */
         }
+        await refreshGuardianPinStatus();
         return true;
       }
     } catch {
@@ -675,7 +821,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setInsulinLog([]);
     setEmergencyContacts([]);
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
-    setGuardianPinState(null);
+    setGuardianPinStatus("not_set");
+    setGuardianPinLockoutRemainingMs(null);
+    setLegacyLocalPinPresent(false);
     setIsGuardianUnlocked(false);
     setIsSignedIn(false);
     setCaregiverSession(false);
@@ -723,19 +871,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
   }, []);
-
-  const setGuardianPin = useCallback(async (pin: string) => {
-    setGuardianPinState(pin);
-    await AsyncStorage.setItem(GUARDIAN_PIN_KEY, pin);
-  }, []);
-
-  const unlockGuardian = useCallback((pin: string): boolean => {
-    if (pin === guardianPin) {
-      setIsGuardianUnlocked(true);
-      return true;
-    }
-    return false;
-  }, [guardianPin]);
 
   const lockGuardian = useCallback(() => {
     setIsGuardianUnlocked(false);
@@ -948,7 +1083,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         insulinLog,
         emergencyContacts,
         alertPrefs,
-        guardianPin,
+        guardianPinStatus,
+        guardianPinLockoutRemainingMs,
+        guardianPinConfigured,
         isGuardianUnlocked,
         caregiverSession,
         doctorSession,
@@ -968,8 +1105,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         addEmergencyContact,
         removeEmergencyContact,
         updateAlertPrefs,
-        setGuardianPin,
+        setupGuardianPin,
+        verifyGuardianPin,
         unlockGuardian,
+        refreshGuardianPinStatus,
         lockGuardian,
         setChildMode,
         generateCaregiverCode,

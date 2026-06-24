@@ -1,9 +1,10 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dimensions,
+  Keyboard,
   PanResponder,
   Platform,
   Pressable,
@@ -12,10 +13,20 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
+import { useTheme, useThemeColors } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
+import {
+  A1C_RANGES,
+  DEFAULT_A1C_RANGE,
+  a1cInsight,
+  a1cLabel,
+  estimateA1C,
+  rangeCutoffMs,
+  type A1cRange,
+} from "@/utils/a1c";
+import { TYPE, type ThemeColors } from "@/constants/theme";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import type { GlucoseEntry } from "@/context/GlucoseContext";
@@ -23,9 +34,17 @@ import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 import { glucoseColor } from "@/components/CGMChart";
 import { computeDose } from "@/utils/dose";
 import type { DoseBreakdown } from "@/utils/dose";
+import {
+  doseAmountsEqual,
+  filterDoseInputText,
+  finalizeManualDoseInput,
+  formatDoseAmount,
+  formatSuggestedDoseLine,
+  roundToQuarterUnits,
+} from "@/utils/doseOverride";
 import { getEffectiveTrend } from "@/utils/trend";
 import LogHistory from "@/components/LogHistory";
-import ProfileChip from "@/components/ProfileChip";
+import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
 
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
@@ -382,6 +401,11 @@ function ZoomableChart({
   const [zoomScale, setZoomScaleRaw] = useState(1);
   const lastPinchDist = useRef<number | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<AlertDot | null>(null);
+  const { scheme } = useTheme();
+  const isDark = scheme === "dark";
+  const c = useThemeColors();
+  const czs = useMemo(() => makeCzs(c, isDark), [c, isDark]);
+  const chartStyles = useMemo(() => makeChartStyles(c, isDark), [c, isDark]);
 
   function applyZoom(newScale: number) {
     const clamped = Math.max(1, Math.min(6, newScale));
@@ -532,7 +556,7 @@ function ZoomableChart({
             style={{
               width: contentW,
               height: CHART_H,
-              backgroundColor: "#1a2540",
+              backgroundColor: c.chartPlotBg,
               borderRadius: 6,
               overflow: "hidden",
               position: "relative",
@@ -594,7 +618,7 @@ function ZoomableChart({
                         borderRadius: sz / 2,
                         backgroundColor: glucoseColor(p.glucose),
                         borderWidth: isLatest ? 2 : 0,
-                        borderColor: "#fff",
+                        borderColor: isDark ? "#fff" : c.chartPlotBg,
                         opacity: isLatest ? 1 : 0.75,
                       }}
                     />
@@ -645,7 +669,7 @@ function ZoomableChart({
                           borderRadius: 7,
                           backgroundColor: p.alertColor,
                           borderWidth: 2,
-                          borderColor: "#fff",
+                          borderColor: isDark ? "#fff" : c.chartPlotBg,
                         }}
                       />
                     </Pressable>
@@ -676,18 +700,18 @@ function ZoomableChart({
                       }}
                       onPress={() => setSelectedAlert(null)}
                     >
-                      <Text style={{ color: "#fff", fontSize: 15, fontFamily: "Inter_700Bold", lineHeight: 19 }}>
+                      <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700", lineHeight: 19 }}>
                         {selectedAlert.glucose} mg/dL
                       </Text>
-                      <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 10, fontFamily: "Inter_400Regular", marginBottom: 4 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 10, fontWeight: "400", marginBottom: 4 }}>
                         {new Date(selectedAlert.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </Text>
-                      <Text style={{ color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" }}>
+                      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>
                         {isLow
                           ? "⬇ Low — treat with fast carbs"
                           : "⬆ High — hydrate & check dose"}
                       </Text>
-                      <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 2 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 10, fontWeight: "400", marginTop: 2 }}>
                         Tap to dismiss
                       </Text>
                     </Pressable>
@@ -718,8 +742,8 @@ function ZoomableChart({
                   width: 33,
                   textAlign: "right",
                   fontSize: 9,
-                  fontFamily: "Inter_400Regular",
-                  color: "rgba(255,255,255,0.35)",
+                  fontWeight: "400",
+                  color: isDark ? "rgba(255,255,255,0.35)" : c.axis,
                 }}
               >
                 {v}
@@ -732,67 +756,54 @@ function ZoomableChart({
   );
 }
 
-const czs = StyleSheet.create({
+// Semantic zone tints + threshold lines are UNCHANGED across themes; only structural text/controls
+// (empty/axis labels, toolbar hint, zoom buttons) become theme-aware. Dark branches preserve the
+// exact current values.
+const makeCzs = (c: ThemeColors, isDark: boolean) => StyleSheet.create({
   zoneLow: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(239,68,68,0.10)" },
   zoneTarget: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(34,197,94,0.07)" },
   zoneHigh: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(245,158,11,0.07)" },
   line: { position: "absolute", left: 0, right: 0, height: 1 },
   empty: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
-  emptyText: { color: "rgba(255,255,255,0.3)", fontSize: 13, fontFamily: "Inter_400Regular" },
+  emptyText: { color: isDark ? "rgba(255,255,255,0.3)" : c.textMuted, fontSize: 13, fontWeight: "400" },
   xAxisRow: { position: "absolute", bottom: 5, flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 6 },
-  xLabel: { color: "rgba(255,255,255,0.35)", fontSize: 9, fontFamily: "Inter_400Regular" },
+  xLabel: { color: isDark ? "rgba(255,255,255,0.35)" : c.axis, fontSize: 9, fontWeight: "400" },
 });
 
-const chartStyles = StyleSheet.create({
+const makeChartStyles = (c: ThemeColors, isDark: boolean) => StyleSheet.create({
   toolbar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8, paddingHorizontal: 2 },
-  toolbarHint: { color: "rgba(255,255,255,0.45)", fontSize: 10, fontFamily: "Inter_500Medium", flex: 1, flexWrap: "wrap" },
+  toolbarHint: { color: isDark ? "rgba(255,255,255,0.45)" : c.textSecondary, fontSize: 10, fontWeight: "500", flex: 1, flexWrap: "wrap" },
   zoomBtns: { flexDirection: "row", gap: 6, marginLeft: 8 },
-  zoomBtn: { backgroundColor: "rgba(255,255,255,0.14)", paddingHorizontal: 11, paddingVertical: 5, borderRadius: 8, minWidth: 32, alignItems: "center" },
+  zoomBtn: { backgroundColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(30,55,100,0.07)", paddingHorizontal: 11, paddingVertical: 5, borderRadius: 8, minWidth: 32, alignItems: "center" },
   resetBtn: { paddingHorizontal: 9 },
-  zoomBtnText: { color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  zoomBtnText: { color: isDark ? "#fff" : c.textPrimary, fontSize: 15, fontWeight: "600" },
   chartRow: { flexDirection: "row", alignItems: "flex-start" },
 });
 
 type ScreenTab = "predict" | "log";
-type TimeRange = 3 | 7 | 14 | 30 | 90;
-
-function estimateA1C(avgBg: number): number {
-  return Math.round(((avgBg + 46.7) / 28.7) * 10) / 10;
-}
-
-function a1cLabel(a1c: number): { label: string; emoji: string; color: string } {
-  if (a1c < 7) return { label: "Good", emoji: "✅", color: COLORS.success };
-  if (a1c < 8) return { label: "Needs Attention", emoji: "⚠️", color: COLORS.warning };
-  return { label: "High Risk", emoji: "🚨", color: COLORS.danger };
-}
-
-function a1cInsight(avgBg: number, timeRange: TimeRange): string {
-  const a1c = estimateA1C(avgBg);
-  if (a1c < 7) {
-    if (timeRange <= 7) return `Your estimated A1C is looking great over the last ${timeRange} day${timeRange > 1 ? "s" : ""}. Keep up the current routine!`;
-    return `Excellent glucose control over the last ${timeRange} days. Consistent time-in-range is the key driver.`;
-  }
-  if (a1c < 8) {
-    return `Your A1C estimate suggests some room for improvement. Focus on post-meal control and consistent meal timing to bring this down.`;
-  }
-  return `Frequent highs are impacting your estimated A1C. Improving post-meal control and reviewing meal insulin timing could lower it meaningfully.`;
-}
+// Estimated-A1C range type + range list + A1C calc/label/copy live in `@/utils/a1c` (pure, tested).
 
 export default function InsulinScreen() {
   const insets = useSafeAreaInsets();
-  const scheme = useColorScheme();
+  const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { targetGlucose, carbRatio, correctionFactor, history } = useGlucose();
+  const { targetGlucose, carbRatio, correctionFactor, history, cgmSyncSuccessTick } = useGlucose();
   const { isMinor, alertPrefs, profile, foodLog, insulinLog, caregiverSession, doctorSession, isChildMode } = useAuth();
 
   const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
-  const [timeRange, setTimeRange] = useState<TimeRange>(14);
+  const [timeRange, setTimeRange] = useState<A1cRange>(DEFAULT_A1C_RANGE);
 
 
   const [carbInput, setCarbInput] = useState("");
   const [bgInput, setBgInput] = useState("");
   const [bgManual, setBgManual] = useState(false);
+  const [manualDoseOverride, setManualDoseOverride] = useState<number | null>(null);
+  const [doseEditing, setDoseEditing] = useState(false);
+  const [doseEditText, setDoseEditText] = useState("");
+  const manualOverrideBeforeEditRef = useRef<number | null>(null);
+  const doseInputRef = useRef<TextInput>(null);
+  const cgmSyncTickRef = useRef(cgmSyncSuccessTick);
 
   const latest = history[history.length - 1];
 
@@ -818,7 +829,7 @@ export default function InsulinScreen() {
   }, [history]);
 
   const rangeReadings = useMemo(() => {
-    const cutoff = Date.now() - timeRange * 24 * 60 * 60 * 1000;
+    const cutoff = rangeCutoffMs(timeRange, Date.now());
     return history.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
   }, [history, timeRange]);
 
@@ -831,7 +842,7 @@ export default function InsulinScreen() {
     const pctHigh = Math.round((rangeReadings.filter((r) => r.glucose > HIGH_THRESH).length / rangeReadings.length) * 100);
     const pctLow = Math.round((rangeReadings.filter((r) => r.glucose < LOW_THRESH).length / rangeReadings.length) * 100);
     const a1c = estimateA1C(avg);
-    const windowStart = Date.now() - timeRange * 24 * 60 * 60 * 1000;
+    const windowStart = rangeCutoffMs(timeRange, Date.now());
     const foodInRange = (foodLog ?? []).filter((f) => new Date(f.timestamp).getTime() >= windowStart);
     const insulinInRange = (insulinLog ?? []).filter((i) => new Date(i.timestamp).getTime() >= windowStart);
     const totalDays = timeRange;
@@ -875,33 +886,61 @@ export default function InsulinScreen() {
     });
   }, [carbInput, doseBg, targetGlucose, carbRatio, correctionFactor, history, latest]);
 
+  useEffect(() => {
+    if (cgmSyncSuccessTick !== cgmSyncTickRef.current) {
+      cgmSyncTickRef.current = cgmSyncSuccessTick;
+      setManualDoseOverride(null);
+      setDoseEditing(false);
+    }
+  }, [cgmSyncSuccessTick]);
+
+  const systemRecommendedDose = dose?.totalDose ?? 0;
+  const effectiveDose = manualDoseOverride ?? systemRecommendedDose;
+
+  const completeDoseEdit = useCallback(() => {
+    if (!doseEditing) return;
+    const finalized = finalizeManualDoseInput(doseEditText);
+    if (finalized == null) {
+      setManualDoseOverride(manualOverrideBeforeEditRef.current);
+    } else if (finalized === systemRecommendedDose) {
+      setManualDoseOverride(null);
+    } else {
+      setManualDoseOverride(finalized);
+    }
+    setDoseEditing(false);
+    Keyboard.dismiss();
+  }, [doseEditing, doseEditText, systemRecommendedDose]);
+
+  const startDoseEdit = useCallback(() => {
+    manualOverrideBeforeEditRef.current = manualDoseOverride;
+    const current = manualDoseOverride ?? systemRecommendedDose;
+    setDoseEditText(formatDoseAmount(current));
+    setDoseEditing(true);
+    requestAnimationFrame(() => {
+      doseInputRef.current?.focus();
+    });
+  }, [manualDoseOverride, systemRecommendedDose]);
+
   function openChat(prompt: string) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push({ pathname: "/(tabs)/chat", params: { prompt } });
   }
 
-  const TIME_RANGES: TimeRange[] = [3, 7, 14, 30, 90];
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       {/* ── Header ── */}
-      <View style={[styles.screenHeader, { paddingTop: topPadding + 8, borderBottomColor: colors.border }]}>
-        <View style={styles.screenHeaderRow}>
-          <View>
-            <Text style={[styles.pageTitle, { color: colors.text }]}>
-              {screenTab === "predict" ? "Dose" : "Log"}
+      <TabGlucoseHeaderShell
+        borderBottomColor={colors.border}
+        style={[styles.screenHeader, { backgroundColor: colors.background }]}
+      >
+        <TabGlucoseHeaderRow
+          left={
+            <Text style={[TYPE.pageTitle, { color: colors.text }]}>
+              {screenTab === "predict" ? "Dose Analytics" : "Log"}
             </Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              {screenTab === "predict"
-                ? isMinor ? "Your sugar patterns & dose helper" : "Dose calculator, analytics & A1C estimate"
-                : "Your full food, insulin & glucose history"}
-            </Text>
-          </View>
-          <ProfileChip
-            colors={colors}
-            canEdit={!caregiverSession && !doctorSession && !isChildMode}
-          />
-        </View>
+          }
+        />
 
         {/* Dose / Log toggle */}
         <View style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
@@ -917,7 +956,7 @@ export default function InsulinScreen() {
             </Pressable>
           ))}
         </View>
-      </View>
+      </TabGlucoseHeaderShell>
 
       {screenTab === "log" ? (
         <LogHistory colors={colors} restrictToDay={caregiverSession} />
@@ -926,10 +965,14 @@ export default function InsulinScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPadding + 80 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={() => {
+          if (doseEditing) doseInputRef.current?.blur();
+        }}
       >
 
       <Text style={[styles.sectionTitle, { color: colors.text }]}>
-        {isMinor ? "Dose Helper 💉" : "Dose Calculator"}
+        Calculator
       </Text>
 
       <View style={[styles.doseCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -1033,10 +1076,18 @@ export default function InsulinScreen() {
                   </Text>
                 )}
               </View>
-              <View style={styles.doseTotalBadge}>
-                <Text style={styles.doseTotalValue}>{dose.totalDose}</Text>
-                <Text style={styles.doseTotalUnit}>units</Text>
-              </View>
+              <EditableDoseTotalBadge
+                effectiveDose={effectiveDose}
+                systemRecommendedDose={systemRecommendedDose}
+                manualOverrideActive={manualDoseOverride != null}
+                editing={doseEditing}
+                editText={doseEditText}
+                inputRef={doseInputRef}
+                colors={colors}
+                onStartEdit={startDoseEdit}
+                onChangeEditText={(t) => setDoseEditText(filterDoseInputText(t))}
+                onCompleteEdit={completeDoseEdit}
+              />
             </View>
 
             <Pressable
@@ -1044,9 +1095,13 @@ export default function InsulinScreen() {
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 const name = profile?.childName ?? "them";
+                const manualNote =
+                  manualDoseOverride != null
+                    ? ` I manually set my dose display to ${formatDoseAmount(manualDoseOverride)}u (temporary override). The system recommendation is ${formatDoseAmount(dose.totalDose)}u.`
+                    : "";
                 const prompt = hasCarbs
-                  ? `Explain my insulin dose. Current BG: ${doseBg.label} mg/dL, eating ${carbInput}g carbs. Carb ratio 1:${carbRatio}, target BG ${targetGlucose}, ISF 1:${correctionFactor}. Trend: ${dose.trendLabel}. Carb dose: ${dose.carbInsulin}u, correction: ${dose.correctionInsulin}u, trend adj: ${dose.trendAdjustment}u. Total: ${dose.totalDose}u.`
-                  : `${name}'s BG is ${doseBg.label} mg/dL with no carbs. Correction only: (${doseBg.label}−${targetGlucose})÷${correctionFactor} = ${dose.correctionInsulin}u, rounded to ${dose.totalDose}u. Is this right?`;
+                  ? `Explain my insulin dose. Current BG: ${doseBg.label} mg/dL, eating ${carbInput}g carbs. Carb ratio 1:${carbRatio}, target BG ${targetGlucose}, ISF 1:${correctionFactor}. Trend: ${dose.trendLabel}. Carb dose: ${dose.carbInsulin}u, correction: ${dose.correctionInsulin}u, trend adj: ${dose.trendAdjustment}u. System recommended total: ${dose.totalDose}u.${manualNote}`
+                  : `${name}'s BG is ${doseBg.label} mg/dL with no carbs. Correction only: (${doseBg.label}−${targetGlucose})÷${correctionFactor} = ${dose.correctionInsulin}u, system recommended total ${dose.totalDose}u.${manualNote} Is this right?`;
                 openChat(prompt);
               }}
             >
@@ -1069,7 +1124,7 @@ export default function InsulinScreen() {
       {/* ── Time Range Selector — hidden for caregivers ── */}
       {!caregiverSession && (
         <View style={[styles.rangeRow]}>
-          {TIME_RANGES.map((r) => (
+          {A1C_RANGES.map((r) => (
             <Pressable
               key={r}
               style={[styles.rangeBtn, { backgroundColor: timeRange === r ? COLORS.primary : colors.backgroundTertiary }]}
@@ -1155,7 +1210,7 @@ export default function InsulinScreen() {
         </View>
       )}
 
-      <View style={[styles.chartCard, { backgroundColor: isDark ? "#0D1526" : "#0F172A" }]}>
+      <View style={[styles.chartCard, { backgroundColor: isDark ? "#0D1526" : colors.card, borderWidth: isDark ? 0 : 1, borderColor: colors.border }]}>
         <ZoomableChart readings={history} targetGlucose={targetGlucose} />
       </View>
 
@@ -1275,6 +1330,78 @@ function SuggestionCard({ suggestion, colors, onChat }: { suggestion: Suggestion
   );
 }
 
+function EditableDoseTotalBadge({
+  effectiveDose,
+  systemRecommendedDose,
+  manualOverrideActive,
+  editing,
+  editText,
+  inputRef,
+  colors,
+  onStartEdit,
+  onChangeEditText,
+  onCompleteEdit,
+}: {
+  effectiveDose: number;
+  systemRecommendedDose: number;
+  manualOverrideActive: boolean;
+  editing: boolean;
+  editText: string;
+  inputRef: React.RefObject<TextInput | null>;
+  colors: (typeof Colors)["light"];
+  onStartEdit: () => void;
+  onChangeEditText: (text: string) => void;
+  onCompleteEdit: () => void;
+}) {
+  const showSuggestedDose =
+    manualOverrideActive &&
+    !editing &&
+    !doseAmountsEqual(effectiveDose, systemRecommendedDose);
+
+  return (
+    <View style={styles.doseTotalBadgeWrap}>
+      {manualOverrideActive && !editing ? (
+        <Text style={styles.manualDoseTag}>Manual</Text>
+      ) : null}
+      <Pressable
+        onPress={onStartEdit}
+        disabled={editing}
+        style={styles.doseTotalBadge}
+        accessibilityRole="button"
+        accessibilityLabel="Edit insulin dose amount"
+      >
+        {editing ? (
+          <>
+            <TextInput
+              ref={inputRef}
+              value={editText}
+              onChangeText={onChangeEditText}
+              onBlur={onCompleteEdit}
+              onSubmitEditing={onCompleteEdit}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              selectTextOnFocus
+              style={styles.doseTotalInput}
+              maxLength={8}
+            />
+            <Text style={styles.doseTotalUnit}>units</Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.doseTotalValue}>{formatDoseAmount(effectiveDose)}</Text>
+            <Text style={styles.doseTotalUnit}>units</Text>
+          </>
+        )}
+      </Pressable>
+      {showSuggestedDose ? (
+        <Text style={[styles.suggestedDoseLine, { color: colors.textMuted }]}>
+          {formatSuggestedDoseLine(systemRecommendedDose)}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function DoseRow({
   label, sub, value, unit, colors, signed = false, dimmed = false,
 }: {
@@ -1313,97 +1440,113 @@ function StatBox({ label, value, unit, color, colors }: { label: string; value: 
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingHorizontal: 20 },
-  pageTitle: { fontSize: 28, fontFamily: "Inter_700Bold", marginBottom: 6 },
-  subtitle: { fontSize: 15, fontFamily: "Inter_400Regular", marginBottom: 18, lineHeight: 22 },
 
   latestRow: { flexDirection: "row", alignItems: "center", gap: 18, marginBottom: 18 },
   latestCircle: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, alignItems: "center", justifyContent: "center" },
-  screenHeader: { paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, gap: 12 },
-  screenHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  screenHeader: { paddingBottom: 12, borderBottomWidth: 1, gap: 12 },
   screenToggle: { flexDirection: "row", borderRadius: 12, padding: 3, gap: 3 },
   screenToggleBtn: { flex: 1, borderRadius: 10, paddingVertical: 8, alignItems: "center" },
-  screenToggleText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  screenToggleText: { fontSize: 14, fontWeight: "600" },
 
   rangeRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
   rangeBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: "center" },
-  rangeBtnText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  rangeBtnText: { fontSize: 13, fontWeight: "700" },
 
   a1cCard: { borderRadius: 18, borderWidth: 1, marginBottom: 16, overflow: "hidden" },
   a1cTop: { padding: 16 },
-  a1cLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 },
+  a1cLabel: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 },
   a1cValueRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  a1cValue: { fontSize: 42, fontFamily: "Inter_700Bold" },
+  a1cValue: { fontSize: 42, fontWeight: "700" },
   a1cBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
-  a1cBadgeText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  a1cBadgeText: { fontSize: 13, fontWeight: "700" },
   a1cStatsRow: { flexDirection: "row", alignItems: "center", borderTopWidth: 1, padding: 14 },
   a1cDivider: { width: 1, height: 36, marginHorizontal: 2 },
-  a1cStatValue: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  a1cStatLabel: { fontSize: 9, fontFamily: "Inter_500Medium", color: "#888", textAlign: "center" },
+  a1cStatValue: { fontSize: 16, fontWeight: "700" },
+  a1cStatLabel: { fontSize: 9, fontWeight: "500", color: "#888", textAlign: "center" },
   a1cInsightBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, margin: 12, marginTop: 0, borderRadius: 10 },
-  a1cInsightText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  a1cInsightText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 18 },
 
-  latestValue: { fontSize: 30, fontFamily: "Inter_700Bold", lineHeight: 34 },
-  latestUnit: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  latestValue: { fontSize: 30, fontWeight: "700", lineHeight: 34 },
+  latestUnit: { fontSize: 11, fontWeight: "500" },
   latestMeta: { gap: 6 },
-  latestTime: { fontSize: 14, fontFamily: "Inter_500Medium" },
-  rangeCount: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  latestTime: { fontSize: 14, fontWeight: "500" },
+  rangeCount: { fontSize: 12, fontWeight: "400" },
   trendArrowRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  trendArrowIcon: { fontSize: 18, fontFamily: "Inter_700Bold" },
-  trendArrowLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  trendArrowIcon: { fontSize: 18, fontWeight: "700" },
+  trendArrowLabel: { fontSize: 13, fontWeight: "600" },
 
   chartCard: { borderRadius: 18, overflow: "hidden", marginBottom: 14, padding: 12 },
 
   statsCard: { flexDirection: "row", borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 20, alignItems: "center" },
   statBox: { flex: 1, alignItems: "center", gap: 2 },
-  statValue: { fontSize: 18, fontFamily: "Inter_700Bold" },
-  statLabel: { fontSize: 10, fontFamily: "Inter_600SemiBold", textAlign: "center" },
-  statUnit: { fontSize: 9, fontFamily: "Inter_400Regular", textAlign: "center" },
+  statValue: { fontSize: 18, fontWeight: "700" },
+  statLabel: { fontSize: 10, fontWeight: "600", textAlign: "center" },
+  statUnit: { fontSize: 9, fontWeight: "400", textAlign: "center" },
   statDivider: { width: 1, height: 40, marginHorizontal: 4 },
 
-  sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold", marginBottom: 10 },
+  sectionTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10 },
 
   suggCard: { borderRadius: 16, borderWidth: 1, marginBottom: 12, overflow: "hidden" },
   suggTag: { alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 4, marginTop: 10, marginLeft: 12, borderRadius: 6 },
-  suggTagText: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
+  suggTagText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.8 },
   suggTop: { flexDirection: "row", alignItems: "flex-start", gap: 12, padding: 14 },
   suggIconBg: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   suggIcon: { fontSize: 22 },
-  suggTitle: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 3 },
-  suggBody: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
+  suggTitle: { fontSize: 14, fontWeight: "700", marginBottom: 3 },
+  suggBody: { fontSize: 13, fontWeight: "400", lineHeight: 19 },
   chatBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "rgba(0,0,0,0.05)" },
-  chatBtnText: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  chatBtnText: { flex: 1, fontSize: 13, fontWeight: "600" },
 
   emptyCard: { borderRadius: 16, borderWidth: 1, padding: 28, alignItems: "center", gap: 10, marginTop: 10 },
   emptyIcon: { fontSize: 40 },
-  emptyTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
-  emptySub: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
+  emptyTitle: { fontSize: 18, fontWeight: "700" },
+  emptySub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20 },
 
   doseCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 20, gap: 14 },
   doseInputRow: { flexDirection: "row", gap: 12 },
   doseInputGroup: { flex: 1, gap: 6 },
-  doseInputLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.5 },
-  doseInput: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontFamily: "Inter_700Bold", textAlign: "center" },
+  doseInputLabel: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 },
+  doseInput: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontWeight: "700", textAlign: "center" },
   doseInputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.15)", marginVertical: 4 },
   liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  liveTagText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
+  liveTagText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.8 },
 
   doseWarning: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1 },
-  doseWarningText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium", lineHeight: 17 },
+  doseWarningText: { flex: 1, fontSize: 12, fontWeight: "500", lineHeight: 17 },
 
   doseBreakdown: { borderTopWidth: 1, paddingTop: 12, gap: 10 },
   doseRowItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  doseRowLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  doseRowSub: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 1 },
-  doseRowValue: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  doseRowLabel: { fontSize: 14, fontWeight: "600" },
+  doseRowSub: { fontSize: 11, fontWeight: "400", marginTop: 1 },
+  doseRowValue: { fontSize: 16, fontWeight: "700" },
 
   doseTotalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, paddingTop: 14, gap: 10 },
-  doseTotalLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold", marginBottom: 3 },
-  doseRoundNote: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  doseTotalBadge: { flexDirection: "row", alignItems: "baseline", gap: 4, backgroundColor: COLORS.primary, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14 },
-  doseTotalValue: { fontSize: 30, fontFamily: "Inter_700Bold", color: "#fff" },
-  doseTotalUnit: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "rgba(255,255,255,0.8)" },
+  doseTotalLabel: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
+  doseRoundNote: { fontSize: 11, fontWeight: "400" },
+  doseTotalBadgeWrap: { alignItems: "center", position: "relative" },
+  manualDoseTag: {
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: "rgba(255,255,255,0.65)",
+    marginBottom: 4,
+  },
+  doseTotalBadge: { flexDirection: "row", alignItems: "baseline", gap: 4, backgroundColor: COLORS.primary, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, minWidth: 88, justifyContent: "center" },
+  doseTotalValue: { fontSize: 30, fontWeight: "700", color: "#fff" },
+  doseTotalInput: {
+    fontSize: 30,
+    fontWeight: "700",
+    color: "#fff",
+    minWidth: 52,
+    textAlign: "center",
+    padding: 0,
+    margin: 0,
+  },
+  doseTotalUnit: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.8)" },
+  suggestedDoseLine: { fontSize: 11, fontWeight: "400", marginTop: 4, textAlign: "center" },
 
   explainBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 11 },
-  explainBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  dosePrompt: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20, textAlign: "center", paddingVertical: 8 },
+  explainBtnText: { fontSize: 14, fontWeight: "600" },
+  dosePrompt: { fontSize: 13, fontWeight: "400", lineHeight: 20, textAlign: "center", paddingVertical: 8 },
 });

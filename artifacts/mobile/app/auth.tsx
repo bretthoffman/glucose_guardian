@@ -14,8 +14,8 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
+import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
@@ -25,7 +25,7 @@ type Mode = "signin" | "create";
 
 export default function AuthScreen() {
   const insets = useSafeAreaInsets();
-  const scheme = useColorScheme();
+  const { scheme } = useTheme();
   const isDark = scheme !== "light";
   const { createAccount, signIn, account, isLoading, enterCaregiverMode, enterDoctorMode } = useAuth();
   const { resetGlucoseData } = useGlucose();
@@ -358,7 +358,7 @@ export default function AuthScreen() {
                   style={[styles.caregiverCancelBtn, { borderColor: "rgba(255,255,255,0.15)" }]}
                   onPress={() => { setShowCaregiverEntry(false); setCaregiverCode(""); setCaregiverError(""); }}
                 >
-                  <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, fontFamily: "Inter_500Medium" }}>Cancel</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, fontWeight: "500" }}>Cancel</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.caregiverSubmitBtn, { backgroundColor: caregiverCode.length === 6 ? COLORS.accent : "rgba(255,255,255,0.12)", opacity: caregiverCode.length === 6 ? 1 : 0.6 }]}
@@ -382,7 +382,7 @@ export default function AuthScreen() {
                   ) : (
                     <>
                       <Feather name="unlock" size={15} color="#fff" />
-                      <Text style={{ color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" }}>Enter</Text>
+                      <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>Enter</Text>
                     </>
                   )}
                 </Pressable>
@@ -416,7 +416,7 @@ export default function AuthScreen() {
                   style={[styles.caregiverCancelBtn, { borderColor: "rgba(255,255,255,0.15)" }]}
                   onPress={() => { setShowDoctorEntry(false); setDoctorCode(""); setDoctorError(""); }}
                 >
-                  <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, fontFamily: "Inter_500Medium" }}>Cancel</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, fontWeight: "500" }}>Cancel</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.caregiverSubmitBtn, { backgroundColor: doctorCode.length === 6 ? "#6366F1" : "rgba(255,255,255,0.12)", opacity: doctorCode.length === 6 ? 1 : 0.6 }]}
@@ -431,7 +431,7 @@ export default function AuthScreen() {
                   }}
                 >
                   <Feather name="unlock" size={15} color="#fff" />
-                  <Text style={{ color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" }}>Enter</Text>
+                  <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>Enter</Text>
                 </Pressable>
               </View>
             </View>
@@ -458,12 +458,12 @@ const styles = StyleSheet.create({
   },
   appName: {
     fontSize: 28,
-    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
     marginBottom: 6,
   },
   tagline: {
     fontSize: 14,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     textAlign: "center",
   },
 
@@ -497,13 +497,13 @@ const styles = StyleSheet.create({
   },
   tabText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontWeight: "600",
     zIndex: 1,
   },
 
   fields: { gap: 16, marginBottom: 20 },
   fieldGroup: { gap: 6 },
-  label: { fontSize: 12, fontFamily: "Inter_500Medium", marginLeft: 2 },
+  label: { fontSize: 12, fontWeight: "500", marginLeft: 2 },
   inputWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -516,7 +516,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 15,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
   },
   eyeBtn: { padding: 4 },
 
@@ -531,36 +531,36 @@ const styles = StyleSheet.create({
   },
   submitText: {
     fontSize: 16,
-    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
     color: "#fff",
   },
 
   disclaimer: {
     fontSize: 11,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     textAlign: "center",
   },
   switchLink: { alignItems: "center", marginTop: 8 },
   switchText: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
+    fontWeight: "500",
   },
 
   features: { gap: 12, marginBottom: 24 },
   featureRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   featureIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  featureText: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
+  featureText: { fontSize: 13, fontWeight: "400", flex: 1 },
 
   caregiverSection: { borderTopWidth: 1, paddingTop: 20 },
   caregiverLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 8 },
-  caregiverLinkText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  caregiverLinkText: { fontSize: 14, fontWeight: "500" },
   caregiverForm: { gap: 12 },
-  caregiverFormTitle: { fontSize: 16, fontFamily: "Inter_700Bold", textAlign: "center" },
-  caregiverFormSub: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 18 },
+  caregiverFormTitle: { fontSize: 16, fontWeight: "700", textAlign: "center" },
+  caregiverFormSub: { fontSize: 13, fontWeight: "400", textAlign: "center", lineHeight: 18 },
   caregiverInputWrap: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
-  caregiverInput: { flex: 1, fontSize: 20, fontFamily: "Inter_700Bold", letterSpacing: 4, textAlign: "center" },
-  caregiverCounter: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  caregiverError: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center" },
+  caregiverInput: { flex: 1, fontSize: 20, fontWeight: "700", letterSpacing: 4, textAlign: "center" },
+  caregiverCounter: { fontSize: 12, fontWeight: "400" },
+  caregiverError: { fontSize: 12, fontWeight: "400", textAlign: "center" },
   caregiverBtns: { flexDirection: "row", gap: 10 },
   caregiverCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   caregiverSubmitBtn: { flex: 1.5, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 12, borderRadius: 12 },

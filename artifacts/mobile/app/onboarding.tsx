@@ -12,8 +12,8 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
+import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constants/insulin";
@@ -110,10 +110,10 @@ function PinKeypad({
 
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
-  const scheme = useColorScheme();
+  const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { setupProfile, setGuardianPin } = useAuth();
+  const { setupProfile, setupGuardianPin } = useAuth();
   const { saveFormula } = useGlucose();
 
   const [step, setStep] = useState<Step>("welcome");
@@ -179,7 +179,7 @@ export default function OnboardingScreen() {
 
   function checkPinMatch(set: string, confirm: string) {
     if (set === confirm) {
-      finishSetup(set);
+      finishSetup(set, confirm);
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setPinError("PINs don't match — try again");
@@ -189,7 +189,7 @@ export default function OnboardingScreen() {
     }
   }
 
-  async function finishSetup(pin?: string) {
+  async function finishSetup(pin?: string, pinConfirm?: string) {
     if (!childName.trim() || !dobValid) return;
     setIsSaving(true);
     try {
@@ -204,7 +204,16 @@ export default function OnboardingScreen() {
         weightLbs: !isNaN(parsedWeight) && parsedWeight > 0 ? parsedWeight : undefined,
         insulinTypes: insulinTypes.length > 0 ? insulinTypes : undefined,
       });
-      if (pin) await setGuardianPin(pin);
+      if (pin && pinConfirm) {
+        const pinRes = await setupGuardianPin(pin, pinConfirm);
+        if (!pinRes.ok) {
+          setPinError(pinRes.error ?? "Could not save Guardian PIN");
+          setPinPhase("set");
+          setPinEntry("");
+          setPinConfirm("");
+          return;
+        }
+      }
       const parsedCarbGrams = parseFloat(carbRatioInput);
       const parsedTarget = parseFloat(targetGlucoseInput);
       const parsedISF = parseFloat(isfInput);
@@ -897,9 +906,9 @@ function BackBtn({ onPress, colors }: { onPress: () => void; colors: (typeof Col
 
 const stepStyles = StyleSheet.create({
   badge: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20 },
-  badgeText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  badgeText: { fontSize: 13, fontWeight: "600" },
   backBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8 },
-  backBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  backBtnText: { fontSize: 14, fontWeight: "500" },
 });
 
 const pinStyles = StyleSheet.create({
@@ -946,7 +955,7 @@ const pinStyles = StyleSheet.create({
   },
   keyText: {
     fontSize: 26,
-    fontFamily: "Inter_600SemiBold",
+    fontWeight: "600",
   },
   errorBadge: {
     flexDirection: "row",
@@ -958,7 +967,7 @@ const pinStyles = StyleSheet.create({
   },
   errorText: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
+    fontWeight: "500",
   },
   resetBtn: {
     flexDirection: "row",
@@ -968,7 +977,7 @@ const pinStyles = StyleSheet.create({
   },
   resetText: {
     fontSize: 13,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
   },
 });
 
@@ -989,10 +998,10 @@ const styles = StyleSheet.create({
     height: 130,
     marginBottom: 8,
   },
-  bigTitle: { fontSize: 34, fontFamily: "Inter_700Bold", textAlign: "center" },
+  bigTitle: { fontSize: 34, fontWeight: "700", textAlign: "center" },
   bigSubtitle: {
     fontSize: 16,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     textAlign: "center",
     lineHeight: 24,
     marginBottom: 8,
@@ -1006,7 +1015,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  featureText: { fontSize: 15, fontFamily: "Inter_500Medium", flex: 1 },
+  featureText: { fontSize: 15, fontWeight: "500", flex: 1 },
   primaryBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1017,18 +1026,18 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginTop: 8,
   },
-  primaryBtnText: { color: "#fff", fontSize: 17, fontFamily: "Inter_700Bold" },
-  stepTitle: { fontSize: 28, fontFamily: "Inter_700Bold", textAlign: "center" },
+  primaryBtnText: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  stepTitle: { fontSize: 28, fontWeight: "700", textAlign: "center" },
   stepSubtitle: {
     fontSize: 15,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     textAlign: "center",
     lineHeight: 22,
   },
   nameInput: {
     width: "100%",
     fontSize: 20,
-    fontFamily: "Inter_600SemiBold",
+    fontWeight: "600",
     borderWidth: 2,
     borderRadius: 14,
     paddingHorizontal: 18,
@@ -1044,17 +1053,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   dobField: { flex: 1, gap: 6 },
-  dobLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", textAlign: "center" },
+  dobLabel: { fontSize: 12, fontWeight: "600", textAlign: "center" },
   dobInput: {
     borderWidth: 2,
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 14,
     fontSize: 18,
-    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
     textAlign: "center",
   },
-  dobSeparator: { fontSize: 24, fontFamily: "Inter_700Bold", paddingBottom: 14 },
+  dobSeparator: { fontSize: 24, fontWeight: "700", paddingBottom: 14 },
   ageBadge: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1064,8 +1073,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
   },
-  ageBadgeTitle: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 2 },
-  ageBadgeSub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  ageBadgeTitle: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
+  ageBadgeSub: { fontSize: 13, fontWeight: "400", lineHeight: 18 },
   typeOption: {
     width: "100%",
     flexDirection: "row",
@@ -1077,23 +1086,23 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   typeOptionLeft: { flex: 1, gap: 2 },
-  typeOptionTitle: { fontSize: 17, fontFamily: "Inter_700Bold" },
-  typeOptionDesc: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  typeOptionTitle: { fontSize: 17, fontWeight: "700" },
+  typeOptionDesc: { fontSize: 13, fontWeight: "400" },
   roleIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", marginRight: 6, flexShrink: 0 },
 
   insulinSection: { width: "100%", borderTopWidth: 1, paddingTop: 16, gap: 12 },
   insulinSectionHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
-  insulinSectionTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", flex: 1 },
-  insulinSectionOptional: { fontSize: 12, fontFamily: "Inter_400Regular", fontStyle: "italic" },
-  insulinSectionSub: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17, marginTop: -4 },
+  insulinSectionTitle: { fontSize: 15, fontWeight: "600", flex: 1 },
+  insulinSectionOptional: { fontSize: 12, fontWeight: "400", fontStyle: "italic" },
+  insulinSectionSub: { fontSize: 12, fontWeight: "400", lineHeight: 17, marginTop: -4 },
   insulinGroup: { gap: 6 },
-  insulinGroupLabel: { fontSize: 10, fontFamily: "Inter_600SemiBold", letterSpacing: 0.8 },
+  insulinGroupLabel: { fontSize: 10, fontWeight: "600", letterSpacing: 0.8 },
   insulinChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   insulinChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1.5 },
-  insulinChipName: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  insulinChipConc: { fontSize: 10, fontFamily: "Inter_400Regular" },
-  insulinChipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  insulinChipName: { fontSize: 13, fontWeight: "600" },
+  insulinChipConc: { fontSize: 10, fontWeight: "400" },
+  insulinChipText: { fontSize: 13, fontWeight: "500" },
   carbUnitToggleRow: { flexDirection: "row", gap: 10 },
   carbUnitBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 12, borderWidth: 1.5 },
-  carbUnitBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  carbUnitBtnText: { fontSize: 14, fontWeight: "600" },
 });

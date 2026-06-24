@@ -13,14 +13,15 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
+import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { getEffectiveTrend } from "@/utils/trend";
 import DoctorMessaging from "@/components/DoctorMessaging";
+import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
 import { apiUrl } from "@/utils/api-base-url";
 
 interface Message {
@@ -28,20 +29,6 @@ interface Message {
   role: "user" | "assistant";
   text: string;
   timestamp: Date;
-}
-
-function glucoseColor(g: number, low = 80, high = 180): string {
-  if (g < 70 || g > 300) return COLORS.danger;
-  if (g < low || g > high) return COLORS.warning;
-  return COLORS.success;
-}
-
-function glucoseLabel(g: number, low = 80, high = 180): string {
-  if (g < 70) return "Low";
-  if (g < low) return "Below Range";
-  if (g <= high) return "In Range";
-  if (g <= 300) return "Above Range";
-  return "High";
 }
 
 function buildParentSuggestions(
@@ -178,7 +165,7 @@ function buildSuggestions(
 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
-  const scheme = useColorScheme();
+  const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
@@ -372,31 +359,26 @@ export default function ChatScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
-      <View
-        style={[
-          styles.header,
-          { paddingTop: topPadding + 12, backgroundColor: colors.background, borderBottomColor: colors.border },
-        ]}
+      <TabGlucoseHeaderShell
+        borderBottomColor={colors.border}
+        style={[styles.header, { backgroundColor: colors.background }]}
       >
-        <View style={[styles.avatarSmall, { backgroundColor: COLORS.primary + "20" }]}>
-          <Image source={require("../../assets/images/logo.png")} style={styles.avatarLogo} resizeMode="contain" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Glucose Guardian</Text>
-          <Text style={[styles.headerSub, { color: COLORS.success }]}>
-            {speakingToParent ? `Managing ${name}'s care` : "Your AI diabetes companion"}
-          </Text>
-        </View>
-        {glucose != null && (
-          <View style={[styles.glucosePill, { backgroundColor: glucoseColor(glucose, low, high) + "18", borderColor: glucoseColor(glucose, low, high) + "40" }]}>
-            <Text style={[styles.glucosePillValue, { color: glucoseColor(glucose, low, high) }]}>
-              {glucose} <Text style={styles.glucosePillUnit}>mg/dL</Text>
-            </Text>
-            <Text style={[styles.glucosePillTrend, { color: glucoseColor(glucose, low, high) }]}>{trend.arrow}</Text>
-            <Text style={[styles.glucosePillLabel, { color: glucoseColor(glucose, low, high) }]}>{glucoseLabel(glucose, low, high)}</Text>
-          </View>
-        )}
-      </View>
+        <TabGlucoseHeaderRow
+          left={
+            <View style={styles.headerLeft}>
+              <View style={[styles.avatarSmall, { backgroundColor: COLORS.primary + "20" }]}>
+                <Image source={require("../../assets/images/logo.png")} style={styles.avatarLogo} resizeMode="contain" />
+              </View>
+              <View style={styles.headerText}>
+                <Text style={[styles.headerTitle, { color: colors.text }]}>Glucose Guardian</Text>
+                <Text style={[styles.headerSub, { color: COLORS.success }]}>
+                  {speakingToParent ? `Managing ${name}'s care` : "Your AI diabetes companion"}
+                </Text>
+              </View>
+            </View>
+          }
+        />
+      </TabGlucoseHeaderShell>
 
       {/* Doctor inbox banner */}
       {doctorMessages.length > 0 && !doctorSession && (
@@ -483,7 +465,7 @@ export default function ChatScreen() {
       <View
         style={[
           styles.inputRow,
-          { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: bottomPadding + 58 },
+          { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: bottomPadding + 84 },
         ]}
       >
         <TextInput
@@ -544,7 +526,7 @@ function MessageBubble({
           style={[
             isKidMode ? styles.kidBubbleText : styles.bubbleText,
             { color: isUser ? "#fff" : colors.text },
-            isKidMode && isAI && { fontFamily: "Inter_700Bold" },
+            isKidMode && isAI && { fontWeight: "700" },
           ]}
         >
           {message.text}
@@ -570,13 +552,16 @@ function ThinkingDots({ colors }: { colors: (typeof Colors)["light"] }) {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingBottom: 14,
+    paddingBottom: 12,
     borderBottomWidth: 1,
   },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    minWidth: 0,
+  },
+  headerText: { flex: 1, minWidth: 0 },
   avatarSmall: {
     width: 40,
     height: 40,
@@ -587,20 +572,8 @@ const styles = StyleSheet.create({
   avatarEmoji: { fontSize: 20 },
   avatarLogo: { width: 28, height: 28 },
   avatarTinyLogo: { width: 18, height: 18 },
-  headerTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  headerSub: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  glucosePill: {
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    alignItems: "center",
-    minWidth: 70,
-  },
-  glucosePillValue: { fontSize: 15, fontFamily: "Inter_700Bold" },
-  glucosePillUnit: { fontSize: 10, fontFamily: "Inter_400Regular" },
-  glucosePillTrend: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  glucosePillLabel: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  headerTitle: { fontSize: 16, fontWeight: "700" },
+  headerSub: { fontSize: 11, fontWeight: "400" },
 
   list: { paddingHorizontal: 16, paddingTop: 12, gap: 10 },
   bubbleWrapper: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginBottom: 4 },
@@ -610,20 +583,20 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: "80%", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, gap: 4 },
   userBubble: { borderBottomRightRadius: 4 },
   aiBubble: { borderBottomLeftRadius: 4, borderWidth: 1 },
-  bubbleText: { fontSize: 15, fontFamily: "Inter_400Regular", lineHeight: 22 },
-  kidBubbleText: { fontSize: 19, fontFamily: "Inter_600SemiBold", lineHeight: 28 },
+  bubbleText: { fontSize: 15, fontWeight: "400", lineHeight: 22 },
+  kidBubbleText: { fontSize: 19, fontWeight: "600", lineHeight: 28 },
   kidBubble: { paddingHorizontal: 16, paddingVertical: 14, borderRadius: 22 },
-  bubbleTime: { fontSize: 10, fontFamily: "Inter_400Regular" },
+  bubbleTime: { fontSize: 10, fontWeight: "400" },
 
   thinkingRow: { flexDirection: "row", gap: 5, paddingVertical: 4 },
   thinkingDot: { width: 8, height: 8, borderRadius: 4, opacity: 0.6 },
 
   errorBubble: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 12, borderWidth: 1, marginBottom: 8 },
-  errorText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular" },
+  errorText: { flex: 1, fontSize: 13, fontWeight: "400" },
 
   suggestionsRow: { paddingVertical: 8, borderTopWidth: 1 },
   suggestionChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, borderWidth: 1 },
-  suggestionText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  suggestionText: { fontSize: 13, fontWeight: "500" },
 
   inputRow: {
     flexDirection: "row",
@@ -640,7 +613,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 15,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     maxHeight: 100,
   },
   sendBtn: {
@@ -659,7 +632,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
   },
-  doctorBannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
+  doctorBannerText: { flex: 1, fontSize: 13, fontWeight: "500" },
   unreadBadge: {
     backgroundColor: "#6366F1",
     borderRadius: 10,
@@ -669,7 +642,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 4,
   },
-  unreadBadgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
+  unreadBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
 
   modalTopBar: {
     flexDirection: "row",
@@ -679,6 +652,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
   },
-  modalTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  modalTitle: { fontSize: 16, fontWeight: "700" },
   modalCloseBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
 });

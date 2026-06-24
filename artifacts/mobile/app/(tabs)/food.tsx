@@ -15,14 +15,15 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
+import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 
 import { getEffectiveTrend } from "@/utils/trend";
+import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
 import { apiUrl } from "@/utils/api-base-url";
 
 interface FoodResult {
@@ -75,7 +76,7 @@ const SPIKE_COLOR = (predicted: number, target: number): string => {
 
 export default function FoodScreen() {
   const insets = useSafeAreaInsets();
-  const scheme = useColorScheme();
+  const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { carbRatio, targetGlucose, correctionFactor, latestReading, history } = useGlucose();
@@ -93,7 +94,6 @@ export default function FoodScreen() {
   const [doseTaken, setDoseTaken] = useState(false);
   const [editedCarbs, setEditedCarbs] = useState<string>("");
 
-  const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   const confidenceColor = {
@@ -301,33 +301,40 @@ export default function FoodScreen() {
     : 0;
   const spikeColor = guidance ? SPIKE_COLOR(guidance.predictedPeak30, targetGlucose) : COLORS.success;
 
+  const showGlucoseHeader = history.length > 1 || latestReading?.glucose != null;
+
   return (
     <KeyboardAvoidingView
       style={[styles.root, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
+      {showGlucoseHeader && (
+        <TabGlucoseHeaderShell style={{ backgroundColor: colors.background, paddingBottom: 14 }}>
+          <TabGlucoseHeaderRow
+            left={
+              history.length > 1 ? (
+                <View style={[styles.trendChip, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+                  <Feather name="activity" size={13} color={colors.textSecondary} />
+                  <Text style={[styles.trendChipText, { color: colors.textSecondary }]}>
+                    Glucose trend: {TREND_LABELS[currentTrend] ?? "→ Stable"}
+                  </Text>
+                </View>
+              ) : null
+            }
+          />
+        </TabGlucoseHeaderShell>
+      )}
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
-          { paddingTop: topPadding + 12, paddingBottom: bottomPadding + 80 },
+          {
+            paddingTop: showGlucoseHeader ? 0 : tabGlucoseHeaderPaddingTop(insets.top),
+            paddingBottom: bottomPadding + 80,
+          },
         ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.pageTitle, { color: colors.text }]}>Food & Carbs</Text>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Snap a photo or search to estimate carbs
-        </Text>
-
-        {history.length > 1 && (
-          <View style={[styles.trendChip, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
-            <Feather name="activity" size={13} color={colors.textSecondary} />
-            <Text style={[styles.trendChipText, { color: colors.textSecondary }]}>
-              Glucose trend: {TREND_LABELS[currentTrend] ?? "→ Stable"}
-            </Text>
-          </View>
-        )}
-
         <View style={styles.cameraRow}>
           <Pressable
             style={({ pressed }) => [
@@ -458,7 +465,7 @@ export default function FoodScreen() {
                   selectTextOnFocus
                 />
                 <Text style={[styles.carbLabel, { color: COLORS.primary }]}>g carbs</Text>
-                <Text style={[{ fontSize: 9, color: COLORS.primary + "80", fontFamily: "Inter_400Regular" }]}>tap to edit</Text>
+                <Text style={[{ fontSize: 9, color: COLORS.primary + "80", fontWeight: "400" }]}>tap to edit</Text>
               </View>
             </View>
 
@@ -815,13 +822,13 @@ function DoseFormulaBox({
 const formulaStyles = StyleSheet.create({
   box: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 8 },
   header: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
-  title: { fontSize: 12, fontFamily: "Inter_700Bold", letterSpacing: 0.4, textTransform: "uppercase" },
+  title: { fontSize: 12, fontWeight: "700", letterSpacing: 0.4, textTransform: "uppercase" },
   divider: { height: 1, marginVertical: 2 },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
-  label: { fontSize: 13, fontFamily: "Inter_500Medium", flexShrink: 0 },
-  value: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "right", flex: 1 },
-  totalLabel: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  totalValue: { fontSize: 14, fontFamily: "Inter_700Bold", textAlign: "right", flex: 1 },
+  label: { fontSize: 13, fontWeight: "500", flexShrink: 0 },
+  value: { fontSize: 13, fontWeight: "400", textAlign: "right", flex: 1 },
+  totalLabel: { fontSize: 14, fontWeight: "700" },
+  totalValue: { fontSize: 14, fontWeight: "700", textAlign: "right", flex: 1 },
 });
 
 function StatBox({
@@ -846,21 +853,19 @@ function StatBox({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingHorizontal: 20 },
-  pageTitle: { fontSize: 28, fontFamily: "Inter_700Bold", marginBottom: 6 },
-  subtitle: { fontSize: 15, fontFamily: "Inter_400Regular", marginBottom: 12 },
   trendChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     alignSelf: "flex-start",
+    flexShrink: 1,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 14,
   },
-  trendChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  cameraRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
+  trendChipText: { fontSize: 12, fontWeight: "500" },
+  cameraRow: { flexDirection: "row", gap: 10, marginBottom: 14, marginTop: 14 },
   cameraBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -869,7 +874,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 14,
   },
-  cameraBtnText: { color: "#fff", fontSize: 15, fontFamily: "Inter_700Bold" },
+  cameraBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   galleryBtn: {
     width: 50,
     alignItems: "center",
@@ -892,10 +897,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 10,
   },
-  photoOverlayText: { color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  photoOverlayText: { color: "#fff", fontSize: 15, fontWeight: "600" },
   dividerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
   divider: { flex: 1, height: 1 },
-  dividerText: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  dividerText: { fontSize: 12, fontWeight: "400" },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -906,7 +911,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     marginBottom: 10,
   },
-  searchInput: { flex: 1, fontSize: 16, fontFamily: "Inter_400Regular" },
+  searchInput: { flex: 1, fontSize: 16, fontWeight: "400" },
   searchBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -917,7 +922,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 16,
   },
-  searchBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  searchBtnText: { fontSize: 15, fontWeight: "600" },
   errorBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -926,7 +931,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 16,
   },
-  errorText: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular" },
+  errorText: { flex: 1, fontSize: 14, fontWeight: "400" },
   resultCard: { borderRadius: 16, borderWidth: 1, padding: 18, marginBottom: 14, gap: 12 },
   inlinePhoto: { width: "100%", height: 160, borderRadius: 10, marginBottom: 4 },
   aiTag: {
@@ -938,10 +943,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignSelf: "flex-start",
   },
-  aiTagText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  aiTagText: { fontSize: 12, fontWeight: "700" },
   resultTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
-  foodName: { fontSize: 20, fontFamily: "Inter_700Bold", marginBottom: 4, textTransform: "capitalize" },
-  portionText: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 6 },
+  foodName: { fontSize: 20, fontWeight: "700", marginBottom: 4, textTransform: "capitalize" },
+  portionText: { fontSize: 13, fontWeight: "400", marginBottom: 6 },
   confidenceBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -952,7 +957,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   confidenceDot: { width: 6, height: 6, borderRadius: 3 },
-  confidenceText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  confidenceText: { fontSize: 12, fontWeight: "600" },
   carbBubble: {
     alignItems: "center",
     backgroundColor: COLORS.primary + "14",
@@ -960,10 +965,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 14,
   },
-  carbValue: { fontSize: 32, fontFamily: "Inter_700Bold", lineHeight: 38 },
-  carbLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  carbValue: { fontSize: 32, fontWeight: "700", lineHeight: 38 },
+  carbLabel: { fontSize: 12, fontWeight: "500" },
   tipsBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 10 },
-  tipsText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  tipsText: { flex: 1, fontSize: 13, fontWeight: "400", lineHeight: 20 },
   logBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -972,18 +977,18 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     borderRadius: 12,
   },
-  logBtnText: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  logBtnText: { fontSize: 15, fontWeight: "700" },
   guidanceCard: { borderRadius: 16, borderWidth: 1, padding: 18, marginBottom: 24, gap: 14 },
   guidanceHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  guidanceTitle: { flex: 1, fontSize: 16, fontFamily: "Inter_700Bold" },
+  guidanceTitle: { flex: 1, fontSize: 16, fontWeight: "700" },
   kidGuidance: { gap: 12 },
   monsterRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   monsterEmoji: { fontSize: 44 },
-  monsterLabel: { fontSize: 12, fontFamily: "Inter_500Medium", marginBottom: 4 },
+  monsterLabel: { fontSize: 12, fontWeight: "500", marginBottom: 4 },
   spikeBar: { height: 10, borderRadius: 5, overflow: "hidden" },
   spikeFill: { height: "100%", borderRadius: 5 },
-  spikePeak: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  friendlyMsg: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
+  spikePeak: { fontSize: 12, fontWeight: "600" },
+  friendlyMsg: { fontSize: 14, fontWeight: "400", lineHeight: 22 },
   timingChip: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -992,7 +997,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   timingEmoji: { fontSize: 16 },
-  timingText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", lineHeight: 20 },
+  timingText: { flex: 1, fontSize: 13, fontWeight: "500", lineHeight: 20 },
   insulinPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1002,29 +1007,29 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignSelf: "flex-start",
   },
-  insulinPillText: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  insulinPillText: { fontSize: 14, fontWeight: "700" },
   adultGuidance: { gap: 14 },
   glucoseChart: { flexDirection: "row", justifyContent: "space-around", alignItems: "flex-end", gap: 8, paddingHorizontal: 8 },
   chartCol: { flex: 1, alignItems: "center", gap: 4 },
-  chartValue: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  chartValue: { fontSize: 13, fontWeight: "700" },
   chartBarContainer: { width: "100%", height: 90, justifyContent: "flex-end" },
   chartBar: { width: "100%", borderRadius: 6 },
-  chartLabel: { fontSize: 10, fontFamily: "Inter_500Medium", textAlign: "center", lineHeight: 14 },
+  chartLabel: { fontSize: 10, fontWeight: "500", textAlign: "center", lineHeight: 14 },
   targetLine: { borderTopWidth: 1, borderStyle: "dashed", paddingTop: 6 },
-  targetLineLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  targetLineLabel: { fontSize: 11, fontWeight: "500" },
   adultStats: { flexDirection: "row", gap: 8 },
   statBox: { flex: 1, padding: 10, borderRadius: 10, borderWidth: 1, alignItems: "center", gap: 2 },
-  statValue: { fontSize: 15, fontFamily: "Inter_700Bold" },
-  statLabel: { fontSize: 10, fontFamily: "Inter_500Medium", textAlign: "center" },
-  quickTitle: { fontSize: 18, fontFamily: "Inter_700Bold", marginBottom: 12 },
+  statValue: { fontSize: 15, fontWeight: "700" },
+  statLabel: { fontSize: 10, fontWeight: "500", textAlign: "center" },
+  quickTitle: { fontSize: 18, fontWeight: "700", marginBottom: 12 },
   quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   quickChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
-  quickChipText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  quickChipText: { fontSize: 14, fontWeight: "500" },
   doseLogCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 24, gap: 12 },
   doseLogRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   doseLogIcon: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  doseLogTitle: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 2 },
-  doseLogSub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  doseLogTitle: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
+  doseLogSub: { fontSize: 13, fontWeight: "400", lineHeight: 18 },
   doseTakeBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 12, borderRadius: 12 },
-  doseTakeBtnText: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#fff" },
+  doseTakeBtnText: { fontSize: 14, fontWeight: "700", color: "#fff" },
 });

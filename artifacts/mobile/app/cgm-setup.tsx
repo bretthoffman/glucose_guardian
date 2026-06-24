@@ -14,8 +14,8 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
+import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
@@ -49,7 +49,7 @@ async function backupCredentialsWithRetry(endpoint: string, body: object): Promi
 
 export default function CGMSetupScreen() {
   const insets = useSafeAreaInsets();
-  const scheme = useColorScheme();
+  const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { cgmConnection, setCGMConnection, account } = useAuth();
@@ -434,15 +434,15 @@ const styles = StyleSheet.create({
   },
   connectedTitle: {
     fontSize: 16,
-    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
   },
   connectedSub: {
     fontSize: 13,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
   },
   connectedHint: {
     fontSize: 13,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     lineHeight: 18,
   },
   disconnectBtn: {
@@ -457,11 +457,11 @@ const styles = StyleSheet.create({
   },
   disconnectBtnText: {
     fontSize: 15,
-    fontFamily: "Inter_600SemiBold",
+    fontWeight: "600",
   },
   sectionTitle: {
     fontSize: 20,
-    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
   },
   typeRow: {
     flexDirection: "row",
@@ -476,11 +476,11 @@ const styles = StyleSheet.create({
   },
   typeCardTitle: {
     fontSize: 15,
-    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
   },
   typeCardSub: {
     fontSize: 12,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     textAlign: "center",
   },
   formCard: {
@@ -491,7 +491,7 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
+    fontWeight: "600",
     marginTop: 4,
   },
   input: {
@@ -500,7 +500,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     marginBottom: 4,
   },
   passwordRow: {
@@ -516,7 +516,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
   },
   eyeBtn: {
     paddingHorizontal: 14,
@@ -529,11 +529,11 @@ const styles = StyleSheet.create({
   },
   switchLabel: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontWeight: "600",
   },
   switchSub: {
     fontSize: 12,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     marginTop: 2,
   },
   requirementsBox: {
@@ -544,7 +544,7 @@ const styles = StyleSheet.create({
   },
   requirementsTitle: {
     fontSize: 13,
-    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
     marginBottom: 2,
   },
   requirementRow: {
@@ -554,13 +554,13 @@ const styles = StyleSheet.create({
   },
   requirementBullet: {
     fontSize: 13,
-    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
     width: 16,
   },
   requirementText: {
     flex: 1,
     fontSize: 13,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     lineHeight: 18,
   },
   infoBox: {
@@ -574,7 +574,7 @@ const styles = StyleSheet.create({
   infoText: {
     flex: 1,
     fontSize: 13,
-    fontFamily: "Inter_400Regular",
+    fontWeight: "400",
     lineHeight: 18,
   },
   connectBtn: {
@@ -588,6 +588,6 @@ const styles = StyleSheet.create({
   connectBtnText: {
     color: "#fff",
     fontSize: 16,
-    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
   },
 });
