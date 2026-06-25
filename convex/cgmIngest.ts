@@ -22,11 +22,17 @@ import { ingestConfig, PROVIDER_LIMITS, RETRY_CONFIG } from "./cgm/config";
 import {
   decideSchedule,
   runProviderSync,
+  isIngestionSuccessCategory,
   type FailureCategory,
   type Provider,
   type ReadingRecord,
   type SyncOutcome,
 } from "./cgm/core";
+import {
+  failureCategoryToDiagnostic,
+  diagnosticMessageKey,
+  reconnectRequiredForDiagnostic,
+} from "./cgm/diagnostics";
 import {
   makeDexcomAdapter,
   makeLibreAdapter,
@@ -337,6 +343,8 @@ export const completeSync = internalMutation({
       v.literal("retrying"),
       v.literal("needs_reconnect"),
       v.literal("no_credentials"),
+      v.literal("connected_no_data"),
+      v.literal("no_shared_patient"),
     ),
     nextEligibleAt: v.number(),
     consecutiveFailures: v.number(),
@@ -344,6 +352,10 @@ export const completeSync = internalMutation({
     advancedCursor: v.boolean(),
     unrecoverableGap: v.boolean(),
     didReconcile: v.boolean(),
+    providerDiagnosticCategory: v.optional(v.string()),
+    providerDiagnosticMessageKey: v.optional(v.string()),
+    libreConnectionCount: v.optional(v.number()),
+    reconnectRequired: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<{ applied: boolean; superseded?: boolean }> => {
     const row = await ctx.db
@@ -355,7 +367,7 @@ export const completeSync = internalMutation({
       return { applied: false, superseded: true };
     }
 
-    const success = args.category === "none";
+    const success = isIngestionSuccessCategory(args.category as FailureCategory);
     const patch: Record<string, unknown> = {
       status: args.status,
       consecutiveFailures: args.consecutiveFailures,
@@ -366,9 +378,16 @@ export const completeSync = internalMutation({
       leaseExpiresAt: undefined,
       updatedAt: args.now,
     };
+    if (args.providerDiagnosticCategory !== undefined) {
+      patch.providerDiagnosticCategory = args.providerDiagnosticCategory;
+      patch.providerDiagnosticMessageKey = args.providerDiagnosticMessageKey;
+      patch.libreConnectionCount = args.libreConnectionCount;
+      patch.reconnectRequired = args.reconnectRequired;
+    }
     if (success) {
       patch.lastSuccessAt = args.now;
       patch.lastFailureCategory = undefined;
+      patch.lastFailureAt = undefined;
       if (args.advancedCursor && args.newCursor) patch.lastReadingTimestamp = args.newCursor;
       if (args.didReconcile) patch.lastBackfillAt = args.now;
       patch.unrecoverableGap = args.unrecoverableGap;
@@ -468,6 +487,10 @@ async function processConnection(
     retry: RETRY_CONFIG,
   });
 
+  const diagnosticCategory = failureCategoryToDiagnostic(outcome.category, {
+    inserted: outcome.inserted,
+  });
+
   await ctx.runMutation(internal.cgmIngest.completeSync, {
     userId: params.userId,
     provider: params.provider,
@@ -476,17 +499,21 @@ async function processConnection(
     now: params.now,
     category: outcome.category,
     status: sched.status,
-    nextEligibleAt: sched.nextEligibleAt + jitterMs(outcome.category === "none"),
+    nextEligibleAt: sched.nextEligibleAt + jitterMs(isIngestionSuccessCategory(outcome.category)),
     consecutiveFailures: sched.consecutiveFailures,
     newCursor: outcome.newCursor ?? undefined,
     advancedCursor: outcome.advancedCursor,
     unrecoverableGap: outcome.unrecoverableGap,
     didReconcile:
       outcome.reason === "reconcile" || outcome.reason === "initial" || outcome.reason === "catchup",
+    providerDiagnosticCategory: diagnosticCategory,
+    providerDiagnosticMessageKey: diagnosticMessageKey(diagnosticCategory),
+    libreConnectionCount: params.provider === "libre" ? outcome.connectionCount : undefined,
+    reconnectRequired: reconnectRequiredForDiagnostic(diagnosticCategory),
   });
 
   return {
-    outcome: outcome.category === "none" ? "ok" : "failed",
+    outcome: isIngestionSuccessCategory(outcome.category) ? "ok" : "failed",
     inserted: outcome.inserted,
     category: outcome.category,
   };
@@ -565,7 +592,20 @@ export const requestExpeditedSync = action({
     ctx,
     args,
   ): Promise<{
-    status: "ok" | "pending" | "retrying" | "needs_reconnect" | "no_credentials" | "unauthorized" | "not_connected";
+    status:
+      | "ok"
+      | "pending"
+      | "retrying"
+      | "needs_reconnect"
+      | "no_credentials"
+      | "connected_no_data"
+      | "no_shared_patient"
+      | "sharing_not_enabled"
+      | "unauthorized"
+      | "not_connected";
+    diagnosticCategory: string;
+    messageKey: string;
+    reconnectRequired: boolean;
     inserted: number;
     readings: Array<{
       glucose: number;
@@ -579,8 +619,26 @@ export const requestExpeditedSync = action({
       userId: args.userId,
       passwordHash: args.passwordHash,
     });
-    if (!auth) return { status: "unauthorized", inserted: 0, readings: [] };
-    if (!auth.provider) return { status: "not_connected", inserted: 0, readings: [] };
+    if (!auth) {
+      return {
+        status: "unauthorized",
+        diagnosticCategory: "invalid_credentials",
+        messageKey: diagnosticMessageKey("invalid_credentials"),
+        reconnectRequired: true,
+        inserted: 0,
+        readings: [],
+      };
+    }
+    if (!auth.provider) {
+      return {
+        status: "not_connected",
+        diagnosticCategory: "no_credentials",
+        messageKey: diagnosticMessageKey("no_credentials"),
+        reconnectRequired: false,
+        inserted: 0,
+        readings: [],
+      };
+    }
 
     await ctx.runMutation(internal.cgmIngest.ensureState, { userId: args.userId, provider: auth.provider, now });
 
@@ -594,14 +652,45 @@ export const requestExpeditedSync = action({
     });
 
     const readings = await ctx.runQuery(internal.cgmIngest.recentReadings, { userId: args.userId, limit: 300 });
-    const status =
-      result.category === "skipped" || result.category === "none"
-        ? "ok"
-        : result.category === "no_credentials"
-          ? "no_credentials"
-          : result.category === "invalid_credentials"
-            ? "needs_reconnect"
-            : "retrying";
-    return { status, inserted: result.inserted, readings };
+    const diagnosticCategory = failureCategoryToDiagnostic(
+      result.category === "skipped" ? "none" : result.category,
+      { inserted: result.inserted },
+    );
+    const messageKey = diagnosticMessageKey(diagnosticCategory);
+    const reconnectRequired = reconnectRequiredForDiagnostic(diagnosticCategory);
+
+    let status:
+      | "ok"
+      | "pending"
+      | "retrying"
+      | "needs_reconnect"
+      | "no_credentials"
+      | "connected_no_data"
+      | "no_shared_patient"
+      | "sharing_not_enabled";
+    if (result.category === "skipped" || result.category === "none") {
+      status = "ok";
+    } else if (result.category === "no_credentials") {
+      status = "no_credentials";
+    } else if (result.category === "sharing_not_enabled") {
+      status = "sharing_not_enabled";
+    } else if (result.category === "invalid_credentials") {
+      status = "needs_reconnect";
+    } else if (result.category === "connected_no_data") {
+      status = "connected_no_data";
+    } else if (result.category === "no_shared_patient") {
+      status = "no_shared_patient";
+    } else {
+      status = "retrying";
+    }
+
+    return {
+      status,
+      diagnosticCategory,
+      messageKey,
+      reconnectRequired,
+      inserted: result.inserted,
+      readings,
+    };
   },
 });

@@ -17,6 +17,14 @@ import {
   type ReadOutcome,
 } from "./core";
 import { PROVIDER_LIMITS } from "./config";
+import {
+  type LibreDiagnosticSummary,
+  type ProviderDiagnosticCategory,
+  diagnosticMessageKey,
+  failureCategoryToDiagnostic,
+  reconnectRequiredForDiagnostic,
+  retryableForDiagnostic,
+} from "./diagnostics";
 
 type FetchLike = typeof fetch;
 
@@ -201,6 +209,123 @@ const LIBRE_HEADERS = {
   version: "4.7.0",
 } as const;
 
+type LibreLoginAttempt = {
+  ok: true;
+  token: string;
+  apiBase: string;
+  regionResolved: boolean;
+};
+type LibreLoginFailure = { ok: false; category: FailureCategory };
+
+function apiHostLabel(apiBase: string): string {
+  try {
+    return new URL(apiBase).host;
+  } catch {
+    return "unknown";
+  }
+}
+
+async function libreAttemptLogin(
+  doFetch: FetchLike,
+  creds: LibreCreds,
+): Promise<LibreLoginAttempt | LibreLoginFailure> {
+  if (!creds.email || !creds.password) return { ok: false, category: "no_credentials" };
+  let base = (creds.apiBase?.trim() || LIBRE_DEFAULT_BASE).replace(/\/$/, "");
+  const body = JSON.stringify({ email: creds.email.trim(), password: creds.password });
+  let regionResolved = Boolean(creds.apiBase?.trim());
+
+  const attempt = async (b: string) => {
+    const resp = await doFetch(`${b}/llu/auth/login`, {
+      method: "POST",
+      headers: { ...LIBRE_HEADERS, Accept: "application/json" },
+      body,
+    });
+    const text = await resp.text();
+    let data: Record<string, unknown> | null = null;
+    try {
+      data = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      data = null;
+    }
+    return { resp, data };
+  };
+
+  let { resp, data } = await attempt(base);
+  if (data?.status === 2 && (data.data as Record<string, unknown> | undefined)?.redirect === true) {
+    const region = String((data.data as { region?: string })?.region ?? "us");
+    base = `https://api.${region}.libreview.io`;
+    regionResolved = true;
+    ({ resp, data } = await attempt(base));
+  }
+  if (!resp.ok) {
+    return {
+      ok: false,
+      category: resp.status === 401 ? "invalid_credentials" : httpTransientCategory(resp.status),
+    };
+  }
+  const token = (data?.data as { authTicket?: { token?: string } } | undefined)?.authTicket?.token;
+  if (!token) {
+    return { ok: false, category: "sharing_not_enabled" };
+  }
+  return { ok: true, token, apiBase: base, regionResolved };
+}
+
+type LibreConnectionsResult =
+  | { ok: true; connectionCount: number; patientId: string | null }
+  | { ok: false; sessionExpired: boolean; category: FailureCategory };
+
+async function libreFetchConnections(
+  doFetch: FetchLike,
+  session: LibreSession,
+): Promise<LibreConnectionsResult> {
+  const base = (session.apiBase || LIBRE_DEFAULT_BASE).replace(/\/$/, "");
+  const authHeaders = { ...LIBRE_HEADERS, Authorization: `Bearer ${session.token}`, Accept: "application/json" };
+  const connResp = await doFetch(`${base}/llu/connections`, { headers: authHeaders });
+  if (!connResp.ok) {
+    return {
+      ok: false,
+      sessionExpired: connResp.status === 401,
+      category: connResp.status === 401 ? "none" : httpTransientCategory(connResp.status),
+    };
+  }
+  const connections = (await connResp.json()) as { data?: { patientId?: string }[] };
+  const patients = (connections?.data ?? []).filter((p) => Boolean(p?.patientId));
+  return {
+    ok: true,
+    connectionCount: patients.length,
+    patientId: patients[0]?.patientId ?? null,
+  };
+}
+
+type LibreGraphResult =
+  | { ok: true; entries: ReadingRecord[] }
+  | { ok: false; sessionExpired: boolean; category: FailureCategory };
+
+async function libreFetchGraph(
+  doFetch: FetchLike,
+  session: LibreSession,
+  patientId: string,
+): Promise<LibreGraphResult> {
+  const base = (session.apiBase || LIBRE_DEFAULT_BASE).replace(/\/$/, "");
+  const authHeaders = { ...LIBRE_HEADERS, Authorization: `Bearer ${session.token}`, Accept: "application/json" };
+  const graphResp = await doFetch(`${base}/llu/connections/${patientId}/graph`, { headers: authHeaders });
+  if (!graphResp.ok) {
+    return {
+      ok: false,
+      sessionExpired: graphResp.status === 401,
+      category: graphResp.status === 401 ? "none" : httpTransientCategory(graphResp.status),
+    };
+  }
+  const graphData = (await graphResp.json()) as { data?: { graphData?: Record<string, unknown>[] } };
+  const raw = graphData?.data?.graphData ?? [];
+  const entries: ReadingRecord[] = [];
+  for (const item of raw) {
+    const entry = normalizeLibreReading(item);
+    if (entry) entries.push(entry);
+  }
+  return { ok: true, entries };
+}
+
 export function makeLibreAdapter(deps?: { fetch?: FetchLike }): ProviderAdapter<LibreCreds, LibreSession> {
   const doFetch: FetchLike = deps?.fetch ?? fetch;
 
@@ -209,43 +334,10 @@ export function makeLibreAdapter(deps?: { fetch?: FetchLike }): ProviderAdapter<
     limits: PROVIDER_LIMITS.libre,
 
     async login(creds: LibreCreds): Promise<LoginOutcome<LibreSession>> {
-      if (!creds.email || !creds.password) return { ok: false, category: "no_credentials" };
-      let base = (creds.apiBase?.trim() || LIBRE_DEFAULT_BASE).replace(/\/$/, "");
-      const body = JSON.stringify({ email: creds.email.trim(), password: creds.password });
-
-      const attempt = async (b: string) => {
-        const resp = await doFetch(`${b}/llu/auth/login`, {
-          method: "POST",
-          headers: { ...LIBRE_HEADERS, Accept: "application/json" },
-          body,
-        });
-        const text = await resp.text();
-        let data: Record<string, unknown> | null = null;
-        try {
-          data = JSON.parse(text) as Record<string, unknown>;
-        } catch {
-          data = null;
-        }
-        return { resp, data };
-      };
-
       try {
-        let { resp, data } = await attempt(base);
-        // Region redirect: global host points to the regional host owning this account.
-        if (data?.status === 2 && (data.data as Record<string, unknown> | undefined)?.redirect === true) {
-          const region = String((data.data as { region?: string })?.region ?? "us");
-          base = `https://api.${region}.libreview.io`;
-          ({ resp, data } = await attempt(base));
-        }
-        if (!resp.ok) {
-          return { ok: false, category: resp.status === 401 ? "invalid_credentials" : httpTransientCategory(resp.status) };
-        }
-        const token = (data?.data as { authTicket?: { token?: string } } | undefined)?.authTicket?.token;
-        if (!token) {
-          // Authenticated but no share token usually means LibreLinkUp Sharing is off → user action.
-          return { ok: false, category: "invalid_credentials" };
-        }
-        return { ok: true, session: { token, apiBase: base } };
+        const result = await libreAttemptLogin(doFetch, creds);
+        if (!result.ok) return result;
+        return { ok: true, session: { token: result.token, apiBase: result.apiBase } };
       } catch {
         return { ok: false, category: "network_timeout" };
       }
@@ -253,42 +345,217 @@ export function makeLibreAdapter(deps?: { fetch?: FetchLike }): ProviderAdapter<
 
     // Libre `/graph` returns a fixed recent window; `plan` count/window are ignored by design.
     async read(session: LibreSession): Promise<ReadOutcome> {
-      const base = (session.apiBase || LIBRE_DEFAULT_BASE).replace(/\/$/, "");
-      const authHeaders = { ...LIBRE_HEADERS, Authorization: `Bearer ${session.token}`, Accept: "application/json" };
       try {
-        const connResp = await doFetch(`${base}/llu/connections`, { headers: authHeaders });
-        if (!connResp.ok) {
+        const conn = await libreFetchConnections(doFetch, session);
+        if (!conn.ok) {
           return {
             ok: false,
-            sessionExpired: connResp.status === 401,
-            category: connResp.status === 401 ? "none" : httpTransientCategory(connResp.status),
+            sessionExpired: conn.sessionExpired,
+            category: conn.category,
           };
         }
-        const connections = (await connResp.json()) as { data?: { patientId?: string }[] };
-        const patientId = connections?.data?.[0]?.patientId;
-        if (!patientId) return { ok: true, entries: [] };
+        if (!conn.patientId) {
+          return {
+            ok: true,
+            entries: [],
+            readKind: "no_shared_patient",
+            connectionCount: conn.connectionCount,
+          };
+        }
 
-        const graphResp = await doFetch(`${base}/llu/connections/${patientId}/graph`, { headers: authHeaders });
-        if (!graphResp.ok) {
+        const graph = await libreFetchGraph(doFetch, session, conn.patientId);
+        if (!graph.ok) {
           return {
             ok: false,
-            sessionExpired: graphResp.status === 401,
-            category: graphResp.status === 401 ? "none" : httpTransientCategory(graphResp.status),
+            sessionExpired: graph.sessionExpired,
+            category: graph.category,
           };
         }
-        const graphData = (await graphResp.json()) as { data?: { graphData?: Record<string, unknown>[] } };
-        const raw = graphData?.data?.graphData ?? [];
-        const entries: ReadingRecord[] = [];
-        for (const item of raw) {
-          const entry = normalizeLibreReading(item);
-          if (entry) entries.push(entry);
+        if (graph.entries.length === 0) {
+          return {
+            ok: true,
+            entries: [],
+            readKind: "connected_no_data",
+            connectionCount: conn.connectionCount,
+          };
         }
-        return { ok: true, entries };
+        return {
+          ok: true,
+          entries: graph.entries,
+          readKind: "readings",
+          connectionCount: conn.connectionCount,
+        };
       } catch {
         return { ok: false, sessionExpired: false, category: "network_timeout" };
       }
     },
   };
+}
+
+/**
+ * Bounded Libre diagnostic sequence for operator verification.
+ * Reuses the same login/connections/graph helpers as ingestion — no duplicate HTTP logic.
+ */
+export async function runLibreDiagnosticFlow(
+  creds: LibreCreds | null,
+  deps?: { fetch?: FetchLike; existingSession?: LibreSession | null },
+): Promise<LibreDiagnosticSummary> {
+  const baseSummary: LibreDiagnosticSummary = {
+    status: "unknown_provider_error",
+    messageKey: diagnosticMessageKey("unknown_provider_error"),
+    authenticationSucceeded: false,
+    regionResolved: false,
+    connectionCount: 0,
+    selectedConnectionFound: false,
+    graphRequestSucceeded: false,
+    readingCount: 0,
+    latestReadingTimestamp: null,
+    reconnectRequired: true,
+    retryable: false,
+    multiConnectionDetected: false,
+  };
+
+  if (!creds) {
+    return {
+      ...baseSummary,
+      status: "no_credentials",
+      messageKey: diagnosticMessageKey("no_credentials"),
+      reconnectRequired: true,
+      retryable: false,
+    };
+  }
+
+  const doFetch: FetchLike = deps?.fetch ?? fetch;
+  let session = deps?.existingSession ?? null;
+  let regionResolved = Boolean(creds.apiBase?.trim());
+
+  if (!session) {
+    try {
+      const login = await libreAttemptLogin(doFetch, creds);
+      if (!login.ok) {
+        const status = failureCategoryToDiagnostic(login.category);
+        return {
+          ...baseSummary,
+          status,
+          messageKey: diagnosticMessageKey(status),
+          regionResolved: login.category !== "no_credentials" ? regionResolved : false,
+          reconnectRequired: reconnectRequiredForDiagnostic(status),
+          retryable: retryableForDiagnostic(status),
+        };
+      }
+      session = { token: login.token, apiBase: login.apiBase };
+      regionResolved = login.regionResolved;
+    } catch {
+      const status: ProviderDiagnosticCategory = "provider_unavailable";
+      return {
+        ...baseSummary,
+        status,
+        messageKey: diagnosticMessageKey(status),
+        reconnectRequired: false,
+        retryable: true,
+      };
+    }
+  }
+
+  const authOk: LibreDiagnosticSummary = {
+    ...baseSummary,
+    authenticationSucceeded: true,
+    regionResolved,
+    apiHostLabel: apiHostLabel(session.apiBase),
+    reconnectRequired: false,
+    retryable: true,
+  };
+
+  try {
+    const conn = await libreFetchConnections(doFetch, session);
+    if (!conn.ok) {
+      const status: ProviderDiagnosticCategory = conn.sessionExpired
+        ? "session_expired"
+        : failureCategoryToDiagnostic(conn.category === "none" ? "internal_error" : conn.category);
+      return {
+        ...authOk,
+        status,
+        messageKey: diagnosticMessageKey(status),
+        reconnectRequired: reconnectRequiredForDiagnostic(status),
+        retryable: retryableForDiagnostic(status),
+      };
+    }
+
+    if (!conn.patientId) {
+      const status: ProviderDiagnosticCategory = "no_shared_patient";
+      return {
+        ...authOk,
+        status,
+        messageKey: diagnosticMessageKey(status),
+        connectionCount: conn.connectionCount,
+        selectedConnectionFound: false,
+        reconnectRequired: false,
+        retryable: true,
+      };
+    }
+
+    const graph = await libreFetchGraph(doFetch, session, conn.patientId);
+    if (!graph.ok) {
+      const status: ProviderDiagnosticCategory = graph.sessionExpired
+        ? "session_expired"
+        : failureCategoryToDiagnostic(graph.category === "none" ? "internal_error" : graph.category);
+      return {
+        ...authOk,
+        status,
+        messageKey: diagnosticMessageKey(status),
+        connectionCount: conn.connectionCount,
+        selectedConnectionFound: true,
+        multiConnectionDetected: conn.connectionCount > 1,
+        reconnectRequired: reconnectRequiredForDiagnostic(status),
+        retryable: retryableForDiagnostic(status),
+      };
+    }
+
+    const latest = graph.entries.reduce<string | null>((max, e) => {
+      if (!max || e.timestamp > max) return e.timestamp;
+      return max;
+    }, null);
+
+    if (graph.entries.length === 0) {
+      const status: ProviderDiagnosticCategory = "connected_no_data";
+      return {
+        ...authOk,
+        status,
+        messageKey: diagnosticMessageKey(status),
+        connectionCount: conn.connectionCount,
+        selectedConnectionFound: true,
+        graphRequestSucceeded: true,
+        readingCount: 0,
+        reconnectRequired: false,
+        retryable: true,
+        multiConnectionDetected: conn.connectionCount > 1,
+      };
+    }
+
+    const status: ProviderDiagnosticCategory = "connected";
+    return {
+      ...authOk,
+      status,
+      messageKey: diagnosticMessageKey(status),
+      connectionCount: conn.connectionCount,
+      selectedConnectionFound: true,
+      graphRequestSucceeded: true,
+      readingCount: graph.entries.length,
+      latestReadingTimestamp: latest,
+      reconnectRequired: false,
+      retryable: false,
+      multiConnectionDetected: conn.connectionCount > 1,
+    };
+  } catch {
+    const status: ProviderDiagnosticCategory = "provider_unavailable";
+    return {
+      ...authOk,
+      status,
+      messageKey: diagnosticMessageKey(status),
+      reconnectRequired: false,
+      retryable: true,
+    };
+  }
 }
 
 /**

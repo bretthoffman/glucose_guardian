@@ -15,6 +15,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type ScrollView,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
@@ -22,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlucoseGauge } from "@/components/GlucoseGauge";
 import type { GlucoseTrend } from "@/components/GlucoseGauge";
 import { mapDexcomTrend, trendFromDiff } from "@/utils/trend";
+import { bannerKindFromSyncStatus, cgmDiagnosticMessage } from "@/utils/cgmDiagnosticMessages";
 import { ReadingCard } from "@/components/ReadingCard";
 import { CGMChart } from "@/components/CGMChart";
 import { Surface } from "@/components/Surface";
@@ -30,19 +32,52 @@ import { useThemeColors } from "@/context/ThemeContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
+import {
+  HOME_SCROLL_REST_OFFSET,
+  SCROLL_RETURN_DRAG_FALLBACK_MS,
+  SCROLL_RETURN_FALLBACK_MS,
+  homeScrollNeedsRecovery,
+  isHomeScrollAtRest,
+  shouldUseAnimatedScrollCorrection,
+} from "@/utils/homeScrollRecovery";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 /** Visual pull threshold — aligned with iOS RefreshControl release distance (~72pt). */
 const PULL_REFRESH_THRESHOLD = 72;
 
-type SyncResultStatus = "ok" | "zero" | "session_expired" | "error";
+type SyncResultStatus =
+  | "ok"
+  | "zero"
+  | "session_expired"
+  | "error"
+  | "no_shared_patient"
+  | "connected_no_data"
+  | "sharing_not_enabled";
 
 type SyncResult = {
   status: SyncResultStatus;
   count?: number;
   at: Date;
   message?: string;
+};
+
+type ManualSyncAlertButton = {
+  text: string;
+  style?: "default" | "cancel" | "destructive";
+  onPress?: () => void;
+};
+
+type ManualSyncAlert = {
+  title: string;
+  message: string;
+  buttons?: ManualSyncAlertButton[];
+  successHaptic?: boolean;
+};
+
+type PerformSyncOutcome = {
+  ok: boolean;
+  manualAlert: ManualSyncAlert | null;
 };
 
 function TrendAlertBanner({
@@ -105,6 +140,12 @@ function syncResultLabel(
       return result.count != null ? `${result.count} new · ${when}` : when;
     case "zero":
       return `0 readings · ${when}`;
+    case "no_shared_patient":
+      return `No shared patient · ${when}`;
+    case "connected_no_data":
+      return `Connected · no data · ${when}`;
+    case "sharing_not_enabled":
+      return `Sharing off · ${when}`;
     case "session_expired":
       return `Session expired · ${when}`;
     case "error":
@@ -124,6 +165,12 @@ export default function HomeScreen() {
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const [cgmLatestReading, setCgmLatestReading] = useState<{ glucose: number; timestamp: string } | null>(null);
   const [backupMissing, setBackupMissing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{
+    diagnosticCategory: string;
+    messageKey: string;
+    reconnectRequired: boolean;
+    hasStoredCredentials: boolean;
+  } | null>(null);
   const [, forceUpdate] = useState(0);
   const isConnected = !!cgmConnection.type;
   const autoSyncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -133,6 +180,17 @@ export default function HomeScreen() {
   const lastSilentSyncRef = useRef<number>(0);
   const pullHapticFiredRef = useRef(false);
   const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const scrollOffsetRef = useRef(HOME_SCROLL_REST_OFFSET);
+  const isManualPullRefreshRef = useRef(false);
+  const isDraggingRef = useRef(false);
+  const isMomentumRef = useRef(false);
+  const scrollResetInFlightRef = useRef(false);
+  const pendingScrollResetRef = useRef(false);
+  const scrollResetFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollResetDragFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollResetSettleCallbacksRef = useRef<Array<() => void>>([]);
+  const deferredScrollResetStartRef = useRef<(() => void) | null>(null);
   const [pullArmed, setPullArmed] = useState(false);
   const ALERT_COOLDOWN_MS = 15 * 60 * 1000;
   // Client-side debounce so rapid foreground/tab/timer events don't spam the expedited-sync action.
@@ -186,6 +244,52 @@ export default function HomeScreen() {
     };
   }, [isConnected, cgmConnection.type, cgmConnection.connectedAt, account?.convexUserId, account?.passwordHash]);
 
+  // Sanitized CGM sync/diagnostic state from Convex (no credentials or raw errors).
+  useEffect(() => {
+    if (!isConnected || !account?.convexUserId || !account.passwordHash) {
+      setSyncStatus(null);
+      return;
+    }
+    const userId = account.convexUserId as Id<"users">;
+    const passwordHash = account.passwordHash;
+    let cancelled = false;
+    (async () => {
+      try {
+        const client = createConvexAuthClient();
+        const result = await client.query(api.patientCgmSync.getSyncStatus, { userId, passwordHash });
+        if (cancelled || !result || !result.connected) return;
+        setSyncStatus({
+          diagnosticCategory: result.diagnosticCategory,
+          messageKey: result.messageKey,
+          reconnectRequired: result.reconnectRequired,
+          hasStoredCredentials: result.hasStoredCredentials,
+        });
+      } catch {
+        /* offline — keep prior state */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isConnected,
+    cgmConnection.type,
+    cgmConnection.connectedAt,
+    lastSyncTime,
+    account?.convexUserId,
+    account?.passwordHash,
+  ]);
+
+  const libreBannerKind = bannerKindFromSyncStatus({
+    provider: cgmConnection.type,
+    diagnosticCategory: syncStatus?.diagnosticCategory,
+    reconnectRequired: syncStatus?.reconnectRequired,
+    backupMissing,
+    hasStoredCredentials: syncStatus?.hasStoredCredentials,
+  });
+
+  const deviceLabel = cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre";
+
   const displayGlucose = isConnected && cgmLatestReading
     ? cgmLatestReading.glucose
     : latestReading?.glucose ?? 0;
@@ -211,16 +315,22 @@ export default function HomeScreen() {
     ? `Updated ${formatLastSync(lastSyncResult?.at ?? lastSyncTime).toLowerCase()}`
     : undefined;
 
-  const performSync = useCallback(async (silent: boolean) => {
-    if (isSyncingRef.current || !cgmConnection.type) return false;
+  const performSync = useCallback(async (silent: boolean): Promise<PerformSyncOutcome> => {
+    if (isSyncingRef.current || !cgmConnection.type) return { ok: false, manualAlert: null };
     // Convex is the single ingestion + cursor authority. The app requests an expedited canonical
     // sync and renders the canonical history Convex returns; it no longer calls Dexcom/Libre
     // directly, computes a backfill count, or refreshes provider sessions itself.
     if (!account?.convexUserId || !account.passwordHash) {
       if (!silent) {
-        Alert.alert("Sign in required", "Reconnect your account to enable CGM monitoring.");
+        return {
+          ok: false,
+          manualAlert: {
+            title: "Sign in required",
+            message: "Reconnect your account to enable CGM monitoring.",
+          },
+        };
       }
-      return false;
+      return { ok: false, manualAlert: null };
     }
     isSyncingRef.current = true;
     if (silent) {
@@ -280,69 +390,121 @@ export default function HomeScreen() {
 
       const now = new Date();
 
+      setSyncStatus({
+        diagnosticCategory: result.diagnosticCategory,
+        messageKey: result.messageKey,
+        reconnectRequired: result.reconnectRequired,
+        hasStoredCredentials: result.status !== "no_credentials",
+      });
+
       if (
         result.status === "unauthorized" ||
         result.status === "needs_reconnect" ||
-        result.status === "no_credentials"
+        result.status === "no_credentials" ||
+        result.status === "sharing_not_enabled"
       ) {
-        setLastSyncResult({ status: "session_expired", at: now, message: "Reconnect your CGM" });
+        const msg = cgmDiagnosticMessage(result.messageKey, cgmConnection.type);
+        setLastSyncResult({
+          status: result.status === "sharing_not_enabled" ? "sharing_not_enabled" : "session_expired",
+          at: now,
+          message: msg,
+        });
         if (!silent) {
-          Alert.alert(
-            "Reconnect Needed",
-            "We couldn't keep your CGM connected. Reconnect to resume monitoring.",
-            [
-              { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
-              { text: "OK", style: "cancel" },
-            ]
-          );
+          return {
+            ok: false,
+            manualAlert: {
+              title: "Reconnect Needed",
+              message: msg,
+              buttons: [
+                { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
+                { text: "OK", style: "cancel" },
+              ],
+            },
+          };
         }
-        return false;
+        return { ok: false, manualAlert: null };
       }
 
       if (result.status === "retrying") {
-        setLastSyncResult({ status: "error", at: now, message: "Temporary sync issue" });
+        setLastSyncResult({
+          status: "error",
+          at: now,
+          message: cgmDiagnosticMessage(result.messageKey, cgmConnection.type),
+        });
         if (!silent) {
-          Alert.alert(
-            "Sync Delayed",
-            "Couldn't reach your CGM right now. We'll keep retrying automatically in the background."
-          );
+          return {
+            ok: false,
+            manualAlert: {
+              title: "Sync Delayed",
+              message: cgmDiagnosticMessage(result.messageKey, cgmConnection.type),
+            },
+          };
         }
-        return false;
+        return { ok: false, manualAlert: null };
       }
 
-      // result.status === "ok"
       setLastSyncTime(now);
+
+      if (result.status === "no_shared_patient") {
+        const msg = cgmDiagnosticMessage(result.messageKey, "libre");
+        setLastSyncResult({ status: "no_shared_patient", at: now, message: msg });
+        if (!silent) {
+          return {
+            ok: true,
+            manualAlert: { title: "No Shared Patient", message: msg },
+          };
+        }
+        notifyCgmSyncSuccess();
+        return { ok: true, manualAlert: null };
+      }
+
+      if (result.status === "connected_no_data") {
+        const msg = cgmDiagnosticMessage(result.messageKey, "libre");
+        setLastSyncResult({ status: "connected_no_data", at: now, message: msg });
+        if (!silent) {
+          return {
+            ok: true,
+            manualAlert: { title: "Connected — No Readings Yet", message: msg },
+          };
+        }
+        notifyCgmSyncSuccess();
+        return { ok: true, manualAlert: null };
+      }
+
       if (entries.length > 0) {
         setLastSyncResult({ status: "ok", count: result.inserted, at: now });
         if (!silent) {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          Alert.alert(
-            "Synced!",
-            result.inserted > 0
-              ? `${result.inserted} new reading${result.inserted === 1 ? "" : "s"} from ${cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre"}.`
-              : "You're up to date."
-          );
+          return {
+            ok: true,
+            manualAlert: {
+              title: "Synced!",
+              message:
+                result.inserted > 0
+                  ? `${result.inserted} new reading${result.inserted === 1 ? "" : "s"} from ${deviceLabel}.`
+                  : "You're up to date.",
+              successHaptic: true,
+            },
+          };
         }
-      } else {
+      } else if (result.status === "ok") {
         setLastSyncResult({ status: "zero", count: 0, at: now });
-        if (!silent) {
-          const deviceName = cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre";
-          const hint =
-            cgmConnection.type === "dexcom"
-              ? "Make sure Share is enabled in your Dexcom app, the sensor is active, and the Outside US toggle matches your region."
-              : "Make sure LibreLinkUp Sharing is enabled and your sensor is active.";
-          Alert.alert(
-            "No Readings Yet",
-            `No readings available from ${deviceName} yet. ${hint}`,
-            [
-              { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
-              { text: "OK", style: "cancel" },
-            ]
-          );
+        if (!silent && cgmConnection.type === "dexcom") {
+          return {
+            ok: true,
+            manualAlert: {
+              title: "No Readings Yet",
+              message:
+                "No readings available from Dexcom yet. Make sure Share is enabled in your Dexcom app, the sensor is active, and the Outside US toggle matches your region.",
+              buttons: [
+                { text: "Reconnect", onPress: () => router.push("/cgm-setup") },
+                { text: "OK", style: "cancel" },
+              ],
+            },
+          };
         }
       }
       notifyCgmSyncSuccess();
-      return true;
+      return { ok: true, manualAlert: null };
     } catch {
       setLastSyncResult({
         status: "error",
@@ -350,15 +512,21 @@ export default function HomeScreen() {
         message: "Network error",
       });
       if (!silent) {
-        Alert.alert("Error", "Could not sync CGM. Check your connection.");
+        return {
+          ok: false,
+          manualAlert: {
+            title: "Error",
+            message: "Could not sync CGM. Check your connection.",
+          },
+        };
       }
-      return false;
+      return { ok: false, manualAlert: null };
     } finally {
       isSyncingRef.current = false;
       setIsSyncingCGM(false);
       setIsAutoSyncing(false);
     }
-  }, [cgmConnection.type, account?.convexUserId, account?.passwordHash, bulkAddReadings, alertPrefs, profile?.childName, notifyCgmSyncSuccess]);
+  }, [cgmConnection.type, deviceLabel, account?.convexUserId, account?.passwordHash, bulkAddReadings, alertPrefs, profile?.childName, notifyCgmSyncSuccess]);
 
   useEffect(() => {
     if (!isConnected) return;
@@ -392,17 +560,188 @@ export default function HomeScreen() {
     };
   }, [isConnected, performSync]);
 
-  async function syncCGM() {
-    await performSync(false);
-  }
+  const clearScrollResetTimers = useCallback(() => {
+    if (scrollResetFallbackRef.current) {
+      clearTimeout(scrollResetFallbackRef.current);
+      scrollResetFallbackRef.current = null;
+    }
+    if (scrollResetDragFallbackRef.current) {
+      clearTimeout(scrollResetDragFallbackRef.current);
+      scrollResetDragFallbackRef.current = null;
+    }
+  }, []);
+
+  const syncAnimatedScrollOffset = useCallback((offsetY: number) => {
+    scrollOffsetRef.current = offsetY;
+    scrollY.setValue(offsetY);
+  }, [scrollY]);
+
+  const finishScrollReset = useCallback(() => {
+    clearScrollResetTimers();
+    scrollResetInFlightRef.current = false;
+    pendingScrollResetRef.current = false;
+    deferredScrollResetStartRef.current = null;
+    const callbacks = scrollResetSettleCallbacksRef.current.splice(0);
+    for (const cb of callbacks) cb();
+  }, [clearScrollResetTimers]);
+
+  const returnHomeScrollToRest = useCallback(
+    (options?: { animated?: boolean; manualOnly?: boolean; onSettled?: () => void }) => {
+      const manualOnly = options?.manualOnly !== false;
+      if (manualOnly && !isManualPullRefreshRef.current) {
+        options?.onSettled?.();
+        return;
+      }
+
+      if (options?.onSettled) {
+        scrollResetSettleCallbacksRef.current.push(options.onSettled);
+      }
+
+      if (scrollResetInFlightRef.current) return;
+
+      const offsetY = scrollOffsetRef.current;
+      if (!homeScrollNeedsRecovery(offsetY)) {
+        syncAnimatedScrollOffset(HOME_SCROLL_REST_OFFSET);
+        finishScrollReset();
+        return;
+      }
+
+      if (isDraggingRef.current || isMomentumRef.current) {
+        pendingScrollResetRef.current = true;
+        if (!scrollResetDragFallbackRef.current) {
+          scrollResetDragFallbackRef.current = setTimeout(() => {
+            scrollResetDragFallbackRef.current = null;
+            if (!pendingScrollResetRef.current) return;
+            pendingScrollResetRef.current = false;
+            returnHomeScrollToRest({ animated: options?.animated, manualOnly: false });
+          }, SCROLL_RETURN_DRAG_FALLBACK_MS);
+        }
+        return;
+      }
+
+      const animated = options?.animated !== false;
+      scrollResetInFlightRef.current = true;
+      scrollViewRef.current?.scrollTo({ y: HOME_SCROLL_REST_OFFSET, animated });
+
+      if (animated) {
+        scrollResetFallbackRef.current = setTimeout(() => {
+          syncAnimatedScrollOffset(HOME_SCROLL_REST_OFFSET);
+          finishScrollReset();
+        }, SCROLL_RETURN_FALLBACK_MS);
+      } else {
+        syncAnimatedScrollOffset(HOME_SCROLL_REST_OFFSET);
+        finishScrollReset();
+      }
+    },
+    [finishScrollReset, syncAnimatedScrollOffset],
+  );
+
+  const verifyHomeScrollRestOnAlertDismiss = useCallback(() => {
+    const offsetY = scrollOffsetRef.current;
+    if (isHomeScrollAtRest(offsetY)) return;
+    const animated = shouldUseAnimatedScrollCorrection(offsetY);
+    scrollViewRef.current?.scrollTo({ y: HOME_SCROLL_REST_OFFSET, animated });
+    if (!animated) syncAnimatedScrollOffset(HOME_SCROLL_REST_OFFSET);
+  }, [syncAnimatedScrollOffset]);
+
+  const showManualSyncAlert = useCallback((alert: ManualSyncAlert) => {
+    if (alert.successHaptic) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    const buttons = (alert.buttons ?? [{ text: "OK" }]).map((btn) => ({
+      text: btn.text,
+      style: btn.style,
+      onPress: () => {
+        btn.onPress?.();
+        requestAnimationFrame(() => verifyHomeScrollRestOnAlertDismiss());
+      },
+    }));
+    Alert.alert(alert.title, alert.message, buttons);
+  }, [verifyHomeScrollRestOnAlertDismiss]);
+
+  const resetPullVisualState = useCallback(() => {
+    pullHapticFiredRef.current = false;
+    setPullArmed(false);
+  }, []);
+
+  const ensureManualPullScrollRecoveryStarted = useCallback((): Promise<void> => {
+    return new Promise((resolve) => {
+      const beginAfterGesture = () => {
+        returnHomeScrollToRest({ animated: true, manualOnly: false });
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      };
+
+      if (isDraggingRef.current || isMomentumRef.current) {
+        pendingScrollResetRef.current = true;
+        deferredScrollResetStartRef.current = beginAfterGesture;
+        if (!scrollResetDragFallbackRef.current) {
+          scrollResetDragFallbackRef.current = setTimeout(() => {
+            scrollResetDragFallbackRef.current = null;
+            pendingScrollResetRef.current = false;
+            deferredScrollResetStartRef.current = null;
+            beginAfterGesture();
+          }, SCROLL_RETURN_DRAG_FALLBACK_MS);
+        }
+        return;
+      }
+
+      beginAfterGesture();
+    });
+  }, [returnHomeScrollToRest]);
+
+  useEffect(() => {
+    return () => {
+      clearScrollResetTimers();
+      scrollResetSettleCallbacksRef.current = [];
+      deferredScrollResetStartRef.current = null;
+    };
+  }, [clearScrollResetTimers]);
+
+  const tryFinishScrollReset = useCallback(() => {
+    if (!scrollResetInFlightRef.current && !pendingScrollResetRef.current) return;
+    if (isDraggingRef.current) return;
+
+    if (pendingScrollResetRef.current && !scrollResetInFlightRef.current) {
+      pendingScrollResetRef.current = false;
+      if (scrollResetDragFallbackRef.current) {
+        clearTimeout(scrollResetDragFallbackRef.current);
+        scrollResetDragFallbackRef.current = null;
+      }
+      const deferred = deferredScrollResetStartRef.current;
+      deferredScrollResetStartRef.current = null;
+      if (deferred) {
+        deferred();
+        return;
+      }
+      returnHomeScrollToRest({ animated: true, manualOnly: false });
+      return;
+    }
+
+    if (scrollResetInFlightRef.current && isHomeScrollAtRest(scrollOffsetRef.current)) {
+      finishScrollReset();
+    }
+  }, [finishScrollReset, returnHomeScrollToRest]);
 
   async function onRefresh() {
     if (!isConnected) return;
+    isManualPullRefreshRef.current = true;
     setRefreshing(true);
-    await syncCGM();
-    setRefreshing(false);
-    pullHapticFiredRef.current = false;
-    setPullArmed(false);
+    let pendingAlert: ManualSyncAlert | null = null;
+    try {
+      const outcome = await performSync(false);
+      pendingAlert = outcome.manualAlert;
+    } finally {
+      setRefreshing(false);
+      resetPullVisualState();
+    }
+
+    await ensureManualPullScrollRecoveryStarted();
+    if (pendingAlert) {
+      showManualSyncAlert(pendingAlert);
+    }
+    isManualPullRefreshRef.current = false;
   }
 
   const handleScroll = Animated.event(
@@ -411,6 +750,7 @@ export default function HomeScreen() {
       useNativeDriver: false,
       listener: (e: NativeSyntheticEvent<NativeScrollEvent>) => {
         const y = e.nativeEvent.contentOffset.y;
+        scrollOffsetRef.current = y;
         const armed = y <= -PULL_REFRESH_THRESHOLD;
         setPullArmed(armed);
         if (armed && !pullHapticFiredRef.current) {
@@ -420,9 +760,30 @@ export default function HomeScreen() {
         if (y > -PULL_REFRESH_THRESHOLD * 0.45) {
           pullHapticFiredRef.current = false;
         }
+        if (scrollResetInFlightRef.current && isHomeScrollAtRest(y)) {
+          finishScrollReset();
+        }
       },
     },
   );
+
+  const handleScrollBeginDrag = useCallback(() => {
+    isDraggingRef.current = true;
+  }, []);
+
+  const handleScrollEndDrag = useCallback(() => {
+    isDraggingRef.current = false;
+    tryFinishScrollReset();
+  }, [tryFinishScrollReset]);
+
+  const handleMomentumScrollBegin = useCallback(() => {
+    isMomentumRef.current = true;
+  }, []);
+
+  const handleMomentumScrollEnd = useCallback(() => {
+    isMomentumRef.current = false;
+    tryFinishScrollReset();
+  }, [tryFinishScrollReset]);
 
   const pullOpacity = scrollY.interpolate({
     inputRange: [-PULL_REFRESH_THRESHOLD, -PULL_REFRESH_THRESHOLD * 0.25, 0],
@@ -440,7 +801,10 @@ export default function HomeScreen() {
     extrapolate: "clamp",
   });
 
-  const deviceLabel = cgmConnection.type === "dexcom" ? "Dexcom" : cgmConnection.type === "libre" ? "FreeStyle Libre" : "";
+  const libreBannerMessage =
+    syncStatus?.messageKey
+      ? cgmDiagnosticMessage(syncStatus.messageKey, cgmConnection.type)
+      : null;
 
   return (
     <View style={[styles.root, { backgroundColor: c.screen }]}>
@@ -460,10 +824,15 @@ export default function HomeScreen() {
         </Animated.View>
       )}
       <Animated.ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={[styles.scroll, { paddingTop: topPadding + 8, paddingBottom: 130 }]}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
         onScroll={handleScroll}
+        onScrollBeginDrag={handleScrollBeginDrag}
+        onScrollEndDrag={handleScrollEndDrag}
+        onMomentumScrollBegin={handleMomentumScrollBegin}
+        onMomentumScrollEnd={handleMomentumScrollEnd}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -530,6 +899,58 @@ export default function HomeScreen() {
               </Text>
             </View>
             <Feather name="chevron-right" size={18} color={c.textMuted} />
+          </Pressable>
+        )}
+
+        {libreBannerKind && libreBannerKind !== "backup_missing" && libreBannerMessage && (
+          <Pressable
+            onPress={() => {
+              if (libreBannerKind === "reconnect_required" || libreBannerKind === "sharing_not_enabled") {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push("/cgm-setup");
+              }
+            }}
+            style={[
+              styles.banner,
+              {
+                backgroundColor: withAlpha(
+                  libreBannerKind === "connected_no_data" ? T.color.emerald : T.color.amber,
+                  0.12,
+                ),
+                borderColor: withAlpha(
+                  libreBannerKind === "connected_no_data" ? T.color.emerald : T.color.amber,
+                  0.4,
+                ),
+              },
+            ]}
+          >
+            <Feather
+              name={libreBannerKind === "connected_no_data" ? "check-circle" : "info"}
+              size={16}
+              color={libreBannerKind === "connected_no_data" ? T.color.emerald : T.color.amber}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[
+                  styles.bannerTitle,
+                  { color: libreBannerKind === "connected_no_data" ? T.color.emerald : T.color.amber },
+                ]}
+              >
+                {libreBannerKind === "no_shared_patient"
+                  ? "No shared Libre patient"
+                  : libreBannerKind === "connected_no_data"
+                    ? "Libre connected — no readings yet"
+                    : libreBannerKind === "sharing_not_enabled"
+                      ? "LibreLinkUp sharing required"
+                      : libreBannerKind === "provider_unavailable"
+                        ? "Libre temporarily unavailable"
+                        : "Libre reconnect needed"}
+              </Text>
+              <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>{libreBannerMessage}</Text>
+            </View>
+            {(libreBannerKind === "reconnect_required" || libreBannerKind === "sharing_not_enabled") && (
+              <Feather name="chevron-right" size={18} color={c.textMuted} />
+            )}
           </Pressable>
         )}
 

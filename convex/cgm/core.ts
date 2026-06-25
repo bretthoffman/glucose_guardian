@@ -15,6 +15,9 @@ export type FailureCategory =
   | "none"
   | "no_credentials"
   | "invalid_credentials"
+  | "sharing_not_enabled"
+  | "no_shared_patient"
+  | "connected_no_data"
   | "provider_outage"
   | "network_timeout"
   | "rate_limited"
@@ -24,12 +27,26 @@ export type FailureCategory =
   | "internal_error";
 
 /** Health surfaced to operators and (indirectly) to the patient connection-health banner. */
-export type SyncStatus = "ok" | "pending" | "retrying" | "needs_reconnect" | "no_credentials";
+export type SyncStatus =
+  | "ok"
+  | "pending"
+  | "retrying"
+  | "needs_reconnect"
+  | "no_credentials"
+  | "connected_no_data"
+  | "no_shared_patient";
 
 /** Categories that should NOT keep re-authenticating every cycle (terminal until user reconnects). */
 const TERMINAL_CATEGORIES: ReadonlySet<FailureCategory> = new Set([
   "no_credentials",
   "invalid_credentials",
+  "sharing_not_enabled",
+]);
+
+/** Libre read outcomes that authenticate successfully but yield no persisted readings. */
+const LIBRE_EMPTY_SUCCESS_CATEGORIES: ReadonlySet<FailureCategory> = new Set([
+  "no_shared_patient",
+  "connected_no_data",
 ]);
 
 export function isTerminalCategory(category: FailureCategory): boolean {
@@ -75,8 +92,10 @@ export type LoginOutcome<Session> =
   | { ok: true; session: Session }
   | { ok: false; category: FailureCategory };
 
+export type ReadKind = "readings" | "no_shared_patient" | "connected_no_data";
+
 export type ReadOutcome =
-  | { ok: true; entries: ReadingRecord[] }
+  | { ok: true; entries: ReadingRecord[]; readKind?: ReadKind; connectionCount?: number }
   | { ok: false; sessionExpired: boolean; category: FailureCategory };
 
 /** Anomaly bounds match the existing client + api-server paths so stored rows are identical. */
@@ -202,6 +221,24 @@ export function decideSchedule(args: {
     };
   }
 
+  if (category === "connected_no_data") {
+    return {
+      nextEligibleAt: now + cadenceMinutes * 60_000,
+      status: "connected_no_data",
+      consecutiveFailures: 0,
+      terminal: false,
+    };
+  }
+
+  if (category === "no_shared_patient") {
+    return {
+      nextEligibleAt: now + cadenceMinutes * 60_000,
+      status: "no_shared_patient",
+      consecutiveFailures: 0,
+      terminal: false,
+    };
+  }
+
   const failures = priorConsecutiveFailures + 1;
 
   if (category === "no_credentials") {
@@ -212,7 +249,7 @@ export function decideSchedule(args: {
       terminal: true,
     };
   }
-  if (category === "invalid_credentials") {
+  if (category === "invalid_credentials" || category === "sharing_not_enabled") {
     return {
       nextEligibleAt: now + retry.terminalRecheckMs,
       status: "needs_reconnect",
@@ -264,6 +301,8 @@ export interface SyncOutcome {
   unrecoverableGap: boolean;
   refreshedSession: boolean;
   reason: FetchReason | "skipped";
+  /** Libre-only: shared connections discovered on the last read (count only). */
+  connectionCount?: number;
 }
 
 function maxIso(a: string | null, b: string | null): string | null {
@@ -332,6 +371,26 @@ export async function runProviderSync<Creds, Session>(
     };
   }
 
+  if (read.readKind === "no_shared_patient") {
+    return {
+      ...base,
+      refreshedSession,
+      category: "no_shared_patient",
+      connectionCount: read.connectionCount ?? 0,
+      reason: plan.reason,
+    };
+  }
+
+  if (read.readKind === "connected_no_data" || (read.entries.length === 0 && read.readKind !== "readings")) {
+    return {
+      ...base,
+      refreshedSession,
+      category: "connected_no_data",
+      connectionCount: read.connectionCount,
+      reason: plan.reason,
+    };
+  }
+
   let persisted: { inserted: number; maxTimestamp: string | null };
   try {
     persisted = await fx.persist(read.entries);
@@ -350,7 +409,12 @@ export async function runProviderSync<Creds, Session>(
     unrecoverableGap: plan.expectUnrecoverableGap,
     refreshedSession,
     reason: plan.reason,
+    connectionCount: read.connectionCount,
   };
+}
+
+export function isIngestionSuccessCategory(category: FailureCategory): boolean {
+  return category === "none" || LIBRE_EMPTY_SUCCESS_CATEGORIES.has(category);
 }
 
 export function clamp(n: number, min: number, max: number): number {

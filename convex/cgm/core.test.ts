@@ -124,6 +124,21 @@ describe("decideSchedule", () => {
     expect(invalid.terminal).toBe(true);
     expect(invalid.nextEligibleAt).toBe(NOW + retry.terminalRecheckMs);
   });
+
+  it("Libre empty-success categories keep normal cadence without terminal backoff", () => {
+    const noData = decideSchedule({ now: NOW, category: "connected_no_data", priorConsecutiveFailures: 2, cadenceMinutes: 5, retry });
+    expect(noData.status).toBe("connected_no_data");
+    expect(noData.consecutiveFailures).toBe(0);
+    expect(noData.nextEligibleAt).toBe(NOW + 5 * 60_000);
+
+    const noPatient = decideSchedule({ now: NOW, category: "no_shared_patient", priorConsecutiveFailures: 2, cadenceMinutes: 5, retry });
+    expect(noPatient.status).toBe("no_shared_patient");
+    expect(noPatient.consecutiveFailures).toBe(0);
+
+    const sharing = decideSchedule({ now: NOW, category: "sharing_not_enabled", priorConsecutiveFailures: 0, cadenceMinutes: 5, retry });
+    expect(sharing.status).toBe("needs_reconnect");
+    expect(sharing.terminal).toBe(true);
+  });
 });
 
 /* ----------------------------- runProviderSync ----------------------------- */

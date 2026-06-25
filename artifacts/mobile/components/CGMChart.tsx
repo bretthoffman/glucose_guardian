@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Dimensions,
   Pressable,
@@ -18,10 +18,22 @@ import Svg, {
   Rect,
   Stop,
 } from "react-native-svg";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { COLORS } from "@/constants/colors";
+import { GLUCOSE_GRAPH_DISPLAY_MODE_STORAGE_KEY } from "@/constants/storage-keys";
 import { T, glucoseTone, withAlpha, type ThemeColors } from "@/constants/theme";
 import { useThemeColors } from "@/context/ThemeContext";
+import {
+  buildAxisLabelSpecs,
+  formatGlucoseAxisLabel,
+  resolveAxisLabelPositions,
+} from "@/utils/cgmChartAxis";
+import {
+  DEFAULT_GRAPH_DISPLAY_MODE,
+  parseGraphDisplayMode,
+  type GraphDisplayMode,
+} from "@/utils/cgmChartDisplayMode";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -101,7 +113,34 @@ export function CGMChart({
   const styles = useMemo(() => makeStyles(c), [c]);
   const isControlled = controlledRange !== undefined;
   const [internalRange, setInternalRange] = useState<TimeRange>("6H");
+  const [displayMode, setDisplayMode] = useState<GraphDisplayMode>(DEFAULT_GRAPH_DISPLAY_MODE);
   const timeRange = isControlled ? controlledRange : internalRange;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(GLUCOSE_GRAPH_DISPLAY_MODE_STORAGE_KEY);
+        if (!cancelled) setDisplayMode(parseGraphDisplayMode(raw));
+      } catch {
+        // Keep the line default when storage is unavailable.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggleDisplayMode = useCallback(() => {
+    setDisplayMode((prev) => {
+      const next: GraphDisplayMode = prev === "line" ? "dots" : "line";
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      AsyncStorage.setItem(GLUCOSE_GRAPH_DISPLAY_MODE_STORAGE_KEY, next).catch(() => {
+        // Keep the in-session choice when persistence fails.
+      });
+      return next;
+    });
+  }, []);
 
   const H = chartHeight;
   const yAxisW = 40;
@@ -201,8 +240,22 @@ export function CGMChart({
   const last = points[points.length - 1];
   const lastColor = last ? glucoseTone(last.glucose, lowThreshold, highThreshold, urgentHighThreshold) : T.color.emerald;
 
-  const axisColor = (v: number) =>
-    v === 250 ? T.color.coral : v === 180 ? T.color.emerald : v === 70 ? T.color.violet : c.axis;
+  const axisLabelSpecs = useMemo(
+    () =>
+      buildAxisLabelSpecs({
+        urgentHighThreshold,
+        highThreshold,
+        targetGlucose,
+        lowThreshold,
+        axisNeutralColor: c.axis,
+      }),
+    [urgentHighThreshold, highThreshold, targetGlucose, lowThreshold, c.axis],
+  );
+
+  const axisLabels = useMemo(
+    () => resolveAxisLabelPositions(axisLabelSpecs, H),
+    [axisLabelSpecs, H],
+  );
 
   const inView = (y: number) => y >= -0.5 && y <= H + 0.5;
 
@@ -228,7 +281,17 @@ export function CGMChart({
       </View>
 
       <View style={[styles.chartRow, { height: H }]}>
-        <View style={{ width: plotW, height: H }}>
+        <Pressable
+          style={{ width: plotW, height: H }}
+          onPress={toggleDisplayMode}
+          accessibilityRole="button"
+          accessibilityLabel="Glucose graph display"
+          accessibilityHint={
+            displayMode === "line"
+              ? "Double tap to show glucose readings as individual dots"
+              : "Double tap to connect glucose readings with a line"
+          }
+        >
           <Svg width={plotW} height={H}>
             <Defs>
               <SvgLinearGradient id="devUp" x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
@@ -285,20 +348,37 @@ export function CGMChart({
               <Line x1={0} y1={targetLineY} x2={plotW} y2={targetLineY} stroke={T.color.violet} strokeWidth={1.5} opacity={0.9} />
             )}
 
-            {/* continuous trend line, colored by range, rounded joins/caps */}
-            {runs.map((run, ri) =>
-              colorRuns(run).map((cr, ci) => (
-                <Polyline
-                  key={`l-${ri}-${ci}`}
-                  points={cr.d}
-                  fill="none"
-                  stroke={cr.color}
-                  strokeWidth={2.75}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              )),
-            )}
+            {displayMode === "line" &&
+              runs.map((run, ri) =>
+                colorRuns(run).map((cr, ci) => (
+                  <Polyline
+                    key={`l-${ri}-${ci}`}
+                    points={cr.d}
+                    fill="none"
+                    stroke={cr.color}
+                    strokeWidth={2.75}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                )),
+              )}
+
+            {displayMode === "dots" &&
+              points.map((p, i) => {
+                if (i === points.length - 1) return null;
+                const dotColor = glucoseTone(p.glucose, lowThreshold, highThreshold, urgentHighThreshold);
+                return (
+                  <Circle
+                    key={`d-${i}`}
+                    cx={p.x}
+                    cy={p.y}
+                    r={3.5}
+                    fill={dotColor}
+                    stroke={withAlpha(dotColor, 0.55)}
+                    strokeWidth={1}
+                  />
+                );
+              })}
 
             {/* single emphasized current point */}
             {last && (
@@ -314,16 +394,18 @@ export function CGMChart({
               <Text style={styles.emptyText}>No readings in this window</Text>
             </View>
           )}
-        </View>
+        </Pressable>
 
         {/* y-axis on the right, matching the reference */}
         <View style={[styles.yAxis, { width: yAxisW, height: H }]}>
-          {Y_LABELS.map((v) => {
-            const top = yPct(v) * H - 7;
-            if (top < -8 || top > H - 6) return null;
+          {axisLabels.map((label) => {
+            if (label.top < -8 || label.top > H - 6) return null;
             return (
-              <Text key={v} style={[styles.yLabel, { top, color: axisColor(v) }]}>
-                {v}
+              <Text
+                key={`${label.kind}-${label.value}`}
+                style={[styles.yLabel, { top: label.top, color: label.color }]}
+              >
+                {formatGlucoseAxisLabel(label.value)}
               </Text>
             );
           })}

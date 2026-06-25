@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { makeDexcomAdapter, makeLibreAdapter } from "./providers";
+import { makeDexcomAdapter, makeLibreAdapter, runLibreDiagnosticFlow } from "./providers";
 import type { FetchPlan } from "./core";
 
 const plan: FetchPlan = { count: 12, windowMinutes: 120, reason: "incremental", expectUnrecoverableGap: false };
@@ -136,12 +136,41 @@ describe("libre adapter", () => {
     expect(attempts).toBe(2);
   });
 
-  it("treats a missing share token as invalid_credentials (sharing not enabled)", async () => {
+  it("treats a missing share token as sharing_not_enabled (sharing not enabled)", async () => {
     const adapter = makeLibreAdapter({
       fetch: router([{ test: (u) => u.includes("/llu/auth/login"), res: () => json({ data: {} }) }]),
     });
     const out = await adapter.login({ email: "a@b.com", password: "p" });
-    expect(out).toEqual({ ok: false, category: "invalid_credentials" });
+    expect(out).toEqual({ ok: false, category: "sharing_not_enabled" });
+  });
+
+  it("returns no_shared_patient when connections list is empty", async () => {
+    const adapter = makeLibreAdapter({
+      fetch: router([{ test: (u) => u.endsWith("/llu/connections"), res: () => json({ data: [] }) }]),
+    });
+    const out = await adapter.read({ token: "t", apiBase: "https://api.eu.libreview.io" }, plan);
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.readKind).toBe("no_shared_patient");
+      expect(out.entries).toHaveLength(0);
+      expect(out.connectionCount).toBe(0);
+    }
+  });
+
+  it("returns connected_no_data when patient exists but graph is empty", async () => {
+    const adapter = makeLibreAdapter({
+      fetch: router([
+        { test: (u) => u.endsWith("/llu/connections"), res: () => json({ data: [{ patientId: "pid-1" }] }) },
+        { test: (u) => u.includes("/graph"), res: () => json({ data: { graphData: [] } }) },
+      ]),
+    });
+    const out = await adapter.read({ token: "t", apiBase: "https://api.eu.libreview.io" }, plan);
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.readKind).toBe("connected_no_data");
+      expect(out.entries).toHaveLength(0);
+      expect(out.connectionCount).toBe(1);
+    }
   });
 
   it("reads connections → graph, normalizes, and skips malformed rows", async () => {
@@ -182,5 +211,29 @@ describe("libre adapter", () => {
     });
     const out = await adapter.read({ token: "t", apiBase: "https://api.eu.libreview.io" }, plan);
     expect(out).toEqual({ ok: false, sessionExpired: true, category: "none" });
+  });
+});
+
+describe("runLibreDiagnosticFlow", () => {
+  it("returns no_credentials when creds are missing", async () => {
+    const summary = await runLibreDiagnosticFlow(null);
+    expect(summary.status).toBe("no_credentials");
+    expect(summary.authenticationSucceeded).toBe(false);
+    expect(summary.reconnectRequired).toBe(true);
+  });
+
+  it("returns sanitized diagnostic for no shared patient", async () => {
+    const summary = await runLibreDiagnosticFlow(
+      { email: "a@b.com", password: "p" },
+      {
+        existingSession: { token: "tok", apiBase: "https://api.eu.libreview.io" },
+        fetch: router([{ test: (u) => u.endsWith("/llu/connections"), res: () => json({ data: [] }) }]),
+      },
+    );
+    expect(summary.status).toBe("no_shared_patient");
+    expect(summary.connectionCount).toBe(0);
+    expect(summary.authenticationSucceeded).toBe(true);
+    expect(summary.reconnectRequired).toBe(false);
+    expect(JSON.stringify(summary)).not.toMatch(/tok|password|patientId/i);
   });
 });

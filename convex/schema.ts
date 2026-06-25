@@ -211,10 +211,20 @@ const cgmSyncState = defineTable({
     v.literal("retrying"),
     v.literal("needs_reconnect"), // invalid/expired credentials — user must reconnect
     v.literal("no_credentials"), // connected but no server-stored credentials to ingest with
+    v.literal("connected_no_data"), // Libre: authenticated, patient found, no readings yet
+    v.literal("no_shared_patient"), // Libre: authenticated, no shared connections
   ),
   /** Sanitized failure category (enum string from `cgm/core`); never raw provider/error text. */
   lastFailureCategory: v.optional(v.string()),
   lastFailureAt: v.optional(v.number()),
+  /** Client-safe diagnostic category (see `convex/cgm/diagnostics.ts`). */
+  providerDiagnosticCategory: v.optional(v.string()),
+  /** Stable message key for mobile copy — not raw provider text. */
+  providerDiagnosticMessageKey: v.optional(v.string()),
+  /** Libre-only: count of shared connections on last successful provider contact. */
+  libreConnectionCount: v.optional(v.number()),
+  /** Whether the patient must reconnect (derived from diagnostic category). */
+  reconnectRequired: v.optional(v.boolean()),
   /** Due time: the dispatcher only processes rows whose `nextEligibleAt <= now`. */
   nextEligibleAt: v.number(),
   /** True when inactivity exceeded provider retention so an interior period is unrecoverable. */

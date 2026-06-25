@@ -293,6 +293,48 @@ describe("scheduled ingestion — Libre", () => {
     const readings = await getReadings(t, userId);
     expect(readings[0].glucose).toBe(150);
     expect(readings[0].dexcomTrend).toBe(3);
+    const state = await getState(t, userId, "libre");
+    expect(state?.providerDiagnosticCategory).toBe("connected");
+  });
+
+  it("Libre with no shared connections sets no_shared_patient diagnostic", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run(async (ctx) => {
+      const uid = await ctx.db.insert("users", { email: "l2@x.com", passwordHash: "ph", createdAt: 0, updatedAt: 0 });
+      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok", libreApiBase: "https://api.eu.libreview.io", updatedAt: 0 });
+      await ctx.db.insert("patientLibreCredentials", { userId: uid, libreEmail: "l2@x.com", librePassword: "pw", updatedAt: 0 });
+      await ctx.db.insert("cgmSyncState", { userId: uid, provider: "libre", consecutiveFailures: 0, status: "pending", nextEligibleAt: 0, generation: 0, updatedAt: 0 });
+      return uid;
+    });
+    stubFetch([{ test: (u) => u.endsWith("/llu/connections"), res: () => json({ data: [] }) }]);
+    const res = await t.action(internal.cgmIngest.runDueIngest, {});
+    expect(res.inserted).toBe(0);
+    expect((await getReadings(t, userId))).toHaveLength(0);
+    const state = await getState(t, userId, "libre");
+    expect(state?.status).toBe("no_shared_patient");
+    expect(state?.providerDiagnosticCategory).toBe("no_shared_patient");
+    expect(state?.libreConnectionCount).toBe(0);
+  });
+
+  it("Libre with empty graph sets connected_no_data diagnostic", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run(async (ctx) => {
+      const uid = await ctx.db.insert("users", { email: "l3@x.com", passwordHash: "ph", createdAt: 0, updatedAt: 0 });
+      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok", libreApiBase: "https://api.eu.libreview.io", updatedAt: 0 });
+      await ctx.db.insert("patientLibreCredentials", { userId: uid, libreEmail: "l3@x.com", librePassword: "pw", updatedAt: 0 });
+      await ctx.db.insert("cgmSyncState", { userId: uid, provider: "libre", consecutiveFailures: 0, status: "pending", nextEligibleAt: 0, generation: 0, updatedAt: 0 });
+      return uid;
+    });
+    stubFetch([
+      { test: (u) => u.endsWith("/llu/connections"), res: () => json({ data: [{ patientId: "pid" }] }) },
+      { test: (u) => u.includes("/graph"), res: () => json({ data: { graphData: [] } }) },
+    ]);
+    const res = await t.action(internal.cgmIngest.runDueIngest, {});
+    expect(res.inserted).toBe(0);
+    const state = await getState(t, userId, "libre");
+    expect(state?.status).toBe("connected_no_data");
+    expect(state?.providerDiagnosticCategory).toBe("connected_no_data");
+    expect(state?.libreConnectionCount).toBe(1);
   });
 });
 
