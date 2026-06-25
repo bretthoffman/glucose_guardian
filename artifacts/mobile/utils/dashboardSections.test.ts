@@ -100,4 +100,9 @@ describe("availableDashboardSections", () => {
       expect(section.title.length).toBeGreaterThan(0);
     }
   });
+
+  it("labels the thresholds section Alert Thresholds", () => {
+    const section = availableDashboardSections(patientParent).find((s) => s.key === "thresholds");
+    expect(section?.title).toBe("Alert Thresholds");
+  });
 });

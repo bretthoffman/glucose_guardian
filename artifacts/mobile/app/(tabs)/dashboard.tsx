@@ -779,6 +779,7 @@ export default function DashboardScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
+        scrollEnabled={openSection === null}
         contentContainerStyle={[styles.scroll, { paddingTop: topPadding + 12, paddingBottom: bottomPadding + 80 }]}
         showsVerticalScrollIndicator={false}
       >
@@ -1188,12 +1189,12 @@ export default function DashboardScreen() {
         <DashboardSectionModal
           visible={openSection === "thresholds"}
           onClose={() => setOpenSection(null)}
-          accessibilityLabel="Glucose Alert Thresholds"
+          accessibilityLabel="Alert Thresholds"
         >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.cardHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.cardTitle, { color: colors.text }]}>Glucose Alert Thresholds</Text>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>Alert Thresholds</Text>
               <Text style={[styles.cardSub, { color: colors.textSecondary }]}>
                 Customize each alert level (mg/dL)
               </Text>

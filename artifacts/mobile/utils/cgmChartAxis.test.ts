@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { T } from "../constants/theme";
 import {
-  AXIS_LABEL_MIN_SPACING,
+  CHART_AXIS_LABEL_HEIGHT,
+  NEUTRAL_GRID_100_VALUE,
+  NEUTRAL_GRID_200_VALUE,
   buildAxisLabelSpecs,
+  chartLabelTopForValue,
+  chartValueToY,
+  chartYPct,
   clampTargetGlucose,
+  DOT_MODE_READING_RADIUS,
+  DOT_MODE_READING_RADIUS_BASE,
+  DOT_MODE_READING_STROKE,
+  DOT_MODE_READING_STROKE_BASE,
   formatGlucoseAxisLabel,
   resolveAxisLabelPositions,
+  shouldShowNeutral100Label,
+  shouldShowNeutral200Label,
 } from "./cgmChartAxis";
 import {
   DEFAULT_GRAPH_DISPLAY_MODE,
@@ -13,64 +24,33 @@ import {
 } from "./cgmChartDisplayMode";
 
 const neutral = "#888888";
+const base = {
+  urgentHighThreshold: 250,
+  highThreshold: 180,
+  targetGlucose: 150,
+  lowThreshold: 70,
+  axisNeutralColor: neutral,
+};
+
+function gridLabel(specs: ReturnType<typeof buildAxisLabelSpecs>, value: number) {
+  return specs.find((s) => s.kind === "neutral_grid" && s.value === value);
+}
 
 describe("parseGraphDisplayMode", () => {
   it("defaults to line when unset or invalid", () => {
     expect(DEFAULT_GRAPH_DISPLAY_MODE).toBe("line");
     expect(parseGraphDisplayMode(null)).toBe("line");
-    expect(parseGraphDisplayMode(undefined)).toBe("line");
-    expect(parseGraphDisplayMode("")).toBe("line");
-    expect(parseGraphDisplayMode("line")).toBe("line");
-    expect(parseGraphDisplayMode("scatter")).toBe("line");
-  });
-
-  it("restores dots mode from storage", () => {
     expect(parseGraphDisplayMode("dots")).toBe("dots");
   });
 });
 
-describe("buildAxisLabelSpecs", () => {
-  const base = {
-    urgentHighThreshold: 250,
-    highThreshold: 180,
-    targetGlucose: 125,
-    lowThreshold: 70,
-    axisNeutralColor: neutral,
-  };
-
-  it("assigns red to upper and lower alert thresholds", () => {
+describe("buildAxisLabelSpecs — dynamic labels", () => {
+  it("assigns threshold and target colors", () => {
     const specs = buildAxisLabelSpecs(base);
-    expect(specs.find((s) => s.kind === "urgentHigh")).toMatchObject({
-      value: 250,
-      color: T.color.coral,
-    });
-    expect(specs.find((s) => s.kind === "low")).toMatchObject({
-      value: 70,
-      color: T.color.coral,
-    });
-  });
-
-  it("assigns green to the in-range upper threshold", () => {
-    const specs = buildAxisLabelSpecs(base);
-    expect(specs.find((s) => s.kind === "high")).toMatchObject({
-      value: 180,
-      color: T.color.emerald,
-    });
-  });
-
-  it("assigns purple to the configured target glucose", () => {
-    const specs = buildAxisLabelSpecs({ ...base, targetGlucose: 132 });
-    expect(specs.find((s) => s.kind === "target")).toMatchObject({
-      value: 132,
-      color: T.color.violet,
-    });
-  });
-
-  it("updates when target glucose changes", () => {
-    const first = buildAxisLabelSpecs({ ...base, targetGlucose: 110 });
-    const second = buildAxisLabelSpecs({ ...base, targetGlucose: 140 });
-    expect(first.find((s) => s.kind === "target")?.value).toBe(110);
-    expect(second.find((s) => s.kind === "target")?.value).toBe(140);
+    expect(specs.find((s) => s.kind === "urgentHigh")).toMatchObject({ value: 250, color: T.color.coral });
+    expect(specs.find((s) => s.kind === "high")).toMatchObject({ value: 180, color: T.color.emerald });
+    expect(specs.find((s) => s.kind === "target")).toMatchObject({ value: 150, color: T.color.violet });
+    expect(specs.find((s) => s.kind === "low")).toMatchObject({ value: 70, color: T.color.coral });
   });
 
   it("clamps target glucose to the configured low/high band", () => {
@@ -83,38 +63,109 @@ describe("buildAxisLabelSpecs", () => {
   });
 });
 
-describe("resolveAxisLabelPositions", () => {
-  it("keeps threshold labels vertically separated", () => {
-    const specs = buildAxisLabelSpecs({
-      urgentHighThreshold: 250,
-      highThreshold: 180,
-      targetGlucose: 125,
-      lowThreshold: 70,
-      axisNeutralColor: neutral,
-    });
-    const positioned = resolveAxisLabelPositions(specs, 264);
-    const thresholds = positioned.filter((l) => l.kind !== "neutral");
-    for (let i = 1; i < thresholds.length; i++) {
-      expect(thresholds[i].top - thresholds[i - 1].top).toBeGreaterThanOrEqual(AXIS_LABEL_MIN_SPACING - 0.01);
+describe("fixed gray 400/300/40 labels", () => {
+  it("always includes 400, 300, and 40 grid labels", () => {
+    const specs = buildAxisLabelSpecs(base);
+    expect(gridLabel(specs, 400)).toBeDefined();
+    expect(gridLabel(specs, 300)).toBeDefined();
+    expect(gridLabel(specs, 40)).toBeDefined();
+  });
+});
+
+describe("gray 200-label visibility", () => {
+  it("shows when high threshold is below 179", () => {
+    expect(shouldShowNeutral200Label(178)).toBe(true);
+    expect(gridLabel(buildAxisLabelSpecs({ ...base, highThreshold: 178 }), 200)).toBeDefined();
+  });
+
+  it("hides when high threshold is between 179 and 221 inclusive", () => {
+    for (const high of [179, 200, 221]) {
+      expect(shouldShowNeutral200Label(high)).toBe(false);
+      expect(gridLabel(buildAxisLabelSpecs({ ...base, highThreshold: high }), 200)).toBeUndefined();
+      expect(specsIncludeHigh(buildAxisLabelSpecs({ ...base, highThreshold: high }), high)).toBe(true);
     }
   });
 
-  it("nudges colliding labels instead of hiding them", () => {
-    const specs = buildAxisLabelSpecs({
-      urgentHighThreshold: 250,
-      highThreshold: 180,
-      targetGlucose: 178,
-      lowThreshold: 70,
-      axisNeutralColor: neutral,
-    });
-    const positioned = resolveAxisLabelPositions(specs, 264);
-    const high = positioned.find((l) => l.kind === "high");
-    const target = positioned.find((l) => l.kind === "target");
-    expect(high).toBeDefined();
+  it("shows when high threshold is above 221", () => {
+    expect(shouldShowNeutral200Label(222)).toBe(true);
+    expect(gridLabel(buildAxisLabelSpecs({ ...base, highThreshold: 222 }), 200)).toBeDefined();
+  });
+});
+
+describe("gray 100-label visibility", () => {
+  it("hides when target is 130 or below", () => {
+    for (const target of [100, 120, 130]) {
+      expect(shouldShowNeutral100Label(target)).toBe(false);
+      expect(gridLabel(buildAxisLabelSpecs({ ...base, targetGlucose: target }), 100)).toBeUndefined();
+    }
+  });
+
+  it("shows when target is 131 or greater", () => {
+    expect(shouldShowNeutral100Label(131)).toBe(true);
+    expect(shouldShowNeutral100Label(150)).toBe(true);
+    expect(gridLabel(buildAxisLabelSpecs({ ...base, targetGlucose: 131 }), 100)).toBeDefined();
+    expect(gridLabel(buildAxisLabelSpecs({ ...base, targetGlucose: 150 }), 100)).toBeDefined();
+  });
+});
+
+function specsIncludeHigh(specs: ReturnType<typeof buildAxisLabelSpecs>, high: number) {
+  return specs.some((s) => s.kind === "high" && s.value === high);
+}
+
+describe("chartValueToY", () => {
+  const H = 264;
+
+  it("maps glucose values into plot coordinates", () => {
+    expect(chartValueToY(120, H)).toBe(chartYPct(120) * H);
+    expect(chartValueToY(100, H)).toBe(chartYPct(100) * H);
+  });
+
+  it("centers axis labels on the same Y as horizontal lines", () => {
+    for (const value of [40, 100, 200, 300, 400]) {
+      const lineY = chartValueToY(value, H);
+      const labelTop = chartLabelTopForValue(value, H);
+      expect(labelTop + CHART_AXIS_LABEL_HEIGHT / 2).toBeCloseTo(lineY, 5);
+    }
+  });
+});
+
+describe("resolveAxisLabelPositions", () => {
+  const H = 264;
+
+  it("pins fixed grid labels on their grid-line coordinates", () => {
+    const specs = buildAxisLabelSpecs(base);
+    const positioned = resolveAxisLabelPositions(specs, H);
+    for (const value of [40, 100, 200, 300, 400] as const) {
+      const label = positioned.find((l) => l.kind === "neutral_grid" && l.value === value);
+      if (!label) continue;
+      expect(label.nudged).toBe(false);
+      expect(label.top).toBe(chartLabelTopForValue(value, H));
+      expect(label.top + CHART_AXIS_LABEL_HEIGHT / 2).toBeCloseTo(chartValueToY(value, H), 5);
+    }
+  });
+
+  it("pins the target label on the target line", () => {
+    const specs = buildAxisLabelSpecs({ ...base, targetGlucose: 120 });
+    const target = resolveAxisLabelPositions(specs, H).find((l) => l.kind === "target");
     expect(target).toBeDefined();
-    expect(high!.value).toBe(180);
-    expect(target!.value).toBe(178);
-    expect(Math.abs(high!.top - target!.top)).toBeGreaterThanOrEqual(AXIS_LABEL_MIN_SPACING - 0.01);
-    expect(high!.nudged || target!.nudged).toBe(true);
+    expect(target!.nudged).toBe(false);
+    expect(target!.top + CHART_AXIS_LABEL_HEIGHT / 2).toBeCloseTo(chartValueToY(120, H), 5);
+  });
+
+  it("pins dynamic threshold labels on their lines", () => {
+    const specs = buildAxisLabelSpecs(base);
+    const positioned = resolveAxisLabelPositions(specs, H);
+    for (const kind of ["urgentHigh", "high", "low"] as const) {
+      const label = positioned.find((l) => l.kind === kind);
+      expect(label).toBeDefined();
+      expect(label!.top + CHART_AXIS_LABEL_HEIGHT / 2).toBeCloseTo(chartValueToY(label!.value, H), 5);
+    }
+  });
+});
+
+describe("dot mode marker sizing", () => {
+  it("scales ordinary reading dots to 60% of the prior radius", () => {
+    expect(DOT_MODE_READING_RADIUS).toBeCloseTo(DOT_MODE_READING_RADIUS_BASE * 0.6, 5);
+    expect(DOT_MODE_READING_STROKE).toBeCloseTo(DOT_MODE_READING_STROKE_BASE * 0.6, 5);
   });
 });

@@ -26,6 +26,10 @@ import { T, glucoseTone, withAlpha, type ThemeColors } from "@/constants/theme";
 import { useThemeColors } from "@/context/ThemeContext";
 import {
   buildAxisLabelSpecs,
+  chartValueToY,
+  clampTargetGlucose,
+  DOT_MODE_READING_RADIUS,
+  DOT_MODE_READING_STROKE,
   formatGlucoseAxisLabel,
   resolveAxisLabelPositions,
 } from "@/utils/cgmChartAxis";
@@ -39,11 +43,11 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 
 export const Y_MIN = 40;
 export const Y_MAX = 400;
-const Y_RANGE = Y_MAX - Y_MIN;
-const Y_LABELS = [400, 300, 250, 200, 180, 100, 70, 40];
 
 export const LOW_THRESH = 70;
 export const HIGH_THRESH = 180;
+
+const Y_LABELS = [400, 300, 250, 200, 180, 100, 70, 40];
 
 export type TimeRange = "3H" | "6H" | "12H" | "24H";
 export const TIME_RANGES: TimeRange[] = ["3H", "6H", "12H", "24H"];
@@ -73,11 +77,6 @@ export function glucoseColor(val: number, low = LOW_THRESH, high = HIGH_THRESH, 
   if (val <= high) return COLORS.success;
   if (val <= 300) return COLORS.warning;
   return COLORS.danger;
-}
-
-function yPct(glucose: number): number {
-  const clamped = Math.max(Y_MIN, Math.min(Y_MAX, glucose));
-  return 1 - (clamped - Y_MIN) / Y_RANGE;
 }
 
 interface CGMChartProps {
@@ -145,6 +144,7 @@ export function CGMChart({
   const H = chartHeight;
   const yAxisW = 40;
   const plotW = Math.max(60, SCREEN_WIDTH - paddingHorizontal * 2 - yAxisW);
+  const plotY = (glucose: number) => chartValueToY(glucose, H);
 
   const now = Date.now();
   const windowMs = RANGE_MS[timeRange];
@@ -166,7 +166,7 @@ export function CGMChart({
 
   const points: Pt[] = filtered.map((r) => ({
     x: Math.max(0, Math.min(plotW, ((new Date(r.timestamp).getTime() - windowStart) / windowMs) * plotW)),
-    y: yPct(r.glucose) * H,
+    y: plotY(r.glucose),
     glucose: r.glucose,
   }));
 
@@ -176,11 +176,12 @@ export function CGMChart({
     return dt > CHART_LINE_GAP_BREAK_MS;
   });
 
-  const urgentLowLineY = yPct(urgentLowThreshold) * H;
-  const lowLineY = yPct(lowThreshold) * H;
-  const highLineY = yPct(highThreshold) * H;
-  const urgentHighLineY = yPct(urgentHighThreshold) * H;
-  const targetLineY = yPct(Math.max(lowThreshold, Math.min(highThreshold, targetGlucose))) * H;
+  const urgentLowLineY = plotY(urgentLowThreshold);
+  const lowLineY = plotY(lowThreshold);
+  const highLineY = plotY(highThreshold);
+  const urgentHighLineY = plotY(urgentHighThreshold);
+  const clampedTargetGlucose = clampTargetGlucose(targetGlucose, lowThreshold, highThreshold);
+  const targetLineY = plotY(clampedTargetGlucose);
 
   function xLabel(msFromStart: number): string {
     const hoursAgo = Math.round((windowMs - msFromStart) / (60 * 60 * 1000));
@@ -314,7 +315,7 @@ export function CGMChart({
 
             {/* faint horizontal grid */}
             {Y_LABELS.map((v) => {
-              const y = yPct(v) * H;
+              const y = plotY(v);
               if (!inView(y)) return null;
               return <Line key={`g-${v}`} x1={0} y1={y} x2={plotW} y2={y} stroke={c.grid} strokeWidth={1} />;
             })}
@@ -372,10 +373,10 @@ export function CGMChart({
                     key={`d-${i}`}
                     cx={p.x}
                     cy={p.y}
-                    r={3.5}
+                    r={DOT_MODE_READING_RADIUS}
                     fill={dotColor}
                     stroke={withAlpha(dotColor, 0.55)}
-                    strokeWidth={1}
+                    strokeWidth={DOT_MODE_READING_STROKE}
                   />
                 );
               })}

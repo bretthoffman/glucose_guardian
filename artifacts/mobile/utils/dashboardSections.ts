@@ -51,7 +51,7 @@ export interface DashboardSectionDef {
 /** Authoritative grid order: row1 Notifications/Thresholds, row2 Emergency/Insulin, row3 Doctor/Access. */
 const ALL_SECTIONS: { key: DashboardSectionKey; title: string; gate: keyof DashboardSectionVisibility }[] = [
   { key: "notifications", title: "Notifications", gate: "showPatientSections" },
-  { key: "thresholds", title: "Glucose Alert Thresholds", gate: "showPatientSections" },
+  { key: "thresholds", title: "Alert Thresholds", gate: "showPatientSections" },
   { key: "emergency", title: "Emergency Contacts", gate: "showPatientSections" },
   { key: "insulin", title: "Insulin Settings", gate: "showPatientSections" },
   { key: "doctor", title: "Doctor & Care Team", gate: "showDoctorCareTeam" },
