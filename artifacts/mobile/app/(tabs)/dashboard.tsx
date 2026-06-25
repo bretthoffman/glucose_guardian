@@ -24,6 +24,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TrendChart } from "@/components/TrendChart";
 import ProfileChip from "@/components/ProfileChip";
 import { SettingsModal } from "@/components/SettingsModal";
+import { DashboardSectionModal } from "@/components/DashboardSectionModal";
+import { DashboardSectionCard } from "@/components/DashboardSectionCard";
+import {
+  availableDashboardSections,
+  dashboardSectionVisibility,
+  type DashboardSectionKey,
+} from "@/utils/dashboardSections";
 import { useProfilePhotoPicker } from "@/hooks/useProfilePhotoPicker";
 import Colors, { COLORS } from "@/constants/colors";
 import { TYPE } from "@/constants/theme";
@@ -36,6 +43,17 @@ import {
   requestNotificationPermissions,
   type NotificationPermissionStatus,
 } from "@/services/notifications";
+
+// Icon shown on each compact section card (presentation only; section availability lives in the pure
+// `utils/dashboardSections` helper). One entry per DashboardSectionKey.
+const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Feather>["name"]> = {
+  notifications: "bell",
+  thresholds: "sliders",
+  emergency: "users",
+  insulin: "droplet",
+  doctor: "activity",
+  access: "key",
+};
 
 function GuardianLock({ colors, onPress }: { colors: (typeof Colors)["light"]; onPress?: () => void }) {
   return (
@@ -201,8 +219,28 @@ export default function DashboardScreen() {
 
   const isGuarded = isMinor && !isGuardianUnlocked && !doctorSession;
 
+  // Which Dashboard management sections are available for the current role (pure helper, shared with
+  // the section-card grid so cards and the inline guards/popups can never drift apart). These booleans
+  // gate BOTH the inline content (analytics/trend + the section popups) and the matching grid cards.
+  const { showPatientSections, showDoctorCareTeam, showAccessManagement } = dashboardSectionVisibility({
+    isChildMode,
+    caregiverSession,
+    doctorSession,
+    isParent,
+    isAdult,
+  });
+
+  // The single section popup that is open (null = none). Mutually exclusive with the Settings popup.
+  const [openSection, setOpenSection] = useState<DashboardSectionKey | null>(null);
+
   // Settings popup (opened from the profile/avatar control) + shared profile-photo picker.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Opening a section popup closes the Settings popup (and vice versa) — never both at once.
+  const openSectionPopup = (key: DashboardSectionKey) => {
+    setSettingsOpen(false);
+    setOpenSection(key);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
   const { pickPhoto, uploading: photoUploading } = useProfilePhotoPicker();
   const handleUpdatePhoto = () => {
     // Close the popup first, then launch the system picker (avoids modal-over-modal presentation
@@ -304,6 +342,9 @@ export default function DashboardScreen() {
 
   function confirmLogout() {
     const doSignOut = async () => {
+      // Close any open popup before tearing down the session.
+      setOpenSection(null);
+      setSettingsOpen(false);
       await signOut();
       router.replace("/auth");
     };
@@ -749,7 +790,7 @@ export default function DashboardScreen() {
             <ProfileChip
               colors={colors}
               canEdit={!caregiverSession && !doctorSession && !isChildMode}
-              onPress={() => setSettingsOpen(true)}
+              onPress={() => { setOpenSection(null); setSettingsOpen(true); }}
               uploading={photoUploading}
             />
           </View>
@@ -981,7 +1022,47 @@ export default function DashboardScreen() {
           </Pressable>
         </View>
 
-        {!isChildMode && !caregiverSession && (<>
+        {(() => {
+          // Compact 2-column section grid. Each card opens the matching section's existing content in a
+          // popup. Cards appear only for sections the current role is authorized to see (same guards as
+          // the section content), so an odd count is possible — the last lone card stays half-width in
+          // the left column with the right slot left empty (never stretched).
+          const cards = availableDashboardSections({
+            isChildMode,
+            caregiverSession,
+            doctorSession,
+            isParent,
+            isAdult,
+          }).map((s) => ({ ...s, icon: SECTION_ICONS[s.key] }));
+          if (cards.length === 0) return null;
+          const rows: (typeof cards)[] = [];
+          for (let i = 0; i < cards.length; i += 2) rows.push(cards.slice(i, i + 2));
+          return (
+            <View style={styles.sectionGrid}>
+              {rows.map((row, ri) => (
+                <View key={ri} style={styles.sectionGridRow}>
+                  {row.map((cardDef) => (
+                    <DashboardSectionCard
+                      key={cardDef.key}
+                      title={cardDef.title}
+                      icon={cardDef.icon}
+                      colors={colors}
+                      onPress={() => openSectionPopup(cardDef.key)}
+                    />
+                  ))}
+                  {row.length === 1 && <View style={{ flex: 1 }} />}
+                </View>
+              ))}
+            </View>
+          );
+        })()}
+
+        {showPatientSections && (<>
+        <DashboardSectionModal
+          visible={openSection === "notifications"}
+          onClose={() => setOpenSection(null)}
+          accessibilityLabel="Notifications"
+        >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Notifications</Text>
           <Text style={[styles.cardSub, { color: colors.textSecondary }]}>
@@ -1102,7 +1183,13 @@ export default function DashboardScreen() {
             </View>
           )}
         </View>
+        </DashboardSectionModal>
 
+        <DashboardSectionModal
+          visible={openSection === "thresholds"}
+          onClose={() => setOpenSection(null)}
+          accessibilityLabel="Glucose Alert Thresholds"
+        >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.cardHeader}>
             <View style={{ flex: 1 }}>
@@ -1195,7 +1282,13 @@ export default function DashboardScreen() {
             </>
           )}
         </View>
+        </DashboardSectionModal>
 
+        <DashboardSectionModal
+          visible={openSection === "emergency"}
+          onClose={() => setOpenSection(null)}
+          accessibilityLabel="Emergency Contacts"
+        >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.cardHeader}>
             <View style={{ flex: 1 }}>
@@ -1286,6 +1379,7 @@ export default function DashboardScreen() {
             </Text>
           </View>
         </View>
+        </DashboardSectionModal>
 
         <View style={styles.statsGrid}>
           <StatCard label="Avg Glucose" value={avgGlucose > 0 ? `${avgGlucose}` : "—"} unit="mg/dL" icon="activity" color={COLORS.primary} colors={colors} />
@@ -1317,6 +1411,11 @@ export default function DashboardScreen() {
           </View>
         )}
 
+        <DashboardSectionModal
+          visible={openSection === "insulin"}
+          onClose={() => setOpenSection(null)}
+          accessibilityLabel="Insulin Settings"
+        >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.cardHeader}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>Insulin Settings</Text>
@@ -1443,6 +1542,7 @@ export default function DashboardScreen() {
 
           {isGuarded && <GuardianLock colors={colors} onPress={openPinUnlock} />}
         </View>
+        </DashboardSectionModal>
         </>)}
 
         {doctorSession && (
@@ -1494,7 +1594,12 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {!doctorSession && (
+        {showDoctorCareTeam && (
+        <DashboardSectionModal
+          visible={openSection === "doctor"}
+          onClose={() => setOpenSection(null)}
+          accessibilityLabel="Doctor & Care Team"
+        >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor & Care Team</Text>
           {!isGuarded && !isChildMode && !caregiverSession && (
@@ -1599,6 +1704,7 @@ export default function DashboardScreen() {
             </Text>
           )}
         </View>
+        </DashboardSectionModal>
         )}
 
         {combinedEntries.length > 0 && !(isChildMode && !caregiverSession) && (
@@ -1750,7 +1856,12 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {(isParent || isAdult) && !isChildMode && !caregiverSession && !doctorSession && (
+        {showAccessManagement && (
+          <DashboardSectionModal
+            visible={openSection === "access"}
+            onClose={() => setOpenSection(null)}
+            accessibilityLabel="Access Management"
+          >
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.cardHeader}>
               <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.accent + "15" }]}>
@@ -1915,6 +2026,7 @@ export default function DashboardScreen() {
               </View>
             )}
           </View>
+          </DashboardSectionModal>
         )}
 
         <View style={[styles.disclaimer, { backgroundColor: colors.backgroundTertiary }]}>
@@ -2200,6 +2312,8 @@ const styles = StyleSheet.create({
   threshLegendText: { flex: 1, fontSize: 11, fontWeight: "400", lineHeight: 16 },
 
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 },
+  sectionGrid: { gap: 10, marginBottom: 20 },
+  sectionGridRow: { flexDirection: "row", gap: 10 },
   statCard: { width: "48%", borderRadius: 14, borderWidth: 1, padding: 14, gap: 4 },
   statIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center", marginBottom: 6 },
   statValue: { fontSize: 24, fontWeight: "700", lineHeight: 28 },
