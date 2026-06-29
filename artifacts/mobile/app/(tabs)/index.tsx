@@ -21,8 +21,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlucoseGauge } from "@/components/GlucoseGauge";
-import type { GlucoseTrend } from "@/components/GlucoseGauge";
-import { mapDexcomTrend, trendFromDiff } from "@/utils/trend";
+import { mapDexcomTrend, trendFromDiff, type TrendInfo } from "@/utils/trend";
 import { bannerKindFromSyncStatus, cgmDiagnosticMessage } from "@/utils/cgmDiagnosticMessages";
 import { ReadingCard } from "@/components/ReadingCard";
 import { CGMChart } from "@/components/CGMChart";
@@ -295,18 +294,20 @@ export default function HomeScreen() {
     : latestReading?.glucose ?? 0;
   const recentHistory = [...history].reverse().slice(0, 10);
 
-  const glucoseTrend: GlucoseTrend | undefined = (() => {
+  const effectiveTrend: TrendInfo | undefined = (() => {
+    if (history.length === 0) return undefined;
     const latest = isConnected && cgmLatestReading
-      ? history.find(h => h.timestamp === cgmLatestReading.timestamp)
+      ? history.find((h) => h.timestamp === cgmLatestReading.timestamp)
       : history[history.length - 1];
-    if (latest?.dexcomTrend != null) {
-      return mapDexcomTrend(latest.dexcomTrend).glucoseTrend;
-    }
+    if (!latest) return undefined;
+    if (latest.dexcomTrend != null) return mapDexcomTrend(latest.dexcomTrend);
     if (history.length < 2) return undefined;
     const last = history[history.length - 1].glucose;
     const prev = history[history.length - 2].glucose;
-    return trendFromDiff(last - prev).glucoseTrend;
+    return trendFromDiff(last - prev);
   })();
+
+  const glucoseTrend = effectiveTrend?.glucoseTrend;
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
@@ -972,6 +973,7 @@ export default function HomeScreen() {
               value={displayGlucose}
               size={172}
               trend={glucoseTrend}
+              trendInfo={effectiveTrend}
               lowThreshold={alertPrefs.lowThreshold}
               highThreshold={alertPrefs.highThreshold}
               recentReadings={history}

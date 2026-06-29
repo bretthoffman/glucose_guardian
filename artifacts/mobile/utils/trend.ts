@@ -70,3 +70,28 @@ export function trendFromDiff(diff: number): TrendInfo {
   if (diff < -8)  return { glucoseTrend: "falling",          arrow: "↘", label: "Falling slowly" };
   return { glucoseTrend: "stable", arrow: "→", label: "Stable" };
 }
+
+/** True when the canonical trend arrow indicates fast movement (↑↑ or ↓↓). */
+export function isFastTrend(info: TrendInfo): boolean {
+  return info.arrow === "↑↑" || info.arrow === "↓↓";
+}
+
+/** Compact summary-card label (title case; fast fall reads "Dropping Fast"). */
+export function trendGaugeLabel(info: TrendInfo): string {
+  switch (info.label) {
+    case "Rising fast":
+      return "Rising Fast";
+    case "Falling fast":
+      return "Dropping Fast";
+    case "Rising slowly":
+      return "Rising slowly";
+    case "Falling slowly":
+      return "Falling slowly";
+    default:
+      return info.label;
+  }
+}
+
+export function trendArrowCount(info: TrendInfo): 1 | 2 {
+  return isFastTrend(info) ? 2 : 1;
+}

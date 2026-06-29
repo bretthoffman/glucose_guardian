@@ -4,6 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { T, TYPE, withAlpha } from "@/constants/theme";
 import { useThemeColors } from "@/context/ThemeContext";
+import { trendArrowCount, trendGaugeLabel, type TrendInfo } from "@/utils/trend";
 
 export type GlucoseTrend =
   | "rapidly_rising"
@@ -16,6 +17,8 @@ interface Props {
   value: number;
   size?: number;
   trend?: GlucoseTrend;
+  /** Canonical trend display from `getEffectiveTrend` / `mapDexcomTrend` / `trendFromDiff`. */
+  trendInfo?: TrendInfo;
   lowThreshold?: number;
   highThreshold?: number;
   /** Oldest → newest; drives thin expanding ripple color + speed only. */
@@ -51,11 +54,11 @@ const TREND_ROTATE: Record<GlucoseTrend, string> = {
 };
 
 const TREND_LABEL: Record<GlucoseTrend, string> = {
-  rapidly_rising:  "Rising",
+  rapidly_rising:  "Rising Fast",
   rising:          "Rising slowly",
   stable:          "Stable",
   falling:         "Falling slowly",
-  rapidly_falling: "Falling",
+  rapidly_falling: "Dropping Fast",
 };
 
 function getTrendColor(trend: GlucoseTrend, glucoseStatusColor: string): string {
@@ -101,6 +104,7 @@ export function GlucoseGauge({
   value,
   size = 180,
   trend,
+  trendInfo,
   lowThreshold = 80,
   highThreshold = 180,
   recentReadings,
@@ -213,6 +217,8 @@ export function GlucoseGauge({
   }, [movementVisuals]);
 
   const trendColor = trend ? getTrendColor(trend, status.color) : null;
+  const trendLabel = trendInfo ? trendGaugeLabel(trendInfo) : trend ? TREND_LABEL[trend] : null;
+  const arrows = trendInfo ? trendArrowCount(trendInfo) : 1;
 
   return (
     <View style={styles.outerRow}>
@@ -286,14 +292,18 @@ export function GlucoseGauge({
 
       {/* Trend column — centered cluster balancing the gauge ring. The pull-to-sync helper now lives
           in the page header (Home screen), so the trend content keeps its original centered position. */}
-      {trend && trendColor && (
+      {trend && trendColor && trendLabel && (
         <View style={styles.trendSide}>
-          <View style={{ transform: [{ rotate: TREND_ROTATE[trend] }] }}>
-            <Feather name="arrow-up" size={30} color={trendColor} />
+          <View style={[styles.trendArrowRow, { transform: [{ rotate: TREND_ROTATE[trend] }] }]}>
+            {Array.from({ length: arrows }).map((_, i) => (
+              <Feather key={i} name="arrow-up" size={30} color={trendColor} />
+            ))}
           </View>
           <Text style={[styles.trendCaption, { color: c.textSecondary }]}>Trend</Text>
           <View style={[styles.trendPill, { backgroundColor: withAlpha(trendColor, 0.14), borderColor: withAlpha(trendColor, 0.4) }]}>
-            <Text style={[styles.trendPillText, { color: trendColor }]}>{TREND_LABEL[trend]}</Text>
+            <Text style={[styles.trendPillText, { color: trendColor }]} numberOfLines={1}>
+              {trendLabel}
+            </Text>
           </View>
           {updatedLabel ? <Text style={[styles.updated, { color: c.textMuted }]}>{updatedLabel}</Text> : null}
         </View>
@@ -314,13 +324,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   badgeText: { fontWeight: T.font.semibold },
-  trendSide: { flex: 1, alignItems: "center", gap: 6 },
+  trendSide: { flex: 1, alignItems: "center", gap: 6, minWidth: 0 },
+  trendArrowRow: { flexDirection: "row", alignItems: "center", gap: 2 },
   trendCaption: { fontSize: 11, fontWeight: T.font.medium, marginTop: 2 },
   trendPill: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 20,
     borderWidth: 1,
+    maxWidth: "100%",
   },
   trendPillText: { fontSize: 12.5, fontWeight: T.font.semibold },
   updated: { fontSize: 11, fontWeight: T.font.regular, marginTop: 2, textAlign: "center" },
