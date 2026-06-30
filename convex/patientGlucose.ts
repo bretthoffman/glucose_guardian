@@ -27,6 +27,77 @@ function normalizeCaregiverCode(raw: string): string {
 }
 
 /** Read-only glucose for devices that only have a caregiver/family code (no password). */
+function mapGlucoseRows(rows: { glucose: number; timestamp: string; anomaly: { warning: boolean; message?: string }; dexcomTrend?: number | string }[]) {
+  return rows.map((r) => ({
+    glucose: r.glucose,
+    timestamp: r.timestamp,
+    anomaly: r.anomaly,
+    dexcomTrend: r.dexcomTrend,
+  }));
+}
+
+const DAY_RANGE_DEFAULT_LIMIT = 500;
+const DAY_RANGE_MAX_LIMIT = 600;
+
+/** Bounded glucose readings for one local calendar day — start inclusive, end exclusive (ISO timestamps). */
+export const listForDayRange = query({
+  args: {
+    userId: v.id("users"),
+    passwordHash: v.string(),
+    startTimestamp: v.string(),
+    endTimestamp: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
+    if (!ok) return [];
+    const lim = Math.min(Math.max(args.limit ?? DAY_RANGE_DEFAULT_LIMIT, 1), DAY_RANGE_MAX_LIMIT);
+    const rows = await ctx.db
+      .query("patientGlucoseReadings")
+      .withIndex("by_user_time", (q) =>
+        q
+          .eq("userId", args.userId)
+          .gte("timestamp", args.startTimestamp)
+          .lt("timestamp", args.endTimestamp),
+      )
+      .order("asc")
+      .take(lim);
+    return mapGlucoseRows(rows);
+  },
+});
+
+/** Caregiver day-range glucose for Dose Log historical graph. */
+export const listForDayRangeForCaregiver = query({
+  args: {
+    code: v.string(),
+    startTimestamp: v.string(),
+    endTimestamp: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const normalized = normalizeCaregiverCode(args.code);
+    if (normalized.length !== 6) return [];
+    const profileRow = await ctx.db
+      .query("patientProfiles")
+      .withIndex("by_caregiverCode", (q) => q.eq("caregiverCode", normalized))
+      .first();
+    if (!profileRow?.caregiverCode) return [];
+    if (profileRow.caregiverCode.toUpperCase() !== normalized) return [];
+    const lim = Math.min(Math.max(args.limit ?? DAY_RANGE_DEFAULT_LIMIT, 1), DAY_RANGE_MAX_LIMIT);
+    const rows = await ctx.db
+      .query("patientGlucoseReadings")
+      .withIndex("by_user_time", (q) =>
+        q
+          .eq("userId", profileRow.userId)
+          .gte("timestamp", args.startTimestamp)
+          .lt("timestamp", args.endTimestamp),
+      )
+      .order("asc")
+      .take(lim);
+    return mapGlucoseRows(rows);
+  },
+});
+
 export const listRecentForCaregiver = query({
   args: {
     code: v.string(),

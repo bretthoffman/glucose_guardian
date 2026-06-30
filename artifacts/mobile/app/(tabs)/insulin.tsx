@@ -26,7 +26,7 @@ import {
   rangeCutoffMs,
   type A1cRange,
 } from "@/utils/a1c";
-import { TYPE, type ThemeColors } from "@/constants/theme";
+import { type ThemeColors } from "@/constants/theme";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import type { GlucoseEntry } from "@/context/GlucoseContext";
@@ -936,26 +936,41 @@ export default function InsulinScreen() {
       >
         <TabGlucoseHeaderRow
           left={
-            <Text style={[TYPE.pageTitle, { color: colors.text }]}>
-              {screenTab === "predict" ? "Dose Analytics" : "Log"}
-            </Text>
+            <View style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
+              {(["predict", "log"] as ScreenTab[]).map((t) => (
+                <Pressable
+                  key={t}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: screenTab === t }}
+                  style={[
+                    styles.screenToggleBtn,
+                    screenTab === t && {
+                      backgroundColor: colors.card,
+                      shadowColor: "#000",
+                      shadowOpacity: 0.08,
+                      shadowRadius: 4,
+                      shadowOffset: { width: 0, height: 1 },
+                    },
+                  ]}
+                  onPress={() => {
+                    setScreenTab(t);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.screenToggleText,
+                      { color: screenTab === t ? COLORS.primary : colors.textSecondary },
+                    ]}
+                  >
+                    {t === "predict" ? "💉 Dose" : "📋 Log"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           }
         />
-
-        {/* Dose / Log toggle */}
-        <View style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
-          {(["predict", "log"] as ScreenTab[]).map((t) => (
-            <Pressable
-              key={t}
-              style={[styles.screenToggleBtn, screenTab === t && { backgroundColor: colors.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }]}
-              onPress={() => { setScreenTab(t); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-            >
-              <Text style={[styles.screenToggleText, { color: screenTab === t ? COLORS.primary : colors.textSecondary }]}>
-                {t === "predict" ? "💉 Dose" : "📋 Log"}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
       </TabGlucoseHeaderShell>
 
       {screenTab === "log" ? (
@@ -1439,14 +1454,30 @@ function StatBox({ label, value, unit, color, colors }: { label: string; value: 
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scroll: { paddingHorizontal: 20 },
+  scroll: { paddingHorizontal: 20, paddingTop: 10 },
 
   latestRow: { flexDirection: "row", alignItems: "center", gap: 18, marginBottom: 18 },
   latestCircle: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, alignItems: "center", justifyContent: "center" },
-  screenHeader: { paddingBottom: 12, borderBottomWidth: 1, gap: 12 },
-  screenToggle: { flexDirection: "row", borderRadius: 12, padding: 3, gap: 3 },
-  screenToggleBtn: { flex: 1, borderRadius: 10, paddingVertical: 8, alignItems: "center" },
-  screenToggleText: { fontSize: 14, fontWeight: "600" },
+  screenHeader: { paddingBottom: 12, borderBottomWidth: 1 },
+  screenToggle: {
+    flexDirection: "row",
+    flexShrink: 1,
+    minWidth: 0,
+    alignSelf: "stretch",
+    borderRadius: 12,
+    padding: 2,
+    gap: 2,
+  },
+  screenToggleBtn: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  screenToggleText: { fontSize: 13, fontWeight: "600", textAlign: "center" },
 
   rangeRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
   rangeBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: "center" },

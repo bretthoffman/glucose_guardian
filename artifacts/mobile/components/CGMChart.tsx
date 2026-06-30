@@ -33,6 +33,7 @@ import {
   formatGlucoseAxisLabel,
   resolveAxisLabelPositions,
 } from "@/utils/cgmChartAxis";
+import { buildCalendarDayXLabels, calendarDayMeridiemPositions, calendarDayMeridiemLabelLayout, calendarDayNumericLabelLayout } from "@/utils/calendarDayXAxis";
 import {
   DEFAULT_GRAPH_DISPLAY_MODE,
   parseGraphDisplayMode,
@@ -91,6 +92,12 @@ interface CGMChartProps {
   lowThreshold?: number;
   highThreshold?: number;
   urgentHighThreshold?: number;
+  /** Fixed local calendar-day window (midnight inclusive → next midnight exclusive). */
+  calendarDayWindow?: { startMs: number; endMs: number };
+  /** Hide 3H/6H/12H/24H selector — defaults false when `calendarDayWindow` is set. */
+  showRangeSelector?: boolean;
+  /** Custom empty-state copy for the plot area. */
+  emptyMessage?: string;
 }
 
 type Pt = { x: number; y: number; glucose: number };
@@ -107,9 +114,14 @@ export function CGMChart({
   lowThreshold = LOW_THRESH,
   highThreshold = HIGH_THRESH,
   urgentHighThreshold = 250,
+  calendarDayWindow,
+  showRangeSelector: showRangeSelectorProp,
+  emptyMessage,
 }: CGMChartProps) {
   const c = useThemeColors();
   const styles = useMemo(() => makeStyles(c), [c]);
+  const isCalendarDay = calendarDayWindow != null;
+  const showRangeSelector = showRangeSelectorProp ?? !isCalendarDay;
   const isControlled = controlledRange !== undefined;
   const [internalRange, setInternalRange] = useState<TimeRange>("6H");
   const [displayMode, setDisplayMode] = useState<GraphDisplayMode>(DEFAULT_GRAPH_DISPLAY_MODE);
@@ -147,11 +159,16 @@ export function CGMChart({
   const plotY = (glucose: number) => chartValueToY(glucose, H);
 
   const now = Date.now();
-  const windowMs = RANGE_MS[timeRange];
-  const windowStart = now - windowMs;
+  const windowStart = isCalendarDay ? calendarDayWindow.startMs : now - RANGE_MS[timeRange];
+  const windowMs = isCalendarDay
+    ? Math.max(1, calendarDayWindow.endMs - calendarDayWindow.startMs)
+    : RANGE_MS[timeRange];
 
   const filtered = readings
-    .filter((r) => new Date(r.timestamp).getTime() >= windowStart)
+    .filter((r) => {
+      const t = new Date(r.timestamp).getTime();
+      return t >= windowStart && t < windowStart + windowMs;
+    })
     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   function handleRangePress(r: TimeRange) {
@@ -191,6 +208,17 @@ export function CGMChart({
   }
   const startTime = xLabel(0);
   const midTime = xLabel(windowMs / 2);
+  const calendarXLabels = useMemo(
+    () =>
+      isCalendarDay
+        ? buildCalendarDayXLabels(windowStart, windowMs, plotW)
+        : [],
+    [isCalendarDay, windowStart, windowMs, plotW],
+  );
+  const calendarMeridiem = useMemo(
+    () => (isCalendarDay ? calendarDayMeridiemPositions(plotW) : null),
+    [isCalendarDay, plotW],
+  );
 
   // Split into contiguous runs (gap breaks), preserving the discontinuity logic above.
   const runs: Pt[][] = [];
@@ -262,6 +290,7 @@ export function CGMChart({
 
   return (
     <View style={styles.wrapper}>
+      {showRangeSelector && (
       <View style={styles.topRow}>
         <View style={styles.segment}>
           {TIME_RANGES.map((r) => {
@@ -280,6 +309,7 @@ export function CGMChart({
         </View>
         <Text style={styles.unitLabel}>mg/dL</Text>
       </View>
+      )}
 
       <View style={[styles.chartRow, { height: H }]}>
         <Pressable
@@ -392,7 +422,9 @@ export function CGMChart({
 
           {filtered.length === 0 && (
             <View style={styles.emptyOverlay} pointerEvents="none">
-              <Text style={styles.emptyText}>No readings in this window</Text>
+              <Text style={styles.emptyText}>
+                {emptyMessage ?? (isCalendarDay ? "No glucose readings for this day" : "No readings in this window")}
+              </Text>
             </View>
           )}
         </Pressable>
@@ -413,11 +445,45 @@ export function CGMChart({
         </View>
       </View>
 
-      <View style={[styles.xAxis, { width: plotW }]}>
-        <Text style={styles.xLabel}>{startTime}</Text>
-        <Text style={styles.xLabel}>{midTime}</Text>
-        <Text style={styles.xLabel}>Now</Text>
-      </View>
+      {isCalendarDay && calendarMeridiem ? (
+        <View style={{ width: plotW }}>
+          <View style={[styles.xAxisCalendar, { width: plotW }]}>
+            {calendarXLabels.map((label) => {
+              const layout = calendarDayNumericLabelLayout(label.hour, label.x, plotW);
+              return (
+                <Text
+                  key={`x-${label.hour}`}
+                  style={[styles.xLabelCalendar, layout]}
+                  numberOfLines={1}
+                >
+                  {label.label}
+                </Text>
+              );
+            })}
+          </View>
+          <View style={[styles.xAxisMeridiem, { width: plotW }]}>
+            {(["AM", "PM"] as const).map((meridiem) => {
+              const centerX = meridiem === "AM" ? calendarMeridiem.amX : calendarMeridiem.pmX;
+              const layout = calendarDayMeridiemLabelLayout(centerX, plotW);
+              return (
+                <Text
+                  key={meridiem}
+                  style={[styles.xLabelCalendar, layout]}
+                  numberOfLines={1}
+                >
+                  {meridiem}
+                </Text>
+              );
+            })}
+          </View>
+        </View>
+      ) : !isCalendarDay ? (
+        <View style={[styles.xAxis, { width: plotW }]}>
+          <Text style={styles.xLabel}>{startTime}</Text>
+          <Text style={styles.xLabel}>{midTime}</Text>
+          <Text style={styles.xLabel}>Now</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -482,5 +548,23 @@ const makeStyles = (c: ThemeColors) => StyleSheet.create({
     marginTop: 8,
     paddingHorizontal: 2,
   },
+  xAxisCalendar: {
+    position: "relative",
+    height: 14,
+    marginTop: 8,
+  },
+  xAxisMeridiem: {
+    position: "relative",
+    height: 14,
+    marginTop: 4,
+    marginBottom: 2,
+  },
   xLabel: { fontSize: 10.5, fontWeight: T.font.regular, color: c.textMuted },
+  xLabelCalendar: {
+    position: "absolute",
+    fontSize: 8.5,
+    fontWeight: T.font.regular,
+    color: c.textMuted,
+    textAlign: "center",
+  },
 });
