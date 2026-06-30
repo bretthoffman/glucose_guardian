@@ -6,6 +6,9 @@ import {
   Text,
   View,
 } from "react-native";
+import { CgmChartCursorOverlay } from "@/components/CgmChartCursorOverlay";
+import { useCgmChartCursorGesture } from "@/hooks/useCgmChartCursorGesture";
+import { buildChartPlotPoints } from "@/utils/cgmChartCursor";
 import Svg, {
   Circle,
   ClipPath,
@@ -187,6 +190,21 @@ export function CGMChart({
     glucose: r.glucose,
   }));
 
+  const cursorPoints = useMemo(
+    () => buildChartPlotPoints(filtered, windowStart, windowMs, plotW, plotY),
+    [filtered, windowStart, windowMs, plotW, H],
+  );
+
+  const cursorResetKey = isCalendarDay
+    ? `${calendarDayWindow.startMs}-${filtered.length}`
+    : `${timeRange}-${filtered.length}`;
+
+  const { selectedPoint, panHandlers, touchHandlers } = useCgmChartCursorGesture({
+    points: cursorPoints,
+    onQuickTap: toggleDisplayMode,
+    resetKey: cursorResetKey,
+  });
+
   const gapAfterIndex: boolean[] = filtered.map((r, i) => {
     if (i >= filtered.length - 1) return false;
     const dt = new Date(filtered[i + 1].timestamp).getTime() - new Date(r.timestamp).getTime();
@@ -312,15 +330,16 @@ export function CGMChart({
       )}
 
       <View style={[styles.chartRow, { height: H }]}>
-        <Pressable
+        <View
           style={{ width: plotW, height: H }}
-          onPress={toggleDisplayMode}
+          {...panHandlers}
+          {...touchHandlers}
           accessibilityRole="button"
           accessibilityLabel="Glucose graph display"
           accessibilityHint={
             displayMode === "line"
-              ? "Double tap to show glucose readings as individual dots"
-              : "Double tap to connect glucose readings with a line"
+              ? "Tap to show glucose readings as individual dots. Touch and hold to inspect a reading."
+              : "Tap to connect glucose readings with a line. Touch and hold to inspect a reading."
           }
         >
           <Svg width={plotW} height={H}>
@@ -420,6 +439,17 @@ export function CGMChart({
             )}
           </Svg>
 
+          {selectedPoint && (
+            <CgmChartCursorOverlay
+              point={selectedPoint}
+              plotW={plotW}
+              plotH={H}
+              lowThreshold={lowThreshold}
+              highThreshold={highThreshold}
+              urgentHighThreshold={urgentHighThreshold}
+            />
+          )}
+
           {filtered.length === 0 && (
             <View style={styles.emptyOverlay} pointerEvents="none">
               <Text style={styles.emptyText}>
@@ -427,7 +457,7 @@ export function CGMChart({
               </Text>
             </View>
           )}
-        </Pressable>
+        </View>
 
         {/* y-axis on the right, matching the reference */}
         <View style={[styles.yAxis, { width: yAxisW, height: H }]}>

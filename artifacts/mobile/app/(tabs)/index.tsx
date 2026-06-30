@@ -23,7 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlucoseGauge } from "@/components/GlucoseGauge";
 import { mapDexcomTrend, trendFromDiff, type TrendInfo } from "@/utils/trend";
 import { bannerKindFromSyncStatus, cgmDiagnosticMessage } from "@/utils/cgmDiagnosticMessages";
-import { ReadingCard } from "@/components/ReadingCard";
+import { RecentReadingsSection } from "@/components/RecentReadingsSection";
 import { CGMChart } from "@/components/CGMChart";
 import { Surface } from "@/components/Surface";
 import { T, withAlpha } from "@/constants/theme";
@@ -1058,26 +1058,7 @@ export default function HomeScreen() {
           </Surface>
         )}
 
-        {/* Recent readings */}
-        <View style={styles.sectionTitleRow}>
-          <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Recent Readings</Text>
-        </View>
-        {recentHistory.length === 0 ? (
-          <Surface>
-            <View style={styles.emptyList}>
-              <Feather name="clipboard" size={22} color={c.textMuted} />
-              <Text style={[styles.emptyListText, { color: c.textMuted }]}>
-                {isConnected ? "Pull down to sync readings from your CGM" : "No readings yet. Connect a CGM to begin."}
-              </Text>
-            </View>
-          </Surface>
-        ) : (
-          <Surface padding={T.space.lg}>
-            {recentHistory.map((entry, i) => (
-              <ReadingCard key={i} entry={entry} last={i === recentHistory.length - 1} />
-            ))}
-          </Surface>
-        )}
+        <RecentReadingsSection entries={recentHistory} isConnected={isConnected} />
       </Animated.ScrollView>
     </View>
   );
@@ -1147,10 +1128,4 @@ const styles = StyleSheet.create({
   emergencyList: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   emergencyBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10 },
   emergencyBtnText: { fontSize: 13, fontWeight: T.font.semibold, color: "#fff" },
-
-  sectionTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12, marginTop: 4 },
-  sectionTitle: { fontSize: 18, fontWeight: T.font.bold, letterSpacing: -0.2 },
-
-  emptyList: { padding: 12, alignItems: "center", gap: 10 },
-  emptyListText: { fontSize: 14, fontWeight: T.font.regular, textAlign: "center", lineHeight: 20 },
 });

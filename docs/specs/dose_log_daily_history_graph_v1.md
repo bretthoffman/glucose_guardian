@@ -51,6 +51,78 @@ All rendering math (Y mapping, line/dot modes, gap breaks, shading, thresholds, 
 
 **Graph mode persistence:** Shared `@glucose_guardian_graph_display_mode` AsyncStorage key — tap toggles line/dots on both Home and Log graphs.
 
+## Shared long-press data cursor (Home + Log)
+
+Both Home rolling-window graphs and Log calendar-day graphs share one interaction implementation in `CGMChart` — no duplicate gesture logic per screen.
+
+### Architecture
+
+| Layer | File | Role |
+|-------|------|------|
+| Plot points | `utils/cgmChartCursor.ts` | `buildChartPlotPoints` — filtered readings with plot `x`, `y`, `glucose`, `timestamp` |
+| Nearest reading | `utils/cgmChartCursor.ts` | `nearestReadingIndex` — binary search on sorted X positions |
+| Gesture | `hooks/useCgmChartCursorGesture.ts` | Long-press timer, quick-tap vs hold, PanResponder for active drag |
+| Overlay | `components/CgmChartCursorOverlay.tsx` | Vertical guide, selected-point marker, floating readout |
+
+### Activation gesture
+
+- **Quick tap** (`< 250 ms`, movement `< 12 px`): toggles line/dot mode (unchanged persistence).
+- **Touch and hold** (`350 ms`): activates cursor; does **not** toggle mode.
+- **Hold + horizontal drag**: moves between readings; does not toggle mode.
+- **Vertical scroll intent** (`> 14 px` before activation): cancels long-press timer so parent `ScrollView` can scroll.
+- **Release / cancel / background / range-day change / unmount**: hides cursor and readout; suppresses delayed tap after cursor use.
+
+Uses React Native `PanResponder` + view `onTouch*` handlers (no new native dependency).
+
+### Nearest-reading snapping
+
+1. Finger X → `nearestReadingIndex` on pre-sorted plot X values (binary search).
+2. Cursor snaps to that reading’s actual `x` coordinate.
+3. Readout shows stored `glucose` and `timestamp` — **no interpolation** between points.
+4. Empty graph: long-press is a no-op (no fabricated cursor).
+
+### Cursor rendering
+
+- SVG vertical line spanning plot height (`textMuted`, 1px, 85% opacity).
+- Temporary selected-point marker (halo + center dot) at exact reading coordinate; does not alter permanent latest-point marker.
+- Overlay is `pointerEvents="none"` — does not block gestures.
+
+### Floating readout
+
+- Compact card near top of plot: glucose value + local time (e.g. `167 mg/dL` / `2:15 PM`).
+- **Vertical placement:** `chartCursorTooltipTop` — stable Y derived from chart value 350 (between 300–400 grid band).
+- **Horizontal placement:** `chartCursorTooltipLeft` — centers on cursor with 4px inset clamping so text stays inside plot and off right-axis labels.
+
+### Scope
+
+| Graph | Selectable readings |
+|-------|---------------------|
+| Home 3H / 6H / 12H / 24H | Filtered rolling window only; range change resets cursor |
+| Log selected day | Local midnight inclusive → next midnight exclusive; day change resets cursor |
+
+Log tooltip shows **time only** contextually (date is above graph); Home shows full local time — both use `formatChartCursorTime`.
+
+### Line vs dot mode
+
+Identical snapping — both modes use the same underlying plot points (line segments connect these coordinates; dots render at the same locations).
+
+### Performance
+
+- Sorted X array memoized with plot points.
+- Binary search per move (not full scan).
+- `setSelectedIndex` only when nearest index changes during drag.
+- No backend queries or persistence during cursor use.
+
+### Accessibility
+
+- Graph accessibility hint mentions touch-and-hold to inspect readings.
+- No per-point VoiceOver spam while dragging.
+- Existing reading lists (Home Recent Readings, etc.) remain available for non-touch inspection.
+
+### Tests
+
+`artifacts/mobile/utils/cgmChartCursor.test.ts` — snapping, gesture thresholds, tooltip clamping, scope helpers, empty/single-reading edge cases.
+
 ## Fixed 24-hour domain
 
 - Domain: **selected local midnight inclusive → next local midnight exclusive**.
@@ -137,7 +209,10 @@ Preserved below food in an **Insulin Log** section when entries exist (device-lo
 | `artifacts/mobile/utils/logDayEntries.ts` | Food/insulin day filters |
 | `convex/patientGlucose.ts` | Day-range queries |
 | `convex/patientGlucose.test.ts` | Query tests |
-| `artifacts/mobile/utils/*.test.ts` | Boundary/axis/food tests |
+| `artifacts/mobile/utils/*.test.ts` | Boundary/axis/food/cursor tests |
+| `artifacts/mobile/utils/cgmChartCursor.ts` | Shared cursor plot points + nearest-reading + tooltip layout |
+| `artifacts/mobile/hooks/useCgmChartCursorGesture.ts` | Long-press / tap gesture controller |
+| `artifacts/mobile/components/CgmChartCursorOverlay.tsx` | Vertical cursor + readout overlay |
 
 ## Pre-existing unrelated changes (preserved)
 
@@ -150,6 +225,7 @@ Preserved below food in an **Insulin Log** section when entries exist (device-lo
 - `calendarDayXAxis.test.ts` — two-hour label sequence and edge positions
 - `logDayEntries.test.ts` — food day filtering
 - `patientGlucose.test.ts` — Convex day-range inclusive/exclusive + auth
+- `cgmChartCursor.test.ts` — long-press cursor snapping, gesture thresholds, tooltip layout
 - Existing `cgmChartAxis.test.ts` — Home axis parity unchanged
 
 ## Deployment requirements

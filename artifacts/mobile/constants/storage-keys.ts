@@ -13,3 +13,9 @@ export const THEME_PREFERENCE_STORAGE_KEY = "@glucose_guardian_theme_preference"
  * and NEVER cleared on sign-out — same persistence model as appearance preferences.
  */
 export const GLUCOSE_GRAPH_DISPLAY_MODE_STORAGE_KEY = "@glucose_guardian_graph_display_mode";
+
+/**
+ * Device-local Home Recent Readings expand/collapse ("true" | "false"). Intentionally NOT account-scoped
+ * and NEVER cleared on sign-out — same persistence model as appearance and graph display preferences.
+ */
+export const HOME_RECENT_READINGS_EXPANDED_STORAGE_KEY = "@glucose_guardian_home_recent_readings_expanded";

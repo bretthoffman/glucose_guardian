@@ -54,7 +54,6 @@ export function ReadingCard({ entry, last }: Props) {
         </View>
       )}
       <Text style={[styles.time, { color: c.textSecondary }]}>{formatTime(entry.timestamp)}</Text>
-      <Feather name="chevron-right" size={16} color={c.textMuted} />
     </View>
   );
 }
@@ -81,5 +80,5 @@ const makeStyles = (c: ThemeColors) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  time: { fontSize: 12.5, fontWeight: T.font.medium },
+  time: { fontSize: 12.5, fontWeight: T.font.medium, marginLeft: "auto" },
 });
