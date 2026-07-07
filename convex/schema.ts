@@ -35,6 +35,29 @@ const alertPreferences = v.object({
   urgentHighThreshold: v.optional(v.number()),
 });
 
+/**
+ * A doctor-proposed treatment-setting change awaiting caregiver confirmation. At most one is
+ * pending per access code (`doctorPortalState.therapyProposal`). Built server-side (api-server)
+ * from the doctor's authenticated identity — never trusted from the mobile app.
+ */
+const therapyProposal = v.object({
+  id: v.string(),
+  proposedAt: v.string(),
+  proposedByDoctorId: v.string(),
+  proposedByName: v.string(),
+  note: v.string(),
+  carbRatio: v.optional(v.number()),
+  correctionFactor: v.optional(v.number()),
+  targetGlucose: v.optional(v.number()),
+});
+
+/** The caregiver's decision on the most recent proposal (surfaced back to the doctor portal). */
+const therapyDecision = v.object({
+  proposalId: v.string(),
+  status: v.union(v.literal("approved"), v.literal("declined")),
+  decidedAt: v.string(),
+});
+
 /** Patient app accounts (email + legacy client hash). Source of truth for signup/signin. */
 const users = defineTable({
   email: v.string(),
@@ -262,6 +285,10 @@ export default defineSchema({
     insulinLog: v.optional(v.array(v.any())),
     foodLog: v.optional(v.array(v.any())),
     alertPreferences: v.optional(alertPreferences),
+    /** A doctor-proposed change awaiting caregiver confirmation (cleared once decided). */
+    therapyProposal: v.optional(therapyProposal),
+    /** Outcome of the most recent proposal, shown back to the doctor portal. */
+    therapyDecision: v.optional(therapyDecision),
     syncedAt: v.optional(v.string()),
   }).index("by_accessCode", ["accessCode"]),
 });

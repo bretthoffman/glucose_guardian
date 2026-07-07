@@ -32,6 +32,46 @@ interface DoctorMessage {
   read: boolean;
 }
 
+/** A doctor-proposed treatment-setting change awaiting caregiver confirmation. */
+interface ServerTherapyProposal {
+  id: string;
+  proposedAt: string;
+  proposedByDoctorId: string;
+  proposedByName: string;
+  note: string;
+  carbRatio?: number;
+  correctionFactor?: number;
+  targetGlucose?: number;
+}
+
+interface ServerTherapyDecision {
+  proposalId: string;
+  status: "approved" | "declined";
+  decidedAt: string;
+}
+
+/**
+ * Clinical sanity guards on proposed settings — flags implausible values before they reach a
+ * caregiver's approval card. Returns an error string, or null when all provided values are sane.
+ */
+function validateTherapyRanges(changes: {
+  carbRatio?: number;
+  correctionFactor?: number;
+  targetGlucose?: number;
+}): string | null {
+  const { carbRatio, correctionFactor, targetGlucose } = changes;
+  if (carbRatio != null && (carbRatio < 1 || carbRatio > 150)) {
+    return "carbRatio is out of range (1–150 g/unit)";
+  }
+  if (correctionFactor != null && (correctionFactor < 1 || correctionFactor > 200)) {
+    return "correctionFactor is out of range (1–200 mg/dL per unit)";
+  }
+  if (targetGlucose != null && (targetGlucose < 70 || targetGlucose > 200)) {
+    return "targetGlucose is out of range (70–200 mg/dL)";
+  }
+  return null;
+}
+
 interface PatientSnapshot {
   accessCode: string;
   profile: {
@@ -77,6 +117,10 @@ interface PatientSnapshot {
 // ─── Legacy in-memory store (when Convex env is not configured) ─────────────
 const patientStore = new Map<string, PatientSnapshot>();
 const messagesStore = new Map<string, DoctorMessage[]>();
+const orderStore = new Map<
+  string,
+  { proposal: ServerTherapyProposal | null; decision: ServerTherapyDecision | null }
+>();
 
 function generateDemoReadings() {
   const readings: { value: number; trend: string; timestamp: string }[] = [];
@@ -171,6 +215,8 @@ type ConvexDoctorDoc = {
   insulinLog?: PatientSnapshot["insulinLog"];
   foodLog?: PatientSnapshot["foodLog"];
   alertPreferences?: PatientSnapshot["alertPreferences"];
+  therapyProposal?: ServerTherapyProposal | null;
+  therapyDecision?: ServerTherapyDecision | null;
   syncedAt?: string;
 };
 
@@ -503,7 +549,15 @@ router.post("/sync", (req, res) => {
           syncedAt: new Date().toISOString(),
         });
 
-        res.json({ success: true, message: "Sync successful" });
+        // Return the merged thread + any pending proposal so the caregiver app pulls doctor
+        // messages and treatment proposals down on its next sync.
+        res.json({
+          success: true,
+          message: "Sync successful",
+          messages: merged,
+          therapyProposal: existingDoc?.therapyProposal ?? null,
+          therapyDecision: existingDoc?.therapyDecision ?? null,
+        });
         return;
       }
 
@@ -517,7 +571,14 @@ router.post("/sync", (req, res) => {
       messagesStore.set(code, merged);
       patientStore.set(code, { ...body, accessCode: code, messages: merged, syncedAt: new Date().toISOString() });
 
-      res.json({ success: true, message: "Sync successful" });
+      const order = orderStore.get(code);
+      res.json({
+        success: true,
+        message: "Sync successful",
+        messages: merged,
+        therapyProposal: order?.proposal ?? null,
+        therapyDecision: order?.decision ?? null,
+      });
     } catch (e) {
       console.error("[doctor] /sync", e);
       res.status(500).json({ error: "Doctor service error" });
@@ -549,7 +610,12 @@ router.get(
           return;
         }
         const messages = doc?.messages ?? snapshot.messages ?? [];
-        res.json({ ...snapshot, messages });
+        res.json({
+          ...snapshot,
+          messages,
+          therapyProposal: doc?.therapyProposal ?? null,
+          therapyDecision: doc?.therapyDecision ?? null,
+        });
         return;
       }
 
@@ -559,7 +625,13 @@ router.get(
         return;
       }
       const messages = messagesStore.get(code) ?? snapshot.messages ?? [];
-      res.json({ ...snapshot, messages });
+      const order = orderStore.get(code);
+      res.json({
+        ...snapshot,
+        messages,
+        therapyProposal: order?.proposal ?? null,
+        therapyDecision: order?.decision ?? null,
+      });
     } catch (e) {
       console.error("[doctor] GET /patient", e);
       res.status(500).json({ error: "Doctor service error" });
@@ -653,5 +725,161 @@ router.post(
   })();
   },
 );
+
+// ─── Treatment proposals ("propose change") ─────────────────────────────────
+
+// Doctor proposes a treatment-setting change. Stored server-side and surfaced to the caregiver
+// app as an approval card on its next sync; it takes effect only after the caregiver confirms.
+router.post(
+  "/patient/:accessCode/orders",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+  void (async () => {
+    try {
+      const authed = req as DoctorAuthedRequest;
+      const code =
+        authed.doctorAccessCode ??
+        normalizeDoctorAccessCode(routeParam(req.params.accessCode));
+      const { carbRatio, correctionFactor, targetGlucose, note } = req.body as {
+        carbRatio?: number;
+        correctionFactor?: number;
+        targetGlucose?: number;
+        note?: string;
+      };
+
+      const changes = { carbRatio, correctionFactor, targetGlucose };
+      const hasChange = [carbRatio, correctionFactor, targetGlucose].some(
+        (val) => typeof val === "number" && Number.isFinite(val),
+      );
+      if (!hasChange) {
+        res.status(400).json({
+          error: "At least one of carbRatio, correctionFactor, or targetGlucose is required",
+        });
+        return;
+      }
+      const rangeError = validateTherapyRanges(changes);
+      if (rangeError) {
+        res.status(400).json({ error: rangeError });
+        return;
+      }
+
+      // Resolve the doctor's display name for the caregiver-facing card. Never trust the client.
+      let proposedByName = "Your care team";
+      try {
+        const accountsClient = createConvexDoctorAccountsClient();
+        const doctor = await accountsClient.query(api.doctorAccounts.getById, {
+          serverSecret: getConvexDoctorApiSecret(),
+          doctorId: asDoctorId(authed.doctorId),
+        });
+        if (doctor?.displayName) proposedByName = doctor.displayName;
+      } catch (e) {
+        console.warn("[doctor] could not resolve proposing doctor name:", e);
+      }
+
+      const proposal: ServerTherapyProposal = {
+        id: `ord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        proposedAt: new Date().toISOString(),
+        proposedByDoctorId: authed.doctorId,
+        proposedByName,
+        note: (note ?? "").trim(),
+        ...(typeof carbRatio === "number" ? { carbRatio } : {}),
+        ...(typeof correctionFactor === "number" ? { correctionFactor } : {}),
+        ...(typeof targetGlucose === "number" ? { targetGlucose } : {}),
+      };
+
+      if (isConvexDoctorConfigured()) {
+        const client = createConvexDoctorHttpClient();
+        try {
+          await client.mutation(api.doctor.proposeOrder, {
+            serverSecret: getConvexDoctorIngestSecret(),
+            accessCode: code,
+            proposal,
+          });
+        } catch (e) {
+          const message = e instanceof Error ? e.message : "";
+          if (message.includes("PENDING_PROPOSAL_EXISTS")) {
+            res.status(409).json({
+              error: "A change is already awaiting caregiver confirmation.",
+            });
+            return;
+          }
+          throw e;
+        }
+        res.status(201).json(proposal);
+        return;
+      }
+
+      // Legacy in-memory path (local dev without Convex).
+      const order = orderStore.get(code) ?? { proposal: null, decision: null };
+      if (order.proposal) {
+        res.status(409).json({ error: "A change is already awaiting caregiver confirmation." });
+        return;
+      }
+      order.proposal = proposal;
+      order.decision = null;
+      orderStore.set(code, order);
+      res.status(201).json(proposal);
+    } catch (e) {
+      console.error("[doctor] POST /patient/:accessCode/orders", e);
+      res.status(500).json({ error: "Doctor service error" });
+    }
+  })();
+  },
+);
+
+// Caregiver app records its decision on the pending proposal. App-facing (gated by the access
+// code in the body, like /sync) — not a doctor-authed route.
+router.post("/order-decision", (req, res) => {
+  void (async () => {
+    try {
+      const { accessCode, proposalId, status } = req.body as {
+        accessCode?: string;
+        proposalId?: string;
+        status?: "approved" | "declined";
+      };
+      if (
+        !accessCode?.trim() ||
+        !proposalId?.trim() ||
+        (status !== "approved" && status !== "declined")
+      ) {
+        res.status(400).json({
+          error: "accessCode, proposalId, and status (approved|declined) are required",
+        });
+        return;
+      }
+      const code = normalizeDoctorAccessCode(accessCode);
+
+      if (isConvexDoctorConfigured()) {
+        const client = createConvexDoctorHttpClient();
+        const result = await client.mutation(api.doctor.decideOrder, {
+          serverSecret: getConvexDoctorIngestSecret(),
+          accessCode: code,
+          proposalId,
+          status,
+        });
+        res.json({ success: true, ...result });
+        return;
+      }
+
+      const order = orderStore.get(code);
+      if (order?.proposal?.id === proposalId) {
+        order.decision = { proposalId, status, decidedAt: new Date().toISOString() };
+        order.proposal = null;
+        orderStore.set(code, order);
+        res.json({ success: true, applied: true, decision: order.decision });
+        return;
+      }
+      res.json({
+        success: true,
+        applied: false,
+        alreadyDecided: order?.decision?.proposalId === proposalId,
+      });
+    } catch (e) {
+      console.error("[doctor] POST /order-decision", e);
+      res.status(500).json({ error: "Doctor service error" });
+    }
+  })();
+});
 
 export default router;

@@ -23,6 +23,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TrendChart } from "@/components/TrendChart";
 import ProfileChip from "@/components/ProfileChip";
+import TreatmentProposalCard from "@/components/TreatmentProposalCard";
 import { SettingsModal } from "@/components/SettingsModal";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DashboardSectionCard } from "@/components/DashboardSectionCard";
@@ -796,6 +797,8 @@ export default function DashboardScreen() {
             />
           </View>
         </View>
+
+        {!isGuarded && <TreatmentProposalCard />}
 
         {caregiverSession && (
           <View style={[styles.modeBanner, { backgroundColor: COLORS.accent + "15", borderColor: COLORS.accent + "35" }]}>

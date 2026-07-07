@@ -35,6 +35,23 @@ const alertPreferences = v.object({
   urgentHighThreshold: v.optional(v.number()),
 });
 
+const therapyProposal = v.object({
+  id: v.string(),
+  proposedAt: v.string(),
+  proposedByDoctorId: v.string(),
+  proposedByName: v.string(),
+  note: v.string(),
+  carbRatio: v.optional(v.number()),
+  correctionFactor: v.optional(v.number()),
+  targetGlucose: v.optional(v.number()),
+});
+
+const therapyDecision = v.object({
+  proposalId: v.string(),
+  status: v.union(v.literal("approved"), v.literal("declined")),
+  decidedAt: v.string(),
+});
+
 function requireIngestSecret(provided: string) {
   const expected = process.env.CONVEX_DOCTOR_INGEST_SECRET;
   if (!expected || provided !== expected) {
@@ -109,6 +126,10 @@ export const upsertFromSync = mutation({
       insulinLog: rest.insulinLog,
       foodLog: rest.foodLog,
       alertPreferences: rest.alertPreferences,
+      // Preserve doctor-owned proposal/decision state — a patient sync must never clobber a
+      // pending treatment proposal or the caregiver's last decision.
+      therapyProposal: existing?.therapyProposal,
+      therapyDecision: existing?.therapyDecision,
       syncedAt: rest.syncedAt,
     };
     if (existing) {
@@ -141,6 +162,8 @@ export const appendMessage = mutation({
         insulinLog: existing.insulinLog,
         foodLog: existing.foodLog,
         alertPreferences: existing.alertPreferences,
+        therapyProposal: existing.therapyProposal,
+        therapyDecision: existing.therapyDecision,
         syncedAt: existing.syncedAt,
       });
     } else {
@@ -149,6 +172,82 @@ export const appendMessage = mutation({
         messages: [args.message],
       });
     }
+  },
+});
+
+/**
+ * Store a doctor-proposed treatment change. At most one proposal may be pending per access code;
+ * a second proposal while one is still awaiting a caregiver decision throws so the api-server can
+ * return HTTP 409. Creating a new proposal clears any stale prior decision.
+ */
+export const proposeOrder = mutation({
+  args: {
+    serverSecret: v.string(),
+    accessCode: v.string(),
+    proposal: therapyProposal,
+  },
+  handler: async (ctx, args) => {
+    requireIngestSecret(args.serverSecret);
+    const existing = await ctx.db
+      .query("doctorPortalState")
+      .withIndex("by_accessCode", (q) => q.eq("accessCode", args.accessCode))
+      .unique();
+
+    if (existing?.therapyProposal) {
+      throw new Error("PENDING_PROPOSAL_EXISTS");
+    }
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        therapyProposal: args.proposal,
+        therapyDecision: undefined,
+      });
+    } else {
+      await ctx.db.insert("doctorPortalState", {
+        accessCode: args.accessCode,
+        messages: [],
+        therapyProposal: args.proposal,
+      });
+    }
+
+    return args.proposal;
+  },
+});
+
+/**
+ * Record the caregiver's decision on the pending proposal. Idempotent: matches on `proposalId`,
+ * so a duplicate submit (e.g. double-tap or a retry) is a no-op. Clears the pending proposal and
+ * stamps the outcome for the doctor portal to read.
+ */
+export const decideOrder = mutation({
+  args: {
+    serverSecret: v.string(),
+    accessCode: v.string(),
+    proposalId: v.string(),
+    status: v.union(v.literal("approved"), v.literal("declined")),
+  },
+  handler: async (ctx, args) => {
+    requireIngestSecret(args.serverSecret);
+    const existing = await ctx.db
+      .query("doctorPortalState")
+      .withIndex("by_accessCode", (q) => q.eq("accessCode", args.accessCode))
+      .unique();
+
+    if (!existing || existing.therapyProposal?.id !== args.proposalId) {
+      const alreadyDecided = existing?.therapyDecision?.proposalId === args.proposalId;
+      return { applied: false as const, alreadyDecided };
+    }
+
+    const decision = {
+      proposalId: args.proposalId,
+      status: args.status,
+      decidedAt: new Date().toISOString(),
+    };
+    await ctx.db.patch(existing._id, {
+      therapyProposal: undefined,
+      therapyDecision: decision,
+    });
+    return { applied: true as const, decision };
   },
 });
 

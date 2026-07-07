@@ -126,6 +126,39 @@ export async function scheduleGlucoseAlert(params: {
   });
 }
 
+export async function scheduleDoctorMessageNotification(params: {
+  doctorName?: string;
+  count: number;
+  preview: string;
+}) {
+  if (isWeb) return;
+  const { doctorName, count, preview } = params;
+  const from = doctorName?.trim() ? doctorName.trim() : "your care team";
+  const title = count > 1 ? `${count} new messages from ${from}` : `New message from ${from}`;
+  const body = preview.trim().length > 0 ? preview.trim() : "Tap to read in Glucose Guardian.";
+  await Notifications.scheduleNotificationAsync({
+    content: { title, body, data: { kind: "doctor_message" }, sound: true },
+    trigger: null,
+  });
+}
+
+export async function scheduleTreatmentProposalNotification(params: {
+  doctorName?: string;
+  summary: string;
+}) {
+  if (isWeb) return;
+  const from = params.doctorName?.trim() ? params.doctorName.trim() : "Your care team";
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: `${from} proposed a treatment change`,
+      body: `${params.summary} — review and approve in the app.`,
+      data: { kind: "treatment_proposal" },
+      sound: true,
+    },
+    trigger: null,
+  });
+}
+
 function buildNotificationPrompt(
   data: Record<string, unknown>,
   actionIdentifier: string,
@@ -168,11 +201,23 @@ export function handleNotificationResponse(
   // DISMISS: do nothing
   if (actionIdentifier === "DISMISS") return;
 
+  const data = (response.notification.request.content.data ?? {}) as Record<string, unknown>;
+  const kind = typeof data.kind === "string" ? data.kind : null;
+
+  // Doctor-comms notifications open the relevant screen rather than the AI chat.
+  if (kind === "doctor_message") {
+    router.push("/(tabs)/chat");
+    return;
+  }
+  if (kind === "treatment_proposal") {
+    router.push("/(tabs)/dashboard");
+    return;
+  }
+
   if (
     actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER ||
     actionIdentifier === "REPLY"
   ) {
-    const data = (response.notification.request.content.data ?? {}) as Record<string, unknown>;
     const prompt = buildNotificationPrompt(data, actionIdentifier, userText);
     const params: Record<string, string> = {
       fromNotification: "true",

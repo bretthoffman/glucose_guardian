@@ -11,6 +11,16 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY } from "@/constants/storage-keys";
 import { apiUrl } from "@/utils/api-base-url";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
+import {
+  mergeDoctorMessages,
+  reconcileTherapyProposal,
+  summarizeProposal,
+  type TherapyProposal,
+} from "@/utils/doctorSync";
+import {
+  scheduleDoctorMessageNotification,
+  scheduleTreatmentProposalNotification,
+} from "@/services/notifications";
 
 export type AccountRole = "parent" | "adult";
 
@@ -172,6 +182,14 @@ export interface AuthContextType {
   addDoctorMessage: (text: string, sender: "doctor" | "guardian") => void;
   markDoctorMessagesRead: () => void;
   syncToDoctor: (glucoseReadings?: { value: number; trend: string; timestamp: string }[]) => Promise<void>;
+  /** A doctor-proposed treatment change awaiting the caregiver's confirmation (null when none). */
+  therapyProposal: TherapyProposal | null;
+  /**
+   * Record the caregiver's decision on the pending proposal. Clears it locally and notifies the
+   * backend. NOTE: applying approved settings to live dosing is done by the caller (it needs
+   * GlucoseContext), see TreatmentProposalCard.
+   */
+  decideTherapyProposal: (status: "approved" | "declined") => Promise<void>;
   /** When set, glucose is loaded read-only from Convex using this caregiver code (standalone caregiver device). */
   caregiverCloudCode: string | null;
 }
@@ -189,6 +207,7 @@ const GUARDIAN_PIN_KEY = "@gluco_guardian_pin";
 const ACCOUNT_KEY = "@gluco_guardian_account";
 const SESSION_KEY = "@gluco_guardian_session";
 const DOCTOR_MESSAGES_KEY = "@gluco_guardian_doctor_messages";
+const THERAPY_PROPOSAL_KEY = "@gluco_guardian_therapy_proposal";
 
 const DEFAULT_ALERT_PREFS: AlertPreferences = {
   notificationsEnabled: false,
@@ -283,6 +302,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [doctorSession, setDoctorSession] = useState(false);
   const [caregiverCloudCode, setCaregiverCloudCode] = useState<string | null>(null);
   const [doctorMessages, setDoctorMessages] = useState<DoctorMessage[]>([]);
+  const [therapyProposal, setTherapyProposal] = useState<TherapyProposal | null>(null);
 
   const profileRef = useRef(profile);
   const accountRef = useRef<UserAccount | null>(null);
@@ -291,6 +311,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const foodLogRef = useRef(foodLog);
   const alertPrefsRef = useRef(alertPrefs);
   const doctorMessagesRef = useRef(doctorMessages);
+  const therapyProposalRef = useRef(therapyProposal);
+  /** Id of a proposal the caregiver just decided, so a racing sync poll can't resurrect it. */
+  const recentlyDecidedProposalIdRef = useRef<string | null>(null);
   useEffect(() => { profileRef.current = profile; }, [profile]);
   useEffect(() => { accountRef.current = account; }, [account]);
   useEffect(() => { caregiverCloudCodeRef.current = caregiverCloudCode; }, [caregiverCloudCode]);
@@ -298,6 +321,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { foodLogRef.current = foodLog; }, [foodLog]);
   useEffect(() => { alertPrefsRef.current = alertPrefs; }, [alertPrefs]);
   useEffect(() => { doctorMessagesRef.current = doctorMessages; }, [doctorMessages]);
+  useEffect(() => { therapyProposalRef.current = therapyProposal; }, [therapyProposal]);
 
   const refreshGuardianPinStatus = useCallback(async () => {
     const acc = accountRef.current;
@@ -482,6 +506,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           storedAccount,
           storedSession,
           storedDoctorMessages,
+          storedTherapyProposal,
         ] = await Promise.all([
           AsyncStorage.getItem(PROFILE_KEY),
           AsyncStorage.getItem(CGM_KEY),
@@ -493,6 +518,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(ACCOUNT_KEY),
           AsyncStorage.getItem(SESSION_KEY),
           AsyncStorage.getItem(DOCTOR_MESSAGES_KEY),
+          AsyncStorage.getItem(THERAPY_PROPOSAL_KEY),
         ]);
 
         if (storedSession === "true" && !storedAccount) {
@@ -526,6 +552,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (storedAlertPrefs) setAlertPrefsState({ ...DEFAULT_ALERT_PREFS, ...JSON.parse(storedAlertPrefs) });
         if (storedPin) setLegacyLocalPinPresent(true);
         if (storedDoctorMessages) setDoctorMessages(JSON.parse(storedDoctorMessages));
+        if (storedTherapyProposal) {
+          try { setTherapyProposal(JSON.parse(storedTherapyProposal) as TherapyProposal); } catch { /* ignore corrupt proposal */ }
+        }
 
         if (storedAccount) {
           let acc: UserAccount;
@@ -1022,6 +1051,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  /**
+   * Apply the doctor-sync response: pull down the merged message thread and any pending treatment
+   * proposal, persist them, and fire a local notification for anything genuinely new (recent).
+   */
+  const ingestDoctorSyncResponse = useCallback(
+    (data: { messages?: DoctorMessage[]; therapyProposal?: TherapyProposal | null }) => {
+      const RECENT_MS = 15 * 60 * 1000;
+      const isRecent = (iso: string) => {
+        const t = new Date(iso).getTime();
+        return Number.isFinite(t) && Date.now() - t < RECENT_MS;
+      };
+
+      // 1) Merge the doctor↔caregiver thread (server holds both sides; device owns `read`).
+      if (Array.isArray(data.messages)) {
+        const prev = doctorMessagesRef.current;
+        const { merged, newDoctorMessages } = mergeDoctorMessages(prev, data.messages);
+        const changed =
+          merged.length !== prev.length ||
+          merged.some(
+            (m, i) => prev[i]?.id !== m.id || prev[i]?.read !== m.read || prev[i]?.text !== m.text,
+          );
+        if (changed) {
+          doctorMessagesRef.current = merged;
+          setDoctorMessages(merged);
+          AsyncStorage.setItem(DOCTOR_MESSAGES_KEY, JSON.stringify(merged)).catch(() => {});
+        }
+        const freshDoctorMsgs = newDoctorMessages.filter((m) => isRecent(m.timestamp));
+        if (freshDoctorMsgs.length > 0) {
+          scheduleDoctorMessageNotification({
+            doctorName: profileRef.current?.doctorName,
+            count: freshDoctorMsgs.length,
+            preview: freshDoctorMsgs[freshDoctorMsgs.length - 1]?.text ?? "",
+          }).catch(() => {});
+        }
+      }
+
+      // 2) Reconcile a doctor-proposed treatment change (the caregiver's approval card). Only act
+      // when the server actually reported the field — the new api-server always includes it
+      // (null or an object); an older deployment omits it, and we must not clear a local proposal
+      // just because a stale server didn't mention it.
+      if (data.therapyProposal !== undefined) {
+        const incomingProposal = data.therapyProposal as TherapyProposal | null;
+        const { next, isNew } = reconcileTherapyProposal(
+          therapyProposalRef.current,
+          incomingProposal,
+          recentlyDecidedProposalIdRef.current,
+        );
+        if ((next?.id ?? null) !== (therapyProposalRef.current?.id ?? null)) {
+          therapyProposalRef.current = next;
+          setTherapyProposal(next);
+          if (next) AsyncStorage.setItem(THERAPY_PROPOSAL_KEY, JSON.stringify(next)).catch(() => {});
+          else AsyncStorage.removeItem(THERAPY_PROPOSAL_KEY).catch(() => {});
+        }
+        if (isNew && next && isRecent(next.proposedAt)) {
+          scheduleTreatmentProposalNotification({
+            doctorName: next.proposedByName,
+            summary: summarizeProposal(next),
+          }).catch(() => {});
+        }
+      }
+    },
+    [],
+  );
+
   const syncToDoctor = useCallback(async (
     glucoseReadings: { value: number; trend: string; timestamp: string }[] = [],
   ) => {
@@ -1058,12 +1151,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
         syncedAt: new Date().toISOString(),
       };
-      await fetch(apiUrl("/api/doctor/sync"), {
+      const res = await fetch(apiUrl("/api/doctor/sync"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(snapshot),
       });
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        messages?: DoctorMessage[];
+        therapyProposal?: TherapyProposal | null;
+      };
+      ingestDoctorSyncResponse(data);
     } catch {}
+  }, [ingestDoctorSyncResponse]);
+
+  /**
+   * Record the caregiver's decision on the pending proposal. Clears it locally immediately and
+   * posts to the backend; the decision is stored server-side independently of the next full sync,
+   * so the doctor portal reflects approved/declined right away. Applying approved settings to live
+   * dosing is the caller's job (see TreatmentProposalCard) because it needs GlucoseContext.
+   */
+  const decideTherapyProposal = useCallback(async (status: "approved" | "declined") => {
+    const p = therapyProposalRef.current;
+    if (!p) return;
+    const code = profileRef.current?.doctorCode?.toUpperCase();
+    recentlyDecidedProposalIdRef.current = p.id;
+    therapyProposalRef.current = null;
+    setTherapyProposal(null);
+    AsyncStorage.removeItem(THERAPY_PROPOSAL_KEY).catch(() => {});
+    if (!code) return;
+    try {
+      await fetch(apiUrl("/api/doctor/order-decision"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessCode: code, proposalId: p.id, status }),
+      });
+    } catch {
+      /* best-effort — the local decision stands; the portal reflects it on next successful POST */
+    }
   }, []);
 
   const isChildMode = !!(profile?.childModeEnabled || caregiverSession);
@@ -1122,6 +1247,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         addDoctorMessage,
         markDoctorMessagesRead,
         syncToDoctor,
+        therapyProposal,
+        decideTherapyProposal,
       }}
     >
       {children}
