@@ -712,8 +712,41 @@ router.get(
           return;
         }
         const messages = doc?.messages ?? snapshot.messages ?? [];
+        // Freshness overlay: the snapshot only updates when the patient's phone pushes (every
+        // 2 min while the app's dashboard is open), but the server-side CGM ingestion cron pulls
+        // from Dexcom/Libre every minute into the durable store. Merge the last 24h of durable
+        // readings so the portal shows current glucose even when the phone hasn't synced.
+        let glucoseReadings = snapshot.glucoseReadings ?? [];
+        try {
+          if (isConvexDoctorAccountsConfigured()) {
+            const accountsClient = createConvexDoctorAccountsClient();
+            const fresh = (await accountsClient.query(api.doctorAccounts.getGlucoseHistory, {
+              serverSecret: getConvexDoctorApiSecret(),
+              accessCode: code,
+              fromTimestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+              toTimestamp: new Date().toISOString(),
+            })) as { readings: { value: number; trend: string; timestamp: string }[] };
+            if (fresh?.readings?.length) {
+              // Dedupe to the minute — the phone and the ingestion pipeline can carry the same
+              // provider reading with second-level timestamp jitter.
+              const minuteKey = (t: string) => Math.floor(new Date(t).getTime() / 60_000);
+              const seen = new Set(glucoseReadings.map((r) => minuteKey(r.timestamp)));
+              const merged = [...glucoseReadings];
+              for (const r of fresh.readings) {
+                if (!seen.has(minuteKey(r.timestamp))) merged.push(r);
+              }
+              merged.sort(
+                (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+              );
+              glucoseReadings = merged.slice(-600);
+            }
+          }
+        } catch {
+          // getGlucoseHistory not deployed yet (or transient error) — keep the snapshot readings.
+        }
         res.json({
           ...snapshot,
+          glucoseReadings,
           messages,
           therapyProposal: doc?.therapyProposal ?? null,
           therapyDecision: doc?.therapyDecision ?? null,
