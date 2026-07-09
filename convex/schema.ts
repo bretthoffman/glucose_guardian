@@ -132,6 +132,10 @@ const doctorAccounts = defineTable({
   title: v.optional(v.string()),
   firstName: v.optional(v.string()),
   lastName: v.optional(v.string()),
+  /** Clinical specialty / position shown in the portal (e.g. "Pediatric Endocrinology"). */
+  specialty: v.optional(v.string()),
+  /** Small (~256px JPEG) base64 data-URI avatar the doctor uploads in the portal. */
+  photoDataUri: v.optional(v.string()),
   institution: v.optional(v.string()),
   /**
    * Account-level portal quick-unlock PIN (client-hashed; server stores/compares the hash only).

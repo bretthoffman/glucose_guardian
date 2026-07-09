@@ -392,6 +392,45 @@ router.get("/me", requireDoctorAuth, (req, res) => {
   })();
 });
 
+router.patch("/me", requireDoctorAuth, (req, res) => {
+  void (async () => {
+    try {
+      const { doctorId } = req as DoctorAuthedRequest;
+      const { displayName, title, firstName, lastName, specialty, email, photoDataUri } =
+        req.body as {
+          displayName?: string;
+          title?: string;
+          firstName?: string;
+          lastName?: string;
+          specialty?: string;
+          email?: string;
+          photoDataUri?: string;
+        };
+      const client = createConvexDoctorAccountsClient();
+      const updated = await client.mutation(api.doctorAccounts.updateProfile, {
+        serverSecret: getConvexDoctorApiSecret(),
+        doctorId: asDoctorId(doctorId),
+        displayName,
+        title,
+        firstName,
+        lastName,
+        specialty,
+        email,
+        photoDataUri,
+      });
+      res.json(updated);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Update failed";
+      if (message.includes("already registered")) {
+        res.status(409).json({ error: message });
+        return;
+      }
+      console.error("[doctor] PATCH /me", e);
+      res.status(500).json({ error: "Could not update profile" });
+    }
+  })();
+});
+
 router.get("/me/patients", requireDoctorAuth, (req, res) => {
   void (async () => {
     try {

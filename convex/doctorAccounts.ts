@@ -102,6 +102,8 @@ export const login = query({
       title: account.title,
       firstName: account.firstName,
       lastName: account.lastName,
+      specialty: account.specialty,
+      photoDataUri: account.photoDataUri,
       institution: account.institution,
       hasPin: !!account.pinHash,
     };
@@ -124,8 +126,72 @@ export const getById = query({
       title: account.title,
       firstName: account.firstName,
       lastName: account.lastName,
+      specialty: account.specialty,
+      photoDataUri: account.photoDataUri,
       institution: account.institution,
       hasPin: !!account.pinHash,
+    };
+  },
+});
+
+/**
+ * Update the signed-in doctor's own profile from the portal. Only the fields provided are changed
+ * (all optional). Changing `email` re-checks uniqueness. Passing an empty string for an optional
+ * field clears it (e.g. remove the photo). Returns the fresh profile so the portal can rehydrate.
+ */
+export const updateProfile = mutation({
+  args: {
+    serverSecret: v.string(),
+    doctorId: v.id("doctorAccounts"),
+    displayName: v.optional(v.string()),
+    title: v.optional(v.string()),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+    specialty: v.optional(v.string()),
+    email: v.optional(v.string()),
+    photoDataUri: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const account = await ctx.db.get(args.doctorId);
+    if (!account) throw new Error("Doctor not found");
+
+    const patch: Record<string, unknown> = { updatedAt: Date.now() };
+    if (args.displayName !== undefined && args.displayName.trim()) {
+      patch.displayName = args.displayName.trim();
+    }
+    if (args.title !== undefined) patch.title = args.title.trim() || undefined;
+    if (args.firstName !== undefined) patch.firstName = args.firstName.trim() || undefined;
+    if (args.lastName !== undefined) patch.lastName = args.lastName.trim() || undefined;
+    if (args.specialty !== undefined) patch.specialty = args.specialty.trim() || undefined;
+    if (args.photoDataUri !== undefined) patch.photoDataUri = args.photoDataUri || undefined;
+    if (args.email !== undefined) {
+      const email = args.email.trim().toLowerCase();
+      if (email && email !== account.email) {
+        const existing = await ctx.db
+          .query("doctorAccounts")
+          .withIndex("by_email", (q) => q.eq("email", email))
+          .unique();
+        if (existing && existing._id !== account._id) {
+          throw new Error("Email already registered");
+        }
+        patch.email = email;
+      }
+    }
+
+    await ctx.db.patch(args.doctorId, patch);
+    const updated = (await ctx.db.get(args.doctorId))!;
+    return {
+      doctorId: updated._id,
+      email: updated.email,
+      displayName: updated.displayName,
+      title: updated.title,
+      firstName: updated.firstName,
+      lastName: updated.lastName,
+      specialty: updated.specialty,
+      photoDataUri: updated.photoDataUri,
+      institution: updated.institution,
+      hasPin: !!updated.pinHash,
     };
   },
 });
