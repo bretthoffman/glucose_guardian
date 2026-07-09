@@ -743,6 +743,56 @@ router.get(
   },
 );
 
+/**
+ * Full CGM history for a linked patient over a time range, from the durable per-user reading
+ * store (the sync snapshot only carries the most recent ~300 readings). Powers the portal's
+ * treatment before/after comparison with real multi-day windows.
+ */
+router.get(
+  "/patient/:accessCode/readings",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      try {
+        const code =
+          (req as DoctorAuthedRequest).doctorAccessCode ??
+          normalizeDoctorAccessCode(routeParam(req.params.accessCode));
+
+        const fromMs = Date.parse(String(req.query.from ?? ""));
+        const toMs = Date.parse(String(req.query.to ?? ""));
+        if (Number.isNaN(fromMs) || Number.isNaN(toMs) || fromMs >= toMs) {
+          res.status(400).json({ error: "from and to must be ISO timestamps with from < to" });
+          return;
+        }
+        const MAX_SPAN_MS = 35 * 24 * 60 * 60 * 1000;
+        if (toMs - fromMs > MAX_SPAN_MS) {
+          res.status(400).json({ error: "Range too large (max 35 days)" });
+          return;
+        }
+
+        const client = createConvexDoctorAccountsClient();
+        const result = (await client.query(api.doctorAccounts.getGlucoseHistory, {
+          serverSecret: getConvexDoctorApiSecret(),
+          accessCode: code,
+          fromTimestamp: new Date(fromMs).toISOString(),
+          toTimestamp: new Date(toMs).toISOString(),
+        })) as { readings: { value: number; trend: string; timestamp: string }[] };
+
+        res.json({
+          accessCode: code,
+          from: new Date(fromMs).toISOString(),
+          to: new Date(toMs).toISOString(),
+          readings: result.readings ?? [],
+        });
+      } catch (e) {
+        console.error("[doctor] GET /patient/:accessCode/readings", e);
+        res.status(500).json({ error: "Could not load glucose history" });
+      }
+    })();
+  },
+);
+
 router.get(
   "/messages/:accessCode",
   requireDoctorAuth,

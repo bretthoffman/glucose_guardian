@@ -298,6 +298,59 @@ export const revokeSession = mutation({
   },
 });
 
+/** Dexcom numeric trend codes → the string labels the portal renders. */
+const TREND_BY_CODE: Record<number, string> = {
+  1: "DoubleUp",
+  2: "SingleUp",
+  3: "FortyFiveUp",
+  4: "Flat",
+  5: "FortyFiveDown",
+  6: "SingleDown",
+  7: "DoubleDown",
+};
+
+/**
+ * Full CGM history for a linked patient over a time range, read from the durable
+ * `patientGlucoseReadings` store (not the ~300-reading sync snapshot). Powers the portal's
+ * treatment before/after trend comparison with real multi-day windows. The api-server verifies
+ * the doctor↔patient link before calling; this only re-resolves the access code to a user.
+ */
+export const getGlucoseHistory = query({
+  args: {
+    serverSecret: v.string(),
+    accessCode: v.string(),
+    fromTimestamp: v.string(),
+    toTimestamp: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const code = normalizeAccessCode(args.accessCode);
+    const profile = await findPatientProfileByDoctorCode(ctx, code);
+    if (!profile) return { readings: [] };
+
+    // ISO-8601 strings compare lexicographically, so a string range over the index is correct.
+    const rows = await ctx.db
+      .query("patientGlucoseReadings")
+      .withIndex("by_user_time", (q) =>
+        q
+          .eq("userId", profile.userId)
+          .gte("timestamp", args.fromTimestamp)
+          .lte("timestamp", args.toTimestamp),
+      )
+      .take(5000);
+
+    const readings = rows.map((r) => ({
+      value: r.glucose,
+      trend:
+        typeof r.dexcomTrend === "string"
+          ? r.dexcomTrend
+          : (TREND_BY_CODE[r.dexcomTrend ?? 4] ?? "Flat"),
+      timestamp: r.timestamp,
+    }));
+    return { readings };
+  },
+});
+
 export const assertCanAccess = query({
   args: {
     serverSecret: v.string(),
