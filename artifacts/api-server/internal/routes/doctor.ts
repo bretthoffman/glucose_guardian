@@ -265,12 +265,16 @@ router.post("/auth/register", (req, res) => {
         res.status(503).json({ error: "Doctor accounts are not configured" });
         return;
       }
-      const { email, passwordHash, displayName, institution } = req.body as {
-        email?: string;
-        passwordHash?: string;
-        displayName?: string;
-        institution?: string;
-      };
+      const { email, passwordHash, displayName, title, firstName, lastName, institution } =
+        req.body as {
+          email?: string;
+          passwordHash?: string;
+          displayName?: string;
+          title?: string;
+          firstName?: string;
+          lastName?: string;
+          institution?: string;
+        };
       if (!email?.trim() || !passwordHash || !displayName?.trim()) {
         res.status(400).json({ error: "email, passwordHash, and displayName are required" });
         return;
@@ -282,6 +286,9 @@ router.post("/auth/register", (req, res) => {
         email,
         passwordHash,
         displayName,
+        title,
+        firstName,
+        lastName,
         institution,
       });
       res.status(201).json(result);
@@ -812,7 +819,9 @@ router.post(
         return;
       }
 
-      // Resolve the doctor's display name for the caregiver-facing card. Never trust the client.
+      // Resolve the doctor's name for the caregiver-facing card. Never trust the client. Prefer a
+      // formal "Dr. Lastname" byline; fall back to the full display name for legacy accounts that
+      // predate structured names.
       let proposedByName = "Your care team";
       try {
         const accountsClient = createConvexDoctorAccountsClient();
@@ -820,7 +829,11 @@ router.post(
           serverSecret: getConvexDoctorApiSecret(),
           doctorId: asDoctorId(authed.doctorId),
         });
-        if (doctor?.displayName) proposedByName = doctor.displayName;
+        const formal = [doctor?.title, doctor?.lastName]
+          .map((s) => s?.trim())
+          .filter(Boolean)
+          .join(" ");
+        proposedByName = formal || doctor?.displayName?.trim() || proposedByName;
       } catch (e) {
         console.warn("[doctor] could not resolve proposing doctor name:", e);
       }

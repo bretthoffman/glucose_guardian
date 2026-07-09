@@ -126,7 +126,12 @@ const patientGuardianPins = defineTable({
 const doctorAccounts = defineTable({
   email: v.string(),
   passwordHash: v.string(),
+  /** Full name for portal display, e.g. "Dr. Alex Rivera" (composed from the parts below). */
   displayName: v.string(),
+  /** Structured name. `title` + `lastName` form the patient-facing byline on treatment proposals. */
+  title: v.optional(v.string()),
+  firstName: v.optional(v.string()),
+  lastName: v.optional(v.string()),
   institution: v.optional(v.string()),
   /**
    * Account-level portal quick-unlock PIN (client-hashed; server stores/compares the hash only).
