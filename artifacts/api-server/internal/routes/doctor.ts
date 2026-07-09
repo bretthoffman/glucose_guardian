@@ -77,6 +77,7 @@ interface PatientSnapshot {
   profile: {
     childName: string;
     parentName?: string;
+    caregiverPhone?: string;
     diabetesType: string;
     dateOfBirth: string;
     weightLbs?: number;
@@ -85,6 +86,7 @@ interface PatientSnapshot {
     carbRatio?: number;
     targetGlucose?: number;
     correctionFactor?: number;
+    photoDataUri?: string;
   };
   glucoseReadings: { value: number; trend: string; timestamp: string }[];
   insulinLog: {

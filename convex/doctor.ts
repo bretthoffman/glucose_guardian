@@ -12,6 +12,7 @@ const doctorMessage = v.object({
 const profile = v.object({
   childName: v.string(),
   parentName: v.optional(v.string()),
+  caregiverPhone: v.optional(v.string()),
   diabetesType: v.string(),
   dateOfBirth: v.string(),
   weightLbs: v.optional(v.number()),
@@ -20,6 +21,7 @@ const profile = v.object({
   carbRatio: v.optional(v.number()),
   targetGlucose: v.optional(v.number()),
   correctionFactor: v.optional(v.number()),
+  photoDataUri: v.optional(v.string()),
 });
 
 const glucoseReading = v.object({

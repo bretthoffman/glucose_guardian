@@ -12,6 +12,8 @@ const doctorMessage = v.object({
 const profile = v.object({
   childName: v.string(),
   parentName: v.optional(v.string()),
+  /** Caregiver phone, when the app captures + syncs it (surfaced in the portal patient header). */
+  caregiverPhone: v.optional(v.string()),
   diabetesType: v.string(),
   dateOfBirth: v.string(),
   weightLbs: v.optional(v.number()),
@@ -20,6 +22,8 @@ const profile = v.object({
   carbRatio: v.optional(v.number()),
   targetGlucose: v.optional(v.number()),
   correctionFactor: v.optional(v.number()),
+  /** Small (~192px JPEG) base64 data-URI of the patient's photo, synced from the app. */
+  photoDataUri: v.optional(v.string()),
 });
 
 const glucoseReading = v.object({
