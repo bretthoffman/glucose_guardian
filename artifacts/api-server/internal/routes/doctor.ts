@@ -219,6 +219,12 @@ type ConvexDoctorDoc = {
   alertPreferences?: PatientSnapshot["alertPreferences"];
   therapyProposal?: ServerTherapyProposal | null;
   therapyDecision?: ServerTherapyDecision | null;
+  settingsHistory?: {
+    changedAt: string;
+    carbRatio?: number;
+    correctionFactor?: number;
+    targetGlucose?: number;
+  }[];
   syncedAt?: string;
 };
 
@@ -711,6 +717,7 @@ router.get(
           messages,
           therapyProposal: doc?.therapyProposal ?? null,
           therapyDecision: doc?.therapyDecision ?? null,
+          settingsHistory: doc?.settingsHistory ?? [],
         });
         return;
       }

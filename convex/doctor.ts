@@ -54,6 +54,41 @@ const therapyDecision = v.object({
   decidedAt: v.string(),
 });
 
+type SettingsChange = {
+  changedAt: string;
+  carbRatio?: number;
+  correctionFactor?: number;
+  targetGlucose?: number;
+};
+
+const SETTINGS_HISTORY_MAX = 50;
+
+/**
+ * Append a change entry when the treatment ratios differ from the last recorded values (or seed the
+ * first entry). Called on every sync so the history captures changes regardless of whether they
+ * came from a doctor proposal the caregiver approved or an edit the caregiver made in the app.
+ */
+function nextSettingsHistory(
+  existing: SettingsChange[] | undefined,
+  profile: { carbRatio?: number; correctionFactor?: number; targetGlucose?: number },
+  changedAt: string,
+): SettingsChange[] {
+  const history = existing ? [...existing] : [];
+  const current = {
+    carbRatio: profile.carbRatio,
+    correctionFactor: profile.correctionFactor,
+    targetGlucose: profile.targetGlucose,
+  };
+  const last = history[history.length - 1];
+  const changed =
+    !last ||
+    last.carbRatio !== current.carbRatio ||
+    last.correctionFactor !== current.correctionFactor ||
+    last.targetGlucose !== current.targetGlucose;
+  if (changed) history.push({ changedAt, ...current });
+  return history.slice(-SETTINGS_HISTORY_MAX);
+}
+
 function requireIngestSecret(provided: string) {
   const expected = process.env.CONVEX_DOCTOR_INGEST_SECRET;
   if (!expected || provided !== expected) {
@@ -132,6 +167,8 @@ export const upsertFromSync = mutation({
       // pending treatment proposal or the caregiver's last decision.
       therapyProposal: existing?.therapyProposal,
       therapyDecision: existing?.therapyDecision,
+      // Grow the settings-change log when the ratios differ from the last recorded values.
+      settingsHistory: nextSettingsHistory(existing?.settingsHistory, rest.profile, rest.syncedAt),
       syncedAt: rest.syncedAt,
     };
     if (existing) {
@@ -166,6 +203,7 @@ export const appendMessage = mutation({
         alertPreferences: existing.alertPreferences,
         therapyProposal: existing.therapyProposal,
         therapyDecision: existing.therapyDecision,
+        settingsHistory: existing.settingsHistory,
         syncedAt: existing.syncedAt,
       });
     } else {

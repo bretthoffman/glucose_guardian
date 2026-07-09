@@ -62,6 +62,18 @@ const therapyDecision = v.object({
   decidedAt: v.string(),
 });
 
+/**
+ * One entry in the treatment-settings change history. Auto-captured on sync whenever the patient's
+ * carb ratio / correction factor / target glucose differs from the previous entry — so the portal
+ * can show when each value changed and compare glucose trends before vs after.
+ */
+const settingsChange = v.object({
+  changedAt: v.string(),
+  carbRatio: v.optional(v.number()),
+  correctionFactor: v.optional(v.number()),
+  targetGlucose: v.optional(v.number()),
+});
+
 /** Patient app accounts (email + legacy client hash). Source of truth for signup/signin. */
 const users = defineTable({
   email: v.string(),
@@ -310,6 +322,8 @@ export default defineSchema({
     therapyProposal: v.optional(therapyProposal),
     /** Outcome of the most recent proposal, shown back to the doctor portal. */
     therapyDecision: v.optional(therapyDecision),
+    /** Chronological log of treatment-setting changes (oldest→newest), for trend comparison. */
+    settingsHistory: v.optional(v.array(settingsChange)),
     syncedAt: v.optional(v.string()),
   }).index("by_accessCode", ["accessCode"]),
 });
