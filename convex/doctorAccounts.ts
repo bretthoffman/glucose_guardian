@@ -94,6 +94,7 @@ export const login = query({
       email: account.email,
       displayName: account.displayName,
       institution: account.institution,
+      hasPin: !!account.pinHash,
     };
   },
 });
@@ -112,7 +113,53 @@ export const getById = query({
       email: account.email,
       displayName: account.displayName,
       institution: account.institution,
+      hasPin: !!account.pinHash,
     };
+  },
+});
+
+/**
+ * Set (or replace) the account-level portal PIN. `pinHash` is a client-computed hash of the
+ * doctor's 4-digit PIN — the raw PIN never leaves the browser. Once set, the PIN follows the
+ * account to any device the doctor signs in from.
+ */
+export const setPin = mutation({
+  args: {
+    serverSecret: v.string(),
+    doctorId: v.id("doctorAccounts"),
+    pinHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const account = await ctx.db.get(args.doctorId);
+    if (!account) throw new Error("Doctor not found");
+    const now = Date.now();
+    await ctx.db.patch(args.doctorId, {
+      pinHash: args.pinHash,
+      pinUpdatedAt: now,
+      updatedAt: now,
+    });
+    return { ok: true as const };
+  },
+});
+
+/**
+ * Verify a submitted PIN hash against the account's stored hash. Returns `hasPin: false` when the
+ * account has never set one (so the portal can route to the set-PIN step instead of failing).
+ */
+export const verifyPin = query({
+  args: {
+    serverSecret: v.string(),
+    doctorId: v.id("doctorAccounts"),
+    pinHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const account = await ctx.db.get(args.doctorId);
+    if (!account?.pinHash) {
+      return { valid: false as const, hasPin: false as const };
+    }
+    return { valid: account.pinHash === args.pinHash, hasPin: true as const };
   },
 });
 

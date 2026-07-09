@@ -128,6 +128,14 @@ const doctorAccounts = defineTable({
   passwordHash: v.string(),
   displayName: v.string(),
   institution: v.optional(v.string()),
+  /**
+   * Account-level portal quick-unlock PIN (client-hashed; server stores/compares the hash only).
+   * Lives on the account — not the device — so a doctor who signs in from any clinic computer
+   * uses the same PIN instead of re-creating one per machine. The real auth boundary remains the
+   * Bearer session; the PIN only re-gates an already-authenticated session after idle.
+   */
+  pinHash: v.optional(v.string()),
+  pinUpdatedAt: v.optional(v.number()),
   createdAt: v.number(),
   updatedAt: v.number(),
 })

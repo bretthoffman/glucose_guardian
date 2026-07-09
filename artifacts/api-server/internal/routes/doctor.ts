@@ -454,6 +454,54 @@ router.delete("/me/patients/:accessCode", requireDoctorAuth, (req, res) => {
   })();
 });
 
+// ─── Account-level portal PIN (quick unlock; follows the account across devices) ────────────
+
+router.post("/me/pin", requireDoctorAuth, (req, res) => {
+  void (async () => {
+    try {
+      const { doctorId } = req as DoctorAuthedRequest;
+      const { pinHash } = req.body as { pinHash?: string };
+      if (!pinHash || typeof pinHash !== "string") {
+        res.status(400).json({ error: "pinHash is required" });
+        return;
+      }
+      const client = createConvexDoctorAccountsClient();
+      await client.mutation(api.doctorAccounts.setPin, {
+        serverSecret: getConvexDoctorApiSecret(),
+        doctorId: asDoctorId(doctorId),
+        pinHash,
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[doctor] POST /me/pin", e);
+      res.status(500).json({ error: "Could not save PIN" });
+    }
+  })();
+});
+
+router.post("/me/pin/verify", requireDoctorAuth, (req, res) => {
+  void (async () => {
+    try {
+      const { doctorId } = req as DoctorAuthedRequest;
+      const { pinHash } = req.body as { pinHash?: string };
+      if (!pinHash || typeof pinHash !== "string") {
+        res.status(400).json({ error: "pinHash is required" });
+        return;
+      }
+      const client = createConvexDoctorAccountsClient();
+      const result = await client.query(api.doctorAccounts.verifyPin, {
+        serverSecret: getConvexDoctorApiSecret(),
+        doctorId: asDoctorId(doctorId),
+        pinHash,
+      });
+      res.json(result);
+    } catch (e) {
+      console.error("[doctor] POST /me/pin/verify", e);
+      res.status(500).json({ error: "Could not verify PIN" });
+    }
+  })();
+});
+
 // ─── Legacy code-only login (deprecated; does not grant snapshot access) ─────
 
 router.post("/login", (req, res) => {
