@@ -17,4 +17,19 @@ const crons = cronJobs();
  */
 crons.interval("cgm-ingest-due", { minutes: 1 }, internal.cgmIngest.runDueIngest, {});
 
+/**
+ * Doctor alerts: scan linked patients for urgent lows/highs and stale data (per-kind cooldowns
+ * prevent spam), then email new alerts when RESEND_API_KEY is configured. Caregiver-decision
+ * alerts are event-driven (inserted by doctor.decideOrder), not scanned.
+ */
+crons.interval("doctor-alerts-scan", { minutes: 5 }, internal.doctorAlerts.scanAndNotify, {});
+
+/** Monday-morning per-doctor patient digest (email only; skipped without RESEND_API_KEY). */
+crons.weekly(
+  "doctor-weekly-digest",
+  { dayOfWeek: "monday", hourUTC: 12, minuteUTC: 0 },
+  internal.doctorAlerts.weeklyDigest,
+  {},
+);
+
 export default crons;

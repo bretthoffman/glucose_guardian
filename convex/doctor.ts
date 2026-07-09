@@ -1,3 +1,4 @@
+import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
@@ -52,6 +53,14 @@ const therapyDecision = v.object({
   proposalId: v.string(),
   status: v.union(v.literal("approved"), v.literal("declined")),
   decidedAt: v.string(),
+});
+
+const labA1c = v.object({
+  value: v.number(),
+  measuredAt: v.string(),
+  enteredByDoctorId: v.string(),
+  enteredByName: v.string(),
+  enteredAt: v.string(),
 });
 
 type SettingsChange = {
@@ -169,6 +178,7 @@ export const upsertFromSync = mutation({
       therapyDecision: existing?.therapyDecision,
       // Grow the settings-change log when the ratios differ from the last recorded values.
       settingsHistory: nextSettingsHistory(existing?.settingsHistory, rest.profile, rest.syncedAt),
+      labA1c: existing?.labA1c,
       syncedAt: rest.syncedAt,
     };
     if (existing) {
@@ -204,6 +214,7 @@ export const appendMessage = mutation({
         therapyProposal: existing.therapyProposal,
         therapyDecision: existing.therapyDecision,
         settingsHistory: existing.settingsHistory,
+        labA1c: existing.labA1c,
         syncedAt: existing.syncedAt,
       });
     } else {
@@ -250,6 +261,13 @@ export const proposeOrder = mutation({
       });
     }
 
+    await ctx.db.insert("doctorAccessLogs", {
+      doctorId: args.proposal.proposedByDoctorId as Id<"doctorAccounts">,
+      accessCode: args.accessCode,
+      action: "proposed_change",
+      createdAt: Date.now(),
+    });
+
     return args.proposal;
   },
 });
@@ -287,7 +305,64 @@ export const decideOrder = mutation({
       therapyProposal: undefined,
       therapyDecision: decision,
     });
+
+    // Notify every actively linked doctor: the caregiver's decision is the event doctors care
+    // about most, so it lands in their alert feed (and email, when configured) immediately.
+    const links = await ctx.db
+      .query("doctorPatientLinks")
+      .withIndex("by_accessCode", (q) => q.eq("accessCode", args.accessCode))
+      .collect();
+    const patientName = existing.profile?.childName ?? args.accessCode;
+    const now = Date.now();
+    for (const link of links) {
+      if (link.revokedAt != null) continue;
+      await ctx.db.insert("doctorAlerts", {
+        doctorId: link.doctorId,
+        accessCode: args.accessCode,
+        kind: args.status === "approved" ? "decision_approved" : "decision_declined",
+        message: `${patientName}'s caregiver ${args.status} your treatment change`,
+        proposalId: args.proposalId,
+        createdAt: now,
+      });
+    }
+
     return { applied: true as const, decision };
+  },
+});
+
+/**
+ * Record a lab-measured A1C for a patient (doctor-entered in the portal). Overwrites the previous
+ * lab value — the portal shows the latest lab result against the CGM-estimated GMI. Also writes a
+ * compliance access-log entry attributing the change to the doctor.
+ */
+export const setLabA1c = mutation({
+  args: {
+    serverSecret: v.string(),
+    accessCode: v.string(),
+    labA1c: labA1c,
+  },
+  handler: async (ctx, args) => {
+    requireIngestSecret(args.serverSecret);
+    const existing = await ctx.db
+      .query("doctorPortalState")
+      .withIndex("by_accessCode", (q) => q.eq("accessCode", args.accessCode))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, { labA1c: args.labA1c });
+    } else {
+      await ctx.db.insert("doctorPortalState", {
+        accessCode: args.accessCode,
+        messages: [],
+        labA1c: args.labA1c,
+      });
+    }
+    await ctx.db.insert("doctorAccessLogs", {
+      doctorId: args.labA1c.enteredByDoctorId as Id<"doctorAccounts">,
+      accessCode: args.accessCode,
+      action: "recorded_lab_a1c",
+      createdAt: Date.now(),
+    });
+    return args.labA1c;
   },
 });
 

@@ -74,6 +74,15 @@ const settingsChange = v.object({
   targetGlucose: v.optional(v.number()),
 });
 
+/** A lab-measured A1C the doctor recorded in the portal (compared against the estimated GMI). */
+const labA1c = v.object({
+  value: v.number(),
+  measuredAt: v.string(),
+  enteredByDoctorId: v.string(),
+  enteredByName: v.string(),
+  enteredAt: v.string(),
+});
+
 /** Patient app accounts (email + legacy client hash). Source of truth for signup/signin. */
 const users = defineTable({
   email: v.string(),
@@ -175,6 +184,44 @@ const doctorSessions = defineTable({
 })
   .index("by_tokenHash", ["tokenHash"])
   .index("by_doctorId", ["doctorId"]);
+
+/**
+ * Doctor-facing alerts (urgent low/high, stale data, caregiver decisions). Rows are created by
+ * the 5-minute scan cron in `doctorAlerts.ts` (with per-kind cooldowns) and by `doctor.decideOrder`
+ * when a caregiver acts on a proposal. Read/badged by the portal; optionally emailed via Resend.
+ */
+const doctorAlerts = defineTable({
+  doctorId: v.id("doctorAccounts"),
+  accessCode: v.string(),
+  kind: v.union(
+    v.literal("urgent_low"),
+    v.literal("urgent_high"),
+    v.literal("stale_data"),
+    v.literal("decision_approved"),
+    v.literal("decision_declined"),
+  ),
+  message: v.string(),
+  value: v.optional(v.number()),
+  proposalId: v.optional(v.string()),
+  createdAt: v.number(),
+  readAt: v.optional(v.number()),
+  emailedAt: v.optional(v.number()),
+})
+  .index("by_doctorId", ["doctorId"])
+  .index("by_doctor_code_kind", ["doctorId", "accessCode", "kind"]);
+
+/**
+ * Compliance access log: who (doctor) did what on which patient, when. "viewed" entries are
+ * deduped to one per 30 minutes per doctor+patient (the portal polls continuously).
+ */
+const doctorAccessLogs = defineTable({
+  doctorId: v.id("doctorAccounts"),
+  accessCode: v.string(),
+  action: v.string(),
+  createdAt: v.number(),
+})
+  .index("by_accessCode", ["accessCode"])
+  .index("by_doctor_code_action", ["doctorId", "accessCode", "action"]);
 
 /** Persistent association between a doctor account and a patient access code. */
 const doctorPatientLinks = defineTable({
@@ -309,6 +356,8 @@ export default defineSchema({
   cgmSyncState,
   doctorAccounts,
   doctorSessions,
+  doctorAlerts,
+  doctorAccessLogs,
   doctorPatientLinks,
   doctorPortalState: defineTable({
     accessCode: v.string(),
@@ -324,6 +373,8 @@ export default defineSchema({
     therapyDecision: v.optional(therapyDecision),
     /** Chronological log of treatment-setting changes (oldest→newest), for trend comparison. */
     settingsHistory: v.optional(v.array(settingsChange)),
+    /** Lab-measured A1C recorded by a doctor in the portal (doctor-owned; survives syncs). */
+    labA1c: v.optional(labA1c),
     syncedAt: v.optional(v.string()),
   }).index("by_accessCode", ["accessCode"]),
 });

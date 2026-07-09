@@ -225,8 +225,32 @@ type ConvexDoctorDoc = {
     correctionFactor?: number;
     targetGlucose?: number;
   }[];
+  labA1c?: {
+    value: number;
+    measuredAt: string;
+    enteredByDoctorId: string;
+    enteredByName: string;
+    enteredAt: string;
+  } | null;
   syncedAt?: string;
 };
+
+/**
+ * Fire-and-forget compliance log write. Never blocks or fails the request; silently a no-op
+ * until the logAccess Convex function is deployed.
+ */
+function logDoctorAccess(doctorId: string, accessCode: string, action: string): void {
+  if (!isConvexDoctorAccountsConfigured()) return;
+  const client = createConvexDoctorAccountsClient();
+  void client
+    .mutation(api.doctorAccounts.logAccess, {
+      serverSecret: getConvexDoctorApiSecret(),
+      doctorId: asDoctorId(doctorId),
+      accessCode,
+      action,
+    })
+    .catch(() => {});
+}
 
 function asDoctorId(id: string): Id<"doctorAccounts"> {
   return id as Id<"doctorAccounts">;
@@ -556,6 +580,41 @@ router.post("/me/pin/verify", requireDoctorAuth, (req, res) => {
   })();
 });
 
+// ─── Doctor alerts (bell feed; created by the Convex scan cron + decision events) ───────────
+
+router.get("/me/alerts", requireDoctorAuth, (req, res) => {
+  void (async () => {
+    try {
+      const { doctorId } = req as DoctorAuthedRequest;
+      const client = createConvexDoctorAccountsClient();
+      const result = await client.query(api.doctorAlerts.list, {
+        serverSecret: getConvexDoctorApiSecret(),
+        doctorId: asDoctorId(doctorId),
+      });
+      res.json(result);
+    } catch (e) {
+      // Expected until the doctorAlerts module is deployed — the portal hides the bell on failure.
+      res.status(503).json({ error: "Alerts not available yet" });
+    }
+  })();
+});
+
+router.post("/me/alerts/read", requireDoctorAuth, (req, res) => {
+  void (async () => {
+    try {
+      const { doctorId } = req as DoctorAuthedRequest;
+      const client = createConvexDoctorAccountsClient();
+      await client.mutation(api.doctorAlerts.markAllRead, {
+        serverSecret: getConvexDoctorApiSecret(),
+        doctorId: asDoctorId(doctorId),
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(503).json({ error: "Alerts not available yet" });
+    }
+  })();
+});
+
 // ─── Legacy code-only login (deprecated; does not grant snapshot access) ─────
 
 router.post("/login", (req, res) => {
@@ -744,6 +803,7 @@ router.get(
         } catch {
           // getGlucoseHistory not deployed yet (or transient error) — keep the snapshot readings.
         }
+        logDoctorAccess((req as DoctorAuthedRequest).doctorId, code, "viewed");
         res.json({
           ...snapshot,
           glucoseReadings,
@@ -751,6 +811,7 @@ router.get(
           therapyProposal: doc?.therapyProposal ?? null,
           therapyDecision: doc?.therapyDecision ?? null,
           settingsHistory: doc?.settingsHistory ?? [],
+          labA1c: doc?.labA1c ?? null,
         });
         return;
       }
@@ -821,6 +882,91 @@ router.get(
       } catch (e) {
         console.error("[doctor] GET /patient/:accessCode/readings", e);
         res.status(500).json({ error: "Could not load glucose history" });
+      }
+    })();
+  },
+);
+
+/** Compliance access log for a linked patient (latest first, doctor names resolved). */
+router.get(
+  "/patient/:accessCode/access-log",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      try {
+        const code =
+          (req as DoctorAuthedRequest).doctorAccessCode ??
+          normalizeDoctorAccessCode(routeParam(req.params.accessCode));
+        const client = createConvexDoctorAccountsClient();
+        const result = await client.query(api.doctorAccounts.listAccessLog, {
+          serverSecret: getConvexDoctorApiSecret(),
+          accessCode: code,
+        });
+        res.json(result);
+      } catch (e) {
+        res.status(503).json({ error: "Access log not available yet" });
+      }
+    })();
+  },
+);
+
+/** Record a lab-measured A1C (doctor-entered; shown against the CGM-estimated GMI). */
+router.post(
+  "/patient/:accessCode/lab-a1c",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      try {
+        const authed = req as DoctorAuthedRequest;
+        const code =
+          authed.doctorAccessCode ?? normalizeDoctorAccessCode(routeParam(req.params.accessCode));
+        const { value, measuredAt } = req.body as { value?: number; measuredAt?: string };
+        if (typeof value !== "number" || value < 3 || value > 20) {
+          res.status(400).json({ error: "value must be an A1C percentage between 3 and 20" });
+          return;
+        }
+        const measuredMs = Date.parse(measuredAt ?? "");
+        if (Number.isNaN(measuredMs) || measuredMs > Date.now() + 24 * 60 * 60 * 1000) {
+          res.status(400).json({ error: "measuredAt must be a valid past date" });
+          return;
+        }
+
+        // Resolve the doctor's name server-side (same rule as proposals: never trust the client).
+        let enteredByName = "Doctor";
+        try {
+          const accountsClient = createConvexDoctorAccountsClient();
+          const doctor = await accountsClient.query(api.doctorAccounts.getById, {
+            serverSecret: getConvexDoctorApiSecret(),
+            doctorId: asDoctorId(authed.doctorId),
+          });
+          const formal = [doctor?.title, doctor?.lastName]
+            .map((s) => s?.trim())
+            .filter(Boolean)
+            .join(" ");
+          enteredByName = formal || doctor?.displayName?.trim() || enteredByName;
+        } catch {
+          /* keep fallback name */
+        }
+
+        const labA1c = {
+          value: Math.round(value * 10) / 10,
+          measuredAt: new Date(measuredMs).toISOString(),
+          enteredByDoctorId: authed.doctorId,
+          enteredByName,
+          enteredAt: new Date().toISOString(),
+        };
+        const client = createConvexDoctorHttpClient();
+        const saved = await client.mutation(api.doctor.setLabA1c, {
+          serverSecret: getConvexDoctorIngestSecret(),
+          accessCode: code,
+          labA1c,
+        });
+        res.json(saved);
+      } catch (e) {
+        console.error("[doctor] POST /patient/:accessCode/lab-a1c", e);
+        res.status(500).json({ error: "Could not save lab A1C" });
       }
     })();
   },

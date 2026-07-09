@@ -365,6 +365,68 @@ export const assertCanAccess = query({
   },
 });
 
+/** "viewed" fires on every portal poll (30s), so collapse to one entry per 30 minutes. */
+const ACCESS_LOG_DEDUPE_MS = 30 * 60 * 1000;
+
+/** Record a doctor action on a patient for the compliance access log (deduped per action). */
+export const logAccess = mutation({
+  args: {
+    serverSecret: v.string(),
+    doctorId: v.id("doctorAccounts"),
+    accessCode: v.string(),
+    action: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const code = normalizeAccessCode(args.accessCode);
+    const last = await ctx.db
+      .query("doctorAccessLogs")
+      .withIndex("by_doctor_code_action", (q) =>
+        q.eq("doctorId", args.doctorId).eq("accessCode", code).eq("action", args.action),
+      )
+      .order("desc")
+      .first();
+    if (last && Date.now() - last.createdAt < ACCESS_LOG_DEDUPE_MS) {
+      return { logged: false as const };
+    }
+    await ctx.db.insert("doctorAccessLogs", {
+      doctorId: args.doctorId,
+      accessCode: code,
+      action: args.action,
+      createdAt: Date.now(),
+    });
+    return { logged: true as const };
+  },
+});
+
+/** The patient's access log (latest first), with doctor names resolved for display. */
+export const listAccessLog = query({
+  args: {
+    serverSecret: v.string(),
+    accessCode: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const code = normalizeAccessCode(args.accessCode);
+    const rows = await ctx.db
+      .query("doctorAccessLogs")
+      .withIndex("by_accessCode", (q) => q.eq("accessCode", code))
+      .order("desc")
+      .take(30);
+    const entries = await Promise.all(
+      rows.map(async (r) => {
+        const doctor = await ctx.db.get(r.doctorId);
+        return {
+          action: r.action,
+          at: r.createdAt,
+          doctorName: doctor?.displayName ?? "Unknown doctor",
+        };
+      }),
+    );
+    return { entries };
+  },
+});
+
 export const createLink = mutation({
   args: {
     serverSecret: v.string(),
@@ -429,6 +491,13 @@ export const createLink = mutation({
         linkedAt: now,
       });
     }
+
+    await ctx.db.insert("doctorAccessLogs", {
+      doctorId: args.doctorId,
+      accessCode: code,
+      action: "linked",
+      createdAt: now,
+    });
 
     const state = await ctx.db
       .query("doctorPortalState")
@@ -505,6 +574,12 @@ export const revokeLink = mutation({
       return { revoked: true as const };
     }
     await ctx.db.patch(link._id, { revokedAt: Date.now() });
+    await ctx.db.insert("doctorAccessLogs", {
+      doctorId: args.doctorId,
+      accessCode: code,
+      action: "unlinked",
+      createdAt: Date.now(),
+    });
     return { revoked: true as const };
   },
 });
