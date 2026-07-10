@@ -71,6 +71,12 @@ export interface InsulinLogEntry {
   type: "bolus" | "correction" | "manual";
   note?: string;
   foodLogId?: string;
+  /** Profile insulinTypes chip label in effect for this dose, e.g. "Humalog · 100 u/mL". */
+  insulinType?: string;
+  /** Calculator's recommended dose at log time — compare against `units` (the taken dose). */
+  recommendedUnits?: number;
+  /** True when the taken dose was manually edited away from the recommendation. */
+  manualOverride?: boolean;
 }
 
 export interface UserAccount {

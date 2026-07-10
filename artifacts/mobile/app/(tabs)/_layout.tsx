@@ -16,7 +16,7 @@ type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 
 const TAB_META: Record<string, { label: string; icon: IconName }> = {
   index: { label: "Glucose", icon: "water" },
-  insulin: { label: "Dose", icon: "needle" },
+  insulin: { label: "Insulin", icon: "needle" },
   food: { label: "Food", icon: "silverware-fork-knife" },
   chat: { label: "Chat", icon: "message-text-outline" },
   dashboard: { label: "Dashboard", icon: "chart-bar" },
@@ -91,7 +91,7 @@ export default function TabLayout() {
       screenOptions={{ headerShown: false }}
     >
       <Tabs.Screen name="index" options={{ title: "Glucose" }} />
-      <Tabs.Screen name="insulin" options={{ title: "Dose" }} />
+      <Tabs.Screen name="insulin" options={{ title: "Insulin" }} />
       <Tabs.Screen name="food" options={{ title: "Food" }} />
       <Tabs.Screen name="chat" options={{ title: "Chat" }} />
       <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />

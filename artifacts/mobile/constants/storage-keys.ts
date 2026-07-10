@@ -19,3 +19,10 @@ export const GLUCOSE_GRAPH_DISPLAY_MODE_STORAGE_KEY = "@glucose_guardian_graph_d
  * and NEVER cleared on sign-out — same persistence model as appearance and graph display preferences.
  */
 export const HOME_RECENT_READINGS_EXPANDED_STORAGE_KEY = "@glucose_guardian_home_recent_readings_expanded";
+
+/**
+ * Dose calculator's selected insulin type (a profile insulinTypes chip label). Device-local UI
+ * default only — validated against the signed-in profile's configured insulins on every load, so a
+ * stale value from another account simply falls back to that profile's default.
+ */
+export const DOSE_INSULIN_TYPE_STORAGE_KEY = "@gluco_guardian_dose_insulin_type";

@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -6,15 +7,30 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import Colors, { COLORS } from "@/constants/colors";
 import { T } from "@/constants/theme";
 import { CGMChart } from "@/components/CGMChart";
+import { DashboardSectionModal } from "@/components/DashboardSectionModal";
+import InsulinTypePicker from "@/components/InsulinTypePicker";
+import {
+  INSULIN_TYPE_LABEL,
+  findInsulinByChipLabel,
+  insulinChipLabel,
+  type InsulinOption,
+} from "@/constants/insulin";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 import { useDayGlucoseReadings } from "@/hooks/useDayGlucoseReadings";
+import {
+  doseAmountsEqual,
+  filterDoseInputText,
+  finalizeManualDoseInput,
+  formatDoseAmount,
+} from "@/utils/doseOverride";
 import { filterFoodLogsForDay, filterInsulinLogsForDay } from "@/utils/logDayEntries";
 import { startOfLocalDay } from "@/utils/localDayBoundaries";
 
@@ -29,15 +45,63 @@ function fmtDateFull(d: Date) {
 export default function LogHistory({
   colors,
   restrictToDay: _restrictToDay = false,
+  insulinOptions = [],
+  selectedInsulinLabel = null,
+  onInsulinLogged,
 }: {
   colors: (typeof Colors)["light"];
   /** @deprecated Daily-only Log mode; prop retained for caregiver call sites. */
   restrictToDay?: boolean;
+  /** The account's configured insulins — options for the Log Insulin popup. */
+  insulinOptions?: InsulinOption[];
+  /** Calculator's current insulin selection; used as the popup default. */
+  selectedInsulinLabel?: string | null;
+  /** Fired after a dose is logged from here — drives the header "+1" fly-away. */
+  onInsulinLogged?: () => void;
 }) {
   const [dayOffset, setDayOffset] = useState(0);
 
-  const { targetGlucose } = useGlucose();
-  const { foodLog, insulinLog, alertPrefs } = useAuth();
+  const { targetGlucose, cgmSyncSuccessTick } = useGlucose();
+  const { foodLog, insulinLog, logInsulinDose, alertPrefs } = useAuth();
+
+  // ── Log Insulin popup — button stays green until the next successful CGM sync ──
+  const [logModalVisible, setLogModalVisible] = useState(false);
+  const [logUnitsText, setLogUnitsText] = useState("");
+  const [logPendingLabel, setLogPendingLabel] = useState<string | null>(null);
+  const [logLoggedAtTick, setLogLoggedAtTick] = useState<number | null>(null);
+  const logBtnGreen = logLoggedAtTick !== null && logLoggedAtTick === cgmSyncSuccessTick;
+
+  const parsedLogUnits = finalizeManualDoseInput(logUnitsText);
+  const canLog =
+    parsedLogUnits != null &&
+    parsedLogUnits > 0 &&
+    (insulinOptions.length === 0 || logPendingLabel != null);
+
+  const openLogModal = () => {
+    const optionLabels = insulinOptions.map(insulinChipLabel);
+    const defaultLabel =
+      selectedInsulinLabel && optionLabels.includes(selectedInsulinLabel)
+        ? selectedInsulinLabel
+        : optionLabels[0] ?? null;
+    setLogPendingLabel(defaultLabel);
+    setLogUnitsText("");
+    setLogModalVisible(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const handleLogInsulin = () => {
+    if (parsedLogUnits == null || parsedLogUnits <= 0) return;
+    logInsulinDose({
+      timestamp: new Date().toISOString(),
+      units: parsedLogUnits,
+      type: "manual",
+      ...(logPendingLabel ? { insulinType: logPendingLabel } : {}),
+    });
+    setLogModalVisible(false);
+    setLogLoggedAtTick(cgmSyncSuccessTick);
+    onInsulinLogged?.();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
 
   const today = useMemo(() => startOfLocalDay(new Date()), []);
 
@@ -50,6 +114,23 @@ export default function LogHistory({
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.logInsulinRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Log insulin"
+            style={({ pressed }) => [
+              styles.logInsulinBtn,
+              {
+                backgroundColor: logBtnGreen ? COLORS.success : COLORS.primary,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+            onPress={openLogModal}
+          >
+            <Feather name={logBtnGreen ? "check" : "plus"} size={12} color="#fff" />
+            <Text style={styles.logInsulinBtnText}>Log Insulin</Text>
+          </Pressable>
+        </View>
         <DayView
           day={selectedDay}
           dayOffset={dayOffset}
@@ -62,6 +143,60 @@ export default function LogHistory({
           insulinLog={insulinLog}
         />
       </ScrollView>
+
+      {/* ── Combined insulin-type + units popup ── */}
+      <DashboardSectionModal
+        visible={logModalVisible}
+        onClose={() => setLogModalVisible(false)}
+        accessibilityLabel="Log insulin"
+      >
+        <View style={[styles.logModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.logModalTitle, { color: colors.text }]}>Log Insulin</Text>
+          <Text style={[styles.logModalSub, { color: colors.textSecondary }]}>
+            Record a dose you took — it's added to today's log immediately.
+          </Text>
+          <InsulinTypePicker
+            options={insulinOptions}
+            selectedLabel={logPendingLabel}
+            onSelect={setLogPendingLabel}
+            colors={colors}
+          />
+          <View style={[styles.logUnitsRow, { borderTopColor: colors.border }]}>
+            <Text style={[styles.logUnitsLabel, { color: colors.textSecondary }]}>Insulin taken</Text>
+            <View style={styles.logUnitsBadge}>
+              <TextInput
+                value={logUnitsText}
+                onChangeText={(t) => setLogUnitsText(filterDoseInputText(t))}
+                keyboardType="decimal-pad"
+                returnKeyType="done"
+                placeholder="0"
+                placeholderTextColor="rgba(255,255,255,0.45)"
+                style={styles.logUnitsInput}
+                maxLength={8}
+                accessibilityLabel="Insulin units taken"
+              />
+              <Text style={styles.logUnitsUnit}>units</Text>
+            </View>
+          </View>
+          <View style={styles.logModalFooter}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={!canLog}
+              style={({ pressed }) => [
+                styles.logSubmitBtn,
+                {
+                  backgroundColor: canLog ? COLORS.primary : colors.backgroundTertiary,
+                  opacity: pressed ? 0.8 : 1,
+                },
+              ]}
+              onPress={handleLogInsulin}
+            >
+              <Feather name="check" size={14} color={canLog ? "#fff" : colors.textMuted} />
+              <Text style={[styles.logSubmitBtnText, { color: canLog ? "#fff" : colors.textMuted }]}>Log</Text>
+            </Pressable>
+          </View>
+        </View>
+      </DashboardSectionModal>
     </View>
   );
 }
@@ -162,13 +297,13 @@ function DayView({
         ))
       )}
 
-      {dayInsulin.length > 0 && (
-        <>
-          <Text style={[styles.logSectionTitle, { color: colors.text, marginTop: T.space.sm }]}>Insulin Log</Text>
-          {dayInsulin.map((insulin) => (
-            <InsulinLogRow key={insulin.id} insulin={insulin} colors={colors} />
-          ))}
-        </>
+      <Text style={[styles.logSectionTitle, { color: colors.text, marginTop: T.space.sm }]}>Insulin Log</Text>
+      {dayInsulin.length === 0 ? (
+        <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No insulin logged for this day.</Text>
+      ) : (
+        dayInsulin.map((insulin) => (
+          <InsulinLogRow key={insulin.id} insulin={insulin} colors={colors} />
+        ))
       )}
     </View>
   );
@@ -193,17 +328,37 @@ function FoodLogRow({ food, colors }: { food: FoodLogEntry; colors: (typeof Colo
 }
 
 function InsulinLogRow({ insulin, colors }: { insulin: InsulinLogEntry; colors: (typeof Colors)["light"] }) {
+  const opt = insulin.insulinType ? findInsulinByChipLabel(insulin.insulinType) : undefined;
+  const insulinName = opt?.name ?? insulin.insulinType?.split(" · ")[0];
+  const doseAdjusted =
+    insulin.recommendedUnits != null && !doseAmountsEqual(insulin.units, insulin.recommendedUnits);
+
+  const subParts: string[] = [];
+  if (opt) subParts.push(INSULIN_TYPE_LABEL[opt.type]);
+  if (insulin.recommendedUnits != null) {
+    subParts.push(`Recommended ${formatDoseAmount(insulin.recommendedUnits)}u`);
+  }
+  if (insulin.note) subParts.push(insulin.note);
+  subParts.push(fmtTime(insulin.timestamp));
+
   return (
     <View style={[styles.entryRow, { backgroundColor: colors.card, borderColor: COLORS.primary + "40" }]}>
       <View style={[styles.entryIcon, { backgroundColor: COLORS.primary + "18" }]}>
         <Text style={{ fontSize: 16 }}>💉</Text>
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.entryTitle, { color: colors.text }]}>
-          {insulin.units}u {insulin.type}
-        </Text>
+        <View style={styles.entryTitleRow}>
+          <Text style={[styles.entryTitle, { color: colors.text }]} numberOfLines={1}>
+            {formatDoseAmount(insulin.units)}u · {insulinName ?? insulin.type}
+          </Text>
+          {doseAdjusted && (
+            <View style={[styles.adjustedTag, { backgroundColor: COLORS.warning + "20" }]}>
+              <Text style={[styles.adjustedTagText, { color: COLORS.warning }]}>ADJUSTED</Text>
+            </View>
+          )}
+        </View>
         <Text style={[styles.entrySub, { color: colors.textSecondary }]} numberOfLines={1}>
-          {insulin.note ? `${insulin.note} · ` : ""}{fmtTime(insulin.timestamp)}
+          {subParts.join(" · ")}
         </Text>
       </View>
     </View>
@@ -254,6 +409,65 @@ const styles = StyleSheet.create({
   },
   entryIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   entryTitle: { fontSize: 14, fontWeight: "600" },
+  entryTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   entrySub: { fontSize: 12, fontWeight: "400", marginTop: 1 },
   emptySub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20 },
+  adjustedTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  adjustedTagText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.6 },
+
+  logInsulinRow: { flexDirection: "row", justifyContent: "flex-end", marginBottom: 12 },
+  logInsulinBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 9,
+  },
+  logInsulinBtnText: { fontSize: 12, fontWeight: "700", color: "#fff" },
+
+  logModalCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
+  logModalTitle: { fontSize: 18, fontWeight: "700" },
+  logModalSub: { fontSize: 12, fontWeight: "400", lineHeight: 17, marginTop: -6 },
+  logUnitsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    borderTopWidth: 1,
+    paddingTop: 14,
+    marginTop: 2,
+  },
+  logUnitsLabel: { fontSize: 13, fontWeight: "600" },
+  logUnitsBadge: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 14,
+    minWidth: 88,
+    justifyContent: "center",
+  },
+  logUnitsInput: {
+    fontSize: 26,
+    fontWeight: "700",
+    color: "#fff",
+    minWidth: 44,
+    textAlign: "center",
+    padding: 0,
+    margin: 0,
+  },
+  logUnitsUnit: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.8)" },
+  logModalFooter: { flexDirection: "row", justifyContent: "flex-end" },
+  logSubmitBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  logSubmitBtnText: { fontSize: 14, fontWeight: "700" },
 });

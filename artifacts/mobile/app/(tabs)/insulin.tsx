@@ -1,8 +1,10 @@
 import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Dimensions,
   Keyboard,
   PanResponder,
@@ -45,6 +47,15 @@ import {
 import { getEffectiveTrend } from "@/utils/trend";
 import LogHistory from "@/components/LogHistory";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
+import { DashboardSectionModal } from "@/components/DashboardSectionModal";
+import InsulinTypePicker from "@/components/InsulinTypePicker";
+import {
+  defaultInsulinChipLabel,
+  findInsulinByChipLabel,
+  insulinDisplayLabel,
+  type InsulinOption,
+} from "@/constants/insulin";
+import { DOSE_INSULIN_TYPE_STORAGE_KEY } from "@/constants/storage-keys";
 
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
@@ -789,7 +800,7 @@ export default function InsulinScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { targetGlucose, carbRatio, correctionFactor, history, cgmSyncSuccessTick } = useGlucose();
-  const { isMinor, alertPrefs, profile, foodLog, insulinLog, caregiverSession, doctorSession, isChildMode } = useAuth();
+  const { isMinor, alertPrefs, profile, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode } = useAuth();
 
   const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
   const [timeRange, setTimeRange] = useState<A1cRange>(DEFAULT_A1C_RANGE);
@@ -804,6 +815,84 @@ export default function InsulinScreen() {
   const manualOverrideBeforeEditRef = useRef<number | null>(null);
   const doseInputRef = useRef<TextInput>(null);
   const cgmSyncTickRef = useRef(cgmSyncSuccessTick);
+
+  // ── Insulin type selection (persisted; validated against the profile's configured insulins) ──
+  const [insulinTypeLabel, setInsulinTypeLabel] = useState<string | null>(null);
+  const [insulinTypeReady, setInsulinTypeReady] = useState(false);
+  const [insulinModalVisible, setInsulinModalVisible] = useState(false);
+  const [pendingInsulinLabel, setPendingInsulinLabel] = useState<string | null>(null);
+
+  // ── "I just took this dose" — green until the next successful CGM sync ──
+  const [doseLoggedAtTick, setDoseLoggedAtTick] = useState<number | null>(null);
+
+  // ── "+1" fly-away badge on the header Log toggle ──
+  const [plusOneActive, setPlusOneActive] = useState(false);
+  const plusOneOpacity = useRef(new Animated.Value(0)).current;
+  const plusOneShift = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(DOSE_INSULIN_TYPE_STORAGE_KEY);
+        if (!cancelled && stored) setInsulinTypeLabel(stored);
+      } catch {
+        /* ignore */
+      }
+      if (!cancelled) setInsulinTypeReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Keep the selection valid: it must be one of the profile's configured insulins, defaulting to
+  // the first bolus-capable one — so the calculator always has a type when any are configured.
+  useEffect(() => {
+    if (!insulinTypeReady) return;
+    const configured = profile?.insulinTypes ?? [];
+    if (insulinTypeLabel && configured.includes(insulinTypeLabel)) return;
+    setInsulinTypeLabel(defaultInsulinChipLabel(configured));
+  }, [insulinTypeReady, profile?.insulinTypes, insulinTypeLabel]);
+
+  const availableInsulinOptions = useMemo<InsulinOption[]>(
+    () =>
+      (profile?.insulinTypes ?? [])
+        .map(findInsulinByChipLabel)
+        .filter((o): o is InsulinOption => o != null),
+    [profile?.insulinTypes],
+  );
+
+  const selectedInsulinOption = useMemo(
+    () => (insulinTypeLabel ? findInsulinByChipLabel(insulinTypeLabel) : undefined),
+    [insulinTypeLabel],
+  );
+
+  const commitInsulinTypeLabel = useCallback((label: string | null) => {
+    setInsulinTypeLabel(label);
+    if (label) AsyncStorage.setItem(DOSE_INSULIN_TYPE_STORAGE_KEY, label).catch(() => {});
+    else AsyncStorage.removeItem(DOSE_INSULIN_TYPE_STORAGE_KEY).catch(() => {});
+  }, []);
+
+  const triggerLogPlusOne = useCallback(() => {
+    plusOneOpacity.setValue(0);
+    plusOneShift.setValue({ x: 0, y: 0 });
+    setPlusOneActive(true);
+    Animated.sequence([
+      Animated.timing(plusOneOpacity, { toValue: 1, duration: 140, useNativeDriver: true }),
+      Animated.delay(1500),
+      Animated.parallel([
+        Animated.timing(plusOneOpacity, { toValue: 0, duration: 450, useNativeDriver: true }),
+        Animated.timing(plusOneShift, {
+          toValue: { x: 18, y: -26 },
+          duration: 450,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start(({ finished }) => {
+      if (finished) setPlusOneActive(false);
+    });
+  }, [plusOneOpacity, plusOneShift]);
 
   const latest = history[history.length - 1];
 
@@ -883,19 +972,49 @@ export default function InsulinScreen() {
       correctionFactor,
       trend,
       previousBG: prev,
+      insulinKind: selectedInsulinOption?.type,
     });
-  }, [carbInput, doseBg, targetGlucose, carbRatio, correctionFactor, history, latest]);
+  }, [carbInput, doseBg, targetGlucose, carbRatio, correctionFactor, history, latest, selectedInsulinOption]);
 
   useEffect(() => {
     if (cgmSyncSuccessTick !== cgmSyncTickRef.current) {
       cgmSyncTickRef.current = cgmSyncSuccessTick;
       setManualDoseOverride(null);
       setDoseEditing(false);
+      setDoseLoggedAtTick(null);
     }
   }, [cgmSyncSuccessTick]);
 
   const systemRecommendedDose = dose?.totalDose ?? 0;
   const effectiveDose = manualDoseOverride ?? systemRecommendedDose;
+  const doseJustLogged = doseLoggedAtTick !== null && doseLoggedAtTick === cgmSyncSuccessTick;
+
+  const handleTookDose = useCallback(() => {
+    if (!dose || doseJustLogged || effectiveDose <= 0) return;
+    const wasManual =
+      manualDoseOverride != null && !doseAmountsEqual(effectiveDose, systemRecommendedDose);
+    logInsulinDose({
+      timestamp: new Date().toISOString(),
+      units: roundToQuarterUnits(effectiveDose),
+      type: "bolus",
+      ...(insulinTypeLabel ? { insulinType: insulinTypeLabel } : {}),
+      recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
+      manualOverride: wasManual,
+    });
+    setDoseLoggedAtTick(cgmSyncSuccessTick);
+    triggerLogPlusOne();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [
+    dose,
+    doseJustLogged,
+    effectiveDose,
+    manualDoseOverride,
+    systemRecommendedDose,
+    insulinTypeLabel,
+    logInsulinDose,
+    cgmSyncSuccessTick,
+    triggerLogPlusOne,
+  ]);
 
   const completeDoseEdit = useCallback(() => {
     if (!doseEditing) return;
@@ -966,6 +1085,20 @@ export default function InsulinScreen() {
                   >
                     {t === "predict" ? "💉 Dose" : "📋 Log"}
                   </Text>
+                  {t === "log" && plusOneActive && (
+                    <Animated.Text
+                      pointerEvents="none"
+                      style={[
+                        styles.plusOneBadge,
+                        {
+                          opacity: plusOneOpacity,
+                          transform: plusOneShift.getTranslateTransform(),
+                        },
+                      ]}
+                    >
+                      +1
+                    </Animated.Text>
+                  )}
                 </Pressable>
               ))}
             </View>
@@ -974,7 +1107,13 @@ export default function InsulinScreen() {
       </TabGlucoseHeaderShell>
 
       {screenTab === "log" ? (
-        <LogHistory colors={colors} restrictToDay={caregiverSession} />
+        <LogHistory
+          colors={colors}
+          restrictToDay={caregiverSession}
+          insulinOptions={availableInsulinOptions}
+          selectedInsulinLabel={insulinTypeLabel}
+          onInsulinLogged={triggerLogPlusOne}
+        />
       ) : (
       <ScrollView
         style={{ flex: 1 }}
@@ -1034,6 +1173,31 @@ export default function InsulinScreen() {
           </View>
         </View>
 
+        {/* ── Insulin type — tiny current-type readout + small picker button ── */}
+        <View style={styles.insulinTypeRow}>
+          <Text numberOfLines={1} style={[styles.insulinTypeCurrent, { color: colors.textMuted }]}>
+            {selectedInsulinOption
+              ? insulinDisplayLabel(selectedInsulinOption)
+              : "No insulin type set"}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Choose insulin type"
+            style={({ pressed }) => [
+              styles.insulinTypeBtn,
+              { backgroundColor: COLORS.primary, opacity: pressed ? 0.8 : 1 },
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setPendingInsulinLabel(insulinTypeLabel);
+              setInsulinModalVisible(true);
+            }}
+          >
+            <Feather name="droplet" size={11} color="#fff" />
+            <Text style={styles.insulinTypeBtnText}>Insulin Type</Text>
+          </Pressable>
+        </View>
+
         {dose && doseBg && (
           <>
             {dose.warnings.map((w, i) => (
@@ -1054,32 +1218,44 @@ export default function InsulinScreen() {
 
             <View style={[styles.doseBreakdown, { borderTopColor: colors.border }]}>
               {hasCarbs && (
-                <DoseRow label="Carb Dose" sub={`${parseFloat(carbInput)}g ÷ ${carbRatio}g`} value={dose.carbInsulin} unit="u" colors={colors} />
+                <DoseRow
+                  label="Carb Dose"
+                  sub={dose.basalSuppressed ? "Not applied for basal insulin" : `${parseFloat(carbInput)}g ÷ ${carbRatio}g`}
+                  value={dose.carbInsulin}
+                  unit="u"
+                  colors={colors}
+                  dimmed={dose.basalSuppressed}
+                />
               )}
               <DoseRow
                 label="Correction"
-                sub={dose.correctionSuppressed
+                sub={dose.basalSuppressed
+                  ? "Not applied for basal insulin"
+                  : dose.correctionSuppressed
                   ? "BG below target — suppressed"
                   : `(${doseBg.label} − ${targetGlucose}) ÷ ${correctionFactor}`}
                 value={dose.correctionInsulin}
                 unit="u"
                 colors={colors}
-                dimmed={dose.correctionSuppressed}
+                dimmed={dose.correctionSuppressed || dose.basalSuppressed}
               />
               <DoseRow
                 label="Trend Adj."
-                sub={dose.trendLabel}
+                sub={dose.basalSuppressed ? "Not applied for basal insulin" : dose.trendLabel}
                 value={dose.trendAdjustment}
                 unit="u"
                 colors={colors}
                 signed
+                dimmed={dose.basalSuppressed}
               />
             </View>
 
             <View style={[styles.doseTotalRow, { borderTopColor: colors.border }]}>
               <View>
                 <Text style={[styles.doseTotalLabel, { color: colors.textSecondary }]}>
-                  {isMinor
+                  {dose.basalSuppressed
+                    ? "Basal dose — enter your prescribed amount"
+                    : isMinor
                     ? "Ask your adult to give:"
                     : hasCarbs
                     ? `Insulin to give (with ${carbInput}g carbs)`
@@ -1105,25 +1281,47 @@ export default function InsulinScreen() {
               />
             </View>
 
-            <Pressable
-              style={({ pressed }) => [styles.explainBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                const name = profile?.childName ?? "them";
-                const manualNote =
-                  manualDoseOverride != null
-                    ? ` I manually set my dose display to ${formatDoseAmount(manualDoseOverride)}u (temporary override). The system recommendation is ${formatDoseAmount(dose.totalDose)}u.`
+            <View style={styles.doseActionsRow}>
+              <Pressable
+                style={({ pressed }) => [styles.explainBtn, { flex: 1, backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  const name = profile?.childName ?? "them";
+                  const manualNote =
+                    manualDoseOverride != null
+                      ? ` I manually set my dose display to ${formatDoseAmount(manualDoseOverride)}u (temporary override). The system recommendation is ${formatDoseAmount(dose.totalDose)}u.`
+                      : "";
+                  const insulinNote = selectedInsulinOption
+                    ? ` Insulin type: ${insulinDisplayLabel(selectedInsulinOption)}.`
                     : "";
-                const prompt = hasCarbs
-                  ? `Explain my insulin dose. Current BG: ${doseBg.label} mg/dL, eating ${carbInput}g carbs. Carb ratio 1:${carbRatio}, target BG ${targetGlucose}, ISF 1:${correctionFactor}. Trend: ${dose.trendLabel}. Carb dose: ${dose.carbInsulin}u, correction: ${dose.correctionInsulin}u, trend adj: ${dose.trendAdjustment}u. System recommended total: ${dose.totalDose}u.${manualNote}`
-                  : `${name}'s BG is ${doseBg.label} mg/dL with no carbs. Correction only: (${doseBg.label}−${targetGlucose})÷${correctionFactor} = ${dose.correctionInsulin}u, system recommended total ${dose.totalDose}u.${manualNote} Is this right?`;
-                openChat(prompt);
-              }}
-            >
-              <Feather name="help-circle" size={13} color={COLORS.primary} />
-              <Text style={[styles.explainBtnText, { color: COLORS.primary }]}>Explain My Dose</Text>
-              <Feather name="chevron-right" size={13} color={COLORS.primary} />
-            </Pressable>
+                  const prompt = hasCarbs
+                    ? `Explain my insulin dose. Current BG: ${doseBg.label} mg/dL, eating ${carbInput}g carbs. Carb ratio 1:${carbRatio}, target BG ${targetGlucose}, ISF 1:${correctionFactor}. Trend: ${dose.trendLabel}. Carb dose: ${dose.carbInsulin}u, correction: ${dose.correctionInsulin}u, trend adj: ${dose.trendAdjustment}u. System recommended total: ${dose.totalDose}u.${insulinNote}${manualNote}`
+                    : `${name}'s BG is ${doseBg.label} mg/dL with no carbs. Correction only: (${doseBg.label}−${targetGlucose})÷${correctionFactor} = ${dose.correctionInsulin}u, system recommended total ${dose.totalDose}u.${insulinNote}${manualNote} Is this right?`;
+                  openChat(prompt);
+                }}
+              >
+                <Feather name="help-circle" size={13} color={COLORS.primary} />
+                <Text style={[styles.explainBtnText, { color: COLORS.primary }]}>Explain My Dose</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="I just took this dose"
+                disabled={doseJustLogged || effectiveDose <= 0}
+                style={({ pressed }) => [
+                  styles.tookDoseBtn,
+                  {
+                    backgroundColor: doseJustLogged ? COLORS.success : COLORS.primary,
+                    opacity: pressed ? 0.8 : effectiveDose <= 0 && !doseJustLogged ? 0.5 : 1,
+                  },
+                ]}
+                onPress={handleTookDose}
+              >
+                <Feather name={doseJustLogged ? "check-circle" : "check"} size={13} color="#fff" />
+                <Text style={styles.tookDoseBtnText}>
+                  {doseJustLogged ? "Dose Logged" : "I Just Took This Dose"}
+                </Text>
+              </Pressable>
+            </View>
           </>
         )}
 
@@ -1271,6 +1469,49 @@ export default function InsulinScreen() {
       )}
     </ScrollView>
       )}
+
+      {/* ── Insulin type picker popup ── */}
+      <DashboardSectionModal
+        visible={insulinModalVisible}
+        onClose={() => setInsulinModalVisible(false)}
+        accessibilityLabel="Insulin type selection"
+      >
+        <View style={[styles.insulinModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.insulinModalTitle, { color: colors.text }]}>Insulin Type</Text>
+          <Text style={[styles.insulinModalSub, { color: colors.textSecondary }]}>
+            Choose which of your insulins this dose uses. The calculator adjusts for how it acts.
+          </Text>
+          <InsulinTypePicker
+            options={availableInsulinOptions}
+            selectedLabel={pendingInsulinLabel}
+            onSelect={setPendingInsulinLabel}
+            colors={colors}
+          />
+          <View style={styles.insulinModalFooter}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={!pendingInsulinLabel}
+              style={({ pressed }) => [
+                styles.insulinApplyBtn,
+                {
+                  backgroundColor: pendingInsulinLabel ? COLORS.primary : colors.backgroundTertiary,
+                  opacity: pressed ? 0.8 : 1,
+                },
+              ]}
+              onPress={() => {
+                if (!pendingInsulinLabel) return;
+                commitInsulinTypeLabel(pendingInsulinLabel);
+                setInsulinModalVisible(false);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              }}
+            >
+              <Text style={[styles.insulinApplyBtnText, { color: pendingInsulinLabel ? "#fff" : colors.textMuted }]}>
+                Apply
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </DashboardSectionModal>
     </View>
   );
 }
@@ -1578,6 +1819,47 @@ const styles = StyleSheet.create({
   suggestedDoseLine: { fontSize: 11, fontWeight: "400", marginTop: 4, textAlign: "center" },
 
   explainBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 11 },
-  explainBtnText: { fontSize: 14, fontWeight: "600" },
+  explainBtnText: { fontSize: 13, fontWeight: "600" },
   dosePrompt: { fontSize: 13, fontWeight: "400", lineHeight: 20, textAlign: "center", paddingVertical: 8 },
+
+  insulinTypeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  insulinTypeCurrent: { flex: 1, minWidth: 0, fontSize: 11, fontWeight: "500" },
+  insulinTypeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  insulinTypeBtnText: { fontSize: 11, fontWeight: "700", color: "#fff" },
+
+  doseActionsRow: { flexDirection: "row", gap: 8 },
+  tookDoseBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 11,
+    paddingHorizontal: 8,
+    borderRadius: 11,
+  },
+  tookDoseBtnText: { fontSize: 12, fontWeight: "700", color: "#fff", textAlign: "center" },
+
+  plusOneBadge: {
+    position: "absolute",
+    right: 4,
+    top: 7,
+    fontSize: 12,
+    fontWeight: "800",
+    color: COLORS.success,
+  },
+
+  insulinModalCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
+  insulinModalTitle: { fontSize: 18, fontWeight: "700" },
+  insulinModalSub: { fontSize: 12, fontWeight: "400", lineHeight: 17, marginTop: -6 },
+  insulinModalFooter: { flexDirection: "row", justifyContent: "flex-end", marginTop: 4 },
+  insulinApplyBtn: { paddingHorizontal: 22, paddingVertical: 10, borderRadius: 10 },
+  insulinApplyBtnText: { fontSize: 14, fontWeight: "700" },
 });

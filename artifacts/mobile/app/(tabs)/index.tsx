@@ -156,7 +156,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const c = useThemeColors();
   const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose, notifyCgmSyncSuccess } = useGlucose();
-  const { profile, cgmConnection, emergencyContacts, alertPrefs, account } = useAuth();
+  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession } = useAuth();
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -311,7 +311,9 @@ export default function HomeScreen() {
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
-  const childName = profile?.childName ?? "Glucose Guardian";
+  const patientName = profile?.childName ?? "Glucose Guardian";
+  // Guardian sessions greet the guardian, not the patient — "Bella's Guardian", not "Bella".
+  const childName = caregiverSession && profile?.childName ? `${profile.childName}'s Guardian` : patientName;
   const updatedLabel = (lastSyncResult || lastSyncTime)
     ? `Updated ${formatLastSync(lastSyncResult?.at ?? lastSyncTime).toLowerCase()}`
     : undefined;

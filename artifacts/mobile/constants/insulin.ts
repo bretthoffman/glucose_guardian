@@ -36,3 +36,31 @@ export const INSULIN_TYPE_LABEL: Record<InsulinOption["type"], string> = {
 export function insulinChipLabel(opt: InsulinOption): string {
   return `${opt.name} · ${opt.concentration}`;
 }
+
+/** Resolve a stored profile chip label (e.g. "Humalog · 100 u/mL") back to its option. */
+export function findInsulinByChipLabel(label: string): InsulinOption | undefined {
+  return INSULIN_OPTIONS.find((opt) => insulinChipLabel(opt) === label);
+}
+
+/** Mealtime/correction-capable insulins — basal (intermediate/long/ultra-long) are excluded. */
+export function isBolusInsulin(type: InsulinOption["type"]): boolean {
+  return type === "rapid" || type === "regular" || type === "premixed";
+}
+
+/** Compact "name · acting class" line, e.g. "Humalog · Rapid-Acting". */
+export function insulinDisplayLabel(opt: InsulinOption): string {
+  return `${opt.name} · ${INSULIN_TYPE_LABEL[opt.type]}`;
+}
+
+/**
+ * Default calculator selection from the profile's configured chip labels: first bolus-capable
+ * insulin wins (it's a mealtime-dose calculator), otherwise the first configured one.
+ */
+export function defaultInsulinChipLabel(configured: string[] | undefined): string | null {
+  if (!configured || configured.length === 0) return null;
+  const bolus = configured.find((label) => {
+    const opt = findInsulinByChipLabel(label);
+    return opt != null && isBolusInsulin(opt.type);
+  });
+  return bolus ?? configured[0];
+}

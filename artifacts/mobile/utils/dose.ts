@@ -11,7 +11,13 @@ export interface DoseBreakdown {
   isHighBG: boolean;
   isSpikeDetected: boolean;
   correctionSuppressed: boolean;
+  /** True when a basal (intermediate/long/ultra-long) insulin is selected — meal math suppressed. */
+  basalSuppressed: boolean;
 }
+
+export type InsulinKind = "rapid" | "regular" | "intermediate" | "long" | "ultra-long" | "premixed";
+
+const BASAL_KINDS: InsulinKind[] = ["intermediate", "long", "ultra-long"];
 
 export interface DoseWarning {
   level: "danger" | "warning" | "info";
@@ -42,26 +48,49 @@ export function computeDose(params: {
   correctionFactor: number;
   trend: string;
   previousBG?: number;
+  /** Acting class of the insulin the dose is for — defaults to rapid-acting behavior. */
+  insulinKind?: InsulinKind;
 }): DoseBreakdown {
-  const { carbs, currentBG, targetBG, carbRatio, correctionFactor, trend, previousBG } = params;
+  const { carbs, currentBG, targetBG, carbRatio, correctionFactor, trend, previousBG, insulinKind } = params;
 
   const warnings: DoseWarning[] = [];
+  const basalSuppressed = insulinKind != null && BASAL_KINDS.includes(insulinKind);
 
-  const carbInsulin = carbRatio > 0 ? carbs / carbRatio : 0;
+  const carbInsulin = !basalSuppressed && carbRatio > 0 ? carbs / carbRatio : 0;
 
-  const correctionSuppressed = currentBG < targetBG;
+  const correctionSuppressed = !basalSuppressed && currentBG < targetBG;
   let correctionInsulin = 0;
-  if (!correctionSuppressed && correctionFactor > 0) {
+  if (!basalSuppressed && !correctionSuppressed && correctionFactor > 0) {
     correctionInsulin = (currentBG - targetBG) / correctionFactor;
   }
 
-  const trendAdj = TREND_ADJ[trend] ?? 0;
+  const trendAdj = basalSuppressed ? 0 : TREND_ADJ[trend] ?? 0;
   const trendLabel = TREND_LABELS[trend] ?? "Stable →";
   const trendAdjLabel =
     trendAdj > 0 ? `+${trendAdj}` : trendAdj < 0 ? `${trendAdj}` : "0";
 
   const totalRaw = Math.max(0, carbInsulin + correctionInsulin + trendAdj);
   const totalDose = Math.round(totalRaw * 2) / 2;
+
+  if (basalSuppressed) {
+    warnings.push({
+      level: "warning",
+      message:
+        "Long-acting (basal) insulin isn't dosed from carbs or corrections. Enter your prescribed basal amount manually — this calculator's math applies to mealtime insulin.",
+    });
+  } else if (insulinKind === "regular") {
+    warnings.push({
+      level: "info",
+      message:
+        "Regular (short-acting) insulin starts and peaks slower than rapid-acting — inject about 30 minutes before eating.",
+    });
+  } else if (insulinKind === "premixed") {
+    warnings.push({
+      level: "info",
+      message:
+        "Pre-mixed insulin combines fixed rapid and intermediate portions. Confirm mealtime coverage for this dose with your care team.",
+    });
+  }
 
   const isLowBG = currentBG < 90;
   const isHighBG = currentBG > 250;
@@ -95,7 +124,7 @@ export function computeDose(params: {
     });
   }
 
-  if (trend === "rapidly_falling" || trend === "falling") {
+  if (!basalSuppressed && (trend === "rapidly_falling" || trend === "falling")) {
     warnings.push({
       level: "warning",
       message: "Glucose is falling. Trend adjustment applied. Monitor closely after dosing.",
@@ -115,5 +144,6 @@ export function computeDose(params: {
     isHighBG,
     isSpikeDetected,
     correctionSuppressed,
+    basalSuppressed,
   };
 }

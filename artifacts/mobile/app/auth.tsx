@@ -6,6 +6,7 @@ import {
   Alert,
   Animated,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -171,6 +172,11 @@ export default function AuthScreen() {
             <Pressable
               style={styles.tab}
               onPress={() => {
+                // Already on Sign In: just close the keyboard — don't clear a typed password.
+                if (mode === "signin") {
+                  Keyboard.dismiss();
+                  return;
+                }
                 setMode("signin");
                 setPassword("");
                 setConfirmPassword("");
