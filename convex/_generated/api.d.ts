@@ -18,6 +18,7 @@ import type * as cgmIngest from "../cgmIngest.js";
 import type * as crons from "../crons.js";
 import type * as doctor from "../doctor.js";
 import type * as doctorAccounts from "../doctorAccounts.js";
+import type * as doctorAlerts from "../doctorAlerts.js";
 import type * as guardianPin_config from "../guardianPin/config.js";
 import type * as guardianPin_hashNode from "../guardianPin/hashNode.js";
 import type * as guardianPin_internal from "../guardianPin/internal.js";
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   doctor: typeof doctor;
   doctorAccounts: typeof doctorAccounts;
+  doctorAlerts: typeof doctorAlerts;
   "guardianPin/config": typeof guardianPin_config;
   "guardianPin/hashNode": typeof guardianPin_hashNode;
   "guardianPin/internal": typeof guardianPin_internal;
