@@ -105,6 +105,10 @@ interface PatientSnapshot {
     insulinUnits: number;
     confidence: "high" | "medium" | "low";
     fromPhoto: boolean;
+    /** Device-local file URI on the patient's phone (stripped server-side; not renderable). */
+    photoUri?: string;
+    /** Small base64 data-URI of the meal photo, synced by the app for the portal. */
+    photoDataUri?: string;
   }[];
   messages: DoctorMessage[];
   alertPreferences?: {
@@ -234,6 +238,32 @@ type ConvexDoctorDoc = {
   } | null;
   syncedAt?: string;
 };
+
+const FOOD_PHOTO_MAX_BYTES = 16 * 1024;
+const FOOD_PHOTO_MAX_ENTRIES = 20;
+
+/**
+ * Guard the doctorPortalState document (Convex caps docs at ~1MB): drop device-local file URIs
+ * (useless off the phone), and keep meal-photo data-URIs only on the newest entries and only when
+ * they're genuinely small thumbnails. Worst case ~320KB of photos per patient.
+ */
+function sanitizeFoodLog(foodLog: PatientSnapshot["foodLog"]): PatientSnapshot["foodLog"] {
+  const newestFirst = [...foodLog].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+  );
+  const keepPhotoIds = new Set(
+    newestFirst.slice(0, FOOD_PHOTO_MAX_ENTRIES).map((f) => f.id),
+  );
+  return foodLog.map((f) => {
+    const { photoUri: _dropped, photoDataUri, ...rest } = f;
+    const keep =
+      photoDataUri &&
+      photoDataUri.startsWith("data:image/") &&
+      photoDataUri.length <= FOOD_PHOTO_MAX_BYTES &&
+      keepPhotoIds.has(f.id);
+    return keep ? { ...rest, photoDataUri } : rest;
+  });
+}
 
 /**
  * Fire-and-forget compliance log write. Never blocks or fails the request; silently a no-op
@@ -704,7 +734,7 @@ router.post("/sync", (req, res) => {
           profile: body.profile,
           glucoseReadings: body.glucoseReadings ?? [],
           insulinLog: body.insulinLog ?? [],
-          foodLog: body.foodLog ?? [],
+          foodLog: sanitizeFoodLog(body.foodLog ?? []),
           messages: merged,
           alertPreferences: body.alertPreferences,
           syncedAt: new Date().toISOString(),
