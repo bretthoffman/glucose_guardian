@@ -35,7 +35,9 @@ import type { GlucoseEntry } from "@/context/GlucoseContext";
 import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 import { glucoseColor } from "@/components/CGMChart";
 import { computeDose } from "@/utils/dose";
-import type { DoseBreakdown } from "@/utils/dose";
+import type { DoseBreakdown, DoseWarning } from "@/utils/dose";
+import { computeBasalDose } from "@/utils/basalDose";
+import type { BasalDoseBreakdown } from "@/utils/basalDose";
 import {
   doseAmountsEqual,
   filterDoseInputText,
@@ -53,6 +55,7 @@ import {
   defaultInsulinChipLabel,
   findInsulinByChipLabel,
   insulinDisplayLabel,
+  isBolusInsulin,
   type InsulinOption,
 } from "@/constants/insulin";
 import { DOSE_INSULIN_TYPE_STORAGE_KEY } from "@/constants/storage-keys";
@@ -868,6 +871,61 @@ export default function InsulinScreen() {
     [insulinTypeLabel],
   );
 
+  /** Basal mode — long/ultra-long/intermediate insulins swap the meal calculator for titration. */
+  const isBasalMode = selectedInsulinOption != null && !isBolusInsulin(selectedInsulinOption.type);
+
+  // Switching insulin types re-baselines the calculator: a manual override for one insulin must
+  // not carry over to another (a 12u basal override is not a 12u bolus).
+  const prevInsulinLabelRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevInsulinLabelRef.current !== insulinTypeLabel) {
+      prevInsulinLabelRef.current = insulinTypeLabel;
+      setManualDoseOverride(null);
+      setDoseEditing(false);
+    }
+  }, [insulinTypeLabel]);
+
+  // Keep the basal card's "Current Time" fresh while it's visible.
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    if (!isBasalMode) return;
+    const id = setInterval(() => setClockTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, [isBasalMode]);
+  const currentTimeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  /** Most recent logged basal dose — the titration baseline. Log is stored newest-first. */
+  const lastBasalEntry = useMemo(() => {
+    for (const e of insulinLog ?? []) {
+      if (!e.insulinType) continue;
+      const opt = findInsulinByChipLabel(e.insulinType);
+      if (opt && !isBolusInsulin(opt.type)) return e;
+    }
+    return null;
+  }, [insulinLog]);
+
+  /** Early-morning (3–9 AM) readings over the last 3 days — the fasting titration signal. */
+  const fastingReadings = useMemo(() => {
+    const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
+    return history
+      .filter((r) => {
+        const t = new Date(r.timestamp);
+        const h = t.getHours();
+        return t.getTime() >= cutoff && h >= 3 && h < 9;
+      })
+      .map((r) => r.glucose);
+  }, [history]);
+
+  const basalDose = useMemo<BasalDoseBreakdown | null>(() => {
+    if (!isBasalMode) return null;
+    return computeBasalDose({
+      weightLbs: profile?.weightLbs,
+      lastBasalUnits: lastBasalEntry?.units,
+      fastingReadings,
+      targetBG: targetGlucose,
+    });
+  }, [isBasalMode, profile?.weightLbs, lastBasalEntry, fastingReadings, targetGlucose]);
+
   const commitInsulinTypeLabel = useCallback((label: string | null) => {
     setInsulinTypeLabel(label);
     if (label) AsyncStorage.setItem(DOSE_INSULIN_TYPE_STORAGE_KEY, label).catch(() => {});
@@ -985,18 +1043,19 @@ export default function InsulinScreen() {
     }
   }, [cgmSyncSuccessTick]);
 
-  const systemRecommendedDose = dose?.totalDose ?? 0;
+  const systemRecommendedDose = isBasalMode ? basalDose?.totalDose ?? 0 : dose?.totalDose ?? 0;
   const effectiveDose = manualDoseOverride ?? systemRecommendedDose;
   const doseJustLogged = doseLoggedAtTick !== null && doseLoggedAtTick === cgmSyncSuccessTick;
 
   const handleTookDose = useCallback(() => {
-    if (!dose || doseJustLogged || effectiveDose <= 0) return;
+    if (doseJustLogged || effectiveDose <= 0) return;
+    if (!isBasalMode && !dose) return;
     const wasManual =
       manualDoseOverride != null && !doseAmountsEqual(effectiveDose, systemRecommendedDose);
     logInsulinDose({
       timestamp: new Date().toISOString(),
       units: roundToQuarterUnits(effectiveDose),
-      type: "bolus",
+      type: isBasalMode ? "basal" : "bolus",
       ...(insulinTypeLabel ? { insulinType: insulinTypeLabel } : {}),
       recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
       manualOverride: wasManual,
@@ -1006,6 +1065,7 @@ export default function InsulinScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [
     dose,
+    isBasalMode,
     doseJustLogged,
     effectiveDose,
     manualDoseOverride,
@@ -1045,6 +1105,27 @@ export default function InsulinScreen() {
     router.push({ pathname: "/(tabs)/chat", params: { prompt } });
   }
 
+  /** Shared by the bolus and basal action rows — identical logging behavior in both modes. */
+  const tookDoseButton = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="I just took this dose"
+      disabled={doseJustLogged || effectiveDose <= 0}
+      style={({ pressed }) => [
+        styles.tookDoseBtn,
+        {
+          backgroundColor: doseJustLogged ? COLORS.success : COLORS.primary,
+          opacity: pressed ? 0.8 : effectiveDose <= 0 && !doseJustLogged ? 0.5 : 1,
+        },
+      ]}
+      onPress={handleTookDose}
+    >
+      <Feather name={doseJustLogged ? "check-circle" : "check"} size={13} color="#fff" />
+      <Text style={styles.tookDoseBtnText}>
+        {doseJustLogged ? "Dose Logged" : "I Just Took This Dose"}
+      </Text>
+    </Pressable>
+  );
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -1130,6 +1211,34 @@ export default function InsulinScreen() {
       </Text>
 
       <View style={[styles.doseCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        {isBasalMode ? (
+          /* ── Basal mode: carbs/BG inputs don't apply — show time + live glucose instead ── */
+          <View style={styles.doseInputRow}>
+            <View style={styles.doseInputGroup}>
+              <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>Current Time</Text>
+              <View style={[styles.basalInfoBox, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+                <Text style={[styles.basalInfoValue, { color: colors.text }]}>{currentTimeLabel}</Text>
+              </View>
+            </View>
+            <View style={styles.doseInputDivider} />
+            <View style={styles.doseInputGroup}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>Current Glucose</Text>
+                {latest && (
+                  <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}>
+                    <Text style={[styles.liveTagText, { color: COLORS.success }]}>LIVE</Text>
+                  </View>
+                )}
+              </View>
+              <View style={[styles.basalInfoBox, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+                <Text style={[styles.basalInfoValue, { color: latest ? glucoseColor(latest.glucose) : colors.textMuted }]}>
+                  {latest ? latest.glucose : "—"}
+                </Text>
+                <Text style={[styles.basalInfoUnit, { color: colors.textMuted }]}>mg/dL</Text>
+              </View>
+            </View>
+          </View>
+        ) : (
         <View style={styles.doseInputRow}>
           <View style={styles.doseInputGroup}>
             <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>Carbs (g)</Text>
@@ -1172,6 +1281,7 @@ export default function InsulinScreen() {
             </View>
           </View>
         </View>
+        )}
 
         {/* ── Insulin type — tiny current-type readout + small picker button ── */}
         <View style={styles.insulinTypeRow}>
@@ -1198,64 +1308,38 @@ export default function InsulinScreen() {
           </Pressable>
         </View>
 
-        {dose && doseBg && (
+        {!isBasalMode && dose && doseBg && (
           <>
-            {dose.warnings.map((w, i) => (
-              <View key={i} style={[styles.doseWarning, {
-                backgroundColor: w.level === "danger" ? "#EF444418" : w.level === "warning" ? "#F59E0B18" : COLORS.primary + "14",
-                borderColor: w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary,
-              }]}>
-                <Feather
-                  name={w.level === "danger" ? "alert-circle" : w.level === "warning" ? "alert-triangle" : "info"}
-                  size={13}
-                  color={w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary}
-                />
-                <Text style={[styles.doseWarningText, {
-                  color: w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary,
-                }]}>{w.message}</Text>
-              </View>
-            ))}
+            <DoseWarningsList warnings={dose.warnings} />
 
             <View style={[styles.doseBreakdown, { borderTopColor: colors.border }]}>
               {hasCarbs && (
-                <DoseRow
-                  label="Carb Dose"
-                  sub={dose.basalSuppressed ? "Not applied for basal insulin" : `${parseFloat(carbInput)}g ÷ ${carbRatio}g`}
-                  value={dose.carbInsulin}
-                  unit="u"
-                  colors={colors}
-                  dimmed={dose.basalSuppressed}
-                />
+                <DoseRow label="Carb Dose" sub={`${parseFloat(carbInput)}g ÷ ${carbRatio}g`} value={dose.carbInsulin} unit="u" colors={colors} />
               )}
               <DoseRow
                 label="Correction"
-                sub={dose.basalSuppressed
-                  ? "Not applied for basal insulin"
-                  : dose.correctionSuppressed
+                sub={dose.correctionSuppressed
                   ? "BG below target — suppressed"
                   : `(${doseBg.label} − ${targetGlucose}) ÷ ${correctionFactor}`}
                 value={dose.correctionInsulin}
                 unit="u"
                 colors={colors}
-                dimmed={dose.correctionSuppressed || dose.basalSuppressed}
+                dimmed={dose.correctionSuppressed}
               />
               <DoseRow
                 label="Trend Adj."
-                sub={dose.basalSuppressed ? "Not applied for basal insulin" : dose.trendLabel}
+                sub={dose.trendLabel}
                 value={dose.trendAdjustment}
                 unit="u"
                 colors={colors}
                 signed
-                dimmed={dose.basalSuppressed}
               />
             </View>
 
             <View style={[styles.doseTotalRow, { borderTopColor: colors.border }]}>
-              <View>
+              <View style={styles.doseTotalLabelWrap}>
                 <Text style={[styles.doseTotalLabel, { color: colors.textSecondary }]}>
-                  {dose.basalSuppressed
-                    ? "Basal dose — enter your prescribed amount"
-                    : isMinor
+                  {isMinor
                     ? "Ask your adult to give:"
                     : hasCarbs
                     ? `Insulin to give (with ${carbInput}g carbs)`
@@ -1303,34 +1387,109 @@ export default function InsulinScreen() {
                 <Feather name="help-circle" size={13} color={COLORS.primary} />
                 <Text style={[styles.explainBtnText, { color: COLORS.primary }]}>Explain My Dose</Text>
               </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="I just took this dose"
-                disabled={doseJustLogged || effectiveDose <= 0}
-                style={({ pressed }) => [
-                  styles.tookDoseBtn,
-                  {
-                    backgroundColor: doseJustLogged ? COLORS.success : COLORS.primary,
-                    opacity: pressed ? 0.8 : effectiveDose <= 0 && !doseJustLogged ? 0.5 : 1,
-                  },
-                ]}
-                onPress={handleTookDose}
-              >
-                <Feather name={doseJustLogged ? "check-circle" : "check"} size={13} color="#fff" />
-                <Text style={styles.tookDoseBtnText}>
-                  {doseJustLogged ? "Dose Logged" : "I Just Took This Dose"}
-                </Text>
-              </Pressable>
+              {tookDoseButton}
             </View>
           </>
         )}
 
-        {!dose && (
+        {!isBasalMode && !dose && (
           <Text style={[styles.dosePrompt, { color: colors.textMuted }]}>
             {isMinor
               ? "Enter how many carbs you're eating above and I'll help figure out your dose 🍎"
               : "Enter a blood sugar reading to see the correction dose, then add carbs to include a meal dose."}
           </Text>
+        )}
+
+        {/* ── Basal mode: titration breakdown (baseline + fasting adjustment) ── */}
+        {isBasalMode && basalDose && (
+          <>
+            <DoseWarningsList warnings={basalDose.warnings} />
+
+            <View style={[styles.doseBreakdown, { borderTopColor: colors.border }]}>
+              <DoseRow
+                label="Baseline"
+                sub={
+                  basalDose.baselineSource === "lastDose"
+                    ? "Your last logged basal dose"
+                    : basalDose.baselineSource === "weight"
+                    ? `0.2 u/kg × ${Math.round((profile?.weightLbs ?? 0) * 0.45359237)} kg — starting estimate`
+                    : "No basal history or weight set"
+                }
+                value={basalDose.baselineUnits ?? 0}
+                unit="u"
+                colors={colors}
+                dimmed={basalDose.baselineUnits == null}
+              />
+              <DoseRow
+                label="Fasting Adj."
+                sub={
+                  basalDose.fastingAvg != null
+                    ? `3-day fasting avg ${basalDose.fastingAvg} mg/dL`
+                    : basalDose.baselineSource === "lastDose"
+                    ? "Not enough morning readings"
+                    : "Applies once you log a basal dose"
+                }
+                value={basalDose.fastingAdjustment}
+                unit="u"
+                colors={colors}
+                signed
+                dimmed={basalDose.baselineSource !== "lastDose"}
+              />
+            </View>
+
+            <View style={[styles.doseTotalRow, { borderTopColor: colors.border }]}>
+              <View style={styles.doseTotalLabelWrap}>
+                <Text style={[styles.doseTotalLabel, { color: colors.textSecondary }]}>
+                  {basalDose.baselineUnits == null
+                    ? "Basal dose — enter your prescribed amount"
+                    : isMinor
+                    ? "Ask your adult about this basal dose:"
+                    : "Suggested basal dose"}
+                </Text>
+              </View>
+              <EditableDoseTotalBadge
+                effectiveDose={effectiveDose}
+                systemRecommendedDose={systemRecommendedDose}
+                manualOverrideActive={manualDoseOverride != null}
+                editing={doseEditing}
+                editText={doseEditText}
+                inputRef={doseInputRef}
+                colors={colors}
+                onStartEdit={startDoseEdit}
+                onChangeEditText={(t) => setDoseEditText(filterDoseInputText(t))}
+                onCompleteEdit={completeDoseEdit}
+              />
+            </View>
+
+            <View style={styles.doseActionsRow}>
+              <Pressable
+                style={({ pressed }) => [styles.explainBtn, { flex: 1, backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  const manualNote =
+                    manualDoseOverride != null
+                      ? ` I manually set the dose display to ${formatDoseAmount(manualDoseOverride)}u. The suggestion is ${formatDoseAmount(basalDose.totalDose)}u.`
+                      : "";
+                  const baselineDesc =
+                    basalDose.baselineSource === "lastDose"
+                      ? `my last logged basal dose (${formatDoseAmount(basalDose.baselineUnits ?? 0)}u)`
+                      : basalDose.baselineSource === "weight"
+                      ? `a starting estimate from my weight (${formatDoseAmount(basalDose.baselineUnits ?? 0)}u at 0.2 u/kg/day)`
+                      : "none — I haven't logged a basal dose or set my weight";
+                  const fastingDesc =
+                    basalDose.fastingAvg != null
+                      ? `${basalDose.fastingAvg} mg/dL (target ${targetGlucose})`
+                      : "not enough early-morning readings";
+                  const prompt = `Explain my basal insulin dose. I use ${selectedInsulinOption ? insulinDisplayLabel(selectedInsulinOption) : "a long-acting insulin"}. Baseline: ${baselineDesc}. 3-day fasting average: ${fastingDesc}. Fasting adjustment: ${basalDose.fastingAdjustment}u. Suggested dose: ${formatDoseAmount(basalDose.totalDose)}u.${manualNote} How does basal titration work, and when should I take it?`;
+                  openChat(prompt);
+                }}
+              >
+                <Feather name="help-circle" size={13} color={COLORS.primary} />
+                <Text style={[styles.explainBtnText, { color: COLORS.primary }]}>Explain My Dose</Text>
+              </Pressable>
+              {tookDoseButton}
+            </View>
+          </>
         )}
       </View>
 
@@ -1658,6 +1817,28 @@ function EditableDoseTotalBadge({
   );
 }
 
+function DoseWarningsList({ warnings }: { warnings: DoseWarning[] }) {
+  return (
+    <>
+      {warnings.map((w, i) => (
+        <View key={i} style={[styles.doseWarning, {
+          backgroundColor: w.level === "danger" ? "#EF444418" : w.level === "warning" ? "#F59E0B18" : COLORS.primary + "14",
+          borderColor: w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary,
+        }]}>
+          <Feather
+            name={w.level === "danger" ? "alert-circle" : w.level === "warning" ? "alert-triangle" : "info"}
+            size={13}
+            color={w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary}
+          />
+          <Text style={[styles.doseWarningText, {
+            color: w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary,
+          }]}>{w.message}</Text>
+        </View>
+      ))}
+    </>
+  );
+}
+
 function DoseRow({
   label, sub, value, unit, colors, signed = false, dimmed = false,
 }: {
@@ -1793,6 +1974,8 @@ const styles = StyleSheet.create({
   doseRowValue: { fontSize: 16, fontWeight: "700" },
 
   doseTotalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, paddingTop: 14, gap: 10 },
+  /** Lets long labels wrap instead of shoving the units badge off-screen. */
+  doseTotalLabelWrap: { flex: 1, minWidth: 0 },
   doseTotalLabel: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
   doseRoundNote: { fontSize: 11, fontWeight: "400" },
   doseTotalBadgeWrap: { alignItems: "center", position: "relative" },
@@ -1821,6 +2004,19 @@ const styles = StyleSheet.create({
   explainBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 11 },
   explainBtnText: { fontSize: 13, fontWeight: "600" },
   dosePrompt: { fontSize: 13, fontWeight: "400", lineHeight: 20, textAlign: "center", paddingVertical: 8 },
+
+  basalInfoBox: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "center",
+    gap: 4,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  basalInfoValue: { fontSize: 20, fontWeight: "700", textAlign: "center" },
+  basalInfoUnit: { fontSize: 11, fontWeight: "500" },
 
   insulinTypeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   insulinTypeCurrent: { flex: 1, minWidth: 0, fontSize: 11, fontWeight: "500" },

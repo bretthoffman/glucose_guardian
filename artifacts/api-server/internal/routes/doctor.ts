@@ -93,9 +93,12 @@ interface PatientSnapshot {
     id: string;
     timestamp: string;
     units: number;
-    type: "bolus" | "correction" | "manual";
+    type: "bolus" | "correction" | "manual" | "basal";
     note?: string;
     foodLogId?: string;
+    insulinType?: string;
+    recommendedUnits?: number;
+    manualOverride?: boolean;
   }[];
   foodLog: {
     id: string;

@@ -68,7 +68,7 @@ export interface InsulinLogEntry {
   id: string;
   timestamp: string;
   units: number;
-  type: "bolus" | "correction" | "manual";
+  type: "bolus" | "correction" | "manual" | "basal";
   note?: string;
   foodLogId?: string;
   /** Profile insulinTypes chip label in effect for this dose, e.g. "Humalog · 100 u/mL". */

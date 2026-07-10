@@ -32,6 +32,7 @@ import {
   formatDoseAmount,
 } from "@/utils/doseOverride";
 import { filterFoodLogsForDay, filterInsulinLogsForDay } from "@/utils/logDayEntries";
+import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
 import { startOfLocalDay } from "@/utils/localDayBoundaries";
 
 function fmtTime(ts: string) {
@@ -64,18 +65,36 @@ export default function LogHistory({
   const { targetGlucose, cgmSyncSuccessTick } = useGlucose();
   const { foodLog, insulinLog, logInsulinDose, alertPrefs } = useAuth();
 
+  const today = useMemo(() => startOfLocalDay(new Date()), []);
+
+  const selectedDay = useMemo(() => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - dayOffset);
+    return d;
+  }, [today, dayOffset]);
+
   // ── Log Insulin popup — button stays green until the next successful CGM sync ──
   const [logModalVisible, setLogModalVisible] = useState(false);
   const [logUnitsText, setLogUnitsText] = useState("");
+  const [logTimeText, setLogTimeText] = useState("");
   const [logPendingLabel, setLogPendingLabel] = useState<string | null>(null);
   const [logLoggedAtTick, setLogLoggedAtTick] = useState<number | null>(null);
   const logBtnGreen = logLoggedAtTick !== null && logLoggedAtTick === cgmSyncSuccessTick;
 
   const parsedLogUnits = finalizeManualDoseInput(logUnitsText);
+  const parsedLogTime = parseTimeInputText(logTimeText);
   const canLog =
     parsedLogUnits != null &&
     parsedLogUnits > 0 &&
+    parsedLogTime != null &&
     (insulinOptions.length === 0 || logPendingLabel != null);
+
+  /** The entry logs to the day being viewed — the popup shows that date, locked. */
+  const logDateLabel = selectedDay.toLocaleDateString([], {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
 
   const openLogModal = () => {
     const optionLabels = insulinOptions.map(insulinChipLabel);
@@ -85,14 +104,15 @@ export default function LogHistory({
         : optionLabels[0] ?? null;
     setLogPendingLabel(defaultLabel);
     setLogUnitsText("");
+    setLogTimeText(formatTimeInputText(new Date()));
     setLogModalVisible(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handleLogInsulin = () => {
-    if (parsedLogUnits == null || parsedLogUnits <= 0) return;
+    if (parsedLogUnits == null || parsedLogUnits <= 0 || parsedLogTime == null) return;
     logInsulinDose({
-      timestamp: new Date().toISOString(),
+      timestamp: combineDayAndTime(selectedDay, parsedLogTime.hours, parsedLogTime.minutes).toISOString(),
       units: parsedLogUnits,
       type: "manual",
       ...(logPendingLabel ? { insulinType: logPendingLabel } : {}),
@@ -102,14 +122,6 @@ export default function LogHistory({
     onInsulinLogged?.();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
-
-  const today = useMemo(() => startOfLocalDay(new Date()), []);
-
-  const selectedDay = useMemo(() => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - dayOffset);
-    return d;
-  }, [today, dayOffset]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -153,7 +165,7 @@ export default function LogHistory({
         <View style={[styles.logModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.logModalTitle, { color: colors.text }]}>Log Insulin</Text>
           <Text style={[styles.logModalSub, { color: colors.textSecondary }]}>
-            Record a dose you took — it's added to today's log immediately.
+            Record a dose for the day shown below — it appears in the log immediately.
           </Text>
           <InsulinTypePicker
             options={insulinOptions}
@@ -161,6 +173,40 @@ export default function LogHistory({
             onSelect={setLogPendingLabel}
             colors={colors}
           />
+          <View style={[styles.logWhenSection, { borderTopColor: colors.border }]}>
+            <View style={styles.logWhenRow}>
+              <Text style={[styles.logUnitsLabel, { color: colors.textSecondary }]}>Date</Text>
+              <View style={styles.logDateValueWrap}>
+                <Feather name="calendar" size={13} color={colors.textMuted} />
+                <Text style={[styles.logDateValue, { color: colors.text }]}>{logDateLabel}</Text>
+              </View>
+            </View>
+            <View style={styles.logWhenRow}>
+              <Text style={[styles.logUnitsLabel, { color: colors.textSecondary }]}>Time</Text>
+              <TextInput
+                value={logTimeText}
+                onChangeText={setLogTimeText}
+                style={[
+                  styles.logTimeInput,
+                  {
+                    backgroundColor: colors.backgroundTertiary,
+                    color: colors.text,
+                    borderColor: parsedLogTime ? colors.border : COLORS.danger,
+                  },
+                ]}
+                placeholder="5:38 PM"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                accessibilityLabel="Time the dose was taken"
+              />
+            </View>
+            {!parsedLogTime && (
+              <Text style={[styles.logTimeError, { color: COLORS.danger }]}>
+                Enter a time like 5:38 PM or 17:38
+              </Text>
+            )}
+          </View>
           <View style={[styles.logUnitsRow, { borderTopColor: colors.border }]}>
             <Text style={[styles.logUnitsLabel, { color: colors.textSecondary }]}>Insulin taken</Text>
             <View style={styles.logUnitsBadge}>
@@ -429,6 +475,21 @@ const styles = StyleSheet.create({
   logModalCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
   logModalTitle: { fontSize: 18, fontWeight: "700" },
   logModalSub: { fontSize: 12, fontWeight: "400", lineHeight: 17, marginTop: -6 },
+  logWhenSection: { borderTopWidth: 1, paddingTop: 12, marginTop: 2, gap: 10 },
+  logWhenRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  logDateValueWrap: { flexDirection: "row", alignItems: "center", gap: 6 },
+  logDateValue: { fontSize: 14, fontWeight: "600" },
+  logTimeInput: {
+    borderWidth: 1.5,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 15,
+    fontWeight: "600",
+    minWidth: 110,
+    textAlign: "center",
+  },
+  logTimeError: { fontSize: 11, fontWeight: "500", textAlign: "right" },
   logUnitsRow: {
     flexDirection: "row",
     alignItems: "center",
