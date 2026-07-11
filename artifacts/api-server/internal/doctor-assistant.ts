@@ -34,23 +34,30 @@ export function isAssistantConfigured(): boolean {
   return !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
 }
 
-/** Full CGM history for the last 90 days, fetched in index-friendly chunks and deduped. */
+/** Full CGM history for the last 90 days, fetched in parallel index-friendly chunks, deduped. */
 async function fetchReadings(accessCode: string): Promise<Reading[]> {
   const client = createConvexDoctorAccountsClient();
   const secret = getConvexDoctorApiSecret();
   const now = Date.now();
+  const chunkCount = Math.ceil(HISTORY_DAYS / CHUNK_DAYS);
+  const chunks = await Promise.all(
+    Array.from({ length: chunkCount }, (_, i) => {
+      const toMs = now - i * CHUNK_DAYS * DAY;
+      const fromMs = toMs - CHUNK_DAYS * DAY;
+      return client
+        .query(api.doctorAccounts.getGlucoseHistory, {
+          serverSecret: secret,
+          accessCode,
+          fromTimestamp: new Date(fromMs).toISOString(),
+          toTimestamp: new Date(toMs).toISOString(),
+        })
+        .then((r) => (r as { readings: Reading[] }).readings ?? []);
+    }),
+  );
   const seen = new Set<string>();
   const out: Reading[] = [];
-  for (let i = 0; i < Math.ceil(HISTORY_DAYS / CHUNK_DAYS); i++) {
-    const toMs = now - i * CHUNK_DAYS * DAY;
-    const fromMs = toMs - CHUNK_DAYS * DAY;
-    const result = (await client.query(api.doctorAccounts.getGlucoseHistory, {
-      serverSecret: secret,
-      accessCode,
-      fromTimestamp: new Date(fromMs).toISOString(),
-      toTimestamp: new Date(toMs).toISOString(),
-    })) as { readings: Reading[] };
-    for (const r of result.readings ?? []) {
+  for (const chunk of chunks) {
+    for (const r of chunk) {
       if (!seen.has(r.timestamp)) {
         seen.add(r.timestamp);
         out.push(r);
@@ -249,9 +256,11 @@ export async function answerDoctorQuestion(args: {
     fetch: globalThis.fetch,
   });
 
+  // Generous cap: gpt-5-class models spend completion tokens on internal reasoning before the
+  // visible answer; too small a budget returns empty content (finish_reason "length").
   const completion = await openai.chat.completions.create({
     model: "openai/gpt-5.2",
-    max_completion_tokens: 450,
+    max_completion_tokens: 1600,
     messages: [
       { role: "system", content: systemPrompt },
       ...args.messages.slice(-12).map((m) => ({
