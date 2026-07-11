@@ -21,6 +21,7 @@ import {
   requireDoctorAuth,
   requireDoctorPatientLink,
 } from "../doctor-auth.js";
+import { answerDoctorQuestion, isAssistantConfigured } from "../doctor-assistant.js";
 
 const router: IRouter = Router();
 
@@ -1000,6 +1001,70 @@ router.post(
       } catch (e) {
         console.error("[doctor] POST /patient/:accessCode/lab-a1c", e);
         res.status(500).json({ error: "Could not save lab A1C" });
+      }
+    })();
+  },
+);
+
+/**
+ * "Glucose Guardian Assistant": answers the doctor's questions about THIS patient from the
+ * patient's synced record (context gathered entirely server-side — the client sends only the
+ * conversation). Auth + patient-link enforced, so the assistant is patient-scoped by construction.
+ */
+router.post(
+  "/patient/:accessCode/assistant",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      try {
+        if (!isAssistantConfigured() || !isConvexDoctorConfigured()) {
+          res.status(503).json({ error: "Assistant is not configured on this server" });
+          return;
+        }
+        const authed = req as DoctorAuthedRequest;
+        const code =
+          authed.doctorAccessCode ?? normalizeDoctorAccessCode(routeParam(req.params.accessCode));
+
+        const { messages } = req.body as {
+          messages?: { role?: string; content?: string }[];
+        };
+        const turns = (Array.isArray(messages) ? messages : [])
+          .filter(
+            (m) =>
+              (m.role === "user" || m.role === "assistant") &&
+              typeof m.content === "string" &&
+              m.content.trim().length > 0,
+          )
+          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content!.trim() }));
+        if (!turns.length || turns[turns.length - 1].role !== "user") {
+          res.status(400).json({ error: "messages must end with a user question" });
+          return;
+        }
+
+        // Formal name for the greeting-quality tone ("Dr. Rivera"), same rule as proposals.
+        let doctorName = "Doctor";
+        try {
+          const accountsClient = createConvexDoctorAccountsClient();
+          const doctor = await accountsClient.query(api.doctorAccounts.getById, {
+            serverSecret: getConvexDoctorApiSecret(),
+            doctorId: asDoctorId(authed.doctorId),
+          });
+          const formal = [doctor?.title, doctor?.lastName]
+            .map((s) => s?.trim())
+            .filter(Boolean)
+            .join(" ");
+          doctorName = formal || doctor?.displayName?.trim() || doctorName;
+        } catch {
+          /* keep fallback */
+        }
+
+        logDoctorAccess(authed.doctorId, code, "assistant_query");
+        const reply = await answerDoctorQuestion({ accessCode: code, doctorName, messages: turns });
+        res.json({ reply });
+      } catch (e) {
+        console.error("[doctor] POST /patient/:accessCode/assistant", e);
+        res.status(500).json({ error: "Assistant had trouble answering. Try again." });
       }
     })();
   },
