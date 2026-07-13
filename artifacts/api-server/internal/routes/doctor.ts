@@ -1026,8 +1026,9 @@ router.post(
         const code =
           authed.doctorAccessCode ?? normalizeDoctorAccessCode(routeParam(req.params.accessCode));
 
-        const { messages } = req.body as {
+        const { messages, tzOffset } = req.body as {
           messages?: { role?: string; content?: string }[];
+          tzOffset?: number;
         };
         const turns = (Array.isArray(messages) ? messages : [])
           .filter(
@@ -1060,7 +1061,12 @@ router.post(
         }
 
         logDoctorAccess(authed.doctorId, code, "assistant_query");
-        const reply = await answerDoctorQuestion({ accessCode: code, doctorName, messages: turns });
+        const reply = await answerDoctorQuestion({
+          accessCode: code,
+          doctorName,
+          messages: turns,
+          tzOffsetMin: typeof tzOffset === "number" ? tzOffset : undefined,
+        });
         res.json({ reply });
       } catch (e) {
         console.error("[doctor] POST /patient/:accessCode/assistant", e);

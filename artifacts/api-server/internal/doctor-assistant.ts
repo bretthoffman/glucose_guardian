@@ -98,12 +98,95 @@ function shortTs(ts: string): string {
   return `${ts.slice(5, 10)} ${ts.slice(11, 16)}Z`;
 }
 
+/** Shift a UTC instant into the viewer's local time (tzOffsetMin = Date.getTimezoneOffset()). */
+function localDate(ts: string, tzOffsetMin: number): Date {
+  return new Date(new Date(ts).getTime() - tzOffsetMin * 60_000);
+}
+
+/** Local "MM-DD HH:MM" for episode timestamps. */
+function localLabel(ts: string, tzOffsetMin: number): string {
+  const d = localDate(ts, tzOffsetMin);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+
+/**
+ * Time-of-day low analysis so the assistant can answer "overnight lows?" directly. Overnight is
+ * 00:00–05:59 in the viewer's timezone; distinct episodes group consecutive sub-threshold readings
+ * (a >30-min gap starts a new one).
+ */
+function buildLowAnalysis(
+  readings: Reading[],
+  tzOffsetMin: number,
+  low: number,
+  urgentLow: number,
+  now: number,
+): string[] {
+  const out: string[] = [];
+  const isOvernight = (ts: string) => {
+    const h = localDate(ts, tzOffsetMin).getUTCHours();
+    return h >= 0 && h < 6;
+  };
+
+  for (const days of [7, 14, 30]) {
+    const win = readings.filter((r) => new Date(r.timestamp).getTime() >= now - days * DAY);
+    if (!win.length) {
+      out.push(`  last ${days} days: no readings`);
+      continue;
+    }
+    const overnight = win.filter((r) => isOvernight(r.timestamp));
+    const onLows = overnight.filter((r) => r.value < low);
+    const onUrgent = overnight.filter((r) => r.value <= urgentLow);
+    const dayLows = win.filter((r) => !isOvernight(r.timestamp) && r.value < low);
+    out.push(
+      `  last ${days} days: overnight (12–6am) had ${onLows.length} low readings${onLows.length ? ` (${onUrgent.length} urgent ≤${urgentLow}, nadir ${Math.min(...onLows.map((r) => r.value))} mg/dL)` : ""} out of ${overnight.length} overnight readings; daytime had ${dayLows.length} low readings`,
+    );
+  }
+
+  // Distinct low episodes over the last 14 days (most recent first).
+  const recent = readings
+    .filter((r) => new Date(r.timestamp).getTime() >= now - 14 * DAY)
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  type Ep = { start: string; end: string; nadir: number; overnight: boolean };
+  const eps: Ep[] = [];
+  let cur: Ep | null = null;
+  let lastLowMs = 0;
+  for (const r of recent) {
+    const tms = new Date(r.timestamp).getTime();
+    if (r.value < low) {
+      if (cur && tms - lastLowMs <= 30 * 60_000) {
+        cur.end = r.timestamp;
+        cur.nadir = Math.min(cur.nadir, r.value);
+      } else {
+        cur = { start: r.timestamp, end: r.timestamp, nadir: r.value, overnight: isOvernight(r.timestamp) };
+        eps.push(cur);
+      }
+      lastLowMs = tms;
+    }
+  }
+  if (eps.length) {
+    out.push(
+      `DISTINCT LOW EPISODES (last 14 days, ${eps.length} total, ${eps.filter((e) => e.overnight).length} overnight) — most recent 12, times in the viewer's local zone:`,
+    );
+    for (const e of eps.slice(-12).reverse()) {
+      const durMin = Math.round((new Date(e.end).getTime() - new Date(e.start).getTime()) / 60_000) + 5;
+      out.push(
+        `  ${localLabel(e.start, tzOffsetMin)}${e.overnight ? " [overnight]" : ""}: nadir ${e.nadir} mg/dL, ~${durMin} min`,
+      );
+    }
+  } else {
+    out.push("DISTINCT LOW EPISODES (last 14 days): none below the low threshold.");
+  }
+  return out;
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function buildContext(doc: any, readings: Reading[]): string {
+function buildContext(doc: any, readings: Reading[], tzOffsetMin: number): string {
   const p = doc?.profile ?? {};
   const prefs = doc?.alertPreferences ?? {};
   const low = prefs.lowThreshold ?? 70;
   const high = prefs.highThreshold ?? 180;
+  const urgentLow = prefs.urgentLowThreshold ?? 55;
   const now = Date.now();
 
   const lines: string[] = [];
@@ -159,6 +242,12 @@ function buildContext(doc: any, readings: Reading[]): string {
         : `  ${label}: no readings`,
     );
   }
+
+  // Time-of-day low breakdown so overnight/nocturnal-low questions can be answered directly.
+  lines.push(
+    "LOW ANALYSIS (overnight = 12:00am–5:59am in the viewing clinician's timezone; assumes the patient shares that timezone):",
+  );
+  lines.push(...buildLowAnalysis(readings, tzOffsetMin, low, urgentLow, now));
 
   // Per-day rows for day-level questions (UTC days).
   const byDay = new Map<string, number[]>();
@@ -219,6 +308,7 @@ STYLE:
 - Always include units (mg/dL, %, u, g) and state the period + reading count you used, e.g. "Over the last 30 days (2,410 readings), average glucose was 162 mg/dL."
 - If the requested period exceeds the data coverage, say exactly what is covered and answer for that (e.g. "I only have 12 days of CGM history; over those 12 days…").
 - If asked something the data cannot answer, say so plainly and suggest what could answer it.
+- For overnight / nocturnal / time-of-day low questions, use the LOW ANALYSIS section (it has an overnight-vs-daytime split and a list of distinct low episodes with local times). Answer concretely — cite the overnight low count and the specific episodes. It's timezone-approximate, so you may add a brief note that times assume the patient shares your timezone.
 
 SCOPE & SAFETY:
 - You describe and summarize recorded data and trends. You do not diagnose, and you do not issue treatment orders or dosing instructions.
@@ -232,6 +322,7 @@ export async function answerDoctorQuestion(args: {
   accessCode: string;
   doctorName: string;
   messages: ChatTurn[];
+  tzOffsetMin?: number;
 }): Promise<string> {
   const ingestClient = createConvexDoctorHttpClient();
   const [doc, readings] = await Promise.all([
@@ -244,10 +335,11 @@ export async function answerDoctorQuestion(args: {
 
   const patientName =
     (doc as { profile?: { childName?: string } } | null)?.profile?.childName ?? "this patient";
+  const tzOffsetMin = Number.isFinite(args.tzOffsetMin) ? (args.tzOffsetMin as number) : 0;
   const systemPrompt = buildSystemPrompt(
     args.doctorName,
     patientName,
-    buildContext(doc, readings),
+    buildContext(doc, readings, tzOffsetMin),
   );
 
   const openai = new OpenAI({
