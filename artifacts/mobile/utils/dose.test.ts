@@ -59,3 +59,39 @@ describe("computeDose insulinKind", () => {
     expect(dose.warnings.some((w) => w.level === "info" && w.message.includes("Pre-mixed"))).toBe(true);
   });
 });
+
+describe("computeDose insulin-on-board / carbs-on-board", () => {
+  it("subtracts active insulin from the total", () => {
+    // BASE raw = 3.2; minus 1u IOB → 2.2 → rounded 2
+    const dose = computeDose({ ...BASE, activeInsulinUnits: 1 });
+    expect(dose.activeInsulinUnits).toBe(1);
+    expect(dose.totalRaw).toBe(2.2);
+    expect(dose.totalDose).toBe(2);
+  });
+
+  it("floors at zero and explains when IOB covers the whole dose", () => {
+    const dose = computeDose({ ...BASE, activeInsulinUnits: 5 });
+    expect(dose.totalDose).toBe(0);
+    expect(dose.warnings.some((w) => w.message.includes("already covers"))).toBe(true);
+  });
+
+  it("adds absorbing carbs like typed carbs", () => {
+    // 15g ÷ 15 CR = +1u on top of BASE's 3.2 raw
+    const dose = computeDose({ ...BASE, activeCarbsGrams: 15 });
+    expect(dose.activeCarbInsulin).toBe(1);
+    expect(dose.totalRaw).toBe(4.2);
+  });
+
+  it("nets a covered meal: carbs on board cancel against the insulin logged for them", () => {
+    // 30g COB adds 2u; 2u IOB subtracts it — back to BASE
+    const dose = computeDose({ ...BASE, activeCarbsGrams: 30, activeInsulinUnits: 2 });
+    expect(dose.totalDose).toBe(computeDose(BASE).totalDose);
+  });
+
+  it("ignores IOB and COB entirely in basal mode", () => {
+    const dose = computeDose({ ...BASE, insulinKind: "long", activeInsulinUnits: 3, activeCarbsGrams: 40 });
+    expect(dose.activeInsulinUnits).toBe(0);
+    expect(dose.activeCarbInsulin).toBe(0);
+    expect(dose.totalDose).toBe(0);
+  });
+});

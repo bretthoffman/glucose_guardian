@@ -312,8 +312,12 @@ export default function HomeScreen() {
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
   const patientName = profile?.childName ?? "Glucose Guardian";
-  // Guardian sessions greet the guardian, not the patient — "Bella's Guardian", not "Bella".
-  const childName = caregiverSession && profile?.childName ? `${profile.childName}'s Guardian` : patientName;
+  // Guardian-role accounts (onboarding "parent/guardian"; parentName is only ever written for that
+  // role) and caregiver-code sessions greet the guardian, not the patient — "Bella's Guardian".
+  const isGuardianViewer =
+    caregiverSession || profile?.accountRole === "parent" || !!profile?.parentName;
+  const childName =
+    isGuardianViewer && profile?.childName ? `${profile.childName}'s Guardian` : patientName;
   const updatedLabel = (lastSyncResult || lastSyncTime)
     ? `Updated ${formatLastSync(lastSyncResult?.at ?? lastSyncTime).toLowerCase()}`
     : undefined;

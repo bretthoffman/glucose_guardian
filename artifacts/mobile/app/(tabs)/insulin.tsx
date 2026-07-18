@@ -35,7 +35,7 @@ import type { GlucoseEntry } from "@/context/GlucoseContext";
 import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 import { glucoseColor } from "@/components/CGMChart";
 import { computeDose } from "@/utils/dose";
-import type { DoseBreakdown, DoseWarning } from "@/utils/dose";
+import type { DoseBreakdown } from "@/utils/dose";
 import { computeBasalDose } from "@/utils/basalDose";
 import type { BasalDoseBreakdown } from "@/utils/basalDose";
 import {
@@ -43,14 +43,15 @@ import {
   filterDoseInputText,
   finalizeManualDoseInput,
   formatDoseAmount,
-  formatSuggestedDoseLine,
   roundToQuarterUnits,
 } from "@/utils/doseOverride";
 import { getEffectiveTrend } from "@/utils/trend";
 import LogHistory from "@/components/LogHistory";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
+import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
 import InsulinTypePicker from "@/components/InsulinTypePicker";
+import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import {
   defaultInsulinChipLabel,
   findInsulinByChipLabel,
@@ -885,14 +886,24 @@ export default function InsulinScreen() {
     }
   }, [insulinTypeLabel]);
 
-  // Keep the basal card's "Current Time" fresh while it's visible.
-  const [, setClockTick] = useState(0);
+  // 30s tick: keeps the basal card's "Current Time" fresh AND re-decays insulin/carbs-on-board.
+  const [clockTick, setClockTick] = useState(0);
   useEffect(() => {
-    if (!isBasalMode) return;
     const id = setInterval(() => setClockTick((t) => t + 1), 30_000);
     return () => clearInterval(id);
-  }, [isBasalMode]);
+  }, []);
   const currentTimeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  // ── Insulin/carbs-on-board from the logs (see utils/onBoard) — makes the calculator aware of
+  // recent doses and meals so it nets them out instead of re-suggesting a full dose. ──
+  const activeInsulin = useMemo(
+    () => computeActiveInsulin(insulinLog ?? [], Date.now()),
+    [insulinLog, clockTick],
+  );
+  const activeCarbs = useMemo(
+    () => computeActiveCarbs(foodLog ?? [], Date.now()),
+    [foodLog, clockTick],
+  );
 
   /** Most recent logged basal dose — the titration baseline. Log is stored newest-first. */
   const lastBasalEntry = useMemo(() => {
@@ -1031,8 +1042,10 @@ export default function InsulinScreen() {
       trend,
       previousBG: prev,
       insulinKind: selectedInsulinOption?.type,
+      activeInsulinUnits: activeInsulin.totalUnits,
+      activeCarbsGrams: activeCarbs.totalGrams,
     });
-  }, [carbInput, doseBg, targetGlucose, carbRatio, correctionFactor, history, latest, selectedInsulinOption]);
+  }, [carbInput, doseBg, targetGlucose, carbRatio, correctionFactor, history, latest, selectedInsulinOption, activeInsulin, activeCarbs]);
 
   useEffect(() => {
     if (cgmSyncSuccessTick !== cgmSyncTickRef.current) {
@@ -1334,6 +1347,30 @@ export default function InsulinScreen() {
                 colors={colors}
                 signed
               />
+              {dose.activeCarbInsulin > 0 && (
+                <DoseRow
+                  label="Active Carbs"
+                  sub={`${activeCarbs.totalGrams}g still absorbing · logged ${formatAgeShort(activeCarbs.lastEntryAgeMin)}${activeCarbs.lastEntryAgeMin != null && activeCarbs.lastEntryAgeMin >= 1 ? " ago" : ""}`}
+                  value={dose.activeCarbInsulin}
+                  unit="u"
+                  colors={colors}
+                  signed
+                />
+              )}
+              {dose.activeInsulinUnits > 0 && (
+                <DoseRow
+                  label="Active Insulin"
+                  sub={`${
+                    activeInsulin.doseCount > 1
+                      ? `${activeInsulin.doseCount} recent doses`
+                      : `${formatDoseAmount(activeInsulin.lastDoseUnits ?? 0)}u`
+                  } · taken ${formatAgeShort(activeInsulin.lastDoseAgeMin)}${activeInsulin.lastDoseAgeMin != null && activeInsulin.lastDoseAgeMin >= 1 ? " ago" : ""}`}
+                  value={-dose.activeInsulinUnits}
+                  unit="u"
+                  colors={colors}
+                  signed
+                />
+              )}
             </View>
 
             <View style={[styles.doseTotalRow, { borderTopColor: colors.border }]}>
@@ -1745,125 +1782,6 @@ function SuggestionCard({ suggestion, colors, onChat }: { suggestion: Suggestion
   );
 }
 
-function EditableDoseTotalBadge({
-  effectiveDose,
-  systemRecommendedDose,
-  manualOverrideActive,
-  editing,
-  editText,
-  inputRef,
-  colors,
-  onStartEdit,
-  onChangeEditText,
-  onCompleteEdit,
-}: {
-  effectiveDose: number;
-  systemRecommendedDose: number;
-  manualOverrideActive: boolean;
-  editing: boolean;
-  editText: string;
-  inputRef: React.RefObject<TextInput | null>;
-  colors: (typeof Colors)["light"];
-  onStartEdit: () => void;
-  onChangeEditText: (text: string) => void;
-  onCompleteEdit: () => void;
-}) {
-  const showSuggestedDose =
-    manualOverrideActive &&
-    !editing &&
-    !doseAmountsEqual(effectiveDose, systemRecommendedDose);
-
-  return (
-    <View style={styles.doseTotalBadgeWrap}>
-      {manualOverrideActive && !editing ? (
-        <Text style={styles.manualDoseTag}>Manual</Text>
-      ) : null}
-      <Pressable
-        onPress={onStartEdit}
-        disabled={editing}
-        style={styles.doseTotalBadge}
-        accessibilityRole="button"
-        accessibilityLabel="Edit insulin dose amount"
-      >
-        {editing ? (
-          <>
-            <TextInput
-              ref={inputRef}
-              value={editText}
-              onChangeText={onChangeEditText}
-              onBlur={onCompleteEdit}
-              onSubmitEditing={onCompleteEdit}
-              keyboardType="decimal-pad"
-              returnKeyType="done"
-              selectTextOnFocus
-              style={styles.doseTotalInput}
-              maxLength={8}
-            />
-            <Text style={styles.doseTotalUnit}>units</Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.doseTotalValue}>{formatDoseAmount(effectiveDose)}</Text>
-            <Text style={styles.doseTotalUnit}>units</Text>
-          </>
-        )}
-      </Pressable>
-      {showSuggestedDose ? (
-        <Text style={[styles.suggestedDoseLine, { color: colors.textMuted }]}>
-          {formatSuggestedDoseLine(systemRecommendedDose)}
-        </Text>
-      ) : null}
-    </View>
-  );
-}
-
-function DoseWarningsList({ warnings }: { warnings: DoseWarning[] }) {
-  return (
-    <>
-      {warnings.map((w, i) => (
-        <View key={i} style={[styles.doseWarning, {
-          backgroundColor: w.level === "danger" ? "#EF444418" : w.level === "warning" ? "#F59E0B18" : COLORS.primary + "14",
-          borderColor: w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary,
-        }]}>
-          <Feather
-            name={w.level === "danger" ? "alert-circle" : w.level === "warning" ? "alert-triangle" : "info"}
-            size={13}
-            color={w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary}
-          />
-          <Text style={[styles.doseWarningText, {
-            color: w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary,
-          }]}>{w.message}</Text>
-        </View>
-      ))}
-    </>
-  );
-}
-
-function DoseRow({
-  label, sub, value, unit, colors, signed = false, dimmed = false,
-}: {
-  label: string; sub: string; value: number; unit: string;
-  colors: (typeof Colors)["light"]; signed?: boolean; dimmed?: boolean;
-}) {
-  const display = signed
-    ? value > 0 ? `+${value}` : `${value}`
-    : `${value}`;
-  const color = dimmed
-    ? colors.textMuted
-    : value > 0 && signed ? COLORS.warning
-    : value < 0 && signed ? COLORS.success
-    : colors.text;
-  return (
-    <View style={styles.doseRowItem}>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.doseRowLabel, { color: colors.text, opacity: dimmed ? 0.45 : 1 }]}>{label}</Text>
-        <Text style={[styles.doseRowSub, { color: colors.textMuted }]}>{sub}</Text>
-      </View>
-      <Text style={[styles.doseRowValue, { color, opacity: dimmed ? 0.45 : 1 }]}>{display} {unit}</Text>
-    </View>
-  );
-}
-
 function StatBox({ label, value, unit, color, colors }: { label: string; value: string; unit: string; color: string; colors: (typeof Colors)["light"] }) {
   return (
     <View style={styles.statBox}>
@@ -1964,42 +1882,13 @@ const styles = StyleSheet.create({
   liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   liveTagText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.8 },
 
-  doseWarning: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1 },
-  doseWarningText: { flex: 1, fontSize: 12, fontWeight: "500", lineHeight: 17 },
-
   doseBreakdown: { borderTopWidth: 1, paddingTop: 12, gap: 10 },
-  doseRowItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  doseRowLabel: { fontSize: 14, fontWeight: "600" },
-  doseRowSub: { fontSize: 11, fontWeight: "400", marginTop: 1 },
-  doseRowValue: { fontSize: 16, fontWeight: "700" },
 
   doseTotalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, paddingTop: 14, gap: 10 },
   /** Lets long labels wrap instead of shoving the units badge off-screen. */
   doseTotalLabelWrap: { flex: 1, minWidth: 0 },
   doseTotalLabel: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
   doseRoundNote: { fontSize: 11, fontWeight: "400" },
-  doseTotalBadgeWrap: { alignItems: "center", position: "relative" },
-  manualDoseTag: {
-    fontSize: 9,
-    fontWeight: "600",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    color: "rgba(255,255,255,0.65)",
-    marginBottom: 4,
-  },
-  doseTotalBadge: { flexDirection: "row", alignItems: "baseline", gap: 4, backgroundColor: COLORS.primary, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, minWidth: 88, justifyContent: "center" },
-  doseTotalValue: { fontSize: 30, fontWeight: "700", color: "#fff" },
-  doseTotalInput: {
-    fontSize: 30,
-    fontWeight: "700",
-    color: "#fff",
-    minWidth: 52,
-    textAlign: "center",
-    padding: 0,
-    margin: 0,
-  },
-  doseTotalUnit: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.8)" },
-  suggestedDoseLine: { fontSize: 11, fontWeight: "400", marginTop: 4, textAlign: "center" },
 
   explainBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 11 },
   explainBtnText: { fontSize: 13, fontWeight: "600" },

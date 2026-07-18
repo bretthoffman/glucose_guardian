@@ -24,6 +24,7 @@ import { useAuth } from "@/context/AuthContext";
 
 import { getEffectiveTrend } from "@/utils/trend";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
+import FoodInsulinModal from "@/components/FoodInsulinModal";
 import { apiUrl } from "@/utils/api-base-url";
 
 interface FoodResult {
@@ -79,7 +80,7 @@ export default function FoodScreen() {
   const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { carbRatio, targetGlucose, correctionFactor, latestReading, history } = useGlucose();
+  const { carbRatio, targetGlucose, correctionFactor, latestReading, history, cgmSyncSuccessTick } = useGlucose();
   const { addFoodLogEntry, logInsulinDose, isMinor } = useAuth();
 
   const [query, setQuery] = useState("");
@@ -93,6 +94,11 @@ export default function FoodScreen() {
   const [logged, setLogged] = useState(false);
   const [doseTaken, setDoseTaken] = useState(false);
   const [editedCarbs, setEditedCarbs] = useState<string>("");
+
+  // ── "Calculate Insulin" popup — its button stays green until the next successful CGM sync ──
+  const [insulinCalcVisible, setInsulinCalcVisible] = useState(false);
+  const [insulinTakenAtTick, setInsulinTakenAtTick] = useState<number | null>(null);
+  const insulinTaken = insulinTakenAtTick !== null && insulinTakenAtTick === cgmSyncSuccessTick;
 
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -139,6 +145,7 @@ export default function FoodScreen() {
     setPhotoUri(null);
     setLogged(false);
     setDoseTaken(false);
+    setInsulinTakenAtTick(null);
     try {
       const res = await fetch(apiUrl("/api/food/estimate"), {
         method: "POST",
@@ -207,6 +214,7 @@ export default function FoodScreen() {
     setGuidance(null);
     setQuery("");
     setLogged(false);
+    setInsulinTakenAtTick(null);
     setError("");
     setIsAnalyzingPhoto(true);
 
@@ -486,24 +494,49 @@ export default function FoodScreen() {
               colors={colors}
             />
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.logBtn,
-                {
-                  backgroundColor: logged ? COLORS.success + "20" : COLORS.primary,
-                  borderColor: logged ? COLORS.success : "transparent",
-                  borderWidth: logged ? 1 : 0,
-                  opacity: pressed ? 0.85 : 1,
-                },
-              ]}
-              onPress={logMeal}
-              disabled={logged}
-            >
-              <Feather name={logged ? "check-circle" : "plus-circle"} size={16} color={logged ? COLORS.success : "#fff"} />
-              <Text style={[styles.logBtnText, { color: logged ? COLORS.success : "#fff" }]}>
-                {logged ? "Logged to Food Diary" : "Log This Meal"}
-              </Text>
-            </Pressable>
+            <View style={styles.logActionsRow}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.logBtn,
+                  {
+                    flex: 1,
+                    backgroundColor: insulinTaken ? COLORS.success + "20" : COLORS.primary,
+                    borderColor: insulinTaken ? COLORS.success : "transparent",
+                    borderWidth: insulinTaken ? 1 : 0,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setInsulinCalcVisible(true);
+                }}
+                disabled={insulinTaken}
+              >
+                <Feather name={insulinTaken ? "check-circle" : "percent"} size={16} color={insulinTaken ? COLORS.success : "#fff"} />
+                <Text style={[styles.logBtnText, { color: insulinTaken ? COLORS.success : "#fff" }]}>
+                  {insulinTaken ? "Insulin Taken" : "Calculate Insulin"}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.logBtn,
+                  {
+                    flex: 1,
+                    backgroundColor: logged ? COLORS.success + "20" : COLORS.primary,
+                    borderColor: logged ? COLORS.success : "transparent",
+                    borderWidth: logged ? 1 : 0,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+                onPress={logMeal}
+                disabled={logged}
+              >
+                <Feather name={logged ? "check-circle" : "plus-circle"} size={16} color={logged ? COLORS.success : "#fff"} />
+                <Text style={[styles.logBtnText, { color: logged ? COLORS.success : "#fff" }]}>
+                  {logged ? "Meal Logged" : "Log This Meal"}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         )}
 
@@ -599,6 +632,20 @@ export default function FoodScreen() {
           ))}
         </View>
       </ScrollView>
+
+      {/* ── Meal insulin calculator popup — self-contained; never touches the main calculator ── */}
+      <FoodInsulinModal
+        visible={insulinCalcVisible}
+        onClose={() => setInsulinCalcVisible(false)}
+        initialCarbs={result ? parseFloat(editedCarbs) || result.estimatedCarbs : 0}
+        foodName={result?.foodName}
+        colors={colors}
+        onLogged={() => {
+          setInsulinCalcVisible(false);
+          setInsulinTakenAtTick(cgmSyncSuccessTick);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -969,15 +1016,17 @@ const styles = StyleSheet.create({
   carbLabel: { fontSize: 12, fontWeight: "500" },
   tipsBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 10 },
   tipsText: { flex: 1, fontSize: 13, fontWeight: "400", lineHeight: 20 },
+  logActionsRow: { flexDirection: "row", gap: 10 },
   logBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 6,
     paddingVertical: 13,
+    paddingHorizontal: 8,
     borderRadius: 12,
   },
-  logBtnText: { fontSize: 15, fontWeight: "700" },
+  logBtnText: { fontSize: 13, fontWeight: "700", textAlign: "center" },
   guidanceCard: { borderRadius: 16, borderWidth: 1, padding: 18, marginBottom: 24, gap: 14 },
   guidanceHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   guidanceTitle: { flex: 1, fontSize: 16, fontWeight: "700" },

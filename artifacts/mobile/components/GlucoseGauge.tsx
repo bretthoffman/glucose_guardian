@@ -224,7 +224,9 @@ export function GlucoseGauge({
     <View style={styles.outerRow}>
       {/* gauge area stays full `size` so ripple reach + trend alignment are unchanged */}
       <View style={[styles.gaugeArea, { width: size, height: size }]}>
-        {/* ORIGINAL expanding ripple rings (full-size container, 1.55 reach — unchanged) */}
+        {/* Expanding ripple rings (full-size container, 1.55 reach). Visibility comes from
+            color alpha × animated opacity (0.65 → 0): D9/88 puts the pulse at ~55% effective
+            opacity at its brightest — size, speed, and fade curve unchanged. */}
         <Animated.View
           style={{
             position: "absolute",
@@ -232,7 +234,7 @@ export function GlucoseGauge({
             height: size,
             borderRadius: size / 2,
             borderWidth: 2,
-            borderColor: pulseRingColor + "55",
+            borderColor: pulseRingColor + "D9",
             transform: [{ scale: r1Scale }],
             opacity: r1Opacity,
           }}
@@ -244,7 +246,7 @@ export function GlucoseGauge({
             height: size,
             borderRadius: size / 2,
             borderWidth: 1.5,
-            borderColor: pulseRingColor + "35",
+            borderColor: pulseRingColor + "88",
             transform: [{ scale: r2Scale }],
             opacity: r2Opacity,
           }}

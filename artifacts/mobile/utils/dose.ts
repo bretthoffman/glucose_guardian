@@ -13,6 +13,10 @@ export interface DoseBreakdown {
   correctionSuppressed: boolean;
   /** True when a basal (intermediate/long/ultra-long) insulin is selected — meal math suppressed. */
   basalSuppressed: boolean;
+  /** Dose contribution of carbs still absorbing from recent food logs (COB ÷ carb ratio). */
+  activeCarbInsulin: number;
+  /** Insulin-on-board subtracted from the total (0 when none active). */
+  activeInsulinUnits: number;
 }
 
 export type InsulinKind = "rapid" | "regular" | "intermediate" | "long" | "ultra-long" | "premixed";
@@ -50,8 +54,15 @@ export function computeDose(params: {
   previousBG?: number;
   /** Acting class of the insulin the dose is for — defaults to rapid-acting behavior. */
   insulinKind?: InsulinKind;
+  /** Insulin-on-board from recent logged doses (see utils/onBoard) — subtracted from the total. */
+  activeInsulinUnits?: number;
+  /** Carbs-on-board from recent food logs, in grams — dosed like carbs typed into the field. */
+  activeCarbsGrams?: number;
 }): DoseBreakdown {
-  const { carbs, currentBG, targetBG, carbRatio, correctionFactor, trend, previousBG, insulinKind } = params;
+  const {
+    carbs, currentBG, targetBG, carbRatio, correctionFactor, trend, previousBG, insulinKind,
+    activeInsulinUnits: activeInsulinParam, activeCarbsGrams,
+  } = params;
 
   const warnings: DoseWarning[] = [];
   const basalSuppressed = insulinKind != null && BASAL_KINDS.includes(insulinKind);
@@ -69,8 +80,25 @@ export function computeDose(params: {
   const trendAdjLabel =
     trendAdj > 0 ? `+${trendAdj}` : trendAdj < 0 ? `${trendAdj}` : "0";
 
-  const totalRaw = Math.max(0, carbInsulin + correctionInsulin + trendAdj);
+  const activeCarbInsulin =
+    !basalSuppressed && carbRatio > 0 && activeCarbsGrams != null && activeCarbsGrams > 0
+      ? activeCarbsGrams / carbRatio
+      : 0;
+  const iobUnits =
+    !basalSuppressed && activeInsulinParam != null && activeInsulinParam > 0
+      ? activeInsulinParam
+      : 0;
+
+  const preIobTotal = Math.max(0, carbInsulin + activeCarbInsulin + correctionInsulin + trendAdj);
+  const totalRaw = Math.max(0, preIobTotal - iobUnits);
   const totalDose = Math.round(totalRaw * 2) / 2;
+
+  if (iobUnits > 0 && preIobTotal > 0 && totalRaw === 0) {
+    warnings.push({
+      level: "info",
+      message: `Recent insulin is still active (${Math.round(iobUnits * 100) / 100}u on board) and already covers this — no additional dose suggested.`,
+    });
+  }
 
   if (basalSuppressed) {
     warnings.push({
@@ -145,5 +173,7 @@ export function computeDose(params: {
     isSpikeDetected,
     correctionSuppressed,
     basalSuppressed,
+    activeCarbInsulin: Math.round(activeCarbInsulin * 100) / 100,
+    activeInsulinUnits: Math.round(iobUnits * 100) / 100,
   };
 }
