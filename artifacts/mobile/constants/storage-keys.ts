@@ -26,3 +26,9 @@ export const HOME_RECENT_READINGS_EXPANDED_STORAGE_KEY = "@glucose_guardian_home
  * stale value from another account simply falls back to that profile's default.
  */
 export const DOSE_INSULIN_TYPE_STORAGE_KEY = "@gluco_guardian_dose_insulin_type";
+
+/**
+ * Food page Quick Lookup chips (string[] of food names). Device-local convenience list seeded from
+ * the built-in defaults; user saves push new items to the front at a fixed list length.
+ */
+export const QUICK_FOODS_STORAGE_KEY = "@gluco_guardian_quick_foods";

@@ -3,7 +3,8 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 
-import React, { useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -25,6 +26,8 @@ import { useAuth } from "@/context/AuthContext";
 import { getEffectiveTrend } from "@/utils/trend";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
 import FoodInsulinModal from "@/components/FoodInsulinModal";
+import { QUICK_FOODS_STORAGE_KEY } from "@/constants/storage-keys";
+import { insertQuickFood, parseStoredQuickFoods } from "@/utils/quickFoods";
 import { apiUrl } from "@/utils/api-base-url";
 
 interface FoodResult {
@@ -100,6 +103,28 @@ export default function FoodScreen() {
   const [insulinTakenAtTick, setInsulinTakenAtTick] = useState<number | null>(null);
   const insulinTaken = insulinTakenAtTick !== null && insulinTakenAtTick === cgmSyncSuccessTick;
 
+  // ── User-customizable Quick Lookup chips (fixed length; saves go to the front) ──
+  const [quickFoods, setQuickFoods] = useState<string[]>(QUICK_FOODS);
+  const [savedToQuick, setSavedToQuick] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(QUICK_FOODS_STORAGE_KEY)
+      .then((raw) => {
+        const stored = parseStoredQuickFoods(raw);
+        if (stored) setQuickFoods(stored.slice(0, QUICK_FOODS.length));
+      })
+      .catch(() => {});
+  }, []);
+
+  function saveToQuickLookup() {
+    if (!result || savedToQuick) return;
+    const next = insertQuickFood(quickFoods, result.foodName, QUICK_FOODS.length);
+    setQuickFoods(next);
+    AsyncStorage.setItem(QUICK_FOODS_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+    setSavedToQuick(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   const confidenceColor = {
@@ -146,6 +171,7 @@ export default function FoodScreen() {
     setLogged(false);
     setDoseTaken(false);
     setInsulinTakenAtTick(null);
+    setSavedToQuick(false);
     try {
       const res = await fetch(apiUrl("/api/food/estimate"), {
         method: "POST",
@@ -215,6 +241,7 @@ export default function FoodScreen() {
     setQuery("");
     setLogged(false);
     setInsulinTakenAtTick(null);
+    setSavedToQuick(false);
     setError("");
     setIsAnalyzingPhoto(true);
 
@@ -374,7 +401,9 @@ export default function FoodScreen() {
           </Pressable>
         </View>
 
-        {photoUri && (
+        {/* Top preview only while analyzing — once the analysis card is up, its inline photo is
+            the single representation of the meal on the page. */}
+        {photoUri && !result && (
           <View style={[styles.photoPreview, { borderColor: colors.border }]}>
             <Image source={{ uri: photoUri }} style={styles.photoImage} resizeMode="cover" />
             {isAnalyzingPhoto && (
@@ -441,12 +470,39 @@ export default function FoodScreen() {
             {result.fromPhoto && photoUri && (
               <Image source={{ uri: photoUri }} style={styles.inlinePhoto} resizeMode="cover" />
             )}
-            {result.fromPhoto && (
-              <View style={[styles.aiTag, { backgroundColor: COLORS.primary + "15" }]}>
-                <Feather name="cpu" size={12} color={COLORS.primary} />
-                <Text style={[styles.aiTagText, { color: COLORS.primary }]}>AI Photo Analysis</Text>
-              </View>
-            )}
+            <View style={styles.resultHeaderRow}>
+              {result.fromPhoto ? (
+                <View style={[styles.aiTag, { backgroundColor: COLORS.primary + "15" }]}>
+                  <Feather name="cpu" size={12} color={COLORS.primary} />
+                  <Text style={[styles.aiTagText, { color: COLORS.primary }]}>AI Photo Analysis</Text>
+                </View>
+              ) : (
+                <View style={{ flex: 1 }} />
+              )}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Save to quick lookup"
+                disabled={savedToQuick}
+                onPress={saveToQuickLookup}
+                style={({ pressed }) => [
+                  styles.saveQuickBtn,
+                  {
+                    borderColor: savedToQuick ? COLORS.success : colors.border,
+                    backgroundColor: savedToQuick ? COLORS.success + "18" : "transparent",
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Feather
+                  name={savedToQuick ? "check" : "bookmark"}
+                  size={11}
+                  color={savedToQuick ? COLORS.success : colors.textMuted}
+                />
+                <Text style={[styles.saveQuickBtnText, { color: savedToQuick ? COLORS.success : colors.textMuted }]}>
+                  {savedToQuick ? "Saved" : "Save to Quick Lookup"}
+                </Text>
+              </Pressable>
+            </View>
 
             <View style={styles.resultTop}>
               <View style={{ flex: 1 }}>
@@ -483,16 +539,6 @@ export default function FoodScreen() {
                 <Text style={[styles.tipsText, { color: colors.textSecondary }]}>{result.tips}</Text>
               </View>
             )}
-
-            <DoseFormulaBox
-              carbs={parseFloat(editedCarbs) || result.estimatedCarbs}
-              bg={latestReading?.glucose ?? null}
-              carbRatio={carbRatio}
-              targetGlucose={targetGlucose}
-              correctionFactor={correctionFactor}
-              trend={currentTrend}
-              colors={colors}
-            />
 
             <View style={styles.logActionsRow}>
               <Pressable
@@ -601,7 +647,7 @@ export default function FoodScreen() {
 
         <Text style={[styles.quickTitle, { color: colors.text }]}>Quick Lookup</Text>
         <View style={styles.quickGrid}>
-          {QUICK_FOODS.map((food) => (
+          {quickFoods.map((food) => (
             <Pressable
               key={food}
               style={({ pressed }) => [
@@ -771,112 +817,8 @@ function AdultGuidanceView({
   );
 }
 
-function computeDose(carbs: number, bg: number, carbRatio: number, target: number, isf: number, trend: string) {
-  const carbDose = carbRatio > 0 ? carbs / carbRatio : 0;
-  const corrDose = bg > target ? (bg - target) / isf : 0;
-  const trendAdj =
-    trend === "rapidly_rising" ? 0.5
-    : trend === "rising" ? 0.25
-    : trend === "rapidly_falling" ? -0.5
-    : trend === "falling" ? -0.25
-    : 0;
-  const raw = Math.max(0, carbDose + corrDose + trendAdj);
-  const rounded = Math.round(raw * 2) / 2;
-  return { carbDose, corrDose, trendAdj, raw, rounded };
-}
-
-const TREND_DISPLAY: Record<string, string> = {
-  rapidly_rising: "↑↑ Rising fast",
-  rising: "↑ Rising",
-  stable: "→ Stable",
-  falling: "↓ Falling",
-  rapidly_falling: "↓↓ Falling fast",
-};
-
-function DoseFormulaBox({
-  carbs,
-  bg,
-  carbRatio,
-  targetGlucose,
-  correctionFactor,
-  trend,
-  colors,
-}: {
-  carbs: number;
-  bg: number | null;
-  carbRatio: number;
-  targetGlucose: number;
-  correctionFactor: number;
-  trend: string;
-  colors: (typeof Colors)["light"];
-}) {
-  if (!bg) return null;
-
-  const { carbDose, corrDose, trendAdj, rounded } = computeDose(
-    carbs, bg, carbRatio, targetGlucose, correctionFactor, trend
-  );
-
-  const trendLabel = TREND_DISPLAY[trend] ?? "→ Stable";
-  const r = (n: number) => Math.abs(n).toFixed(1);
-
-  return (
-    <View style={[formulaStyles.box, { backgroundColor: COLORS.primary + "0A", borderColor: COLORS.primary + "25" }]}>
-      <View style={formulaStyles.header}>
-        <Feather name="activity" size={13} color={COLORS.primary} />
-        <Text style={[formulaStyles.title, { color: COLORS.primary }]}>Dose Calculation</Text>
-      </View>
-
-      <View style={formulaStyles.row}>
-        <Text style={[formulaStyles.label, { color: colors.textSecondary }]}>Current BG</Text>
-        <Text style={[formulaStyles.value, { color: colors.text }]}>{bg} mg/dL  ({trendLabel})</Text>
-      </View>
-      <View style={[formulaStyles.divider, { backgroundColor: colors.border }]} />
-
-      <View style={formulaStyles.row}>
-        <Text style={[formulaStyles.label, { color: colors.textSecondary }]}>Carb dose</Text>
-        <Text style={[formulaStyles.value, { color: colors.text }]}>
-          {carbDose.toFixed(1)}u  ({carbs}g ÷ {carbRatio})
-        </Text>
-      </View>
-
-      <View style={formulaStyles.row}>
-        <Text style={[formulaStyles.label, { color: colors.textSecondary }]}>Correction</Text>
-        <Text style={[formulaStyles.value, { color: corrDose > 0 ? COLORS.warning : colors.textMuted }]}>
-          {corrDose > 0 ? `+${r(corrDose)}u  (${bg}−${targetGlucose} ÷ ${correctionFactor})` : "—  (BG in range)"}
-        </Text>
-      </View>
-
-      {trendAdj !== 0 && (
-        <View style={formulaStyles.row}>
-          <Text style={[formulaStyles.label, { color: colors.textSecondary }]}>Trend adj.</Text>
-          <Text style={[formulaStyles.value, { color: trendAdj > 0 ? COLORS.warning : COLORS.primary }]}>
-            {trendAdj > 0 ? "+" : "−"}{r(trendAdj)}u  ({trendLabel})
-          </Text>
-        </View>
-      )}
-
-      <View style={[formulaStyles.divider, { backgroundColor: colors.border }]} />
-      <View style={formulaStyles.row}>
-        <Text style={[formulaStyles.totalLabel, { color: COLORS.primary }]}>Suggested</Text>
-        <Text style={[formulaStyles.totalValue, { color: COLORS.primary }]}>
-          {rounded}u  (rounded to 0.5u)
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-const formulaStyles = StyleSheet.create({
-  box: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 8 },
-  header: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
-  title: { fontSize: 12, fontWeight: "700", letterSpacing: 0.4, textTransform: "uppercase" },
-  divider: { height: 1, marginVertical: 2 },
-  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
-  label: { fontSize: 13, fontWeight: "500", flexShrink: 0 },
-  value: { fontSize: 13, fontWeight: "400", textAlign: "right", flex: 1 },
-  totalLabel: { fontSize: 14, fontWeight: "700" },
-  totalValue: { fontSize: 14, fontWeight: "700", textAlign: "right", flex: 1 },
-});
+// The in-card "Dose Calculation" summary box was removed — the Calculate Insulin popup
+// (FoodInsulinModal) is the single dose surface on this page.
 
 function StatBox({
   label,
@@ -991,6 +933,17 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   aiTagText: { fontSize: 12, fontWeight: "700" },
+  resultHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  saveQuickBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  saveQuickBtnText: { fontSize: 10, fontWeight: "600" },
   resultTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   foodName: { fontSize: 20, fontWeight: "700", marginBottom: 4, textTransform: "capitalize" },
   portionText: { fontSize: 13, fontWeight: "400", marginBottom: 6 },
