@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { CgmChartCursorOverlay } from "@/components/CgmChartCursorOverlay";
 import { useCgmChartCursorGesture } from "@/hooks/useCgmChartCursorGesture";
 import { positionEventMarkers, type ChartEventMarker } from "@/utils/chartEventMarkers";
@@ -462,9 +463,10 @@ export function CGMChart({
             )}
           </Svg>
 
-          {/* Log markers on the target baseline — legend-text sized, stacking downward. */}
+          {/* Log markers on the target baseline — legend-text sized, stacking downward. Same
+              icons + coloring as the tab bar (needle = active violet, food = theme muted). */}
           {positionedEventMarkers.map((m, i) => (
-            <Text
+            <View
               key={`evt-${i}`}
               pointerEvents="none"
               style={{
@@ -472,13 +474,17 @@ export function CGMChart({
                 left: m.x - EVENT_MARKER_SIZE / 2,
                 top: targetLineY - EVENT_MARKER_SIZE / 2 + m.stackIndex * (EVENT_MARKER_SIZE + 1),
                 width: EVENT_MARKER_SIZE,
-                fontSize: 10,
-                lineHeight: EVENT_MARKER_SIZE,
-                textAlign: "center",
+                height: EVENT_MARKER_SIZE,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              {m.kind === "insulin" ? "💉" : "🍽️"}
-            </Text>
+              <MaterialCommunityIcons
+                name={m.kind === "insulin" ? "needle" : "silverware-fork-knife"}
+                size={11}
+                color={m.kind === "insulin" ? T.color.violetActive : c.textMuted}
+              />
+            </View>
           ))}
 
           {selectedPoint && (

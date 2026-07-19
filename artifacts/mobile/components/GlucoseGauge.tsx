@@ -318,31 +318,39 @@ export function GlucoseGauge({
           in the page header (Home screen), so the trend content keeps its original centered position. */}
       {trend && trendColor && trendLabel && (
         <View style={styles.trendSide}>
-          <View style={[styles.trendArrowRow, { transform: [{ rotate: TREND_ROTATE[trend] }] }]}>
-            {Array.from({ length: arrows }).map((_, i) => (
-              <Feather key={i} name="arrow-up" size={30} color={trendColor} />
-            ))}
-          </View>
-          <Text style={[styles.trendCaption, { color: c.textSecondary }]}>Trend</Text>
+          {/* One tap target for the whole trend cluster (arrow + caption + pill + updated line),
+              sized to its content so it can't bleed into the gauge circle or beyond the cluster. */}
           <Pressable
             style={({ pressed }) => [
-              styles.trendPill,
-              {
-                backgroundColor: withAlpha(trendColor, 0.14),
-                borderColor: withAlpha(trendColor, 0.4),
-                opacity: pressed && onTrendPress ? 0.7 : 1,
-              },
+              styles.trendPressable,
+              { opacity: pressed && onTrendPress ? 0.75 : 1 },
             ]}
             onPress={onTrendPress}
             disabled={!onTrendPress}
             accessibilityRole={onTrendPress ? "button" : undefined}
             accessibilityLabel={onTrendPress ? "Show insights and recommendations" : undefined}
           >
-            <Text style={[styles.trendPillText, { color: trendColor }]} numberOfLines={1}>
-              {trendLabel}
-            </Text>
+            <View style={[styles.trendArrowRow, { transform: [{ rotate: TREND_ROTATE[trend] }] }]}>
+              {Array.from({ length: arrows }).map((_, i) => (
+                <Feather key={i} name="arrow-up" size={30} color={trendColor} />
+              ))}
+            </View>
+            <Text style={[styles.trendCaption, { color: c.textSecondary }]}>Trend</Text>
+            <View
+              style={[
+                styles.trendPill,
+                {
+                  backgroundColor: withAlpha(trendColor, 0.14),
+                  borderColor: withAlpha(trendColor, 0.4),
+                },
+              ]}
+            >
+              <Text style={[styles.trendPillText, { color: trendColor }]} numberOfLines={1}>
+                {trendLabel}
+              </Text>
+            </View>
+            {updatedLabel ? <Text style={[styles.updated, { color: c.textMuted }]}>{updatedLabel}</Text> : null}
           </Pressable>
-          {updatedLabel ? <Text style={[styles.updated, { color: c.textMuted }]}>{updatedLabel}</Text> : null}
         </View>
       )}
     </View>
@@ -361,7 +369,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   badgeText: { fontWeight: T.font.semibold },
-  trendSide: { flex: 1, alignItems: "center", gap: 6, minWidth: 0 },
+  trendSide: { flex: 1, alignItems: "center", minWidth: 0 },
+  /** Content-hugging hit area for the insights popup — bounded to the trend cluster itself. */
+  trendPressable: { alignItems: "center", gap: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
   trendArrowRow: { flexDirection: "row", alignItems: "center", gap: 2 },
   trendCaption: { fontSize: 11, fontWeight: T.font.medium, marginTop: 2 },
   trendPill: {

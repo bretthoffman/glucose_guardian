@@ -1,12 +1,16 @@
-import { COLORS } from "@/constants/colors";
+// Relative import (not the "@/" alias) so this pure module is resolvable by the unit-test runner too.
+import { COLORS } from "../constants/colors";
 import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 import type { GlucoseEntry } from "@/context/GlucoseContext";
 import { getEffectiveTrend } from "./trend";
 
 /**
- * Insights & Recommendations engine — moved verbatim from the Insulin screen's Dose tab; the
- * suggestions now surface in the Home screen's trend-pill popup. Pure analysis over the last-24h
- * readings + food/insulin logs.
+ * Insights & Recommendations engine — surfaced from the Home screen's trend-pill popup.
+ *
+ * LIVE-FIRST: cards about lows and highs are split into CURRENT state (driven by the latest
+ * reading plus the live trend/rate of movement) and EARLIER-TODAY episodes (past tense, with the
+ * time they happened) — a low from this morning must not read as "hypoglycemia detected" all day.
+ * Pattern cards (meal spikes, dosing timing, time-of-day, TIR) still analyze the full 24h window.
  */
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
@@ -40,35 +44,76 @@ export function analyzeReadings(
   isMinor: boolean,
   foodLog: FoodLogEntry[],
   insulinLog: InsulinLogEntry[],
+  nowMs: number = Date.now(),
 ): Suggestion[] {
   if (readings.length === 0) return [];
   const suggestions: Suggestion[] = [];
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const cutoff = nowMs - 24 * 60 * 60 * 1000;
   const recentFood = foodLog.filter((f) => new Date(f.timestamp).getTime() >= cutoff);
   const recentInsulin = insulinLog.filter((i) => new Date(i.timestamp).getTime() >= cutoff);
+
+  const sorted = [...readings].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  );
+  const latest = sorted[sorted.length - 1];
 
   const lows = readings.filter((r) => r.glucose < LOW_THRESH);
   const highs = readings.filter((r) => r.glucose > HIGH_THRESH);
   const inRange = readings.filter((r) => r.glucose >= LOW_THRESH && r.glucose <= HIGH_THRESH);
   const timeInRange = Math.round((inRange.length / readings.length) * 100);
   const avg = Math.round(readings.reduce((s, r) => s + r.glucose, 0) / readings.length);
-  const trend = getEffectiveTrend(readings).glucoseTrend;
+  const trend = getEffectiveTrend(sorted).glucoseTrend;
+  const falling = trend === "falling" || trend === "rapidly_falling";
+  const rising = trend === "rising" || trend === "rapidly_rising";
 
-  // ── Priority 1: Active lows ────────────────────────────────────────────
-  if (lows.length > 0) {
-    const worstLow = Math.min(...lows.map((r) => r.glucose));
+  // Signed movement rate (mg/dL per minute) from the two newest readings — current-state cards
+  // speak to HOW FAST glucose is moving, not just the direction.
+  let ratePerMin: number | null = null;
+  if (sorted.length >= 2) {
+    const prev = sorted[sorted.length - 2];
+    const dtMin =
+      (new Date(latest.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 60_000;
+    if (Number.isFinite(dtMin) && dtMin > 0) {
+      ratePerMin = Math.round(((latest.glucose - prev.glucose) / Math.max(dtMin, 0.5)) * 10) / 10;
+    }
+  }
+  const rateNote =
+    ratePerMin != null && Math.abs(ratePerMin) >= 0.5
+      ? ` (~${Math.abs(ratePerMin)} mg/dL per minute)`
+      : "";
+  const fmtClock = (ts: string) =>
+    new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  // ── Priority 1: CURRENT low — else a recovered "earlier today" note ───────────────────────
+  const currentlyLow = latest.glucose < LOW_THRESH;
+  if (currentlyLow) {
     suggestions.push({
       icon: "🧃",
       tag: "URGENT",
-      title: isMinor ? "Sugar went low — drink juice!" : "Hypoglycemia detected",
+      title: isMinor ? "Sugar is low — drink juice!" : "Hypoglycemia — treat now",
       body: isMinor
-        ? `Your sugar dropped to ${worstLow} mg/dL. Drink 4 oz of juice or eat 4 glucose tablets and tell an adult!`
-        : `Glucose reached ${worstLow} mg/dL. Treat with 15–20g fast-acting carbs and recheck in 15 min. Consider whether your last dose was too large.`,
+        ? `Your sugar is ${latest.glucose} mg/dL right now${falling ? " and still going down" : ""}. Drink 4 oz of juice or eat 4 glucose tablets and tell an adult!`
+        : `Glucose is ${latest.glucose} mg/dL right now${
+            falling ? ` and still falling${rateNote}` : rising ? " and starting to recover" : ""
+          }. Treat with 15–20g fast-acting carbs${rising ? " if you haven't already" : ""} and recheck in 15 min.`,
       color: COLORS.danger,
       priority: 1,
       chatPrompt: isMinor
-        ? "I had a blood sugar low. What should I do and how can I stop it from happening again?"
-        : `I've been having hypoglycemia episodes. Can you help me understand the causes and how to prevent them? My last low was ${worstLow} mg/dL.`,
+        ? "My blood sugar is low right now. What should I do?"
+        : `My glucose is ${latest.glucose} mg/dL right now${falling ? " and still falling" : ""}. Walk me through treating this low and how to prevent the next one.`,
+    });
+  } else if (lows.length > 0) {
+    const worstLow = lows.reduce((min, r) => (r.glucose < min.glucose ? r : min), lows[0]);
+    suggestions.push({
+      icon: "✅",
+      tag: "EARLIER TODAY",
+      title: isMinor ? "You had a low earlier — all better now" : "Earlier low — recovered",
+      body: isMinor
+        ? `Your sugar dropped to ${worstLow.glucose} mg/dL at ${fmtClock(worstLow.timestamp)}, but you're back at ${latest.glucose} now. Great job treating it!`
+        : `Glucose dropped to ${worstLow.glucose} mg/dL at ${fmtClock(worstLow.timestamp)} and has recovered (${latest.glucose} now). Watch for rebound lows, and consider what caused it — a large dose or a missed snack.`,
+      color: COLORS.accent,
+      priority: 4,
+      chatPrompt: `I had a low of ${worstLow.glucose} mg/dL at ${fmtClock(worstLow.timestamp)} and I've recovered to ${latest.glucose} now. What likely caused it and how do I prevent the next one?`,
     });
   }
 
@@ -80,7 +125,7 @@ export function analyzeReadings(
       title: isMinor ? "Sugar is dropping — eat a snack!" : "Falling glucose — act now",
       body: isMinor
         ? "Your sugar is going down. Eat a small snack like an apple or crackers now!"
-        : "Glucose is trending down. Have 15g fast-acting carbs. If you recently dosed, insulin may still be peaking — hold your next dose until BG stabilizes.",
+        : `Glucose is trending down${rateNote}. Have 15g fast-acting carbs. If you recently dosed, insulin may still be peaking — hold your next dose until BG stabilizes.`,
       color: COLORS.warning,
       priority: 2,
       chatPrompt: isMinor
@@ -97,7 +142,7 @@ export function analyzeReadings(
       title: isMinor ? "Try a short walk to help!" : "Rising glucose — try activity",
       body: isMinor
         ? "Your sugar is going up! A 10–15 min walk or active play after meals can help bring it back down naturally."
-        : "Glucose is rising. A brisk 10–15 min walk can reduce glucose 20–40 mg/dL without extra insulin — especially effective 30–60 min after a meal.",
+        : `Glucose is rising${rateNote}. A brisk 10–15 min walk can reduce glucose 20–40 mg/dL without extra insulin — especially effective 30–60 min after a meal.`,
       color: COLORS.warning,
       priority: 3,
       chatPrompt: isMinor
@@ -254,24 +299,39 @@ export function analyzeReadings(
     });
   }
 
-  // ── Priority 7: Sustained high — hydration ────────────────────────────
-  if (highs.length > 0 && lows.length === 0 && trend !== "rapidly_rising") {
-    const worstHigh = Math.max(...highs.map((r) => r.glucose));
-    const sustainedHigh = highs.length >= 3;
+  // ── Priority 3–7: CURRENT high — else a recovered "earlier today" note ────────────────────
+  const currentlyHigh = latest.glucose > HIGH_THRESH;
+  if (currentlyHigh) {
+    const peakHigh = Math.max(...highs.map((r) => r.glucose));
     suggestions.push({
       icon: "💧",
-      tag: sustainedHigh ? "HYDRATION" : "TIP",
-      title: isMinor ? "High sugar — drink water!" : sustainedHigh ? "Stay hydrated — glucose is elevated" : "Elevated glucose detected",
+      tag: falling ? "IMPROVING" : "HYDRATION",
+      title: isMinor
+        ? falling ? "High sugar is coming down!" : "High sugar — drink water!"
+        : falling ? "Elevated but falling" : "Elevated now — stay hydrated",
       body: isMinor
-        ? `Your sugar reached ${worstHigh} mg/dL. Drink a big glass of water — it helps your body process sugar more efficiently!`
-        : sustainedHigh
-          ? `Glucose has been above ${HIGH_THRESH} for multiple readings (peak ${worstHigh} mg/dL). Dehydration worsens insulin resistance — aim for 8–12 oz water per hour when elevated.`
-          : `Peak of ${worstHigh} mg/dL detected. Staying well-hydrated and pre-bolusing 10–15 min before your next meal can prevent recurrence.`,
+        ? falling
+          ? `Your sugar is ${latest.glucose} mg/dL and coming down${rateNote}. Keep sipping water — you're on the right track!`
+          : `Your sugar is ${latest.glucose} mg/dL right now. Drink a big glass of water — it helps your body process sugar more efficiently!`
+        : falling
+          ? `Glucose is ${latest.glucose} mg/dL and trending down${rateNote}. Don't stack another correction on insulin that's still working — recheck before any further dose.`
+          : `Glucose is ${latest.glucose} mg/dL now${rising ? ` and rising${rateNote}` : ""} (today's peak ${peakHigh}). Dehydration worsens insulin resistance — aim for 8–12 oz water per hour, and pre-bolus 10–15 min before your next meal.`,
       color: COLORS.warning,
+      priority: 3,
+      chatPrompt: `My glucose is ${latest.glucose} mg/dL right now${falling ? " and falling" : rising ? " and rising" : ""}. What should I do, and how much does hydration actually help?`,
+    });
+  } else if (highs.length > 0) {
+    const worstHigh = highs.reduce((max, r) => (r.glucose > max.glucose ? r : max), highs[0]);
+    suggestions.push({
+      icon: "📉",
+      tag: "EARLIER TODAY",
+      title: isMinor ? "Sugar was high earlier — back down now" : "Earlier high — back in range",
+      body: isMinor
+        ? `Your sugar peaked at ${worstHigh.glucose} mg/dL at ${fmtClock(worstHigh.timestamp)} but it's ${latest.glucose} now. Nice recovery!`
+        : `Glucose peaked at ${worstHigh.glucose} mg/dL at ${fmtClock(worstHigh.timestamp)} and is back at ${latest.glucose} now. If highs follow meals, pre-bolusing 10–15 min earlier can blunt the spike.`,
+      color: COLORS.accent,
       priority: 7,
-      chatPrompt: isMinor
-        ? "My blood sugar has been high. How does drinking water actually help lower it?"
-        : `I'm seeing sustained glucose elevation peaking at ${worstHigh} mg/dL. Can you explain how hydration affects glucose and what other non-insulin strategies can help?`,
+      chatPrompt: `My glucose peaked at ${worstHigh.glucose} mg/dL at ${fmtClock(worstHigh.timestamp)} today and has come back to ${latest.glucose}. What can I do to reduce those peaks?`,
     });
   }
 
@@ -309,8 +369,14 @@ export function analyzeReadings(
     });
   }
 
-  // ── Priority 10: Excellent control ────────────────────────────────────
-  if (timeInRange >= 70 && lows.length === 0 && readings.length >= 3) {
+  // ── Priority 10: Excellent control — only while actually in range right now ───────────────
+  if (
+    timeInRange >= 70 &&
+    lows.length === 0 &&
+    readings.length >= 3 &&
+    latest.glucose >= LOW_THRESH &&
+    latest.glucose <= HIGH_THRESH
+  ) {
     suggestions.push({
       icon: "🌟",
       tag: "GREAT",

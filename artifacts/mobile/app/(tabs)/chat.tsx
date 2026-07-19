@@ -23,6 +23,7 @@ import { getEffectiveTrend } from "@/utils/trend";
 import DoctorMessaging from "@/components/DoctorMessaging";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
 import { apiUrl } from "@/utils/api-base-url";
+import { downsampleReadingsForContext, formatReadingTimeLabel } from "@/utils/glucoseHistoryContext";
 
 interface Message {
   id: string;
@@ -266,9 +267,9 @@ export default function ChatScreen() {
         .slice(-10)
         .map((h) => ({ glucose: h.glucose, timestamp: h.timestamp }));
 
-      // Last-48h insulin + food logs ride along as invisible context so the AI can factor real
+      // Last-36h insulin + food logs ride along as invisible context so the AI can factor real
       // doses and meals (stacking, coverage, timing) into every answer. Logs are newest-first.
-      const logCutoff = Date.now() - 48 * 60 * 60 * 1000;
+      const logCutoff = Date.now() - 36 * 60 * 60 * 1000;
       const recentInsulinLog = (insulinLog ?? [])
         .filter((e) => new Date(e.timestamp).getTime() >= logCutoff)
         .slice(0, 30)
@@ -288,6 +289,14 @@ export default function ChatScreen() {
           estimatedCarbs: f.estimatedCarbs,
           insulinUnits: f.insulinUnits,
         }));
+
+      // 24h of glucose shape at ~20-minute resolution (3/hour) with device-local time labels —
+      // background history only; the CURRENT reading travels separately in `currentGlucose`.
+      const nowMs = Date.now();
+      const readingsHistory = downsampleReadingsForContext(
+        history.map((h) => ({ glucose: h.glucose, timestamp: h.timestamp })),
+        nowMs,
+      ).map((r) => ({ glucose: r.glucose, time: formatReadingTimeLabel(r.timestamp, nowMs) }));
 
       const res = await fetch(apiUrl("/api/chat"), {
         method: "POST",
@@ -316,6 +325,7 @@ export default function ChatScreen() {
             correctionFactor,
             recentInsulinLog,
             recentFoodLog,
+            readingsHistory,
           },
         }),
       });

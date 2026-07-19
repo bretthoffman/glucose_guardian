@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React, { useMemo, useState } from "react";
 import {
@@ -395,7 +395,7 @@ function DayView({
 
       <View style={styles.logSectionTitleRow}>
         <Text style={[styles.logSectionTitle, { color: colors.text }]}>Food Log</Text>
-        <Text style={styles.logSectionTitleIcon}>🍽️</Text>
+        <MaterialCommunityIcons name="silverware-fork-knife" size={18} color={colors.textMuted} />
       </View>
       {dayFood.length === 0 ? (
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No food logged for this day.</Text>
@@ -407,7 +407,7 @@ function DayView({
 
       <View style={[styles.logSectionTitleRow, { marginTop: T.space.sm }]}>
         <Text style={[styles.logSectionTitle, { color: colors.text }]}>Insulin Log</Text>
-        <Text style={styles.logSectionTitleIcon}>💉</Text>
+        <MaterialCommunityIcons name="needle" size={18} color={T.color.violetActive} />
       </View>
       {dayInsulin.length === 0 ? (
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No insulin logged for this day.</Text>
@@ -507,7 +507,6 @@ const styles = StyleSheet.create({
     marginBottom: T.space.sm,
   },
   logSectionTitle: { fontSize: 18, fontWeight: "700" },
-  logSectionTitleIcon: { fontSize: 18 },
   logEmptyText: {
     fontSize: 14,
     fontWeight: "400",

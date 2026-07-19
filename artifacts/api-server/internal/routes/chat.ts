@@ -30,7 +30,7 @@ interface ChatRequestBody {
     carbRatio?: number;
     targetGlucose?: number;
     correctionFactor?: number;
-    /** Insulin doses logged in the app over the last ~48h (newest first). */
+    /** Insulin doses logged in the app over the last ~36h (newest first). */
     recentInsulinLog?: {
       timestamp: string;
       units: number;
@@ -38,12 +38,17 @@ interface ChatRequestBody {
       insulinType?: string;
       recommendedUnits?: number;
     }[];
-    /** Meals logged in the app over the last ~48h (newest first). */
+    /** Meals logged in the app over the last ~36h (newest first). */
     recentFoodLog?: {
       timestamp: string;
       foodName: string;
       estimatedCarbs: number;
       insulinUnits?: number;
+    }[];
+    /** Last-24h glucose shape at ~20-min resolution, oldest → newest, device-local time labels. */
+    readingsHistory?: {
+      glucose: number;
+      time: string;
     }[];
   };
 }
@@ -155,9 +160,18 @@ function buildSystemPrompt(ctx: ChatRequestBody["context"]): string {
       .join("; ");
     recentLogsSection = `
 
-LOGGED IN THE LAST 48 HOURS (factor these into every answer — recent insulin is still active for ~4h (rapid) / ~6h (regular), recent carbs absorb for ~3h; account for insulin-on-board before suggesting any additional dose, and reference these logs when asked what was eaten or dosed):
+LOGGED IN THE LAST 36 HOURS (factor these into every answer — recent insulin is still active for ~4h (rapid) / ~6h (regular), recent carbs absorb for ~3h; account for insulin-on-board before suggesting any additional dose, and reference these logs when asked what was eaten or dosed):
 • Insulin: ${insulinLines || "none logged"}
 • Meals: ${foodLines || "none logged"}`;
+  }
+
+  let readingsHistorySection = "";
+  if (ctx.readingsHistory && ctx.readingsHistory.length > 0) {
+    const list = ctx.readingsHistory.map((r) => `${r.glucose} (${r.time})`).join("; ");
+    readingsHistorySection = `
+
+GLUCOSE HISTORY (last 24 hours, one reading about every 20 minutes, oldest → newest, device-local times). This is BACKGROUND history for spotting patterns — the person's CURRENT glucose is the value in the snapshot above${ctx.currentGlucose != null ? ` (${ctx.currentGlucose} mg/dL right now)` : ""}, NOT the last entry of this list:
+${list}`;
   }
 
   let recentTrend = "";
@@ -290,7 +304,7 @@ ${ctx.anomalyWarning && ctx.anomalyMessage ? `• ⚠️ Active alert: ${ctx.ano
 ${ctx.carbRatio ? `• Carb ratio: 1 unit per ${ctx.carbRatio}g carbs` : ""}
 ${ctx.targetGlucose ? `• Target glucose: ${ctx.targetGlucose} mg/dL` : ""}
 ${ctx.correctionFactor ? `• Insulin sensitivity factor (ISF): 1 unit drops glucose ~${ctx.correctionFactor} mg/dL` : ""}
-${weightStr ? `• Weight: ${weightStr}` : ""}${recentLogsSection}
+${weightStr ? `• Weight: ${weightStr}` : ""}${recentLogsSection}${readingsHistorySection}
 ${dosingInstructions}
 
 TREND-BASED GUIDANCE (use this when relevant, not every message):
