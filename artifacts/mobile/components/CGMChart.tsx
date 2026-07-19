@@ -101,6 +101,11 @@ interface CGMChartProps {
   showRangeSelector?: boolean;
   /** Custom empty-state copy for the plot area. */
   emptyMessage?: string;
+  /**
+   * Fires when the touch-hold reading cursor engages/releases — hosts use it to lock their
+   * ScrollView (scrollEnabled={!active}) so a held finger can drift vertically without scrolling.
+   */
+  onCursorActiveChange?: (active: boolean) => void;
 }
 
 type Pt = { x: number; y: number; glucose: number };
@@ -120,6 +125,7 @@ export function CGMChart({
   calendarDayWindow,
   showRangeSelector: showRangeSelectorProp,
   emptyMessage,
+  onCursorActiveChange,
 }: CGMChartProps) {
   const c = useThemeColors();
   const styles = useMemo(() => makeStyles(c), [c]);
@@ -199,11 +205,16 @@ export function CGMChart({
     ? `${calendarDayWindow.startMs}-${filtered.length}`
     : `${timeRange}-${filtered.length}`;
 
-  const { selectedPoint, panHandlers, touchHandlers } = useCgmChartCursorGesture({
+  const { selectedPoint, cursorActive, panHandlers, touchHandlers } = useCgmChartCursorGesture({
     points: cursorPoints,
     onQuickTap: toggleDisplayMode,
     resetKey: cursorResetKey,
   });
+
+  // Let the host page freeze its vertical scroll while the reading cursor is held.
+  useEffect(() => {
+    onCursorActiveChange?.(cursorActive);
+  }, [cursorActive, onCursorActiveChange]);
 
   const gapAfterIndex: boolean[] = filtered.map((r, i) => {
     if (i >= filtered.length - 1) return false;

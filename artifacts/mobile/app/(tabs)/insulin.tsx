@@ -4,10 +4,9 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
-  Dimensions,
   Keyboard,
-  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -16,7 +15,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useTheme, useThemeColors } from "@/context/ThemeContext";
+import type { Id } from "../../../../convex/_generated/dataModel";
+import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import {
@@ -28,11 +28,16 @@ import {
   rangeCutoffMs,
   type A1cRange,
 } from "@/utils/a1c";
-import { type ThemeColors } from "@/constants/theme";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
-import type { GlucoseEntry } from "@/context/GlucoseContext";
-import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
+import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
+import {
+  availableDaysFromOldest,
+  mergeWindowStats,
+  statsFromEntries,
+  windowChunks,
+  type GlucoseWindowStats,
+} from "@/utils/a1cRange";
 import { glucoseColor } from "@/components/CGMChart";
 import { computeDose } from "@/utils/dose";
 import type { DoseBreakdown } from "@/utils/dose";
@@ -63,738 +68,6 @@ import { DOSE_INSULIN_TYPE_STORAGE_KEY } from "@/constants/storage-keys";
 
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
-const Y_MIN = 40;
-const Y_MAX = 400;
-const Y_RANGE = Y_MAX - Y_MIN;
-const Y_LABELS = [400, 300, 250, 200, 180, 100, 70, 40];
-const CHART_H = 230;
-const Y_AXIS_W = 38;
-const WINDOW_MS = 24 * 60 * 60 * 1000;
-
-function yPct(glucose: number) {
-  return 1 - (Math.max(Y_MIN, Math.min(Y_MAX, glucose)) - Y_MIN) / Y_RANGE;
-}
-
-interface Suggestion {
-  icon: string;
-  title: string;
-  body: string;
-  color: string;
-  priority: number;
-  chatPrompt: string;
-  tag?: string;
-}
-
-function hourOf(ts: string) {
-  return new Date(ts).getHours();
-}
-
-function avgGlucoseInWindow(readings: GlucoseEntry[], fromHour: number, toHour: number): number | null {
-  const slice = readings.filter((r) => {
-    const h = hourOf(r.timestamp);
-    return h >= fromHour && h < toHour;
-  });
-  if (slice.length < 2) return null;
-  return Math.round(slice.reduce((s, r) => s + r.glucose, 0) / slice.length);
-}
-
-function analyzeReadings(
-  readings: GlucoseEntry[],
-  targetGlucose: number,
-  isMinor: boolean,
-  foodLog: FoodLogEntry[],
-  insulinLog: InsulinLogEntry[],
-): Suggestion[] {
-  if (readings.length === 0) return [];
-  const suggestions: Suggestion[] = [];
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-  const recentFood = foodLog.filter((f) => new Date(f.timestamp).getTime() >= cutoff);
-  const recentInsulin = insulinLog.filter((i) => new Date(i.timestamp).getTime() >= cutoff);
-
-  const lows = readings.filter((r) => r.glucose < LOW_THRESH);
-  const highs = readings.filter((r) => r.glucose > HIGH_THRESH);
-  const inRange = readings.filter((r) => r.glucose >= LOW_THRESH && r.glucose <= HIGH_THRESH);
-  const timeInRange = Math.round((inRange.length / readings.length) * 100);
-  const avg = Math.round(readings.reduce((s, r) => s + r.glucose, 0) / readings.length);
-  const trend = getEffectiveTrend(readings).glucoseTrend;
-
-  // ── Priority 1: Active lows ────────────────────────────────────────────
-  if (lows.length > 0) {
-    const worstLow = Math.min(...lows.map((r) => r.glucose));
-    suggestions.push({
-      icon: "🧃",
-      tag: "URGENT",
-      title: isMinor ? "Sugar went low — drink juice!" : "Hypoglycemia detected",
-      body: isMinor
-        ? `Your sugar dropped to ${worstLow} mg/dL. Drink 4 oz of juice or eat 4 glucose tablets and tell an adult!`
-        : `Glucose reached ${worstLow} mg/dL. Treat with 15–20g fast-acting carbs and recheck in 15 min. Consider whether your last dose was too large.`,
-      color: COLORS.danger,
-      priority: 1,
-      chatPrompt: isMinor
-        ? "I had a blood sugar low. What should I do and how can I stop it from happening again?"
-        : `I've been having hypoglycemia episodes. Can you help me understand the causes and how to prevent them? My last low was ${worstLow} mg/dL.`,
-    });
-  }
-
-  // ── Priority 2: Rapidly falling trend ─────────────────────────────────
-  if (trend === "rapidly_falling" || trend === "falling") {
-    suggestions.push({
-      icon: "🍎",
-      tag: "ACT NOW",
-      title: isMinor ? "Sugar is dropping — eat a snack!" : "Falling glucose — act now",
-      body: isMinor
-        ? "Your sugar is going down. Eat a small snack like an apple or crackers now!"
-        : "Glucose is trending down. Have 15g fast-acting carbs. If you recently dosed, insulin may still be peaking — hold your next dose until BG stabilizes.",
-      color: COLORS.warning,
-      priority: 2,
-      chatPrompt: isMinor
-        ? "My blood sugar keeps dropping. What snacks should I eat and when?"
-        : "My glucose is falling quickly. Can you explain the best strategy for treating a falling trend and how to avoid going low?",
-    });
-  }
-
-  // ── Priority 3: Rising trend → activity suggestion ─────────────────────
-  if (trend === "rapidly_rising" || trend === "rising") {
-    suggestions.push({
-      icon: "🚶",
-      tag: "TIP",
-      title: isMinor ? "Try a short walk to help!" : "Rising glucose — try activity",
-      body: isMinor
-        ? "Your sugar is going up! A 10–15 min walk or active play after meals can help bring it back down naturally."
-        : "Glucose is rising. A brisk 10–15 min walk can reduce glucose 20–40 mg/dL without extra insulin — especially effective 30–60 min after a meal.",
-      color: COLORS.warning,
-      priority: 3,
-      chatPrompt: isMinor
-        ? "My blood sugar keeps going up. Can walking really help? What else can I do?"
-        : "My glucose is rising and I want to know how exercise affects blood sugar. When should I walk vs when should I take a correction dose?",
-    });
-  }
-
-  // ── Priority 4: Post-meal spike pattern from food log ─────────────────
-  if (recentFood.length > 0) {
-    let spikeCount = 0;
-    let totalSpike = 0;
-    let highCarbMeal = false;
-    for (const meal of recentFood) {
-      const mealTime = new Date(meal.timestamp).getTime();
-      const before = readings.filter((r) => {
-        const t = new Date(r.timestamp).getTime();
-        return t >= mealTime - 20 * 60000 && t <= mealTime;
-      });
-      const after = readings.filter((r) => {
-        const t = new Date(r.timestamp).getTime();
-        return t >= mealTime + 45 * 60000 && t <= mealTime + 100 * 60000;
-      });
-      if (before.length > 0 && after.length > 0) {
-        const beforeAvg = before.reduce((s, r) => s + r.glucose, 0) / before.length;
-        const afterPeak = Math.max(...after.map((r) => r.glucose));
-        if (afterPeak - beforeAvg > 60) {
-          spikeCount++;
-          totalSpike += afterPeak - beforeAvg;
-        }
-      }
-      if (meal.estimatedCarbs > 60) highCarbMeal = true;
-    }
-
-    if (spikeCount > 0) {
-      const avgSpike = Math.round(totalSpike / spikeCount);
-      suggestions.push({
-        icon: "⏱️",
-        tag: "PATTERN",
-        title: isMinor ? "Big jumps after meals!" : "Post-meal spike detected",
-        body: isMinor
-          ? `Your sugar jumped about ${avgSpike} mg/dL after eating. Giving insulin 10–15 min before your meal can help a lot!`
-          : `Glucose spiked ~${avgSpike} mg/dL above pre-meal baseline. Try pre-bolusing 10–15 min before eating. Adding fiber or protein slows carb absorption.`,
-        color: COLORS.warning,
-        priority: 4,
-        chatPrompt: isMinor
-          ? "My blood sugar goes up a lot after meals. Can giving insulin sooner help? What foods slow it down?"
-          : `I'm seeing post-meal spikes of ~${avgSpike} mg/dL. Can you explain pre-bolusing timing, and how meal composition (protein, fiber, fat) affects glucose peaks?`,
-      });
-    }
-
-    if (highCarbMeal && spikeCount === 0) {
-      suggestions.push({
-        icon: "🥗",
-        tag: "MEAL TIP",
-        title: isMinor ? "Balance carbs with protein!" : "Meal composition tip",
-        body: isMinor
-          ? "You ate a carb-heavy meal! Adding protein or veggies to your plate helps sugar rise more slowly."
-          : "You logged a high-carb meal. Adding fiber (veggies, legumes) or protein slows digestion and reduces glucose peaks — aim for 25–30g carbs per meal.",
-        color: COLORS.accent,
-        priority: 5,
-        chatPrompt: isMinor
-          ? "How can I eat carbs without making my blood sugar go too high? What should I add to my meals?"
-          : "I have a high-carb diet and want to understand how to balance meals for better glucose control. What's the role of protein, fat, and fiber?",
-      });
-    }
-  }
-
-  // ── Priority 5: Insulin timing analysis ──────────────────────────────
-  if (recentFood.length > 0 && recentInsulin.length > 0) {
-    let lateBolusCount = 0;
-    for (const meal of recentFood) {
-      const mealTime = new Date(meal.timestamp).getTime();
-      const nearbyInsulin = recentInsulin.filter((i) => {
-        const t = new Date(i.timestamp).getTime();
-        return Math.abs(t - mealTime) < 60 * 60000;
-      });
-      for (const dose of nearbyInsulin) {
-        const doseTime = new Date(dose.timestamp).getTime();
-        if (doseTime > mealTime + 5 * 60000) lateBolusCount++;
-      }
-    }
-    if (lateBolusCount > 0) {
-      suggestions.push({
-        icon: "💉",
-        tag: "TIMING",
-        title: isMinor ? "Give insulin before eating!" : "Insulin timing opportunity",
-        body: isMinor
-          ? "It looks like you got your shot after eating. Giving it 10–15 min before meals helps prevent big sugar spikes!"
-          : `Insulin was given after ${lateBolusCount === 1 ? "a meal" : `${lateBolusCount} meals`}. Dosing 10–15 min before meals lets insulin peak alongside carb absorption, reducing post-meal spikes significantly.`,
-        color: COLORS.primary,
-        priority: 5,
-        chatPrompt: isMinor
-          ? "Why is it better to take insulin before eating instead of after? How do I know when to take it?"
-          : "I've been dosing insulin after meals and seeing spikes. Can you explain optimal pre-bolus timing and how to calculate it based on my insulin type?",
-      });
-    }
-  }
-
-  // ── Priority 6: Time-of-day patterns ─────────────────────────────────
-  const morningAvg  = avgGlucoseInWindow(readings, 5, 9);
-  const midnightAvg = avgGlucoseInWindow(readings, 0, 4);
-  const eveningAvg  = avgGlucoseInWindow(readings, 20, 24);
-  const afternoonAvg = avgGlucoseInWindow(readings, 12, 15);
-
-  // Dawn phenomenon: morning notably higher than late-night
-  if (morningAvg !== null && midnightAvg !== null && morningAvg - midnightAvg > 40) {
-    suggestions.push({
-      icon: "🌅",
-      tag: "PATTERN",
-      title: isMinor ? "Morning sugars creeping up!" : "Dawn phenomenon detected",
-      body: isMinor
-        ? `Your sugar tends to rise while you sleep — from around ${midnightAvg} to ${morningAvg} mg/dL by morning. This is normal but your care team can help!`
-        : `Morning average (${morningAvg} mg/dL) is ${morningAvg - midnightAvg} mg/dL higher than late-night (${midnightAvg} mg/dL). This suggests a dawn phenomenon — discuss basal insulin timing with your endocrinologist.`,
-      color: COLORS.accent,
-      priority: 6,
-      chatPrompt: isMinor
-        ? "Why does my blood sugar go up while I'm sleeping? Is that normal? What can we do about it?"
-        : `I'm seeing a dawn phenomenon pattern — my glucose rises ~${morningAvg - midnightAvg} mg/dL overnight. Can you explain the physiology and what basal adjustments might help?`,
-    });
-  }
-
-  // Post-lunch pattern
-  if (afternoonAvg !== null && afternoonAvg > HIGH_THRESH + 20) {
-    suggestions.push({
-      icon: "☀️",
-      tag: "PATTERN",
-      title: isMinor ? "Afternoon sugar runs high!" : "Consistent afternoon elevation",
-      body: isMinor
-        ? `Your sugar tends to be around ${afternoonAvg} mg/dL in the afternoon. Try a lighter lunch or giving insulin a little sooner before eating!`
-        : `Afternoon average ${afternoonAvg} mg/dL suggests post-lunch drift. Consider pre-bolusing 15 min before lunch, reducing refined carbs, or a short walk after eating.`,
-      color: COLORS.warning,
-      priority: 6,
-      chatPrompt: isMinor
-        ? "Why does my blood sugar go high every afternoon? What can I do at lunch to help?"
-        : `My afternoon glucose consistently runs around ${afternoonAvg} mg/dL. Can you help me identify whether this is a lunch spike, insufficient lunch dose, or something else?`,
-    });
-  }
-
-  // Evening highs (stress / dinner spike)
-  if (eveningAvg !== null && eveningAvg > HIGH_THRESH + 20) {
-    suggestions.push({
-      icon: "🌙",
-      tag: "PATTERN",
-      title: isMinor ? "Evening sugars are a bit high" : "Evening glucose elevation",
-      body: isMinor
-        ? `Your sugar is often around ${eveningAvg} mg/dL in the evening. A smaller dinner and a short walk after eating can help a lot!`
-        : `Evening average ${eveningAvg} mg/dL suggests dinner or stress elevation. Evening cortisol spikes are common — try a 10-min post-dinner walk and consider whether your dinner dose or timing needs adjustment.`,
-      color: COLORS.accent,
-      priority: 7,
-      chatPrompt: isMinor
-        ? "My blood sugar is high in the evenings. Does stress or dinner cause it? What should I do?"
-        : `I'm seeing consistently elevated glucose in the evenings around ${eveningAvg} mg/dL. Can you explain the role of stress hormones, dinner composition, and what adjustments might help?`,
-    });
-  }
-
-  // ── Priority 7: Sustained high — hydration ────────────────────────────
-  if (highs.length > 0 && lows.length === 0 && trend !== "rapidly_rising") {
-    const worstHigh = Math.max(...highs.map((r) => r.glucose));
-    const sustainedHigh = highs.length >= 3;
-    suggestions.push({
-      icon: "💧",
-      tag: sustainedHigh ? "HYDRATION" : "TIP",
-      title: isMinor ? "High sugar — drink water!" : sustainedHigh ? "Stay hydrated — glucose is elevated" : "Elevated glucose detected",
-      body: isMinor
-        ? `Your sugar reached ${worstHigh} mg/dL. Drink a big glass of water — it helps your body process sugar more efficiently!`
-        : sustainedHigh
-          ? `Glucose has been above ${HIGH_THRESH} for multiple readings (peak ${worstHigh} mg/dL). Dehydration worsens insulin resistance — aim for 8–12 oz water per hour when elevated.`
-          : `Peak of ${worstHigh} mg/dL detected. Staying well-hydrated and pre-bolusing 10–15 min before your next meal can prevent recurrence.`,
-      color: COLORS.warning,
-      priority: 7,
-      chatPrompt: isMinor
-        ? "My blood sugar has been high. How does drinking water actually help lower it?"
-        : `I'm seeing sustained glucose elevation peaking at ${worstHigh} mg/dL. Can you explain how hydration affects glucose and what other non-insulin strategies can help?`,
-    });
-  }
-
-  // ── Priority 8: Low time-in-range → care team ─────────────────────────
-  if (timeInRange < 50 && readings.length >= 4) {
-    suggestions.push({
-      icon: "👨‍⚕️",
-      tag: "REVIEW",
-      title: "Talk to your care team",
-      body: isMinor
-        ? `You were in your safe zone ${timeInRange}% of the time today. Your doctor might want to look at your settings!`
-        : `Time-in-range is ${timeInRange}% (goal: 70%+). Bring this chart to your endocrinologist — your carb ratio or correction factor may need an adjustment.`,
-      color: COLORS.primary,
-      priority: 8,
-      chatPrompt: isMinor
-        ? "I wasn't in my safe blood sugar zone very much today. What does that mean and what can my doctor do to help?"
-        : `My time-in-range is only ${timeInRange}%. What questions should I ask my endocrinologist about adjusting my insulin settings?`,
-    });
-  }
-
-  // ── Priority 9: Consistently elevated + stable ────────────────────────
-  if (avg > HIGH_THRESH && trend === "stable" && lows.length === 0) {
-    suggestions.push({
-      icon: "🍽️",
-      tag: "MEAL TIP",
-      title: isMinor ? "Try smaller meal portions" : "Consistently elevated — adjust meals",
-      body: isMinor
-        ? "Your sugar has been running a bit high. Smaller portions, fewer sugary drinks, and more protein can really help!"
-        : `Average ${avg} mg/dL with a stable trend suggests consistent post-meal drift. Try pre-bolusing, smaller portions, more fiber, and a short walk after each meal.`,
-      color: COLORS.accent,
-      priority: 9,
-      chatPrompt: isMinor
-        ? "My blood sugar has been high after meals. What foods and portions help keep it lower?"
-        : `My average glucose is ${avg} mg/dL. Can you explain how meal composition, portion size, and timing all affect post-meal glucose control?`,
-    });
-  }
-
-  // ── Priority 10: Excellent control ────────────────────────────────────
-  if (timeInRange >= 70 && lows.length === 0 && readings.length >= 3) {
-    suggestions.push({
-      icon: "🌟",
-      tag: "GREAT",
-      title: isMinor ? "Amazing sugar control!" : "Excellent glucose control",
-      body: isMinor
-        ? `You were in your safe zone ${timeInRange}% of the time — incredible! Keep up whatever you're doing!`
-        : `Time-in-range: ${timeInRange}%. Average: ${avg} mg/dL. Your management is right on track — keep your current meal timing and dose strategy.`,
-      color: COLORS.success,
-      priority: 10,
-      chatPrompt: isMinor
-        ? "I've been doing really well with my blood sugar! What else can I do to keep it up?"
-        : `I'm achieving ${timeInRange}% time-in-range with an average of ${avg} mg/dL. What advanced strategies could help me push this even higher?`,
-    });
-  }
-
-  return suggestions.sort((a, b) => a.priority - b.priority).slice(0, 5);
-}
-
-interface AlertDot {
-  x: number;
-  y: number;
-  glucose: number;
-  timestamp: string;
-  alertColor: string;
-}
-
-function ZoomableChart({
-  readings,
-  targetGlucose,
-}: {
-  readings: GlucoseEntry[];
-  targetGlucose: number;
-}) {
-  const screenW = Dimensions.get("window").width;
-  const containerW = screenW - 40; // paddingHorizontal * 2 = 40
-  const plotW = containerW - Y_AXIS_W - 5; // 5 = gap between plot and y-axis
-
-  const zoomScaleRef = useRef(1);
-  const [zoomScale, setZoomScaleRaw] = useState(1);
-  const lastPinchDist = useRef<number | null>(null);
-  const [selectedAlert, setSelectedAlert] = useState<AlertDot | null>(null);
-  const { scheme } = useTheme();
-  const isDark = scheme === "dark";
-  const c = useThemeColors();
-  const czs = useMemo(() => makeCzs(c, isDark), [c, isDark]);
-  const chartStyles = useMemo(() => makeChartStyles(c, isDark), [c, isDark]);
-
-  function applyZoom(newScale: number) {
-    const clamped = Math.max(1, Math.min(6, newScale));
-    zoomScaleRef.current = clamped;
-    setZoomScaleRaw(clamped);
-  }
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponderCapture: (evt) =>
-        evt.nativeEvent.touches.length === 2,
-      onMoveShouldSetPanResponderCapture: (evt) =>
-        evt.nativeEvent.touches.length === 2,
-      onPanResponderGrant: (evt) => {
-        if (evt.nativeEvent.touches.length === 2) {
-          const [t1, t2] = evt.nativeEvent.touches;
-          lastPinchDist.current = Math.hypot(
-            t2.pageX - t1.pageX,
-            t2.pageY - t1.pageY,
-          );
-        }
-      },
-      onPanResponderMove: (evt) => {
-        if (evt.nativeEvent.touches.length === 2) {
-          const [t1, t2] = evt.nativeEvent.touches;
-          const dist = Math.hypot(t2.pageX - t1.pageX, t2.pageY - t1.pageY);
-          if (lastPinchDist.current !== null && lastPinchDist.current > 0) {
-            const ratio = dist / lastPinchDist.current;
-            const newScale = Math.max(
-              1,
-              Math.min(6, zoomScaleRef.current * ratio),
-            );
-            zoomScaleRef.current = newScale;
-            setZoomScaleRaw(newScale);
-            lastPinchDist.current = dist;
-          }
-        }
-      },
-      onPanResponderRelease: () => {
-        lastPinchDist.current = null;
-      },
-    }),
-  ).current;
-
-  const now = Date.now();
-  const windowStart = now - WINDOW_MS;
-
-  const filtered = readings
-    .filter((r) => new Date(r.timestamp).getTime() >= windowStart)
-    .sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-    );
-
-  const contentW = plotW * zoomScale;
-
-  const points = filtered.map((r) => ({
-    x: Math.max(
-      0,
-      Math.min(
-        contentW,
-        ((new Date(r.timestamp).getTime() - windowStart) / WINDOW_MS) *
-          contentW,
-      ),
-    ),
-    y: yPct(r.glucose) * CHART_H,
-    glucose: r.glucose,
-    timestamp: r.timestamp,
-    isAlert: r.glucose < LOW_THRESH || r.glucose > HIGH_THRESH,
-    alertColor:
-      r.glucose < LOW_THRESH ? COLORS.danger : COLORS.warning,
-  }));
-
-  const alertPeaks = useMemo(() => {
-    const peaks: typeof points = [];
-    let i = 0;
-    while (i < points.length) {
-      if (!points[i].isAlert) { i++; continue; }
-      const isLow = points[i].glucose < LOW_THRESH;
-      let j = i;
-      let peakIdx = i;
-      while (j < points.length && points[j].isAlert && (points[j].glucose < LOW_THRESH) === isLow) {
-        if (isLow ? points[j].glucose < points[peakIdx].glucose : points[j].glucose > points[peakIdx].glucose) {
-          peakIdx = j;
-        }
-        j++;
-      }
-      peaks.push(points[peakIdx]);
-      i = j;
-    }
-    return peaks;
-  }, [points]);
-
-  const lowLineY = yPct(LOW_THRESH) * CHART_H;
-  const highLineY = yPct(HIGH_THRESH) * CHART_H;
-  const targetLineY =
-    yPct(Math.max(LOW_THRESH, Math.min(HIGH_THRESH, targetGlucose))) * CHART_H;
-
-  const xLabels = [0, 1 / 4, 1 / 2, 3 / 4, 1].map((frac) => {
-    const hoursAgo = Math.round((1 - frac) * (WINDOW_MS / (60 * 60 * 1000)));
-    const label = frac === 1 ? "Now" : `${hoursAgo}h ago`;
-    return { x: frac * contentW, label };
-  });
-
-  const isZoomed = zoomScale > 1.05;
-
-  return (
-    <View {...panResponder.panHandlers}>
-      <View style={chartStyles.toolbar}>
-        <Text style={chartStyles.toolbarHint}>
-          {isZoomed
-            ? `${zoomScale.toFixed(1)}× — scroll to pan`
-            : "Pinch or + / − to zoom  ·  tap ⚠ dots for tips"}
-        </Text>
-        <View style={chartStyles.zoomBtns}>
-          <Pressable
-            style={({ pressed }) => [chartStyles.zoomBtn, { opacity: pressed ? 0.6 : 1 }]}
-            onPress={() => applyZoom(zoomScaleRef.current - 0.5)}
-          >
-            <Text style={chartStyles.zoomBtnText}>−</Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [chartStyles.zoomBtn, { opacity: pressed ? 0.6 : 1 }]}
-            onPress={() => applyZoom(zoomScaleRef.current + 0.5)}
-          >
-            <Text style={chartStyles.zoomBtnText}>+</Text>
-          </Pressable>
-          {isZoomed && (
-            <Pressable
-              style={({ pressed }) => [chartStyles.zoomBtn, chartStyles.resetBtn, { opacity: pressed ? 0.6 : 1 }]}
-              onPress={() => applyZoom(1)}
-            >
-              <Text style={[chartStyles.zoomBtnText, { fontSize: 11 }]}>Reset</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
-
-      <View style={chartStyles.chartRow}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          scrollEnabled={true}
-          style={{ width: plotW }}
-          contentContainerStyle={{ width: contentW }}
-        >
-          <View
-            style={{
-              width: contentW,
-              height: CHART_H,
-              backgroundColor: c.chartPlotBg,
-              borderRadius: 6,
-              overflow: "hidden",
-              position: "relative",
-            }}
-          >
-            <View style={[czs.zoneLow, { height: CHART_H - lowLineY, bottom: 0 }]} />
-            <View style={[czs.zoneTarget, { top: highLineY, height: lowLineY - highLineY }]} />
-            <View style={[czs.zoneHigh, { height: highLineY, top: 0 }]} />
-
-            <View style={[czs.line, { top: lowLineY, backgroundColor: "#EF444488" }]} />
-            <View style={[czs.line, { top: highLineY, backgroundColor: "#F59E0B55" }]} />
-            <View style={[czs.line, { top: targetLineY, backgroundColor: "rgba(99,102,241,0.45)" }]} />
-
-            {filtered.length === 0 ? (
-              <View style={czs.empty}>
-                <Text style={czs.emptyText}>No readings in the last 24 hours</Text>
-              </View>
-            ) : (
-              <>
-                {points.map((p, i) => {
-                  if (i >= points.length - 1) return null;
-                  const next = points[i + 1];
-                  const dx = next.x - p.x;
-                  const dy = next.y - p.y;
-                  const len = Math.sqrt(dx * dx + dy * dy);
-                  if (len < 0.5) return null;
-                  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-                  const col = glucoseColor((p.glucose + next.glucose) / 2);
-                  return (
-                    <View
-                      key={`seg-${i}`}
-                      style={{
-                        position: "absolute",
-                        width: len,
-                        left: p.x,
-                        top: p.y - 1.5,
-                        height: 3,
-                        backgroundColor: col + "CC",
-                        transform: [{ rotate: `${angle}deg` }],
-                        transformOrigin: "left center",
-                      }}
-                    />
-                  );
-                })}
-
-                {points.map((p, i) => {
-                  if (p.isAlert) return null;
-                  const isLatest = i === points.length - 1;
-                  const sz = isLatest ? 11 : 5;
-                  return (
-                    <View
-                      key={`ndot-${i}`}
-                      style={{
-                        position: "absolute",
-                        left: p.x - sz / 2,
-                        top: p.y - sz / 2,
-                        width: sz,
-                        height: sz,
-                        borderRadius: sz / 2,
-                        backgroundColor: glucoseColor(p.glucose),
-                        borderWidth: isLatest ? 2 : 0,
-                        borderColor: isDark ? "#fff" : c.chartPlotBg,
-                        opacity: isLatest ? 1 : 0.75,
-                      }}
-                    />
-                  );
-                })}
-
-                {alertPeaks.map((p, i) => {
-                  const isSelected = selectedAlert?.timestamp === p.timestamp;
-                  return (
-                    <Pressable
-                      key={`adot-${i}`}
-                      style={{
-                        position: "absolute",
-                        left: p.x - 12,
-                        top: p.y - 12,
-                        width: 24,
-                        height: 24,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setSelectedAlert(
-                          isSelected ? null : {
-                            x: p.x, y: p.y,
-                            glucose: p.glucose,
-                            timestamp: p.timestamp,
-                            alertColor: p.alertColor,
-                          },
-                        );
-                      }}
-                    >
-                      <View
-                        style={{
-                          position: "absolute",
-                          width: 28,
-                          height: 28,
-                          borderRadius: 14,
-                          backgroundColor: p.alertColor + (isSelected ? "35" : "22"),
-                          borderWidth: 1.5,
-                          borderColor: p.alertColor + "70",
-                        }}
-                      />
-                      <View
-                        style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: 7,
-                          backgroundColor: p.alertColor,
-                          borderWidth: 2,
-                          borderColor: isDark ? "#fff" : c.chartPlotBg,
-                        }}
-                      />
-                    </Pressable>
-                  );
-                })}
-
-                {selectedAlert && (() => {
-                  const isLow = selectedAlert.glucose < LOW_THRESH;
-                  const tooltipW = 148;
-                  const leftPos = Math.max(4, Math.min(contentW - tooltipW - 4, selectedAlert.x - tooltipW / 2));
-                  const showBelow = selectedAlert.y < CHART_H / 2;
-                  return (
-                    <Pressable
-                      key="tooltip"
-                      style={{
-                        position: "absolute",
-                        left: leftPos,
-                        top: showBelow ? selectedAlert.y + 18 : selectedAlert.y - 78,
-                        width: tooltipW,
-                        backgroundColor: selectedAlert.alertColor,
-                        borderRadius: 12,
-                        padding: 10,
-                        shadowColor: "#000",
-                        shadowOpacity: 0.35,
-                        shadowRadius: 6,
-                        shadowOffset: { width: 0, height: 3 },
-                        zIndex: 200,
-                      }}
-                      onPress={() => setSelectedAlert(null)}
-                    >
-                      <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700", lineHeight: 19 }}>
-                        {selectedAlert.glucose} mg/dL
-                      </Text>
-                      <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 10, fontWeight: "400", marginBottom: 4 }}>
-                        {new Date(selectedAlert.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </Text>
-                      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>
-                        {isLow
-                          ? "⬇ Low — treat with fast carbs"
-                          : "⬆ High — hydrate & check dose"}
-                      </Text>
-                      <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 10, fontWeight: "400", marginTop: 2 }}>
-                        Tap to dismiss
-                      </Text>
-                    </Pressable>
-                  );
-                })()}
-              </>
-            )}
-
-            <View style={[czs.xAxisRow, { width: contentW }]}>
-              {xLabels.map((l, i) => (
-                <Text key={i} style={czs.xLabel}>{l.label}</Text>
-              ))}
-            </View>
-          </View>
-        </ScrollView>
-
-        <View style={{ width: Y_AXIS_W, height: CHART_H, position: "relative", marginLeft: 5 }}>
-          {Y_LABELS.map((v) => {
-            const top = yPct(v) * CHART_H - 7;
-            if (top < -8 || top > CHART_H - 6) return null;
-            return (
-              <Text
-                key={v}
-                style={{
-                  position: "absolute",
-                  top,
-                  right: 0,
-                  width: 33,
-                  textAlign: "right",
-                  fontSize: 9,
-                  fontWeight: "400",
-                  color: isDark ? "rgba(255,255,255,0.35)" : c.axis,
-                }}
-              >
-                {v}
-              </Text>
-            );
-          })}
-        </View>
-      </View>
-    </View>
-  );
-}
-
-// Semantic zone tints + threshold lines are UNCHANGED across themes; only structural text/controls
-// (empty/axis labels, toolbar hint, zoom buttons) become theme-aware. Dark branches preserve the
-// exact current values.
-const makeCzs = (c: ThemeColors, isDark: boolean) => StyleSheet.create({
-  zoneLow: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(239,68,68,0.10)" },
-  zoneTarget: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(34,197,94,0.07)" },
-  zoneHigh: { position: "absolute", left: 0, right: 0, backgroundColor: "rgba(245,158,11,0.07)" },
-  line: { position: "absolute", left: 0, right: 0, height: 1 },
-  empty: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
-  emptyText: { color: isDark ? "rgba(255,255,255,0.3)" : c.textMuted, fontSize: 13, fontWeight: "400" },
-  xAxisRow: { position: "absolute", bottom: 5, flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 6 },
-  xLabel: { color: isDark ? "rgba(255,255,255,0.35)" : c.axis, fontSize: 9, fontWeight: "400" },
-});
-
-const makeChartStyles = (c: ThemeColors, isDark: boolean) => StyleSheet.create({
-  toolbar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8, paddingHorizontal: 2 },
-  toolbarHint: { color: isDark ? "rgba(255,255,255,0.45)" : c.textSecondary, fontSize: 10, fontWeight: "500", flex: 1, flexWrap: "wrap" },
-  zoomBtns: { flexDirection: "row", gap: 6, marginLeft: 8 },
-  zoomBtn: { backgroundColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(30,55,100,0.07)", paddingHorizontal: 11, paddingVertical: 5, borderRadius: 8, minWidth: 32, alignItems: "center" },
-  resetBtn: { paddingHorizontal: 9 },
-  zoomBtnText: { color: isDark ? "#fff" : c.textPrimary, fontSize: 15, fontWeight: "600" },
-  chartRow: { flexDirection: "row", alignItems: "flex-start" },
-});
-
 type ScreenTab = "predict" | "log";
 // Estimated-A1C range type + range list + A1C calc/label/copy live in `@/utils/a1c` (pure, tested).
 
@@ -804,7 +77,7 @@ export default function InsulinScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { targetGlucose, carbRatio, correctionFactor, history, cgmSyncSuccessTick } = useGlucose();
-  const { isMinor, alertPrefs, profile, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode } = useAuth();
+  const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode } = useAuth();
 
   const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
   const [timeRange, setTimeRange] = useState<A1cRange>(DEFAULT_A1C_RANGE);
@@ -981,24 +254,75 @@ export default function InsulinScreen() {
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const filteredReadings = useMemo(() => {
-    const cutoff = Date.now() - WINDOW_MS;
-    return history.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
-  }, [history]);
-
   const rangeReadings = useMemo(() => {
     const cutoff = rangeCutoffMs(timeRange, Date.now());
     return history.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
   }, [history, timeRange]);
 
+  // ── On-demand A1C ranges: 1D is served from in-memory history (which only ever holds ~1 day);
+  // longer ranges fetch aggregated stats from Convex ONLY when tapped, in ≤15-day chunks. Falls
+  // back to local history when signed out, offline, or the backend doesn't have windowStats yet. ──
+  const [remoteRangeStats, setRemoteRangeStats] = useState<GlucoseWindowStats | null>(null);
+  const [rangeLoading, setRangeLoading] = useState(false);
+  const rangeStatsCacheRef = useRef<Map<string, GlucoseWindowStats>>(new Map());
+
+  useEffect(() => {
+    setRemoteRangeStats(null);
+    const acc = account;
+    if (timeRange === 1 || caregiverSession || !acc?.convexUserId) {
+      setRangeLoading(false);
+      return;
+    }
+    const cacheKey = `${timeRange}:${cgmSyncSuccessTick}`;
+    const cached = rangeStatsCacheRef.current.get(cacheKey);
+    if (cached) {
+      setRemoteRangeStats(cached);
+      setRangeLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setRangeLoading(true);
+    (async () => {
+      try {
+        const client = createConvexAuthClient();
+        const userId = acc.convexUserId as Id<"users">;
+        const parts = await Promise.all(
+          windowChunks(timeRange, Date.now()).map((w) =>
+            client.query(api.patientGlucose.windowStats, {
+              userId,
+              passwordHash: acc.passwordHash,
+              startTimestamp: w.startTimestamp,
+              endTimestamp: w.endTimestamp,
+              lowThreshold: LOW_THRESH,
+              highThreshold: HIGH_THRESH,
+            }),
+          ),
+        );
+        if (cancelled) return;
+        const merged = mergeWindowStats(parts);
+        rangeStatsCacheRef.current.set(cacheKey, merged);
+        setRemoteRangeStats(merged);
+      } catch {
+        /* offline or backend without windowStats yet — local-history fallback below */
+      } finally {
+        if (!cancelled) setRangeLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [timeRange, caregiverSession, account?.convexUserId, account?.passwordHash, cgmSyncSuccessTick]);
+
   const rangeStats = useMemo(() => {
-    if (rangeReadings.length === 0) return null;
-    const vals = rangeReadings.map((r) => r.glucose);
-    const avg = Math.round(vals.reduce((s, v) => s + v, 0) / vals.length);
-    const inRange = rangeReadings.filter((r) => r.glucose >= LOW_THRESH && r.glucose <= HIGH_THRESH).length;
-    const tir = Math.round((inRange / rangeReadings.length) * 100);
-    const pctHigh = Math.round((rangeReadings.filter((r) => r.glucose > HIGH_THRESH).length / rangeReadings.length) * 100);
-    const pctLow = Math.round((rangeReadings.filter((r) => r.glucose < LOW_THRESH).length / rangeReadings.length) * 100);
+    const agg =
+      timeRange !== 1 && remoteRangeStats != null
+        ? remoteRangeStats
+        : statsFromEntries(rangeReadings, LOW_THRESH, HIGH_THRESH);
+    if (agg.count === 0) return null;
+    const avg = Math.round(agg.sum / agg.count);
+    const tir = Math.round(((agg.count - agg.lowCount - agg.highCount) / agg.count) * 100);
+    const pctHigh = Math.round((agg.highCount / agg.count) * 100);
+    const pctLow = Math.round((agg.lowCount / agg.count) * 100);
     const a1c = estimateA1C(avg);
     const windowStart = rangeCutoffMs(timeRange, Date.now());
     const foodInRange = (foodLog ?? []).filter((f) => new Date(f.timestamp).getTime() >= windowStart);
@@ -1006,24 +330,9 @@ export default function InsulinScreen() {
     const totalDays = timeRange;
     const avgCarbs = foodInRange.length > 0 ? Math.round(foodInRange.reduce((s, f) => s + f.estimatedCarbs, 0) / totalDays) : 0;
     const avgInsulin = insulinInRange.length > 0 ? Math.round((insulinInRange.reduce((s, i) => s + i.units, 0) / totalDays) * 10) / 10 : 0;
-    return { avg, tir, pctHigh, pctLow, a1c, avgCarbs, avgInsulin };
-  }, [rangeReadings, foodLog, insulinLog, timeRange]);
-
-  const stats = useMemo(() => {
-    if (filteredReadings.length === 0) return null;
-    const vals = filteredReadings.map((r) => r.glucose);
-    const avg = Math.round(vals.reduce((s, v) => s + v, 0) / vals.length);
-    const inRange = filteredReadings.filter((r) => r.glucose >= LOW_THRESH && r.glucose <= HIGH_THRESH).length;
-    const tir = Math.round((inRange / filteredReadings.length) * 100);
-    const lows = filteredReadings.filter((r) => r.glucose < LOW_THRESH).length;
-    const highs = filteredReadings.filter((r) => r.glucose > HIGH_THRESH).length;
-    return { avg, tir, lows, highs };
-  }, [filteredReadings]);
-
-  const suggestions = useMemo(
-    () => analyzeReadings(filteredReadings, targetGlucose, isMinor, foodLog ?? [], insulinLog ?? []),
-    [filteredReadings, targetGlucose, isMinor, foodLog, insulinLog],
-  );
+    const availableDays = availableDaysFromOldest(agg.oldestTimestamp, Date.now(), timeRange);
+    return { avg, tir, pctHigh, pctLow, a1c, avgCarbs, avgInsulin, availableDays };
+  }, [timeRange, remoteRangeStats, rangeReadings, foodLog, insulinLog]);
 
   const hasCarbs = carbInput !== "" && parseFloat(carbInput) > 0;
 
@@ -1555,20 +864,29 @@ export default function InsulinScreen() {
               <Text style={[styles.a1cLabel, { color: colors.textSecondary }]}>
                 Estimated A1C · {timeRange}-day avg
               </Text>
-              <View style={styles.a1cValueRow}>
-                <Text style={[styles.a1cValue, { color: a1cLabel(rangeStats.a1c).color }]}>
-                  {rangeStats.a1c}%
-                </Text>
-                <View style={[styles.a1cBadge, { backgroundColor: a1cLabel(rangeStats.a1c).color + "20" }]}>
-                  <Text style={[styles.a1cBadgeText, { color: a1cLabel(rangeStats.a1c).color }]}>
-                    {a1cLabel(rangeStats.a1c).emoji} {a1cLabel(rangeStats.a1c).label}
+              {rangeLoading ? (
+                <View style={[styles.a1cValueRow, { paddingVertical: 12 }]}>
+                  <ActivityIndicator color={COLORS.primary} />
+                  <Text style={[styles.a1cLoadingText, { color: colors.textMuted }]}>
+                    Loading {timeRange} days of readings…
                   </Text>
                 </View>
-              </View>
+              ) : (
+                <View style={styles.a1cValueRow}>
+                  <Text style={[styles.a1cValue, { color: a1cLabel(rangeStats.a1c).color }]}>
+                    {rangeStats.a1c}%
+                  </Text>
+                  <View style={[styles.a1cBadge, { backgroundColor: a1cLabel(rangeStats.a1c).color + "20" }]}>
+                    <Text style={[styles.a1cBadgeText, { color: a1cLabel(rangeStats.a1c).color }]}>
+                      {a1cLabel(rangeStats.a1c).emoji} {a1cLabel(rangeStats.a1c).label}
+                    </Text>
+                  </View>
+                </View>
+              )}
             </View>
           </View>
 
-          <View style={[styles.a1cStatsRow, { borderTopColor: colors.border }]}>
+          <View style={[styles.a1cStatsRow, { borderTopColor: colors.border, opacity: rangeLoading ? 0.4 : 1 }]}>
             <A1CStat label="Time in Range" value={`${rangeStats.tir}%`} color={rangeStats.tir >= 70 ? COLORS.success : COLORS.warning} />
             <View style={[styles.a1cDivider, { backgroundColor: colors.border }]} />
             <A1CStat label="% High" value={`${rangeStats.pctHigh}%`} color={rangeStats.pctHigh > 25 ? COLORS.warning : COLORS.success} />
@@ -1578,7 +896,17 @@ export default function InsulinScreen() {
             <A1CStat label="Avg Carbs/day" value={`${rangeStats.avgCarbs}g`} color={COLORS.accent} />
           </View>
 
-          <View style={[styles.a1cInsightBox, { backgroundColor: colors.backgroundTertiary }]}>
+          {!rangeLoading && rangeStats.availableDays > 0 && rangeStats.availableDays < timeRange && (
+            <View style={styles.a1cCoverageNote}>
+              <Feather name="info" size={12} color={COLORS.warning} />
+              <Text style={[styles.a1cCoverageText, { color: COLORS.warning }]}>
+                Only {rangeStats.availableDays} {rangeStats.availableDays === 1 ? "day" : "days"} of
+                readings {rangeStats.availableDays === 1 ? "is" : "are"} available
+              </Text>
+            </View>
+          )}
+
+          <View style={[styles.a1cInsightBox, { backgroundColor: colors.backgroundTertiary, opacity: rangeLoading ? 0.4 : 1 }]}>
             <Feather name="zap" size={13} color={COLORS.primary} />
             <Text style={[styles.a1cInsightText, { color: colors.textSecondary }]}>
               {a1cInsight(rangeStats.avg, timeRange)}
@@ -1593,64 +921,6 @@ export default function InsulinScreen() {
           </Text>
         </View>
       ) : null}
-
-      {latest && (
-        <View style={styles.latestRow}>
-          <View style={[styles.latestCircle, { borderColor: glucoseColor(latest.glucose) }]}>
-            <Text style={[styles.latestValue, { color: glucoseColor(latest.glucose) }]}>
-              {latest.glucose}
-            </Text>
-            <Text style={[styles.latestUnit, { color: colors.textMuted }]}>mg/dL</Text>
-          </View>
-          <View style={styles.latestMeta}>
-            <Text style={[styles.latestTime, { color: colors.textSecondary }]}>
-              {new Date(latest.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-            </Text>
-            <TrendArrow
-                      trend={getEffectiveTrend(history).glucoseTrend}
-                      glucoseValue={latest.glucose}
-                      lowThreshold={alertPrefs.lowThreshold}
-                      highThreshold={alertPrefs.highThreshold}
-                    />
-            <Text style={[styles.rangeCount, { color: colors.textMuted }]}>
-              {filteredReadings.length} reading{filteredReadings.length !== 1 ? "s" : ""} · last 24 hours
-            </Text>
-          </View>
-        </View>
-      )}
-
-      <View style={[styles.chartCard, { backgroundColor: isDark ? "#0D1526" : colors.card, borderWidth: isDark ? 0 : 1, borderColor: colors.border }]}>
-        <ZoomableChart readings={history} targetGlucose={targetGlucose} />
-      </View>
-
-      {stats && (
-        <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <StatBox label="Avg Glucose" value={`${stats.avg}`} unit="mg/dL" color={glucoseColor(stats.avg)} colors={colors} />
-          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <StatBox
-            label="Time in Range"
-            value={`${stats.tir}%`}
-            unit={stats.tir >= 70 ? "On target" : "Below goal"}
-            color={stats.tir >= 70 ? COLORS.success : stats.tir >= 50 ? COLORS.warning : COLORS.danger}
-            colors={colors}
-          />
-          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <StatBox label="Lows" value={`${stats.lows}`} unit="events" color={stats.lows > 0 ? COLORS.danger : COLORS.success} colors={colors} />
-          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <StatBox label="Highs" value={`${stats.highs}`} unit="events" color={stats.highs > 0 ? COLORS.warning : COLORS.success} colors={colors} />
-        </View>
-      )}
-
-      {suggestions.length > 0 && (
-        <>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            {isMinor ? "Tips for You 💡" : "Insights & Recommendations"}
-          </Text>
-          {suggestions.map((s, i) => (
-            <SuggestionCard key={i} suggestion={s} colors={colors} onChat={() => openChat(s.chatPrompt)} />
-          ))}
-        </>
-      )}
 
       {history.length === 0 && (
         <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -1721,83 +991,10 @@ function A1CStat({ label, value, color }: { label: string; value: string; color:
   );
 }
 
-function TrendArrow({
-  trend,
-  glucoseValue,
-  lowThreshold = LOW_THRESH,
-  highThreshold = HIGH_THRESH,
-}: {
-  trend: string;
-  glucoseValue?: number;
-  lowThreshold?: number;
-  highThreshold?: number;
-}) {
-  const stableColor =
-    glucoseValue !== undefined
-      ? glucoseColor(glucoseValue, lowThreshold, highThreshold)
-      : COLORS.success;
-
-  const map: Record<string, { icon: string; color: string; label: string }> = {
-    rapidly_rising:  { icon: "↑",  color: COLORS.danger,  label: "Rising fast"  },
-    rising:          { icon: "↗",  color: COLORS.warning, label: "Rising"       },
-    stable:          { icon: "→",  color: stableColor,    label: "Stable"       },
-    falling:         { icon: "↘",  color: COLORS.warning, label: "Falling"      },
-    rapidly_falling: { icon: "↓",  color: COLORS.danger,  label: "Falling fast" },
-  };
-  const info = map[trend] ?? map.stable;
-  return (
-    <View style={styles.trendArrowRow}>
-      <Text style={[styles.trendArrowIcon, { color: info.color }]}>{info.icon}</Text>
-      <Text style={[styles.trendArrowLabel, { color: info.color }]}>{info.label}</Text>
-    </View>
-  );
-}
-
-function SuggestionCard({ suggestion, colors, onChat }: { suggestion: Suggestion; colors: (typeof Colors)["light"]; onChat: () => void }) {
-  return (
-    <View style={[styles.suggCard, { backgroundColor: suggestion.color + "0E", borderColor: suggestion.color + "30" }]}>
-      {suggestion.tag && (
-        <View style={[styles.suggTag, { backgroundColor: suggestion.color + "22" }]}>
-          <Text style={[styles.suggTagText, { color: suggestion.color }]}>{suggestion.tag}</Text>
-        </View>
-      )}
-      <View style={styles.suggTop}>
-        <View style={[styles.suggIconBg, { backgroundColor: suggestion.color + "20" }]}>
-          <Text style={styles.suggIcon}>{suggestion.icon}</Text>
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.suggTitle, { color: suggestion.color }]}>{suggestion.title}</Text>
-          <Text style={[styles.suggBody, { color: colors.text }]}>{suggestion.body}</Text>
-        </View>
-      </View>
-      <Pressable
-        style={({ pressed }) => [styles.chatBtn, { backgroundColor: suggestion.color + "18", opacity: pressed ? 0.7 : 1 }]}
-        onPress={onChat}
-      >
-        <Feather name="message-circle" size={13} color={suggestion.color} />
-        <Text style={[styles.chatBtnText, { color: suggestion.color }]}>Ask AI about this</Text>
-        <Feather name="chevron-right" size={13} color={suggestion.color} />
-      </Pressable>
-    </View>
-  );
-}
-
-function StatBox({ label, value, unit, color, colors }: { label: string; value: string; unit: string; color: string; colors: (typeof Colors)["light"] }) {
-  return (
-    <View style={styles.statBox}>
-      <Text style={[styles.statValue, { color }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: colors.textMuted }]}>{label}</Text>
-      <Text style={[styles.statUnit, { color: colors.textMuted }]}>{unit}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingHorizontal: 20, paddingTop: 10 },
 
-  latestRow: { flexDirection: "row", alignItems: "center", gap: 18, marginBottom: 18 },
-  latestCircle: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, alignItems: "center", justifyContent: "center" },
   screenHeader: { paddingBottom: 12, borderBottomWidth: 1 },
   screenToggle: {
     flexDirection: "row",
@@ -1836,37 +1033,15 @@ const styles = StyleSheet.create({
   a1cStatLabel: { fontSize: 9, fontWeight: "500", color: "#888", textAlign: "center" },
   a1cInsightBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, margin: 12, marginTop: 0, borderRadius: 10 },
   a1cInsightText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 18 },
+  a1cLoadingText: { fontSize: 12, fontWeight: "500" },
+  a1cCoverageNote: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingBottom: 10, marginTop: -2 },
+  a1cCoverageText: { fontSize: 11, fontWeight: "600" },
 
-  latestValue: { fontSize: 30, fontWeight: "700", lineHeight: 34 },
-  latestUnit: { fontSize: 11, fontWeight: "500" },
-  latestMeta: { gap: 6 },
-  latestTime: { fontSize: 14, fontWeight: "500" },
-  rangeCount: { fontSize: 12, fontWeight: "400" },
-  trendArrowRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  trendArrowIcon: { fontSize: 18, fontWeight: "700" },
-  trendArrowLabel: { fontSize: 13, fontWeight: "600" },
 
-  chartCard: { borderRadius: 18, overflow: "hidden", marginBottom: 14, padding: 12 },
 
-  statsCard: { flexDirection: "row", borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 20, alignItems: "center" },
-  statBox: { flex: 1, alignItems: "center", gap: 2 },
-  statValue: { fontSize: 18, fontWeight: "700" },
-  statLabel: { fontSize: 10, fontWeight: "600", textAlign: "center" },
-  statUnit: { fontSize: 9, fontWeight: "400", textAlign: "center" },
-  statDivider: { width: 1, height: 40, marginHorizontal: 4 },
 
   sectionTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10 },
 
-  suggCard: { borderRadius: 16, borderWidth: 1, marginBottom: 12, overflow: "hidden" },
-  suggTag: { alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 4, marginTop: 10, marginLeft: 12, borderRadius: 6 },
-  suggTagText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.8 },
-  suggTop: { flexDirection: "row", alignItems: "flex-start", gap: 12, padding: 14 },
-  suggIconBg: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  suggIcon: { fontSize: 22 },
-  suggTitle: { fontSize: 14, fontWeight: "700", marginBottom: 3 },
-  suggBody: { fontSize: 13, fontWeight: "400", lineHeight: 19 },
-  chatBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "rgba(0,0,0,0.05)" },
-  chatBtnText: { flex: 1, fontSize: 13, fontWeight: "600" },
 
   emptyCard: { borderRadius: 16, borderWidth: 1, padding: 28, alignItems: "center", gap: 10, marginTop: 10 },
   emptyIcon: { fontSize: 40 },

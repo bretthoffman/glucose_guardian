@@ -169,7 +169,7 @@ export default function ChatScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
-  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession, doctorSession, doctorMessages, markDoctorMessagesRead } = useAuth();
+  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession, doctorSession, doctorMessages, markDoctorMessagesRead, foodLog, insulinLog } = useAuth();
   const { prompt, fromParent } = useLocalSearchParams<{ prompt?: string; fromParent?: string }>();
   const promptSentRef = useRef<string | null>(null);
 
@@ -191,35 +191,13 @@ export default function ChatScreen() {
     : buildSuggestions(glucose, name, high, isKidMode);
 
   function buildGreeting(speakingAsParent: boolean): string {
-    const inRange = glucose != null && glucose >= low && glucose <= high;
-    const trendingDown = trend.label.toLowerCase().includes("fall");
+    // Deliberately static: this message can sit in the thread for days, so it must not embed
+    // glucose values or trends that go stale — the live reading is always in the header pill.
     if (speakingAsParent) {
-      const greeting = caregiverSession ? "Hi, Caregiver/Family!" : parentName ? `Hi ${parentName}!` : "Hi there!";
-      return glucose != null
-        ? `${greeting} ${name}'s glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking good." : glucose < 70 ? "that's a low, act quickly." : "worth keeping an eye on."} How can I help you manage ${name}'s care today?`
-        : `${greeting} I'm Glucose Guardian — ${name}'s AI diabetes companion. I can walk you through glucose readings, insulin calculations, and anything else you need for ${name}'s care. What's on your mind?`;
-    } else if (isKidMode) {
-      if (glucose == null) {
-        return `Hey ${name}! 👋 I'm Glucose Guardian, your diabetes buddy! I'm here to help you feel your best every day. How are you feeling right now? 😊`;
-      }
-      if (glucose < 70) {
-        return `Hey ${name}! Your sugar is a little low right now 😟 — you should grab some juice or a snack right away! 🧃 Tell an adult too, okay?`;
-      }
-      if (trendingDown) {
-        return `Hey ${name}! Your sugar is going down 📉 — let's eat a small snack before it gets too low! 🥨 You'll feel so much better!`;
-      }
-      if (glucose > 250) {
-        return `Hey ${name}! Your sugar is really high right now 😮 — drink some water 💧 and go tell a grown-up. It'll come back down!`;
-      }
-      if (glucose > high) {
-        return `Hey ${name}! Your sugar went up a little 📈. Try drinking some water 💧 and maybe go for a short walk! 🚶 How are you feeling?`;
-      }
-      return `Hey ${name}! 🌟 Your sugar looks great right now — you're doing an awesome job! How are you feeling today? 😊`;
-    } else {
-      return glucose != null
-        ? `Hey ${name}! Your glucose is at ${glucose} mg/dL right now and ${trend.label} ${trend.arrow} — ${inRange ? "looking solid!" : glucose < 70 ? "let's get that up, okay?" : "let's keep an eye on it."} What's on your mind?`
-        : `Hey ${name}! I'm Glucose Guardian, your diabetes sidekick. I can see your glucose readings, help with carb counts, and just chat when you need someone who gets it. What's up?`;
+      const who = caregiverSession ? "there" : parentName ?? "there";
+      return `Hey ${who}! Need help with anything?`;
     }
+    return isKidMode ? `Hey ${name}! 👋 Need help with anything? 😊` : `Hey ${name}! Need help with anything?`;
   }
 
   const [messages, setMessages] = useState<Message[]>(() => [
@@ -288,6 +266,29 @@ export default function ChatScreen() {
         .slice(-10)
         .map((h) => ({ glucose: h.glucose, timestamp: h.timestamp }));
 
+      // Last-48h insulin + food logs ride along as invisible context so the AI can factor real
+      // doses and meals (stacking, coverage, timing) into every answer. Logs are newest-first.
+      const logCutoff = Date.now() - 48 * 60 * 60 * 1000;
+      const recentInsulinLog = (insulinLog ?? [])
+        .filter((e) => new Date(e.timestamp).getTime() >= logCutoff)
+        .slice(0, 30)
+        .map((e) => ({
+          timestamp: e.timestamp,
+          units: e.units,
+          type: e.type,
+          insulinType: e.insulinType,
+          recommendedUnits: e.recommendedUnits,
+        }));
+      const recentFoodLog = (foodLog ?? [])
+        .filter((f) => new Date(f.timestamp).getTime() >= logCutoff)
+        .slice(0, 30)
+        .map((f) => ({
+          timestamp: f.timestamp,
+          foodName: f.foodName,
+          estimatedCarbs: f.estimatedCarbs,
+          insulinUnits: f.insulinUnits,
+        }));
+
       const res = await fetch(apiUrl("/api/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -313,6 +314,8 @@ export default function ChatScreen() {
             carbRatio,
             targetGlucose,
             correctionFactor,
+            recentInsulinLog,
+            recentFoodLog,
           },
         }),
       });

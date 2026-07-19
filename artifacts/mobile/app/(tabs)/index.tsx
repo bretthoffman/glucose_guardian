@@ -1,7 +1,7 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { scheduleGlucoseAlert } from "@/services/notifications";
 import {
   ActivityIndicator,
@@ -23,9 +23,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlucoseGauge } from "@/components/GlucoseGauge";
 import { mapDexcomTrend, trendFromDiff, type TrendInfo } from "@/utils/trend";
 import { bannerKindFromSyncStatus, cgmDiagnosticMessage } from "@/utils/cgmDiagnosticMessages";
-import { RecentReadingsSection } from "@/components/RecentReadingsSection";
 import { CGMChart } from "@/components/CGMChart";
+import { DashboardSectionModal } from "@/components/DashboardSectionModal";
+import InsightsRecommendations from "@/components/InsightsRecommendations";
+import { ReadingCard } from "@/components/ReadingCard";
 import { Surface } from "@/components/Surface";
+import { analyzeReadings } from "@/utils/insights";
 import { T, withAlpha } from "@/constants/theme";
 import { useThemeColors } from "@/context/ThemeContext";
 import { useGlucose } from "@/context/GlucoseContext";
@@ -156,10 +159,15 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const c = useThemeColors();
   const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose, notifyCgmSyncSuccess } = useGlucose();
-  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession } = useAuth();
+  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession, isMinor, foodLog, insulinLog } = useAuth();
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  /** True while the chart's touch-hold reading cursor is engaged — freezes page scroll. */
+  const [chartCursorActive, setChartCursorActive] = useState(false);
+  // ── Popups opened from the glucose gauge: circle → recent readings, trend pill → insights ──
+  const [recentReadingsVisible, setRecentReadingsVisible] = useState(false);
+  const [insightsVisible, setInsightsVisible] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const [cgmLatestReading, setCgmLatestReading] = useState<{ glucose: number; timestamp: string } | null>(null);
@@ -293,6 +301,13 @@ export default function HomeScreen() {
     ? cgmLatestReading.glucose
     : latestReading?.glucose ?? 0;
   const recentHistory = [...history].reverse().slice(0, 10);
+
+  /** Last-24h pattern analysis for the trend-pill popup (moved here from the Insulin Dose tab). */
+  const insightSuggestions = useMemo(() => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const recent = history.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
+    return analyzeReadings(recent, targetGlucose, isMinor, foodLog ?? [], insulinLog ?? []);
+  }, [history, targetGlucose, isMinor, foodLog, insulinLog]);
 
   const effectiveTrend: TrendInfo | undefined = (() => {
     if (history.length === 0) return undefined;
@@ -834,6 +849,7 @@ export default function HomeScreen() {
         ref={scrollViewRef}
         contentContainerStyle={[styles.scroll, { paddingTop: topPadding + 8, paddingBottom: 130 }]}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!chartCursorActive}
         scrollEventThrottle={16}
         onScroll={handleScroll}
         onScrollBeginDrag={handleScrollBeginDrag}
@@ -984,6 +1000,14 @@ export default function HomeScreen() {
               highThreshold={alertPrefs.highThreshold}
               recentReadings={history}
               updatedLabel={updatedLabel}
+              onGaugePress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setRecentReadingsVisible(true);
+              }}
+              onTrendPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setInsightsVisible(true);
+              }}
             />
           </Surface>
         ) : (
@@ -1060,12 +1084,56 @@ export default function HomeScreen() {
               lowThreshold={alertPrefs.lowThreshold}
               highThreshold={alertPrefs.highThreshold}
               urgentHighThreshold={alertPrefs.urgentHighThreshold}
+              onCursorActiveChange={setChartCursorActive}
             />
           </Surface>
         )}
 
-        <RecentReadingsSection entries={recentHistory} isConnected={isConnected} />
       </Animated.ScrollView>
+
+      {/* ── Recent Readings popup — opened by tapping inside the gauge circle ── */}
+      <DashboardSectionModal
+        visible={recentReadingsVisible}
+        onClose={() => setRecentReadingsVisible(false)}
+        accessibilityLabel="Recent readings"
+      >
+        <View style={[styles.popupCard, { backgroundColor: c.card, borderColor: c.border }]}>
+          <Text style={[styles.popupTitle, { color: c.textPrimary }]}>Recent Readings</Text>
+          {recentHistory.length === 0 ? (
+            <View style={styles.popupEmpty}>
+              <Feather name="clipboard" size={22} color={c.textMuted} />
+              <Text style={[styles.popupEmptyText, { color: c.textMuted }]}>
+                {isConnected ? "Pull down to sync readings from your CGM" : "No readings yet. Connect a CGM to begin."}
+              </Text>
+            </View>
+          ) : (
+            recentHistory.map((entry, i) => (
+              <ReadingCard key={i} entry={entry} last={i === recentHistory.length - 1} />
+            ))
+          )}
+        </View>
+      </DashboardSectionModal>
+
+      {/* ── Insights & Recommendations popup — opened by tapping the trend pill ── */}
+      <DashboardSectionModal
+        visible={insightsVisible}
+        onClose={() => setInsightsVisible(false)}
+        accessibilityLabel="Insights and recommendations"
+      >
+        <View style={[styles.popupCard, { backgroundColor: c.card, borderColor: c.border }]}>
+          <Text style={[styles.popupTitle, { color: c.textPrimary }]}>
+            {isMinor ? "Tips for You 💡" : "Insights & Recommendations"}
+          </Text>
+          <InsightsRecommendations
+            suggestions={insightSuggestions}
+            onChat={(prompt) => {
+              setInsightsVisible(false);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push({ pathname: "/(tabs)/chat", params: { prompt } });
+            }}
+          />
+        </View>
+      </DashboardSectionModal>
     </View>
   );
 }
@@ -1108,6 +1176,10 @@ const styles = StyleSheet.create({
   cgmChipText: { fontSize: 13, fontWeight: T.font.semibold },
   cgmChipSub: { fontSize: 10.5, fontWeight: T.font.regular, marginTop: 1 },
   greeting: { fontSize: 14, fontWeight: T.font.regular },
+  popupCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
+  popupTitle: { fontSize: 18, fontWeight: T.font.bold },
+  popupEmpty: { padding: 12, alignItems: "center", gap: 10 },
+  popupEmptyText: { fontSize: 14, fontWeight: T.font.regular, textAlign: "center", lineHeight: 20 },
   title: { fontSize: 26, fontWeight: T.font.heavy, marginTop: 2, letterSpacing: -0.5 },
 
   section: { marginBottom: T.space.lg },

@@ -14,8 +14,8 @@ describe("Estimated-A1C range list", () => {
     expect(A1C_RANGES).toEqual([1, 3, 7, 14, 30, 90]);
     expect(A1C_RANGES[0]).toBe(1);
   });
-  it("default range stays 14D (adding 1D does not change the default)", () => {
-    expect(DEFAULT_A1C_RANGE).toBe(14);
+  it("defaults to 1D so longer ranges only load on demand", () => {
+    expect(DEFAULT_A1C_RANGE).toBe(1);
   });
 });
 

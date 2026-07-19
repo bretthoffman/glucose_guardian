@@ -13,8 +13,12 @@ export type A1cRange = 1 | 3 | 7 | 14 | 30 | 90;
 
 export const A1C_RANGES: A1cRange[] = [1, 3, 7, 14, 30, 90];
 
-/** Default selected range — unchanged by adding 1D. */
-export const DEFAULT_A1C_RANGE: A1cRange = 14;
+/**
+ * Default selected range. 1D on purpose: it's served instantly from in-memory history; longer
+ * ranges are fetched from the backend only when the user taps them, so 90 days of readings never
+ * load just because the app opened.
+ */
+export const DEFAULT_A1C_RANGE: A1cRange = 1;
 
 /** Rolling-window cutoff (epoch ms): readings/logs at or after this fall within the selected range. */
 export function rangeCutoffMs(days: A1cRange, now: number): number {

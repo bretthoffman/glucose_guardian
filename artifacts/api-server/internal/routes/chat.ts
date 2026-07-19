@@ -30,7 +30,32 @@ interface ChatRequestBody {
     carbRatio?: number;
     targetGlucose?: number;
     correctionFactor?: number;
+    /** Insulin doses logged in the app over the last ~48h (newest first). */
+    recentInsulinLog?: {
+      timestamp: string;
+      units: number;
+      type?: string;
+      insulinType?: string;
+      recommendedUnits?: number;
+    }[];
+    /** Meals logged in the app over the last ~48h (newest first). */
+    recentFoodLog?: {
+      timestamp: string;
+      foodName: string;
+      estimatedCarbs: number;
+      insulinUnits?: number;
+    }[];
   };
+}
+
+/** Compact relative age for log lines, e.g. "35m ago" / "3.5h ago" — timezone-safe. */
+function formatLogAge(timestamp: string): string {
+  const t = new Date(timestamp).getTime();
+  if (!Number.isFinite(t)) return "";
+  const hours = (Date.now() - t) / 3_600_000;
+  if (!Number.isFinite(hours) || hours < 0) return "just now";
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m ago`;
+  return `${Math.round(hours * 10) / 10}h ago`;
 }
 
 function buildSystemPrompt(ctx: ChatRequestBody["context"]): string {
@@ -114,6 +139,25 @@ function buildSystemPrompt(ctx: ChatRequestBody["context"]): string {
         trendGuidance = `${whoLower} is stable. Normal routine is fine — follow the standard meal dose calculation.`;
       }
     }
+  }
+
+  let recentLogsSection = "";
+  if (ctx.recentInsulinLog?.length || ctx.recentFoodLog?.length) {
+    const insulinLines = (ctx.recentInsulinLog ?? [])
+      .map((e) => {
+        const name = e.insulinType ? ` ${e.insulinType.split(" · ")[0]}` : "";
+        const kind = e.type ? ` (${e.type}${e.recommendedUnits != null ? `, app suggested ${e.recommendedUnits}u` : ""})` : "";
+        return `${e.units}u${name}${kind} ${formatLogAge(e.timestamp)}`;
+      })
+      .join("; ");
+    const foodLines = (ctx.recentFoodLog ?? [])
+      .map((f) => `${f.foodName} ${f.estimatedCarbs}g carbs ${formatLogAge(f.timestamp)}`)
+      .join("; ");
+    recentLogsSection = `
+
+LOGGED IN THE LAST 48 HOURS (factor these into every answer — recent insulin is still active for ~4h (rapid) / ~6h (regular), recent carbs absorb for ~3h; account for insulin-on-board before suggesting any additional dose, and reference these logs when asked what was eaten or dosed):
+• Insulin: ${insulinLines || "none logged"}
+• Meals: ${foodLines || "none logged"}`;
   }
 
   let recentTrend = "";
@@ -246,7 +290,7 @@ ${ctx.anomalyWarning && ctx.anomalyMessage ? `• ⚠️ Active alert: ${ctx.ano
 ${ctx.carbRatio ? `• Carb ratio: 1 unit per ${ctx.carbRatio}g carbs` : ""}
 ${ctx.targetGlucose ? `• Target glucose: ${ctx.targetGlucose} mg/dL` : ""}
 ${ctx.correctionFactor ? `• Insulin sensitivity factor (ISF): 1 unit drops glucose ~${ctx.correctionFactor} mg/dL` : ""}
-${weightStr ? `• Weight: ${weightStr}` : ""}
+${weightStr ? `• Weight: ${weightStr}` : ""}${recentLogsSection}
 ${dosingInstructions}
 
 TREND-BASED GUIDANCE (use this when relevant, not every message):

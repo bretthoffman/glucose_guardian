@@ -61,6 +61,8 @@ export default function LogHistory({
   onInsulinLogged?: () => void;
 }) {
   const [dayOffset, setDayOffset] = useState(0);
+  /** True while the chart's touch-hold reading cursor is engaged — freezes page scroll. */
+  const [chartCursorActive, setChartCursorActive] = useState(false);
 
   const { targetGlucose, cgmSyncSuccessTick } = useGlucose();
   const { foodLog, insulinLog, logInsulinDose, alertPrefs } = useAuth();
@@ -125,7 +127,11 @@ export default function LogHistory({
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={!chartCursorActive}
+      >
         <View style={styles.logInsulinRow}>
           <Pressable
             accessibilityRole="button"
@@ -153,6 +159,7 @@ export default function LogHistory({
           alertPrefs={alertPrefs}
           foodLog={foodLog}
           insulinLog={insulinLog}
+          onCursorActiveChange={setChartCursorActive}
         />
       </ScrollView>
 
@@ -257,6 +264,7 @@ function DayView({
   alertPrefs,
   foodLog,
   insulinLog,
+  onCursorActiveChange,
 }: {
   day: Date;
   dayOffset: number;
@@ -272,6 +280,7 @@ function DayView({
   };
   foodLog: FoodLogEntry[];
   insulinLog: InsulinLogEntry[];
+  onCursorActiveChange?: (active: boolean) => void;
 }) {
   const isToday = dayOffset === 0;
   const label = isToday ? "Today" : dayOffset === 1 ? "Yesterday" : fmtDateFull(day);
@@ -330,6 +339,7 @@ function DayView({
             urgentHighThreshold={alertPrefs.urgentHighThreshold}
             calendarDayWindow={{ startMs: bounds.startMs, endMs: bounds.endMs }}
             showRangeSelector={false}
+            onCursorActiveChange={onCursorActiveChange}
           />
         )}
       </View>
@@ -412,7 +422,8 @@ function InsulinLogRow({ insulin, colors }: { insulin: InsulinLogEntry; colors: 
 }
 
 const styles = StyleSheet.create({
-  scroll: { padding: 16, paddingBottom: 40 },
+  /** Bottom padding clears the floating tab bar so a full day of logs can scroll into view. */
+  scroll: { padding: 16, paddingBottom: 140 },
 
   dayNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   navBtn: { padding: 8 },

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { Animated, Easing, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Pressable, StyleSheet, Text, View, type GestureResponderEvent } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { T, TYPE, withAlpha } from "@/constants/theme";
@@ -25,6 +25,10 @@ interface Props {
   recentReadings?: { glucose: number; timestamp: string }[];
   /** Small recency line under the trend pill, e.g. "Updated just now". */
   updatedLabel?: string;
+  /** Fires only for taps INSIDE the gauge circle (circular hit test) — opens Recent Readings. */
+  onGaugePress?: () => void;
+  /** Fires for taps on the trend pill (the colored oval) — opens Insights & Recommendations. */
+  onTrendPress?: () => void;
 }
 
 // --- ORIGINAL status/trend/movement logic (unchanged: controls ring color + pulse behavior) ---
@@ -109,9 +113,21 @@ export function GlucoseGauge({
   highThreshold = 180,
   recentReadings,
   updatedLabel,
+  onGaugePress,
+  onTrendPress,
 }: Props) {
   const status = getGlucoseStatus(value, lowThreshold, highThreshold);
   const c = useThemeColors();
+
+  /** Only taps whose touch point lies inside the circle count — the corners of the square do not. */
+  const handleGaugePress = (e: GestureResponderEvent) => {
+    if (!onGaugePress) return;
+    const { locationX, locationY } = e.nativeEvent;
+    const r = size / 2;
+    const dx = locationX - r;
+    const dy = locationY - r;
+    if (dx * dx + dy * dy <= r * r) onGaugePress();
+  };
 
   const movementDep =
     recentReadings && recentReadings.length >= 2
@@ -223,7 +239,13 @@ export function GlucoseGauge({
   return (
     <View style={styles.outerRow}>
       {/* gauge area stays full `size` so ripple reach + trend alignment are unchanged */}
-      <View style={[styles.gaugeArea, { width: size, height: size }]}>
+      <Pressable
+        style={[styles.gaugeArea, { width: size, height: size }]}
+        onPress={handleGaugePress}
+        disabled={!onGaugePress}
+        accessibilityRole={onGaugePress ? "button" : undefined}
+        accessibilityLabel={onGaugePress ? "Show recent readings" : undefined}
+      >
         {/* Expanding ripple rings (full-size container, 1.55 reach). Visibility comes from
             color alpha × animated opacity (0.65 → 0): D9/88 puts the pulse at ~55% effective
             opacity at its brightest — size, speed, and fade curve unchanged. */}
@@ -290,7 +312,7 @@ export function GlucoseGauge({
             <Text style={[styles.badgeText, { color: status.color, fontSize: size * 0.08 }]}>{status.label}</Text>
           </View>
         </View>
-      </View>
+      </Pressable>
 
       {/* Trend column — centered cluster balancing the gauge ring. The pull-to-sync helper now lives
           in the page header (Home screen), so the trend content keeps its original centered position. */}
@@ -302,11 +324,24 @@ export function GlucoseGauge({
             ))}
           </View>
           <Text style={[styles.trendCaption, { color: c.textSecondary }]}>Trend</Text>
-          <View style={[styles.trendPill, { backgroundColor: withAlpha(trendColor, 0.14), borderColor: withAlpha(trendColor, 0.4) }]}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.trendPill,
+              {
+                backgroundColor: withAlpha(trendColor, 0.14),
+                borderColor: withAlpha(trendColor, 0.4),
+                opacity: pressed && onTrendPress ? 0.7 : 1,
+              },
+            ]}
+            onPress={onTrendPress}
+            disabled={!onTrendPress}
+            accessibilityRole={onTrendPress ? "button" : undefined}
+            accessibilityLabel={onTrendPress ? "Show insights and recommendations" : undefined}
+          >
             <Text style={[styles.trendPillText, { color: trendColor }]} numberOfLines={1}>
               {trendLabel}
             </Text>
-          </View>
+          </Pressable>
           {updatedLabel ? <Text style={[styles.updated, { color: c.textMuted }]}>{updatedLabel}</Text> : null}
         </View>
       )}

@@ -66,6 +66,53 @@ export const listForDayRange = query({
   },
 });
 
+/**
+ * Aggregated glucose stats for an arbitrary window — powers the Estimated-A1C card's on-demand
+ * ranges without shipping raw readings to the phone. Callers chunk requests to ≤15-day windows
+ * (~4.3k rows at 5-min cadence) so each query stays well under Convex document-scan limits, then
+ * merge the parts client-side.
+ */
+export const windowStats = query({
+  args: {
+    userId: v.id("users"),
+    passwordHash: v.string(),
+    startTimestamp: v.string(),
+    endTimestamp: v.string(),
+    lowThreshold: v.number(),
+    highThreshold: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const empty = { count: 0, sum: 0, lowCount: 0, highCount: 0, oldestTimestamp: null as string | null };
+    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
+    if (!ok) return empty;
+    const rows = await ctx.db
+      .query("patientGlucoseReadings")
+      .withIndex("by_user_time", (q) =>
+        q
+          .eq("userId", args.userId)
+          .gte("timestamp", args.startTimestamp)
+          .lt("timestamp", args.endTimestamp),
+      )
+      .order("asc")
+      .collect();
+    let sum = 0;
+    let lowCount = 0;
+    let highCount = 0;
+    for (const r of rows) {
+      sum += r.glucose;
+      if (r.glucose < args.lowThreshold) lowCount++;
+      else if (r.glucose > args.highThreshold) highCount++;
+    }
+    return {
+      count: rows.length,
+      sum,
+      lowCount,
+      highCount,
+      oldestTimestamp: rows.length > 0 ? rows[0].timestamp : null,
+    };
+  },
+});
+
 /** Caregiver day-range glucose for Dose Log historical graph. */
 export const listForDayRangeForCaregiver = query({
   args: {
