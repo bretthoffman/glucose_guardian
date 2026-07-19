@@ -15,6 +15,8 @@ import { T } from "@/constants/theme";
 import { CGMChart } from "@/components/CGMChart";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import InsulinTypePicker from "@/components/InsulinTypePicker";
+import LogFoodModal from "@/components/LogFoodModal";
+import type { ChartEventMarker } from "@/utils/chartEventMarkers";
 import {
   INSULIN_TYPE_LABEL,
   findInsulinByChipLabel,
@@ -48,7 +50,7 @@ export default function LogHistory({
   restrictToDay: _restrictToDay = false,
   insulinOptions = [],
   selectedInsulinLabel = null,
-  onInsulinLogged,
+  onLogAdded,
 }: {
   colors: (typeof Colors)["light"];
   /** @deprecated Daily-only Log mode; prop retained for caregiver call sites. */
@@ -57,8 +59,8 @@ export default function LogHistory({
   insulinOptions?: InsulinOption[];
   /** Calculator's current insulin selection; used as the popup default. */
   selectedInsulinLabel?: string | null;
-  /** Fired after a dose is logged from here — drives the header "+1" fly-away. */
-  onInsulinLogged?: () => void;
+  /** Fired after any entry (dose or meal) is logged from here — drives the header "+1" fly-away. */
+  onLogAdded?: () => void;
 }) {
   const [dayOffset, setDayOffset] = useState(0);
   /** True while the chart's touch-hold reading cursor is engaged — freezes page scroll. */
@@ -82,6 +84,11 @@ export default function LogHistory({
   const [logPendingLabel, setLogPendingLabel] = useState<string | null>(null);
   const [logLoggedAtTick, setLogLoggedAtTick] = useState<number | null>(null);
   const logBtnGreen = logLoggedAtTick !== null && logLoggedAtTick === cgmSyncSuccessTick;
+
+  // ── Log Food popup — same green-until-sync rules ──
+  const [foodModalVisible, setFoodModalVisible] = useState(false);
+  const [foodLoggedAtTick, setFoodLoggedAtTick] = useState<number | null>(null);
+  const foodBtnGreen = foodLoggedAtTick !== null && foodLoggedAtTick === cgmSyncSuccessTick;
 
   const parsedLogUnits = finalizeManualDoseInput(logUnitsText);
   const parsedLogTime = parseTimeInputText(logTimeText);
@@ -121,7 +128,7 @@ export default function LogHistory({
     });
     setLogModalVisible(false);
     setLogLoggedAtTick(cgmSyncSuccessTick);
-    onInsulinLogged?.();
+    onLogAdded?.();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
@@ -147,6 +154,24 @@ export default function LogHistory({
           >
             <Feather name={logBtnGreen ? "check" : "plus"} size={12} color="#fff" />
             <Text style={styles.logInsulinBtnText}>Log Insulin</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Log food"
+            style={({ pressed }) => [
+              styles.logInsulinBtn,
+              {
+                backgroundColor: foodBtnGreen ? COLORS.success : COLORS.primary,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+            onPress={() => {
+              setFoodModalVisible(true);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }}
+          >
+            <Feather name={foodBtnGreen ? "check" : "plus"} size={12} color="#fff" />
+            <Text style={styles.logInsulinBtnText}>Log Food</Text>
           </Pressable>
         </View>
         <DayView
@@ -250,6 +275,20 @@ export default function LogHistory({
           </View>
         </View>
       </DashboardSectionModal>
+
+      {/* ── Log Food popup — text-only meal lookup logging to the viewed day ── */}
+      <LogFoodModal
+        visible={foodModalVisible}
+        onClose={() => setFoodModalVisible(false)}
+        selectedDay={selectedDay}
+        colors={colors}
+        onLogged={() => {
+          setFoodModalVisible(false);
+          setFoodLoggedAtTick(cgmSyncSuccessTick);
+          onLogAdded?.();
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }}
+      />
     </View>
   );
 }
@@ -301,6 +340,15 @@ function DayView({
     [insulinLog, bounds.startMs, bounds.endMs],
   );
 
+  /** This day's logs as baseline markers for the graph — insulin first (it wins the on-line spot). */
+  const dayMarkers = useMemo<ChartEventMarker[]>(
+    () => [
+      ...dayInsulin.map((i) => ({ timestamp: i.timestamp, kind: "insulin" as const })),
+      ...dayFood.map((f) => ({ timestamp: f.timestamp, kind: "food" as const })),
+    ],
+    [dayInsulin, dayFood],
+  );
+
   return (
     <View style={{ gap: 16 }}>
       <View style={styles.dayNav}>
@@ -340,11 +388,15 @@ function DayView({
             calendarDayWindow={{ startMs: bounds.startMs, endMs: bounds.endMs }}
             showRangeSelector={false}
             onCursorActiveChange={onCursorActiveChange}
+            eventMarkers={dayMarkers}
           />
         )}
       </View>
 
-      <Text style={[styles.logSectionTitle, { color: colors.text }]}>Food Log</Text>
+      <View style={styles.logSectionTitleRow}>
+        <Text style={[styles.logSectionTitle, { color: colors.text }]}>Food Log</Text>
+        <Text style={styles.logSectionTitleIcon}>🍽️</Text>
+      </View>
       {dayFood.length === 0 ? (
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No food logged for this day.</Text>
       ) : (
@@ -353,7 +405,10 @@ function DayView({
         ))
       )}
 
-      <Text style={[styles.logSectionTitle, { color: colors.text, marginTop: T.space.sm }]}>Insulin Log</Text>
+      <View style={[styles.logSectionTitleRow, { marginTop: T.space.sm }]}>
+        <Text style={[styles.logSectionTitle, { color: colors.text }]}>Insulin Log</Text>
+        <Text style={styles.logSectionTitleIcon}>💉</Text>
+      </View>
       {dayInsulin.length === 0 ? (
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No insulin logged for this day.</Text>
       ) : (
@@ -444,12 +499,15 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
   },
-  logSectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
+  logSectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     marginTop: T.space.md,
     marginBottom: T.space.sm,
   },
+  logSectionTitle: { fontSize: 18, fontWeight: "700" },
+  logSectionTitleIcon: { fontSize: 18 },
   logEmptyText: {
     fontSize: 14,
     fontWeight: "400",
@@ -472,7 +530,7 @@ const styles = StyleSheet.create({
   adjustedTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   adjustedTagText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.6 },
 
-  logInsulinRow: { flexDirection: "row", justifyContent: "flex-end", marginBottom: 12 },
+  logInsulinRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
   logInsulinBtn: {
     flexDirection: "row",
     alignItems: "center",

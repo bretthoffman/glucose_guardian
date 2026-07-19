@@ -27,7 +27,7 @@ import { getEffectiveTrend } from "@/utils/trend";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
 import FoodInsulinModal from "@/components/FoodInsulinModal";
 import { QUICK_FOODS_STORAGE_KEY } from "@/constants/storage-keys";
-import { insertQuickFood, parseStoredQuickFoods } from "@/utils/quickFoods";
+import { DEFAULT_QUICK_FOODS, insertQuickFood, parseStoredQuickFoods } from "@/utils/quickFoods";
 import { apiUrl } from "@/utils/api-base-url";
 
 interface FoodResult {
@@ -56,7 +56,7 @@ interface MealGuidance {
   trendDirection: string;
 }
 
-const QUICK_FOODS = ["Apple", "Pizza", "Rice", "Banana", "Sandwich", "Oatmeal", "Pasta", "Milk"];
+const QUICK_FOODS = DEFAULT_QUICK_FOODS;
 
 const TREND_LABELS: Record<string, string> = {
   rapidly_rising: "↑↑ Rising fast",

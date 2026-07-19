@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { CgmChartCursorOverlay } from "@/components/CgmChartCursorOverlay";
 import { useCgmChartCursorGesture } from "@/hooks/useCgmChartCursorGesture";
+import { positionEventMarkers, type ChartEventMarker } from "@/utils/chartEventMarkers";
 import { buildChartPlotPoints } from "@/utils/cgmChartCursor";
 import Svg, {
   Circle,
@@ -44,6 +45,8 @@ import {
 } from "@/utils/cgmChartDisplayMode";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
+/** Log-marker icon box — matches the y-axis legend text scale. */
+const EVENT_MARKER_SIZE = 13;
 
 export const Y_MIN = 40;
 export const Y_MAX = 400;
@@ -106,6 +109,8 @@ interface CGMChartProps {
    * ScrollView (scrollEnabled={!active}) so a held finger can drift vertically without scrolling.
    */
   onCursorActiveChange?: (active: boolean) => void;
+  /** Food/insulin log markers drawn as tiny icons on the target baseline at each log's time. */
+  eventMarkers?: ChartEventMarker[];
 }
 
 type Pt = { x: number; y: number; glucose: number };
@@ -126,6 +131,7 @@ export function CGMChart({
   showRangeSelector: showRangeSelectorProp,
   emptyMessage,
   onCursorActiveChange,
+  eventMarkers,
 }: CGMChartProps) {
   const c = useThemeColors();
   const styles = useMemo(() => makeStyles(c), [c]);
@@ -228,6 +234,12 @@ export function CGMChart({
   const urgentHighLineY = plotY(urgentHighThreshold);
   const clampedTargetGlucose = clampTargetGlucose(targetGlucose, lowThreshold, highThreshold);
   const targetLineY = plotY(clampedTargetGlucose);
+
+  /** Log markers pinned to the target baseline; near-coincident ones stack downward. */
+  const positionedEventMarkers = useMemo(
+    () => positionEventMarkers(eventMarkers ?? [], windowStart, windowMs, plotW),
+    [eventMarkers, windowStart, windowMs, plotW],
+  );
 
   function xLabel(msFromStart: number): string {
     const hoursAgo = Math.round((windowMs - msFromStart) / (60 * 60 * 1000));
@@ -449,6 +461,25 @@ export function CGMChart({
               </>
             )}
           </Svg>
+
+          {/* Log markers on the target baseline — legend-text sized, stacking downward. */}
+          {positionedEventMarkers.map((m, i) => (
+            <Text
+              key={`evt-${i}`}
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: m.x - EVENT_MARKER_SIZE / 2,
+                top: targetLineY - EVENT_MARKER_SIZE / 2 + m.stackIndex * (EVENT_MARKER_SIZE + 1),
+                width: EVENT_MARKER_SIZE,
+                fontSize: 10,
+                lineHeight: EVENT_MARKER_SIZE,
+                textAlign: "center",
+              }}
+            >
+              {m.kind === "insulin" ? "💉" : "🍽️"}
+            </Text>
+          ))}
 
           {selectedPoint && (
             <CgmChartCursorOverlay

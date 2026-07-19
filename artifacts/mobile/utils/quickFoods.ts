@@ -3,6 +3,7 @@
  * so the list length stays constant. Re-saving a name already on the list just moves it to the
  * front (case-insensitive) instead of duplicating.
  */
+export const DEFAULT_QUICK_FOODS = ["Apple", "Pizza", "Rice", "Banana", "Sandwich", "Oatmeal", "Pasta", "Milk"];
 export function insertQuickFood(list: string[], name: string, maxLen: number): string[] {
   const trimmed = name.trim();
   if (!trimmed) return list.slice(0, maxLen);

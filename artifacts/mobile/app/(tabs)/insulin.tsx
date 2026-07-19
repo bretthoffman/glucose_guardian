@@ -515,7 +515,7 @@ export default function InsulinScreen() {
           restrictToDay={caregiverSession}
           insulinOptions={availableInsulinOptions}
           selectedInsulinLabel={insulinTypeLabel}
-          onInsulinLogged={triggerLogPlusOne}
+          onLogAdded={triggerLogPlusOne}
         />
       ) : (
       <ScrollView
