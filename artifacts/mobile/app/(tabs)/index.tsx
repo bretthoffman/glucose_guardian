@@ -326,6 +326,14 @@ export default function HomeScreen() {
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
+  // One-pager scroll extent: with Recent Readings gone, the chart is the last element, so the
+  // content should end just above the floating tab bar (≈71px tall — see (tabs)/_layout.tsx bar
+  // metrics — sitting on the safe-area inset) plus a small breathing gap. No flat oversized
+  // padding → no leftover scrollable slack; when everything fits the screen, a downward tug
+  // just springs back. Screens where content truly overflows still scroll exactly as needed.
+  const TAB_BAR_HEIGHT = 71;
+  const tabBarClearance = TAB_BAR_HEIGHT + (insets.bottom > 0 ? insets.bottom : 12) + 8;
+
   const patientName = profile?.childName ?? "Glucose Guardian";
   // Guardian-role accounts (onboarding "parent/guardian"; parentName is only ever written for that
   // role) and caregiver-code sessions greet the guardian, not the patient — "Bella's Guardian".
@@ -847,7 +855,7 @@ export default function HomeScreen() {
       )}
       <Animated.ScrollView
         ref={scrollViewRef}
-        contentContainerStyle={[styles.scroll, { paddingTop: topPadding + 8, paddingBottom: 130 }]}
+        contentContainerStyle={[styles.scroll, { paddingTop: topPadding + 8, paddingBottom: tabBarClearance }]}
         showsVerticalScrollIndicator={false}
         scrollEnabled={!chartCursorActive}
         scrollEventThrottle={16}
