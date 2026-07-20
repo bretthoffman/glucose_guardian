@@ -463,8 +463,9 @@ export function CGMChart({
             )}
           </Svg>
 
-          {/* Log markers on the target baseline — legend-text sized, stacking downward. Same
-              icons + coloring as the tab bar (needle = active violet, food = theme muted). */}
+          {/* Log markers on the target baseline — legend-text sized, stacking downward. Both use
+              the theme-muted color (needle for insulin, fork/knife for food) so they match the
+              Log-page section-title icons in light and dark. */}
           {positionedEventMarkers.map((m, i) => (
             <View
               key={`evt-${i}`}
@@ -482,7 +483,7 @@ export function CGMChart({
               <MaterialCommunityIcons
                 name={m.kind === "insulin" ? "needle" : "silverware-fork-knife"}
                 size={11}
-                color={m.kind === "insulin" ? T.color.violetActive : c.textMuted}
+                color={c.textMuted}
               />
             </View>
           ))}

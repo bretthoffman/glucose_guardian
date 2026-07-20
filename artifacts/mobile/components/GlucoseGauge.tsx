@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, View, type GestureResponderEvent } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
@@ -104,6 +104,12 @@ const MAIN_RING_PULSE_MS = 1750;
 /** Thin the SOLID ring's STROKE to 75% of its original thickness; the diameter stays full-size. */
 const RING_THICKNESS_RATIO = 0.75;
 
+/**
+ * Readings arrive ~every 5 min; if the newest is older than 20 minutes the data is stale, so the
+ * outward pulse is hidden and the value reads "--" until a fresh reading lands. The solid ring stays.
+ */
+const STALE_READING_MS = 20 * 60 * 1000;
+
 export function GlucoseGauge({
   value,
   size = 180,
@@ -118,6 +124,16 @@ export function GlucoseGauge({
 }: Props) {
   const status = getGlucoseStatus(value, lowThreshold, highThreshold);
   const c = useThemeColors();
+
+  // Re-evaluate staleness on a self-tick so the pulse/value flip even when no new reading renders.
+  const [, setStaleTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setStaleTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const latestTimestamp =
+    recentReadings && recentReadings.length > 0 ? recentReadings[recentReadings.length - 1].timestamp : null;
+  const isStale = latestTimestamp != null && Date.now() - new Date(latestTimestamp).getTime() > STALE_READING_MS;
 
   /** Only taps whose touch point lies inside the circle count — the corners of the square do not. */
   const handleGaugePress = (e: GestureResponderEvent) => {
@@ -248,31 +264,36 @@ export function GlucoseGauge({
       >
         {/* Expanding ripple rings (full-size container, 1.55 reach). Visibility comes from
             color alpha × animated opacity (0.65 → 0): D9/88 puts the pulse at ~55% effective
-            opacity at its brightest — size, speed, and fade curve unchanged. */}
-        <Animated.View
-          style={{
-            position: "absolute",
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-            borderWidth: 2,
-            borderColor: pulseRingColor + "D9",
-            transform: [{ scale: r1Scale }],
-            opacity: r1Opacity,
-          }}
-        />
-        <Animated.View
-          style={{
-            position: "absolute",
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-            borderWidth: 1.5,
-            borderColor: pulseRingColor + "88",
-            transform: [{ scale: r2Scale }],
-            opacity: r2Opacity,
-          }}
-        />
+            opacity at its brightest — size, speed, and fade curve unchanged. Hidden when stale
+            (no reading in >20 min), so a live pulse always means fresh data. */}
+        {!isStale && (
+          <>
+            <Animated.View
+              style={{
+                position: "absolute",
+                width: size,
+                height: size,
+                borderRadius: size / 2,
+                borderWidth: 2,
+                borderColor: pulseRingColor + "D9",
+                transform: [{ scale: r1Scale }],
+                opacity: r1Opacity,
+              }}
+            />
+            <Animated.View
+              style={{
+                position: "absolute",
+                width: size,
+                height: size,
+                borderRadius: size / 2,
+                borderWidth: 1.5,
+                borderColor: pulseRingColor + "88",
+                transform: [{ scale: r2Scale }],
+                opacity: r2Opacity,
+              }}
+            />
+          </>
+        )}
 
         {/* SOLID breathing ring — FULL diameter (= size); only the stroke is thinner (75%) */}
         <Animated.View
@@ -300,7 +321,7 @@ export function GlucoseGauge({
           }}
         >
           <Text style={[styles.value, TYPE.display, { color: c.textPrimary, fontSize: size * 0.27 }]}>
-            {value}
+            {isStale ? "--" : value}
           </Text>
           <Text style={[styles.unit, { color: c.textSecondary, fontSize: size * 0.09 }]}>mg/dL</Text>
           <View

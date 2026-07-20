@@ -411,7 +411,7 @@ function DayView({
 
       <View style={[styles.logSectionTitleRow, { marginTop: T.space.sm }]}>
         <Text style={[styles.logSectionTitle, { color: colors.text }]}>Insulin Log</Text>
-        <MaterialCommunityIcons name="needle" size={18} color={T.color.violetActive} />
+        <MaterialCommunityIcons name="needle" size={18} color={colors.textMuted} />
       </View>
       {dayInsulin.length === 0 ? (
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No insulin logged for this day.</Text>

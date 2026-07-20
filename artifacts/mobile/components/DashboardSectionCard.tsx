@@ -42,12 +42,12 @@ export function DashboardSectionCard({ title, icon, onPress, colors }: Props) {
 const styles = StyleSheet.create({
   card: {
     flex: 1,
-    minHeight: 92,
+    // Fixed (not min) height so every card — including a lone one in an odd last row — is identical.
+    height: 96,
     borderWidth: 1,
     borderRadius: 16,
     padding: 14,
     justifyContent: "space-between",
-    gap: 12,
   },
   topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   iconWrap: {
