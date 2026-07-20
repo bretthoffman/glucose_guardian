@@ -323,7 +323,7 @@ export default function AuthScreen() {
               >
                 <Feather name="users" size={14} color={COLORS.accent} />
                 <Text style={[styles.caregiverLinkText, { color: COLORS.accent }]}>
-                  Caregiver/Family? Enter your access code →
+                  Caregiver? Enter your access code →
                 </Text>
               </Pressable>
               <Pressable
@@ -338,23 +338,23 @@ export default function AuthScreen() {
             </View>
           ) : showCaregiverEntry ? (
             <View style={styles.caregiverForm}>
-              <Text style={[styles.caregiverFormTitle, { color: "#fff" }]}>Caregiver/Family Access</Text>
+              <Text style={[styles.caregiverFormTitle, { color: "#fff" }]}>Caregiver Access</Text>
               <Text style={[styles.caregiverFormSub, { color: "rgba(255,255,255,0.55)" }]}>
-                Enter the 6-character code shared by the account owner
+                Enter the caregiver code shared by the account owner
               </Text>
               <View style={[styles.caregiverInputWrap, { backgroundColor: "rgba(255,255,255,0.06)", borderColor: caregiverError ? COLORS.danger : "rgba(255,255,255,0.15)" }]}>
                 <Feather name="key" size={15} color="rgba(255,255,255,0.5)" />
                 <TextInput
                   style={[styles.caregiverInput, { color: "#fff" }]}
                   value={caregiverCode}
-                  onChangeText={(v) => { setCaregiverCode(v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6)); setCaregiverError(""); }}
-                  placeholder="ABC123"
+                  onChangeText={(v) => { setCaregiverCode(v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8)); setCaregiverError(""); }}
+                  placeholder="ABCD2345"
                   placeholderTextColor="rgba(255,255,255,0.25)"
                   autoCapitalize="characters"
                   autoCorrect={false}
-                  maxLength={6}
+                  maxLength={8}
                 />
-                <Text style={[styles.caregiverCounter, { color: "rgba(255,255,255,0.35)" }]}>{caregiverCode.length}/6</Text>
+                <Text style={[styles.caregiverCounter, { color: "rgba(255,255,255,0.35)" }]}>{caregiverCode.length}</Text>
               </View>
               {caregiverError ? (
                 <Text style={[styles.caregiverError, { color: COLORS.danger }]}>{caregiverError}</Text>
@@ -367,7 +367,7 @@ export default function AuthScreen() {
                   <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, fontWeight: "500" }}>Cancel</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.caregiverSubmitBtn, { backgroundColor: caregiverCode.length === 6 ? COLORS.accent : "rgba(255,255,255,0.12)", opacity: caregiverCode.length === 6 ? 1 : 0.6 }]}
+                  style={[styles.caregiverSubmitBtn, { backgroundColor: caregiverCode.length >= 6 ? COLORS.accent : "rgba(255,255,255,0.12)", opacity: caregiverCode.length >= 6 ? 1 : 0.6 }]}
                   disabled={caregiverCode.length < 6 || caregiverSubmitting}
                   onPress={async () => {
                     setCaregiverSubmitting(true);
@@ -376,7 +376,7 @@ export default function AuthScreen() {
                       if (ok) {
                         router.replace("/(tabs)");
                       } else {
-                        setCaregiverError("Invalid code. Ask the account owner to share their Caregiver/Family code.");
+                        setCaregiverError("Invalid, expired, or out-of-schedule code. Ask the account owner for a caregiver code.");
                       }
                     } finally {
                       setCaregiverSubmitting(false);

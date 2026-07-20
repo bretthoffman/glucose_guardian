@@ -67,7 +67,8 @@ export default function LogHistory({
   const [chartCursorActive, setChartCursorActive] = useState(false);
 
   const { targetGlucose, cgmSyncSuccessTick } = useGlucose();
-  const { foodLog, insulinLog, logInsulinDose, alertPrefs } = useAuth();
+  const { foodLog, insulinLog, logInsulinDose, alertPrefs, account } = useAuth();
+  const myUserId = account?.convexUserId ?? null;
 
   const today = useMemo(() => startOfLocalDay(new Date()), []);
 
@@ -184,6 +185,7 @@ export default function LogHistory({
           alertPrefs={alertPrefs}
           foodLog={foodLog}
           insulinLog={insulinLog}
+          myUserId={myUserId}
           onCursorActiveChange={setChartCursorActive}
         />
       </ScrollView>
@@ -303,6 +305,7 @@ function DayView({
   alertPrefs,
   foodLog,
   insulinLog,
+  myUserId,
   onCursorActiveChange,
 }: {
   day: Date;
@@ -319,6 +322,7 @@ function DayView({
   };
   foodLog: FoodLogEntry[];
   insulinLog: InsulinLogEntry[];
+  myUserId: string | null;
   onCursorActiveChange?: (active: boolean) => void;
 }) {
   const isToday = dayOffset === 0;
@@ -401,7 +405,7 @@ function DayView({
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No food logged for this day.</Text>
       ) : (
         dayFood.map((food) => (
-          <FoodLogRow key={food.id} food={food} colors={colors} />
+          <FoodLogRow key={food.id} food={food} colors={colors} myUserId={myUserId} />
         ))
       )}
 
@@ -413,14 +417,24 @@ function DayView({
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No insulin logged for this day.</Text>
       ) : (
         dayInsulin.map((insulin) => (
-          <InsulinLogRow key={insulin.id} insulin={insulin} colors={colors} />
+          <InsulinLogRow key={insulin.id} insulin={insulin} colors={colors} myUserId={myUserId} />
         ))
       )}
     </View>
   );
 }
 
-function FoodLogRow({ food, colors }: { food: FoodLogEntry; colors: (typeof Colors)["light"] }) {
+/** "· by Mom" / "· by you" — omitted for legacy device-local entries with no author. */
+function authorByline(
+  entry: { authorUserId?: string; authorName?: string },
+  myUserId: string | null,
+): string {
+  if (!entry.authorName) return "";
+  if (entry.authorUserId && myUserId && entry.authorUserId === myUserId) return " · by you";
+  return ` · by ${entry.authorName}`;
+}
+
+function FoodLogRow({ food, colors, myUserId }: { food: FoodLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null }) {
   return (
     <View style={[styles.entryRow, { backgroundColor: colors.card, borderColor: COLORS.accent + "40" }]}>
       <View style={[styles.entryIcon, { backgroundColor: COLORS.accent + "18" }]}>
@@ -430,15 +444,15 @@ function FoodLogRow({ food, colors }: { food: FoodLogEntry; colors: (typeof Colo
         <Text style={[styles.entryTitle, { color: colors.text }]} numberOfLines={1}>
           {food.foodName}
         </Text>
-        <Text style={[styles.entrySub, { color: colors.textSecondary }]}>
-          {food.estimatedCarbs}g carbs · {food.insulinUnits}u · {fmtTime(food.timestamp)}
+        <Text style={[styles.entrySub, { color: colors.textSecondary }]} numberOfLines={1}>
+          {food.estimatedCarbs}g carbs · {food.insulinUnits}u · {fmtTime(food.timestamp)}{authorByline(food, myUserId)}
         </Text>
       </View>
     </View>
   );
 }
 
-function InsulinLogRow({ insulin, colors }: { insulin: InsulinLogEntry; colors: (typeof Colors)["light"] }) {
+function InsulinLogRow({ insulin, colors, myUserId }: { insulin: InsulinLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null }) {
   const opt = insulin.insulinType ? findInsulinByChipLabel(insulin.insulinType) : undefined;
   const insulinName = opt?.name ?? insulin.insulinType?.split(" · ")[0];
   const doseAdjusted =
@@ -451,6 +465,8 @@ function InsulinLogRow({ insulin, colors }: { insulin: InsulinLogEntry; colors: 
   }
   if (insulin.note) subParts.push(insulin.note);
   subParts.push(fmtTime(insulin.timestamp));
+  const byline = authorByline(insulin, myUserId).replace(/^ · /, "");
+  if (byline) subParts.push(byline);
 
   return (
     <View style={[styles.entryRow, { backgroundColor: colors.card, borderColor: COLORS.primary + "40" }]}>

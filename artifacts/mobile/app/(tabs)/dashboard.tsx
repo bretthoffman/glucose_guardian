@@ -27,6 +27,7 @@ import TreatmentProposalCard from "@/components/TreatmentProposalCard";
 import { SettingsModal } from "@/components/SettingsModal";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DashboardSectionCard } from "@/components/DashboardSectionCard";
+import CareCirclePanel from "@/components/CareCirclePanel";
 import {
   availableDashboardSections,
   dashboardSectionVisibility,
@@ -54,6 +55,7 @@ const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Fea
   insulin: "droplet",
   doctor: "activity",
   access: "key",
+  careCircle: "share-2",
 };
 
 function GuardianLock({ colors, onPress }: { colors: (typeof Colors)["light"]; onPress?: () => void }) {
@@ -195,7 +197,6 @@ export default function DashboardScreen() {
     caregiverSession,
     doctorSession,
     setChildMode,
-    generateCaregiverCode,
     exitCaregiverMode,
     generateDoctorCode,
     exitDoctorMode,
@@ -805,8 +806,8 @@ export default function DashboardScreen() {
             <View style={styles.modeBannerLeft}>
               <Feather name="users" size={16} color={COLORS.accent} />
               <View>
-                <Text style={[styles.modeBannerTitle, { color: COLORS.accent }]}>Caregiver/Family View</Text>
-                <Text style={[styles.modeBannerSub, { color: colors.textSecondary }]}>Read-only access via caregiver/family code</Text>
+                <Text style={[styles.modeBannerTitle, { color: COLORS.accent }]}>Caregiver View</Text>
+                <Text style={[styles.modeBannerSub, { color: colors.textSecondary }]}>Read-only access via caregiver code</Text>
               </View>
             </View>
             <Pressable
@@ -1862,6 +1863,16 @@ export default function DashboardScreen() {
 
         {showAccessManagement && (
           <DashboardSectionModal
+            visible={openSection === "careCircle"}
+            onClose={() => setOpenSection(null)}
+            accessibilityLabel="Care Circle"
+          >
+            <CareCirclePanel colors={colors} onClose={() => setOpenSection(null)} />
+          </DashboardSectionModal>
+        )}
+
+        {showAccessManagement && (
+          <DashboardSectionModal
             visible={openSection === "access"}
             onClose={() => setOpenSection(null)}
             accessibilityLabel="Access Management"
@@ -1882,62 +1893,21 @@ export default function DashboardScreen() {
             <View style={[styles.accessSection, { borderColor: colors.border }]}>
               <View style={styles.accessSectionHeader}>
                 <Feather name="users" size={14} color={COLORS.accent} />
-                <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Caregiver/Family Code</Text>
-                <Text style={[styles.accessSectionBadge, { backgroundColor: COLORS.accent + "18", color: COLORS.accent }]}>View-only</Text>
+                <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Caregiver Codes</Text>
+                <Text style={[styles.accessSectionBadge, { backgroundColor: COLORS.primary + "18", color: COLORS.primary }]}>Care Circle</Text>
               </View>
               <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
-                Share with family, nurses, grandparents, or school staff. They can view glucose data but cannot change settings.
+                Codes for caregivers — teachers, babysitters, nurses, relatives — now live in Care
+                Circle, where you can name each one and set what they see and when.
+                {profile?.caregiverCode ? " Your older code still works until you retire it." : ""}
               </Text>
-              {!profile?.caregiverCode ? (
-                <Pressable
-                  style={({ pressed }) => [styles.outlineBtn, { borderColor: COLORS.accent + "50", backgroundColor: COLORS.accent + "08", opacity: pressed ? 0.8 : 1 }]}
-                  onPress={async () => {
-                    if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
-                    const code = await generateCaregiverCode();
-                    Alert.alert("Caregiver/Family Code Created", `Your code is:\n\n${code}\n\nShare this with your caregiver or family. They enter it on the login screen to view your data.`, [{ text: "OK" }]);
-                  }}
-                >
-                  <Feather name="plus" size={14} color={COLORS.accent} />
-                  <Text style={[styles.outlineBtnText, { color: COLORS.accent }]}>Generate Caregiver/Family Code</Text>
-                </Pressable>
-              ) : (
-                <View style={[styles.caregiverCodeDisplay, { backgroundColor: COLORS.accent + "0A", borderColor: COLORS.accent + "30" }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.caregiverCodeLabel, { color: colors.textMuted }]}>Active code</Text>
-                    <Text style={[styles.caregiverCodeValue, { color: colors.text }]}>
-                      {isMinor && !isGuardianUnlocked ? "••••••" : profile.caregiverCode}
-                    </Text>
-                    {profile.caregiverCodeIssuedAt ? (
-                      <Text style={[styles.accessTimestamp, { color: colors.textMuted }]}>
-                        Issued {new Date(profile.caregiverCodeIssuedAt).toLocaleDateString()}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <Pressable
-                      style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.accent + "15", opacity: pressed ? 0.7 : 1 }]}
-                      onPress={() => {
-                        if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
-                        Alert.alert("Caregiver/Family Code", `Share this code with your caregiver or family:\n\n${profile.caregiverCode}\n\nThey enter it on the login screen.`, [{ text: "OK" }]);
-                      }}
-                    >
-                      <Feather name="share-2" size={14} color={COLORS.accent} />
-                    </Pressable>
-                    <Pressable
-                      style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "12", opacity: pressed ? 0.7 : 1 }]}
-                      onPress={() => {
-                        if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
-                        Alert.alert("Reset Code?", "This will invalidate the old code. Anyone using the old code will lose access.", [
-                          { text: "Cancel", style: "cancel" },
-                          { text: "Reset", style: "destructive", onPress: async () => { const code = await generateCaregiverCode(); Alert.alert("New Code", `New caregiver/family code:\n\n${code}`, [{ text: "OK" }]); } },
-                        ]);
-                      }}
-                    >
-                      <Feather name="refresh-cw" size={14} color={COLORS.danger} />
-                    </Pressable>
-                  </View>
-                </View>
-              )}
+              <Pressable
+                style={({ pressed }) => [styles.outlineBtn, { borderColor: COLORS.primary + "50", backgroundColor: COLORS.primary + "08", opacity: pressed ? 0.8 : 1 }]}
+                onPress={() => { setOpenSection(null); requestAnimationFrame(() => setOpenSection("careCircle")); }}
+              >
+                <Feather name="share-2" size={14} color={COLORS.primary} />
+                <Text style={[styles.outlineBtnText, { color: COLORS.primary }]}>Open Care Circle</Text>
+              </Pressable>
             </View>
 
             <View style={[styles.accessSection, { borderColor: colors.border }]}>

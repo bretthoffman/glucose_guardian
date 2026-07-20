@@ -96,7 +96,7 @@ function parseLocalHistory(raw: string | null): GlucoseEntry[] {
 }
 
 export function GlucoseProvider({ children }: { children: React.ReactNode }) {
-  const { account, isSignedIn, isLoading: authLoading, caregiverSession, caregiverCloudCode, profile } = useAuth();
+  const { account, isSignedIn, isLoading: authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind, viewingPatientId, profile } = useAuth();
   const [history, setHistory] = useState<GlucoseEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [carbRatio, setCarbRatioState] = useState(15);
@@ -112,6 +112,12 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     accountRef.current = account;
   }, [account]);
+
+  /** Live mirror of viewingPatientId for the reading-write guards (co-guardian must not write). */
+  const viewingPatientIdRef = useRef(viewingPatientId);
+  useEffect(() => {
+    viewingPatientIdRef.current = viewingPatientId;
+  }, [viewingPatientId]);
 
   const prevCaregiverCloudCodeRef = useRef<string | null>(null);
 
@@ -161,6 +167,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (authLoading) return;
+    if (viewingPatientId) return; // co-guardian viewing overlay owns settings/history instead
     if (!account?.convexUserId || !isSignedIn) return;
     let cancelled = false;
     (async () => {
@@ -184,10 +191,11 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, account?.convexUserId, isSignedIn]);
+  }, [authLoading, account?.convexUserId, isSignedIn, viewingPatientId]);
 
   useEffect(() => {
     if (authLoading) return;
+    if (viewingPatientId) return; // co-guardian viewing overlay owns history instead
     if (!account?.convexUserId || !isSignedIn) return;
     let cancelled = false;
     (async () => {
@@ -237,7 +245,51 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, account?.convexUserId, account?.passwordHash, isSignedIn]);
+  }, [authLoading, account?.convexUserId, account?.passwordHash, isSignedIn, viewingPatientId]);
+
+  // ── Co-guardian viewing overlay: source the linked patient's readings + settings via the link ──
+  // Polls every 60s so new readings the patient's device ingests (every ~5 min) appear here within
+  // a minute, without the co-guardian doing anything (the "shows up without manual action" bar).
+  const prevViewingPatientIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevViewingPatientIdRef.current;
+    prevViewingPatientIdRef.current = viewingPatientId;
+    // On exit, clear the borrowed data so the co-guardian's own effects repopulate their account.
+    if (prev && !viewingPatientId) {
+      setHistory([]);
+      setCarbRatioState(15);
+      setTargetGlucoseState(120);
+      setCorrectionFactorState(50);
+    }
+    if (!viewingPatientId) return;
+    const acc = accountRef.current;
+    if (!acc?.convexUserId) return;
+    let cancelled = false;
+
+    async function fetchViewed() {
+      try {
+        const client = createConvexAuthClient();
+        const remote = await client.query(api.careCircle.glucoseForLink, {
+          userId: acc!.convexUserId as Id<"users">,
+          passwordHash: acc!.passwordHash,
+          patientUserId: viewingPatientId as Id<"users">,
+          limit: 300,
+        });
+        if (cancelled) return;
+        setHistory(remote.map(normalizeRemoteEntry));
+      } catch {
+        /* offline or access outside its schedule window — keep prior view until retry */
+      }
+    }
+
+    setHistory([]); // don't briefly show the previous patient's / own readings
+    void fetchViewed();
+    const id = setInterval(fetchViewed, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [viewingPatientId]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -257,13 +309,21 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     if (authLoading) return;
     if (!caregiverSession || !caregiverCloudCode) return;
     let cancelled = false;
-    (async () => {
+    async function fetchCaregiverGlucose() {
       try {
         const client = createConvexAuthClient();
-        const remote = await client.query(api.patientGlucose.listRecentForCaregiver, {
-          code: caregiverCloudCode,
-          limit: 300,
-        });
+        // New Care Circle caregiver codes go through the schedule/permission-checked code query;
+        // legacy 6-char codes keep the original anonymous path.
+        const remote =
+          caregiverCodeKind === "access"
+            ? await client.query(api.careCircle.glucoseForAccessCode, {
+                code: caregiverCloudCode as string,
+                limit: 300,
+              })
+            : await client.query(api.patientGlucose.listRecentForCaregiver, {
+                code: caregiverCloudCode as string,
+                limit: 300,
+              });
         if (cancelled) return;
         const next = remote.map(normalizeRemoteEntry);
         setHistory(next);
@@ -275,21 +335,30 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
       } catch {
         /* offline — keep prior history until retry */
       }
-    })();
+    }
+    void fetchCaregiverGlucose();
+    // New codes are schedule-bound; poll so an out-of-window code stops showing data on its own.
+    const id = caregiverCodeKind === "access" ? setInterval(fetchCaregiverGlucose, 60_000) : null;
     return () => {
       cancelled = true;
+      if (id) clearInterval(id);
     };
-  }, [authLoading, caregiverSession, caregiverCloudCode]);
+  }, [authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind]);
 
+  // Apply the viewed profile's dose settings — for a standalone caregiver (code) OR a signed-in
+  // co-guardian viewing a linked patient (`profile` is the patient's slim profile in both cases).
   useEffect(() => {
-    if (!caregiverSession || !caregiverCloudCode || !profile) return;
+    const viewingSomeone = (caregiverSession && caregiverCloudCode) || viewingPatientId;
+    if (!viewingSomeone || !profile) return;
     if (typeof profile.carbRatio === "number") setCarbRatioState(profile.carbRatio);
     if (typeof profile.targetGlucose === "number") setTargetGlucoseState(profile.targetGlucose);
     if (typeof profile.correctionFactor === "number") setCorrectionFactorState(profile.correctionFactor);
-  }, [caregiverSession, caregiverCloudCode, profile?.carbRatio, profile?.targetGlucose, profile?.correctionFactor]);
+  }, [caregiverSession, caregiverCloudCode, viewingPatientId, profile?.carbRatio, profile?.targetGlucose, profile?.correctionFactor]);
 
   const addReading = useCallback(
     (entry: GlucoseEntry) => {
+      // A co-guardian viewing a linked patient must never write into the patient's stream.
+      if (viewingPatientIdRef.current) return;
       setHistory((prev) => {
         const next = [...prev, entry].slice(-300);
         AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
@@ -303,6 +372,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
   const bulkAddReadings = useCallback(
     (entries: GlucoseEntry[]) => {
       if (entries.length === 0) return;
+      if (viewingPatientIdRef.current) return; // co-guardian viewing — never write into the stream
       setHistory((prev) => {
         const existingTs = new Set(prev.map((e) => e.timestamp));
         const newEntries = entries.filter((e) => !existingTs.has(e.timestamp));

@@ -258,7 +258,11 @@ const patientDexcomCredentials = defineTable({
   dexcomPassword: v.string(),
   outsideUS: v.boolean(),
   updatedAt: v.number(),
-}).index("by_userId", ["userId"]);
+  /** Lowercased/trimmed username — lets Care Circle surface other accounts on the same sensor. */
+  usernameKey: v.optional(v.string()),
+})
+  .index("by_userId", ["userId"])
+  .index("by_usernameKey", ["usernameKey"]);
 
 /**
  * Server-only LibreLink Up credentials (API + Convex secret gate).
@@ -344,6 +348,148 @@ const cgmSyncState = defineTable({
   .index("by_user_provider", ["userId", "provider"])
   .index("by_due", ["nextEligibleAt"]);
 
+// ─── Care Circle (account roles + linking) — see CARE_CIRCLE_ROLES_AUDIT_01.md ───────────────
+
+/** Uniform per-member grant object — same shape for links, access codes, and the patient device. */
+const carePermissions = v.object({
+  viewReadings: v.boolean(),
+  viewLogs: v.boolean(),
+  log: v.boolean(),
+  useCalculator: v.boolean(),
+  chat: v.boolean(),
+});
+
+/**
+ * When a member may access the patient's data. Evaluated lazily at request time
+ * (`convex/careSchedule.ts`) — no crons; "expired" is just what the evaluator reports.
+ */
+const careAccess = v.union(
+  v.object({ mode: v.literal("always") }),
+  v.object({ mode: v.literal("disabled") }),
+  /** One-time window (grandma's visit): [startMs, endMs). */
+  v.object({ mode: v.literal("window"), startMs: v.number(), endMs: v.number() }),
+  /** Recurring weekly schedule (school hours). Days 0–6 (Sun–Sat) in the setter's timezone. */
+  v.object({
+    mode: v.literal("weekly"),
+    days: v.array(v.number()),
+    startMinute: v.number(),
+    endMinute: v.number(),
+    tzOffsetMinutes: v.number(),
+  }),
+);
+
+/** Account-based care-circle membership (co-guardians: parents/spouses). Max 3 active per patient. */
+const careLinks = defineTable({
+  patientUserId: v.id("users"),
+  memberUserId: v.id("users"),
+  role: v.literal("co_guardian"),
+  /** Snapshot of the member's display name for lists and log bylines. */
+  displayName: v.string(),
+  permissions: carePermissions,
+  access: careAccess,
+  status: v.union(v.literal("active"), v.literal("revoked")),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  revokedAt: v.optional(v.number()),
+  revokedBy: v.optional(v.union(v.literal("patient_side"), v.literal("member"))),
+})
+  .index("by_patient", ["patientUserId", "status"])
+  .index("by_member", ["memberUserId", "status"])
+  .index("by_patient_member", ["patientUserId", "memberUserId"]);
+
+/** Short-lived (48h) co-guardian invite codes; redemption by a signed-in account creates the link. */
+const careInvites = defineTable({
+  patientUserId: v.id("users"),
+  code: v.string(),
+  role: v.literal("co_guardian"),
+  presetPermissions: carePermissions,
+  presetAccess: careAccess,
+  createdByUserId: v.id("users"),
+  expiresAt: v.number(),
+  status: v.union(v.literal("pending"), v.literal("redeemed"), v.literal("cancelled")),
+  redeemedByUserId: v.optional(v.id("users")),
+  redeemedAt: v.optional(v.number()),
+  createdAt: v.number(),
+})
+  .index("by_code", ["code"])
+  .index("by_patient", ["patientUserId", "status"]);
+
+/**
+ * Named, persistent access codes for EXTERNAL guardians (teacher / babysitter / relative) — no
+ * account required; the code is the credential. Permissioned + schedule-bound, retire-able.
+ * 8-char codes (legacy 6-char profile caregiverCode stays on its own separate path).
+ */
+const careAccessCodes = defineTable({
+  patientUserId: v.id("users"),
+  code: v.string(),
+  /** Who/what this code is for, e.g. "Ms. Rivera (teacher)". Also the log byline if `log` is granted. */
+  label: v.string(),
+  permissions: carePermissions,
+  access: careAccess,
+  status: v.union(v.literal("active"), v.literal("retired")),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  retiredAt: v.optional(v.number()),
+  lastUsedAt: v.optional(v.number()),
+})
+  .index("by_code", ["code"])
+  .index("by_patient", ["patientUserId", "status"]);
+
+/**
+ * Per-patient care-circle settings. Deliberately NOT on patientProfiles: the mobile app replaces
+ * that document wholesale (`patientProfile.replace`), which would clobber fields it doesn't know.
+ * `dependentMode` = parent-kid mode: admin control moves from the patient account to co-guardians,
+ * and `devicePermissions` governs what the patient's own (kid's) device may do.
+ */
+const careSettings = defineTable({
+  patientUserId: v.id("users"),
+  dependentMode: v.boolean(),
+  devicePermissions: carePermissions,
+  updatedAt: v.number(),
+}).index("by_patient", ["patientUserId"]);
+
+// ─── Care Circle shared log bucket (Phase 2) ─────────────────────────────────────────────────
+// One authored bucket per patient. Every care-circle member (patient, co-guardians, and external
+// code holders with the `log` grant) writes here with their own identity; every viewer reads the
+// merged stream. `clientId` is the device-generated entry id — the idempotency key so migration
+// and retries never duplicate. Because the mobile app already reads foodLog/insulinLog from one
+// place (AuthContext), sourcing them here gives the whole app multi-author logs for free.
+
+const careFoodLogs = defineTable({
+  patientUserId: v.id("users"),
+  authorUserId: v.optional(v.id("users")), // absent when authored via an external access code
+  authorName: v.string(),
+  clientId: v.string(),
+  timestamp: v.string(),
+  foodName: v.string(),
+  estimatedCarbs: v.number(),
+  insulinUnits: v.number(),
+  confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+  fromPhoto: v.boolean(),
+  photoUri: v.optional(v.string()),
+  createdAt: v.number(),
+})
+  .index("by_patient_time", ["patientUserId", "timestamp"])
+  .index("by_patient_client", ["patientUserId", "clientId"]);
+
+const careInsulinLogs = defineTable({
+  patientUserId: v.id("users"),
+  authorUserId: v.optional(v.id("users")),
+  authorName: v.string(),
+  clientId: v.string(),
+  timestamp: v.string(),
+  units: v.number(),
+  type: v.union(v.literal("bolus"), v.literal("correction"), v.literal("manual"), v.literal("basal")),
+  note: v.optional(v.string()),
+  foodLogId: v.optional(v.string()),
+  insulinType: v.optional(v.string()),
+  recommendedUnits: v.optional(v.number()),
+  manualOverride: v.optional(v.boolean()),
+  createdAt: v.number(),
+})
+  .index("by_patient_time", ["patientUserId", "timestamp"])
+  .index("by_patient_client", ["patientUserId", "clientId"]);
+
 /** One row per doctor access code: optional full patient payload (after sync), always carries messages thread. */
 export default defineSchema({
   users,
@@ -354,6 +500,12 @@ export default defineSchema({
   patientLibreCredentials,
   patientGlucoseReadings,
   cgmSyncState,
+  careLinks,
+  careInvites,
+  careAccessCodes,
+  careSettings,
+  careFoodLogs,
+  careInsulinLogs,
   doctorAccounts,
   doctorSessions,
   doctorAlerts,

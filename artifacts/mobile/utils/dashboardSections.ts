@@ -16,7 +16,8 @@ export type DashboardSectionKey =
   | "emergency"
   | "insulin"
   | "doctor"
-  | "access";
+  | "access"
+  | "careCircle";
 
 export interface DashboardRoleFlags {
   isChildMode: boolean;
@@ -48,7 +49,7 @@ export interface DashboardSectionDef {
   title: string;
 }
 
-/** Authoritative grid order: row1 Notifications/Thresholds, row2 Emergency/Insulin, row3 Doctor/Access. */
+/** Authoritative grid order: row1 Notifications/Thresholds, row2 Emergency/Insulin, row3 Doctor/Access, row4 Care Circle. */
 const ALL_SECTIONS: { key: DashboardSectionKey; title: string; gate: keyof DashboardSectionVisibility }[] = [
   { key: "notifications", title: "Notifications", gate: "showPatientSections" },
   { key: "thresholds", title: "Alert Thresholds", gate: "showPatientSections" },
@@ -56,6 +57,7 @@ const ALL_SECTIONS: { key: DashboardSectionKey; title: string; gate: keyof Dashb
   { key: "insulin", title: "Insulin Settings", gate: "showPatientSections" },
   { key: "doctor", title: "Doctor & Care Team", gate: "showDoctorCareTeam" },
   { key: "access", title: "Access Management", gate: "showAccessManagement" },
+  { key: "careCircle", title: "Care Circle", gate: "showAccessManagement" },
 ];
 
 /** The section cards to render for a role, in authoritative order (omitting unavailable sections). */

@@ -10,6 +10,7 @@ import React, {
 import type { Id } from "../../../convex/_generated/dataModel";
 import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY } from "@/constants/storage-keys";
 import { apiUrl } from "@/utils/api-base-url";
+import { mergeCloudLogs } from "@/utils/careLogsMerge";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import {
   mergeDoctorMessages,
@@ -77,6 +78,9 @@ export interface InsulinLogEntry {
   recommendedUnits?: number;
   /** True when the taken dose was manually edited away from the recommendation. */
   manualOverride?: boolean;
+  /** Care Circle shared bucket: who logged this. Absent on legacy device-local entries. */
+  authorUserId?: string;
+  authorName?: string;
 }
 
 export interface UserAccount {
@@ -84,6 +88,22 @@ export interface UserAccount {
   passwordHash: string;
   /** Convex document id for `users` — set for cloud-backed accounts. */
   convexUserId?: string;
+}
+
+/** A patient whose care circle I belong to as a co-guardian (drives "viewing Bella" mode). */
+export interface CareMembership {
+  linkId: string;
+  patientUserId: string;
+  patientName: string;
+  permissions: {
+    viewReadings: boolean;
+    viewLogs: boolean;
+    log: boolean;
+    useCalculator: boolean;
+    chat: boolean;
+  };
+  accessState: { state: "ok" | "before_window" | "outside_window" | "disabled"; nextStartMs?: number };
+  dependentMode: boolean;
 }
 
 export interface CGMConnection {
@@ -104,6 +124,9 @@ export interface FoodLogEntry {
   confidence: "high" | "medium" | "low";
   fromPhoto: boolean;
   photoUri?: string;
+  /** Care Circle shared bucket: who logged this. Absent on legacy device-local entries. */
+  authorUserId?: string;
+  authorName?: string;
 }
 
 export interface EmergencyContact {
@@ -198,6 +221,20 @@ export interface AuthContextType {
   decideTherapyProposal: (status: "approved" | "declined") => Promise<void>;
   /** When set, glucose is loaded read-only from Convex using this caregiver code (standalone caregiver device). */
   caregiverCloudCode: string | null;
+  /** Distinguishes a legacy 6-char caregiver code session from a new Care Circle caregiver code. */
+  caregiverCodeKind: "legacy" | "access" | null;
+  /** Care circles this signed-in account belongs to as a co-guardian. */
+  careMemberships: CareMembership[];
+  refreshCareMemberships: () => Promise<void>;
+  /** The linked patient's userId currently being viewed (null = viewing my own account). */
+  viewingPatientId: string | null;
+  viewingPatientName: string | null;
+  /** True while a signed-in co-guardian is viewing a linked patient's data. */
+  isViewingLinkedPatient: boolean;
+  enterViewingMode: (patientUserId: string) => Promise<boolean>;
+  exitViewingMode: () => void;
+  /** Non-null when the active caregiver/co-guardian session is outside its schedule or removed. */
+  accessLock: { reason: "outside_window" | "disabled" | "revoked"; nextStartMs?: number } | null;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -206,6 +243,8 @@ const PROFILE_KEY = "@gluco_guardian_profile";
 const CGM_KEY = "@gluco_guardian_cgm";
 const FOOD_LOG_KEY = "@gluco_guardian_food_log";
 const INSULIN_LOG_KEY = "@gluco_guardian_insulin_log";
+/** Per-account marker (suffixed with the Convex userId) so local→cloud log migration runs once. */
+const LOGS_MIGRATED_KEY_PREFIX = "@gluco_guardian_logs_migrated_";
 const EMERGENCY_CONTACTS_KEY = "@gluco_guardian_emergency_contacts";
 const ALERT_PREFS_KEY = "@gluco_guardian_alert_prefs";
 /** @deprecated Legacy local-only PIN storage — backend is authoritative when signed into Convex. */
@@ -214,6 +253,43 @@ const ACCOUNT_KEY = "@gluco_guardian_account";
 const SESSION_KEY = "@gluco_guardian_session";
 const DOCTOR_MESSAGES_KEY = "@gluco_guardian_doctor_messages";
 const THERAPY_PROPOSAL_KEY = "@gluco_guardian_therapy_proposal";
+
+/** Stable empty arrays for co-guardian viewing mode — prevents new [] identities each render. */
+const EMPTY_FOOD_LOG: FoodLogEntry[] = [];
+const EMPTY_INSULIN_LOG: InsulinLogEntry[] = [];
+
+/** Care-circle log payloads: the local entry `id` is the cloud `clientId` (idempotency key). */
+function toFoodEntryPayload(e: FoodLogEntry) {
+  return {
+    clientId: e.id,
+    timestamp: e.timestamp,
+    foodName: e.foodName,
+    estimatedCarbs: e.estimatedCarbs,
+    insulinUnits: e.insulinUnits,
+    confidence: e.confidence,
+    fromPhoto: e.fromPhoto,
+    ...(e.photoUri != null ? { photoUri: e.photoUri } : {}),
+  };
+}
+
+/** Optimistic byline for my own writes — the server re-derives the authoritative name on read. */
+function deriveOwnAuthorName(profile: UserProfile | null, account: UserAccount | null): string {
+  return profile?.parentName?.trim() || profile?.childName?.trim() || account?.email?.split("@")[0] || "Me";
+}
+
+function toInsulinEntryPayload(e: InsulinLogEntry) {
+  return {
+    clientId: e.id,
+    timestamp: e.timestamp,
+    units: e.units,
+    type: e.type,
+    ...(e.note != null ? { note: e.note } : {}),
+    ...(e.foodLogId != null ? { foodLogId: e.foodLogId } : {}),
+    ...(e.insulinType != null ? { insulinType: e.insulinType } : {}),
+    ...(e.recommendedUnits != null ? { recommendedUnits: e.recommendedUnits } : {}),
+    ...(e.manualOverride != null ? { manualOverride: e.manualOverride } : {}),
+  };
+}
 
 const DEFAULT_ALERT_PREFS: AlertPreferences = {
   notificationsEnabled: false,
@@ -265,8 +341,9 @@ function computeAge(dateOfBirth: string): number | null {
   return age;
 }
 
+/** Accepts both legacy 6-char caregiver codes and new 8-char Care Circle caregiver codes. */
 function normalizeCaregiverInputCode(code: string): string {
-  return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
 }
 
 /** Max wait for Convex `getUser` during cold start — avoids hanging boot if network stalls. */
@@ -307,6 +384,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [caregiverSession, setCaregiverSession] = useState(false);
   const [doctorSession, setDoctorSession] = useState(false);
   const [caregiverCloudCode, setCaregiverCloudCode] = useState<string | null>(null);
+  /** "legacy" = old 6-char profile caregiverCode; "access" = new Care Circle caregiver access code. */
+  const [caregiverCodeKind, setCaregiverCodeKind] = useState<"legacy" | "access" | null>(null);
+  // ── Co-guardian viewing overlay (signed-in account viewing a linked patient's data) ──
+  const [careMemberships, setCareMemberships] = useState<CareMembership[]>([]);
+  const [viewingPatientId, setViewingPatientId] = useState<string | null>(null);
+  const [viewedProfile, setViewedProfile] = useState<UserProfile | null>(null);
+  const [viewedFoodLog, setViewedFoodLog] = useState<FoodLogEntry[]>([]);
+  const [viewedInsulinLog, setViewedInsulinLog] = useState<InsulinLogEntry[]>([]);
+  /** Set when the current "someone else's data" session falls outside its schedule / is removed. */
+  const [accessLock, setAccessLock] = useState<{ reason: "outside_window" | "disabled" | "revoked"; nextStartMs?: number } | null>(null);
   const [doctorMessages, setDoctorMessages] = useState<DoctorMessage[]>([]);
   const [therapyProposal, setTherapyProposal] = useState<TherapyProposal | null>(null);
 
@@ -320,6 +407,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const therapyProposalRef = useRef(therapyProposal);
   /** Id of a proposal the caregiver just decided, so a racing sync poll can't resurrect it. */
   const recentlyDecidedProposalIdRef = useRef<string | null>(null);
+  /** Live mirrors for the log-write path (which patient bucket + what byline to use). */
+  const viewingPatientIdRef = useRef<string | null>(null);
+  useEffect(() => { viewingPatientIdRef.current = viewingPatientId; }, [viewingPatientId]);
   useEffect(() => { profileRef.current = profile; }, [profile]);
   useEffect(() => { accountRef.current = account; }, [account]);
   useEffect(() => { caregiverCloudCodeRef.current = caregiverCloudCode; }, [caregiverCloudCode]);
@@ -665,8 +755,188 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const ageYears = profile?.dateOfBirth ? computeAge(profile.dateOfBirth) : null;
+  // While a co-guardian views a linked patient, the app reads the patient's (slim) profile and
+  // shared logs everywhere it reads `profile`/`foodLog`/`insulinLog`; the co-guardian's own state
+  // is preserved internally for when they exit.
+  const isViewingLinkedPatient = viewingPatientId != null && viewedProfile != null;
+  const effectiveProfile = isViewingLinkedPatient ? viewedProfile : profile;
+  const effectiveFoodLog = isViewingLinkedPatient ? viewedFoodLog : foodLog;
+  const effectiveInsulinLog = isViewingLinkedPatient ? viewedInsulinLog : insulinLog;
+  const viewingPatientName = isViewingLinkedPatient ? viewedProfile.childName : null;
+
+  const ageYears = effectiveProfile?.dateOfBirth ? computeAge(effectiveProfile.dateOfBirth) : null;
   const isMinor = ageYears !== null ? ageYears < 18 : false;
+
+  // Load the circles this account co-guardians on sign-in (and when the account changes).
+  useEffect(() => {
+    if (!isSignedIn || !account?.convexUserId) {
+      setCareMemberships([]);
+      setViewingPatientId(null);
+      setViewedProfile(null);
+      return;
+    }
+    void refreshCareMemberships();
+    // refreshCareMemberships depends on viewingPatientId; we intentionally key only on identity here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn, account?.convexUserId, account?.passwordHash]);
+
+  // ── Own shared-log bucket: one-time local→cloud migration, then hydrate + poll every 60s so a
+  // co-guardian's / co-parent's logs appear here on their own (≤1-min lag). ──
+  useEffect(() => {
+    if (isLoading) return; // wait for the boot AsyncStorage load so migration sees local logs
+    if (!isSignedIn || !account?.convexUserId) return;
+    const userId = account.convexUserId as Id<"users">;
+    const passwordHash = account.passwordHash;
+    let cancelled = false;
+
+    async function hydrateOwn() {
+      try {
+        const client = createConvexAuthClient();
+        // Migrate local AsyncStorage logs into the cloud once per account (idempotent by clientId).
+        const migratedKey = `${LOGS_MIGRATED_KEY_PREFIX}${userId}`;
+        const already = await AsyncStorage.getItem(migratedKey);
+        if (!already) {
+          const localFood = foodLogRef.current;
+          const localInsulin = insulinLogRef.current;
+          if (localFood.length > 0 || localInsulin.length > 0) {
+            await client.mutation(api.careLogs.importLogs, {
+              userId,
+              passwordHash,
+              patientUserId: userId,
+              food: localFood.map(toFoodEntryPayload),
+              insulin: localInsulin.map(toInsulinEntryPayload),
+            });
+          }
+          await AsyncStorage.setItem(migratedKey, "1");
+        }
+        const remote = await client.query(api.careLogs.listLogs, {
+          userId,
+          passwordHash,
+          patientUserId: userId,
+        });
+        if (cancelled || !remote) return;
+        setFoodLog((prev) => {
+          const next = mergeCloudLogs(remote.foodLog as FoodLogEntry[], prev, 200);
+          AsyncStorage.setItem(FOOD_LOG_KEY, JSON.stringify(next)).catch(() => {});
+          return next;
+        });
+        setInsulinLog((prev) => {
+          const next = mergeCloudLogs(remote.insulinLog as InsulinLogEntry[], prev, 500);
+          AsyncStorage.setItem(INSULIN_LOG_KEY, JSON.stringify(next)).catch(() => {});
+          return next;
+        });
+      } catch {
+        /* offline — AsyncStorage-cached logs remain until the next poll */
+      }
+    }
+
+    void hydrateOwn();
+    const id = setInterval(hydrateOwn, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isLoading, isSignedIn, account?.convexUserId, account?.passwordHash]);
+
+  // ── Viewed patient's shared logs (co-guardian viewing) — fetch + poll every 60s. ──
+  useEffect(() => {
+    if (!viewingPatientId || !account?.convexUserId) return;
+    const userId = account.convexUserId as Id<"users">;
+    const passwordHash = account.passwordHash;
+    const patientUserId = viewingPatientId as Id<"users">;
+    let cancelled = false;
+
+    async function fetchViewedLogs() {
+      try {
+        const client = createConvexAuthClient();
+        const remote = await client.query(api.careLogs.listLogs, {
+          userId,
+          passwordHash,
+          patientUserId,
+        });
+        if (cancelled || !remote) return;
+        setViewedFoodLog((prev) => mergeCloudLogs(remote.foodLog as FoodLogEntry[], prev, 200));
+        setViewedInsulinLog((prev) => mergeCloudLogs(remote.insulinLog as InsulinLogEntry[], prev, 500));
+      } catch {
+        /* offline or outside the link's schedule — keep prior view */
+      }
+    }
+
+    void fetchViewedLogs();
+    const id = setInterval(fetchViewedLogs, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [viewingPatientId, account?.convexUserId, account?.passwordHash]);
+
+  // ── Caregiver access-code session: source the patient's shared logs via the code (when the code
+  // grants view-logs and is inside its schedule). Legacy 6-char caregiver codes have no shared logs. ──
+  useEffect(() => {
+    if (caregiverCodeKind !== "access" || !caregiverCloudCode) return;
+    let cancelled = false;
+    async function fetchCodeLogs() {
+      try {
+        const client = createConvexAuthClient();
+        const remote = await client.query(api.careLogs.listLogsViaCode, { code: caregiverCloudCode as string });
+        if (cancelled) return;
+        setFoodLog((remote?.foodLog ?? []) as FoodLogEntry[]);
+        setInsulinLog((remote?.insulinLog ?? []) as InsulinLogEntry[]);
+      } catch {
+        /* offline — keep prior */
+      }
+    }
+    void fetchCodeLogs();
+    const id = setInterval(fetchCodeLogs, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [caregiverCodeKind, caregiverCloudCode]);
+
+  // ── Out-of-schedule lock: watch the active "someone else's data" session's access state and
+  // raise a lock when a code/link falls outside its window or is removed mid-session. ──
+  useEffect(() => {
+    const inCaregiverAccess = caregiverCodeKind === "access" && !!caregiverCloudCode;
+    const inViewing = !!viewingPatientId && !!account?.convexUserId;
+    if (!inCaregiverAccess && !inViewing) {
+      setAccessLock(null);
+      return;
+    }
+    let cancelled = false;
+    async function checkAccess() {
+      try {
+        const client = createConvexAuthClient();
+        if (inCaregiverAccess) {
+          const resolved = await client.query(api.careCircle.resolveAccessCode, { code: caregiverCloudCode as string });
+          if (cancelled) return;
+          if (!resolved) setAccessLock({ reason: "revoked" });
+          else if (resolved.accessState.state !== "ok") {
+            setAccessLock({ reason: resolved.accessState.state === "disabled" ? "disabled" : "outside_window", nextStartMs: resolved.accessState.nextStartMs });
+          } else setAccessLock(null);
+        } else {
+          const rows = (await client.query(api.careCircle.myMemberships, {
+            userId: account!.convexUserId as Id<"users">,
+            passwordHash: account!.passwordHash,
+          })) as CareMembership[];
+          if (cancelled) return;
+          const m = rows.find((r) => r.patientUserId === viewingPatientId);
+          if (!m) setAccessLock({ reason: "revoked" });
+          else if (m.accessState.state !== "ok") {
+            setAccessLock({ reason: m.accessState.state === "disabled" ? "disabled" : "outside_window", nextStartMs: m.accessState.nextStartMs });
+          } else setAccessLock(null);
+        }
+      } catch {
+        /* offline — don't lock on a transient network error */
+      }
+    }
+    void checkAccess();
+    const id = setInterval(checkAccess, 45_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [caregiverCodeKind, caregiverCloudCode, viewingPatientId, account?.convexUserId, account?.passwordHash]);
 
   const createAccount = useCallback(async (email: string, password: string) => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -799,6 +1069,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCaregiverSession(false);
     setCaregiverCloudCode(null);
     setDoctorSession(false);
+    setCareMemberships([]);
+    setViewingPatientId(null);
+    setViewedProfile(null);
+    setViewedFoodLog([]);
+    setViewedInsulinLog([]);
     await AsyncStorage.removeItem(SESSION_KEY);
   }, []);
 
@@ -816,34 +1091,110 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await commitCGMConnection(conn);
   }, [commitCGMConnection]);
 
+  /**
+   * Care Circle shared-bucket writes: optimistically update the currently-displayed patient's log
+   * (viewed patient when a co-guardian is viewing, else my own), then persist to Convex where the
+   * server re-derives the authoritative byline. Own writes also cache to AsyncStorage for offline.
+   * Legacy local-only accounts (no convexUserId) stay AsyncStorage-only exactly as before.
+   */
   const addFoodLogEntry = useCallback((entry: Omit<FoodLogEntry, "id">) => {
     const id = `food_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const full: FoodLogEntry = { ...entry, id };
-    setFoodLog((prev) => {
-      const next = [full, ...prev].slice(0, 200);
-      AsyncStorage.setItem(FOOD_LOG_KEY, JSON.stringify(next)).catch(() => {});
-      return next;
-    });
+    const acc = accountRef.current;
+    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
+    const full: FoodLogEntry = {
+      ...entry,
+      id,
+      ...(acc?.convexUserId ? { authorUserId: acc.convexUserId } : {}),
+      authorName: deriveOwnAuthorName(profileRef.current, acc),
+    };
+    if (viewingPatientIdRef.current) {
+      setViewedFoodLog((prev) => [full, ...prev].slice(0, 200));
+    } else {
+      setFoodLog((prev) => {
+        const next = [full, ...prev].slice(0, 200);
+        AsyncStorage.setItem(FOOD_LOG_KEY, JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+    }
+    if (acc?.convexUserId && targetPatientId) {
+      createConvexAuthClient()
+        .mutation(api.careLogs.addFoodLog, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          patientUserId: targetPatientId as Id<"users">,
+          entry: toFoodEntryPayload(full),
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const clearFoodLog = useCallback(() => {
-    setFoodLog([]);
-    AsyncStorage.removeItem(FOOD_LOG_KEY).catch(() => {});
+    const acc = accountRef.current;
+    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
+    if (viewingPatientIdRef.current) setViewedFoodLog([]);
+    else {
+      setFoodLog([]);
+      AsyncStorage.removeItem(FOOD_LOG_KEY).catch(() => {});
+    }
+    if (acc?.convexUserId && targetPatientId) {
+      createConvexAuthClient()
+        .mutation(api.careLogs.clearFood, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          patientUserId: targetPatientId as Id<"users">,
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const logInsulinDose = useCallback((entry: Omit<InsulinLogEntry, "id">) => {
     const id = `ins_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const full: InsulinLogEntry = { ...entry, id };
-    setInsulinLog((prev) => {
-      const next = [full, ...prev].slice(0, 500);
-      AsyncStorage.setItem(INSULIN_LOG_KEY, JSON.stringify(next)).catch(() => {});
-      return next;
-    });
+    const acc = accountRef.current;
+    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
+    const full: InsulinLogEntry = {
+      ...entry,
+      id,
+      ...(acc?.convexUserId ? { authorUserId: acc.convexUserId } : {}),
+      authorName: deriveOwnAuthorName(profileRef.current, acc),
+    };
+    if (viewingPatientIdRef.current) {
+      setViewedInsulinLog((prev) => [full, ...prev].slice(0, 500));
+    } else {
+      setInsulinLog((prev) => {
+        const next = [full, ...prev].slice(0, 500);
+        AsyncStorage.setItem(INSULIN_LOG_KEY, JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+    }
+    if (acc?.convexUserId && targetPatientId) {
+      createConvexAuthClient()
+        .mutation(api.careLogs.addInsulinLog, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          patientUserId: targetPatientId as Id<"users">,
+          entry: toInsulinEntryPayload(full),
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const clearInsulinLog = useCallback(() => {
-    setInsulinLog([]);
-    AsyncStorage.removeItem(INSULIN_LOG_KEY).catch(() => {});
+    const acc = accountRef.current;
+    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
+    if (viewingPatientIdRef.current) setViewedInsulinLog([]);
+    else {
+      setInsulinLog([]);
+      AsyncStorage.removeItem(INSULIN_LOG_KEY).catch(() => {});
+    }
+    if (acc?.convexUserId && targetPatientId) {
+      createConvexAuthClient()
+        .mutation(api.careLogs.clearInsulin, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          patientUserId: targetPatientId as Id<"users">,
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const logout = useCallback(async () => {
@@ -864,6 +1215,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCaregiverSession(false);
     setCaregiverCloudCode(null);
     setDoctorSession(false);
+    setCareMemberships([]);
+    setViewingPatientId(null);
+    setViewedProfile(null);
+    setViewedFoodLog([]);
+    setViewedInsulinLog([]);
     await AsyncStorage.multiRemove([
       PROFILE_KEY,
       CGM_KEY,
@@ -943,24 +1299,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const enterCaregiverMode = useCallback(
     async (code: string): Promise<boolean> => {
       const normalized = normalizeCaregiverInputCode(code);
-      if (normalized.length !== 6) return false;
+      if (normalized.length < 6) return false;
 
+      // 1) Legacy: the owner's own 6-char profile code matches (offline self-test).
       const localStored = profile?.caregiverCode;
-      if (localStored) {
-        const localNorm = normalizeCaregiverInputCode(localStored);
-        if (localNorm === normalized) {
-          setCaregiverCloudCode(null);
-          setCaregiverSession(true);
-          return true;
+      if (localStored && normalizeCaregiverInputCode(localStored) === normalized) {
+        setCaregiverCloudCode(null);
+        setCaregiverCodeKind("legacy");
+        setCaregiverSession(true);
+        return true;
+      }
+
+      if (isSignedIn) return false;
+
+      const client = createConvexAuthClient();
+
+      // 2) New Care Circle caregiver code (8-char). Requires view-readings + an open schedule.
+      if (normalized.length === 8) {
+        try {
+          const resolved = await client.query(api.careCircle.resolveAccessCode, { code: normalized });
+          if (resolved) {
+            if (!resolved.permissions.viewReadings) return false;
+            if (resolved.accessState.state !== "ok") return false;
+            const slim = await client.query(api.careCircle.profileForAccessCode, { code: normalized });
+            const nextProfile: UserProfile = {
+              childName: slim?.childName ?? resolved.patientName,
+              diabetesType: slim?.diabetesType ?? "type1",
+              dateOfBirth: slim?.dateOfBirth ?? "",
+              weightLbs: slim?.weightLbs,
+              insulinTypes: slim?.insulinTypes,
+              profilePhotoUri: slim?.profilePhotoUri,
+              carbRatio: slim?.carbRatio,
+              targetGlucose: slim?.targetGlucose,
+              correctionFactor: slim?.correctionFactor,
+            };
+            profileRef.current = nextProfile;
+            setProfile(nextProfile);
+            await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+            setCaregiverCloudCode(normalized);
+            setCaregiverCodeKind("access");
+            setCaregiverSession(true);
+            client.mutation(api.careCircle.touchAccessCode, { code: normalized }).catch(() => {});
+            return true;
+          }
+        } catch {
+          /* fall through to legacy */
         }
       }
 
-      if (isSignedIn) {
-        return false;
-      }
-
+      // 3) Legacy anonymous 6-char caregiver code (backward compatibility).
       try {
-        const client = createConvexAuthClient();
         const remote = await client.query(api.patientProfile.getByCaregiverCode, { code: normalized });
         if (!remote) return false;
         const { userId: _userId, ...profileFields } = remote as UserProfile & { userId: Id<"users"> };
@@ -969,6 +1357,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(nextProfile);
         await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
         setCaregiverCloudCode(normalized);
+        setCaregiverCodeKind("legacy");
         setCaregiverSession(true);
         return true;
       } catch {
@@ -982,6 +1371,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const hadCloudCaregiver = caregiverCloudCodeRef.current != null;
     setCaregiverSession(false);
     setCaregiverCloudCode(null);
+    setCaregiverCodeKind(null);
+    setAccessLock(null);
+    setFoodLog([]);
+    setInsulinLog([]);
     if (hadCloudCaregiver && !isSignedIn) {
       profileRef.current = null;
       setProfile(null);
@@ -1032,6 +1425,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const exitDoctorMode = useCallback(() => {
     setDoctorSession(false);
+  }, []);
+
+  // ── Co-guardian viewing overlay ──────────────────────────────────────────────────────────
+  const refreshCareMemberships = useCallback(async () => {
+    const acc = accountRef.current;
+    if (!acc?.convexUserId) {
+      setCareMemberships([]);
+      return;
+    }
+    try {
+      const client = createConvexAuthClient();
+      const rows = await client.query(api.careCircle.myMemberships, {
+        userId: acc.convexUserId as Id<"users">,
+        passwordHash: acc.passwordHash,
+      });
+      setCareMemberships(rows as CareMembership[]);
+      // If we're viewing a patient whose link vanished (revoked / left), drop back to our own data.
+      const stillValid = (rows as CareMembership[]).some((m) => m.patientUserId === viewingPatientId);
+      if (viewingPatientId && !stillValid) {
+        setViewingPatientId(null);
+        setViewedProfile(null);
+      }
+    } catch {
+      /* offline — keep the last known memberships */
+    }
+  }, [viewingPatientId]);
+
+  const enterViewingMode = useCallback(async (patientUserId: string): Promise<boolean> => {
+    const acc = accountRef.current;
+    if (!acc?.convexUserId) return false;
+    try {
+      const client = createConvexAuthClient();
+      const slim = await client.query(api.careCircle.profileForLink, {
+        userId: acc.convexUserId as Id<"users">,
+        passwordHash: acc.passwordHash,
+        patientUserId: patientUserId as Id<"users">,
+      });
+      if (!slim) return false; // link inactive, out of window, or lacking viewReadings
+      const nextProfile: UserProfile = {
+        childName: slim.childName,
+        diabetesType: slim.diabetesType,
+        dateOfBirth: slim.dateOfBirth ?? "",
+        weightLbs: slim.weightLbs,
+        insulinTypes: slim.insulinTypes,
+        profilePhotoUri: slim.profilePhotoUri,
+        carbRatio: slim.carbRatio,
+        targetGlucose: slim.targetGlucose,
+        correctionFactor: slim.correctionFactor,
+      };
+      setViewedFoodLog([]);
+      setViewedInsulinLog([]);
+      setViewedProfile(nextProfile);
+      setViewingPatientId(patientUserId);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const exitViewingMode = useCallback(() => {
+    setViewingPatientId(null);
+    setViewedProfile(null);
+    setViewedFoodLog([]);
+    setViewedInsulinLog([]);
+    setAccessLock(null);
   }, []);
 
   const addDoctorMessage = useCallback((text: string, sender: "doctor" | "guardian") => {
@@ -1197,21 +1655,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const isChildMode = !!(profile?.childModeEnabled || caregiverSession);
+  // A co-guardian viewing a linked patient is never in child mode — they're the admin, not the kid.
+  const isChildMode = !isViewingLinkedPatient && !!(profile?.childModeEnabled || caregiverSession);
 
   return (
     <AuthContext.Provider
       value={{
-        profile,
+        profile: effectiveProfile,
         account,
         isLoading,
-        isLoggedIn: !!profile,
+        isLoggedIn: !!effectiveProfile,
         isSignedIn,
         isMinor,
         ageYears,
         cgmConnection,
-        foodLog,
-        insulinLog,
+        foodLog: effectiveFoodLog,
+        insulinLog: effectiveInsulinLog,
         emergencyContacts,
         alertPrefs,
         guardianPinStatus,
@@ -1222,6 +1681,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         doctorSession,
         isChildMode,
         caregiverCloudCode,
+        caregiverCodeKind,
         setupProfile,
         updateProfile,
         setCGMConnection,
@@ -1255,6 +1715,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         syncToDoctor,
         therapyProposal,
         decideTherapyProposal,
+        careMemberships,
+        refreshCareMemberships,
+        viewingPatientId,
+        viewingPatientName,
+        isViewingLinkedPatient,
+        enterViewingMode,
+        exitViewingMode,
+        accessLock,
       }}
     >
       {children}

@@ -159,7 +159,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const c = useThemeColors();
   const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose, notifyCgmSyncSuccess } = useGlucose();
-  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession, isMinor, foodLog, insulinLog } = useAuth();
+  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession, isMinor, foodLog, insulinLog, isViewingLinkedPatient, viewingPatientName, exitViewingMode } = useAuth();
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -336,9 +336,10 @@ export default function HomeScreen() {
 
   const patientName = profile?.childName ?? "Glucose Guardian";
   // Guardian-role accounts (onboarding "parent/guardian"; parentName is only ever written for that
-  // role) and caregiver-code sessions greet the guardian, not the patient — "Bella's Guardian".
+  // role), caregiver-code sessions, and signed-in co-guardians viewing a linked patient all greet
+  // the guardian, not the patient — "Bella's Guardian".
   const isGuardianViewer =
-    caregiverSession || profile?.accountRole === "parent" || !!profile?.parentName;
+    caregiverSession || isViewingLinkedPatient || profile?.accountRole === "parent" || !!profile?.parentName;
   const childName =
     isGuardianViewer && profile?.childName ? `${profile.childName}'s Guardian` : patientName;
   const updatedLabel = (lastSyncResult || lastSyncTime)
@@ -882,6 +883,9 @@ export default function HomeScreen() {
           {/* CGM connector — restored from the pre-redesign Glucose screen, restyled dark-clinical.
               Shows the connected provider (Dexcom/Libre) + new-count/recency, or "Connect CGM" when
               disconnected; taps to the same /cgm-setup destination. Independent of the sync card. */}
+          {/* Own-account CGM connector — hidden while viewing a linked patient (the patient's own
+              device owns the sensor; the co-guardian just reads the stream). */}
+          {!isViewingLinkedPatient && (
           <Pressable
             onPress={() => router.push("/cgm-setup")}
             style={[
@@ -911,7 +915,24 @@ export default function HomeScreen() {
               ) : null}
             </View>
           </Pressable>
+          )}
         </View>
+
+        {isViewingLinkedPatient && (
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              exitViewingMode();
+            }}
+            style={[styles.viewingBanner, { backgroundColor: withAlpha(T.color.violet, 0.12), borderColor: withAlpha(T.color.violet, 0.4) }]}
+          >
+            <Feather name="eye" size={15} color={T.color.violetActive} />
+            <Text style={[styles.viewingBannerText, { color: c.textSecondary }]} numberOfLines={1}>
+              Viewing {viewingPatientName ?? "linked patient"}'s data
+            </Text>
+            <Text style={[styles.viewingBannerExit, { color: T.color.violetActive }]}>Exit</Text>
+          </Pressable>
+        )}
 
         {backupMissing && (
           <Pressable
@@ -987,7 +1008,7 @@ export default function HomeScreen() {
 
         {/* Pull-to-sync helper — centered in the open header space, above the glucose summary card.
             Page-centered (its own full-width row), not anchored to the greeting or the Dexcom card. */}
-        {isConnected && (
+        {isConnected && !isViewingLinkedPatient && (
           <View style={styles.syncHintRow}>
             <Text style={[styles.syncHintLine, { color: c.textMuted }]}>Pull down to sync</Text>
             <Text style={[styles.syncHintLine, styles.syncHintSub, { color: c.textMuted }]}>
@@ -1166,6 +1187,9 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: T.space.xs },
   headerText: { flex: 1 },
   /** Centered pull-to-sync helper row above the glucose summary card (page-centered, own row). */
+  viewingBanner: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, marginBottom: T.space.md },
+  viewingBannerText: { flex: 1, fontSize: 13, fontWeight: T.font.medium },
+  viewingBannerExit: { fontSize: 13, fontWeight: T.font.bold },
   syncHintRow: { alignItems: "center", gap: 3, marginBottom: T.space.xs },
   syncHintLine: { fontSize: 8.25, fontWeight: T.font.regular, textAlign: "center" },
   syncHintSub: { opacity: 0.82 },

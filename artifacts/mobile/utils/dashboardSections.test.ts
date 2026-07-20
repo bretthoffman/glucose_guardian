@@ -61,7 +61,7 @@ describe("dashboardSectionVisibility", () => {
 });
 
 describe("availableDashboardSections", () => {
-  it("returns all six cards in authoritative grid order for a regular patient", () => {
+  it("returns all seven cards in authoritative grid order for a regular patient", () => {
     expect(keys(patientParent)).toEqual([
       "notifications",
       "thresholds",
@@ -69,6 +69,7 @@ describe("availableDashboardSections", () => {
       "insulin",
       "doctor",
       "access",
+      "careCircle",
     ]);
   });
 

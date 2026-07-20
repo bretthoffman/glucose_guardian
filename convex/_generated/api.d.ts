@@ -9,6 +9,9 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as careCircle from "../careCircle.js";
+import type * as careLogs from "../careLogs.js";
+import type * as careSchedule from "../careSchedule.js";
 import type * as cgm_config from "../cgm/config.js";
 import type * as cgm_core from "../cgm/core.js";
 import type * as cgm_diagnostics from "../cgm/diagnostics.js";
@@ -40,6 +43,9 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  careCircle: typeof careCircle;
+  careLogs: typeof careLogs;
+  careSchedule: typeof careSchedule;
   "cgm/config": typeof cgm_config;
   "cgm/core": typeof cgm_core;
   "cgm/diagnostics": typeof cgm_diagnostics;

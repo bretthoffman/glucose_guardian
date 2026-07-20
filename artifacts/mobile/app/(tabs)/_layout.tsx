@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { T, withAlpha, type ThemeColors } from "@/constants/theme";
+import AccessLockScreen from "@/components/AccessLockScreen";
 
 // Derive the tab-bar props type from expo-router's Tabs so we don't import @react-navigation directly
 // (it isn't hoisted in this workspace). VISUAL ONLY — navigation behavior uses the standard pattern.
@@ -86,16 +87,20 @@ export default function TabLayout() {
   // A single custom dark tab bar so the redesigned navigation renders consistently in Expo Go (the
   // native liquid-glass tab bar can't express this floating-pill treatment). Routes are unchanged.
   return (
-    <Tabs
-      tabBar={(props) => <FloatingTabBar {...props} />}
-      screenOptions={{ headerShown: false }}
-    >
-      <Tabs.Screen name="index" options={{ title: "Glucose" }} />
-      <Tabs.Screen name="insulin" options={{ title: "Insulin" }} />
-      <Tabs.Screen name="food" options={{ title: "Food" }} />
-      <Tabs.Screen name="chat" options={{ title: "Chat" }} />
-      <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
-    </Tabs>
+    <>
+      <Tabs
+        tabBar={(props) => <FloatingTabBar {...props} />}
+        screenOptions={{ headerShown: false }}
+      >
+        <Tabs.Screen name="index" options={{ title: "Glucose" }} />
+        <Tabs.Screen name="insulin" options={{ title: "Insulin" }} />
+        <Tabs.Screen name="food" options={{ title: "Food" }} />
+        <Tabs.Screen name="chat" options={{ title: "Chat" }} />
+        <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
+      </Tabs>
+      {/* Out-of-schedule / removed-access lock — overlays the tabs for caregiver + viewer sessions. */}
+      <AccessLockScreen />
+    </>
   );
 }
 

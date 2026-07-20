@@ -44,6 +44,7 @@ export const upsertCredentials = mutation({
       dexcomPassword: args.dexcomPassword,
       outsideUS: args.outsideUS,
       updatedAt: now,
+      usernameKey: args.dexcomUsername.trim().toLowerCase(),
     };
     if (existing) {
       await ctx.db.replace(existing._id, doc);
