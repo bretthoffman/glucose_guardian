@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { CarePermissions } from "../../../convex/careSchedule";
 import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY } from "@/constants/storage-keys";
 import { apiUrl } from "@/utils/api-base-url";
 import { mergeCloudLogs } from "@/utils/careLogsMerge";
@@ -223,6 +224,10 @@ export interface AuthContextType {
   caregiverCloudCode: string | null;
   /** Distinguishes a legacy 6-char caregiver code session from a new Care Circle caregiver code. */
   caregiverCodeKind: "legacy" | "access" | null;
+  /** Role of the active access-code session (caregiver vs the patient's own child), null otherwise. */
+  accessCodeRole: "caregiver" | "child" | null;
+  /** Permissions granted to the active access-code session (gates logging/calculator/chat UI). */
+  accessCodePermissions: CarePermissions | null;
   /** Care circles this signed-in account belongs to as a co-guardian. */
   careMemberships: CareMembership[];
   refreshCareMemberships: () => Promise<void>;
@@ -386,6 +391,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [caregiverCloudCode, setCaregiverCloudCode] = useState<string | null>(null);
   /** "legacy" = old 6-char profile caregiverCode; "access" = new Care Circle caregiver access code. */
   const [caregiverCodeKind, setCaregiverCodeKind] = useState<"legacy" | "access" | null>(null);
+  /** For a new access-code session: whether it's a caregiver or the patient's own child, + grants. */
+  const [accessCodeRole, setAccessCodeRole] = useState<"caregiver" | "child" | null>(null);
+  const [accessCodePermissions, setAccessCodePermissions] = useState<CarePermissions | null>(null);
   // ── Co-guardian viewing overlay (signed-in account viewing a linked patient's data) ──
   const [careMemberships, setCareMemberships] = useState<CareMembership[]>([]);
   const [viewingPatientId, setViewingPatientId] = useState<string | null>(null);
@@ -410,6 +418,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /** Live mirrors for the log-write path (which patient bucket + what byline to use). */
   const viewingPatientIdRef = useRef<string | null>(null);
   useEffect(() => { viewingPatientIdRef.current = viewingPatientId; }, [viewingPatientId]);
+  /** For an access-code session that may write logs (child, or a caregiver granted `log`). */
+  const codeWriteRef = useRef<{ code: string; canLog: boolean } | null>(null);
+  useEffect(() => {
+    codeWriteRef.current =
+      caregiverCodeKind === "access" && caregiverCloudCode
+        ? { code: caregiverCloudCode, canLog: !!accessCodePermissions?.log }
+        : null;
+  }, [caregiverCodeKind, caregiverCloudCode, accessCodePermissions]);
   useEffect(() => { profileRef.current = profile; }, [profile]);
   useEffect(() => { accountRef.current = account; }, [account]);
   useEffect(() => { caregiverCloudCodeRef.current = caregiverCloudCode; }, [caregiverCloudCode]);
@@ -1100,13 +1116,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const addFoodLogEntry = useCallback((entry: Omit<FoodLogEntry, "id">) => {
     const id = `food_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const acc = accountRef.current;
-    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
+    const codeWrite = codeWriteRef.current;
     const full: FoodLogEntry = {
       ...entry,
       id,
       ...(acc?.convexUserId ? { authorUserId: acc.convexUserId } : {}),
       authorName: deriveOwnAuthorName(profileRef.current, acc),
     };
+    // Access-code session (a child, or a caregiver granted `log`) writes via the code, not an account.
+    if (codeWrite) {
+      if (!codeWrite.canLog) return;
+      setFoodLog((prev) => [full, ...prev].slice(0, 200));
+      createConvexAuthClient()
+        .mutation(api.careLogs.addFoodLogViaCode, { code: codeWrite.code, entry: toFoodEntryPayload(full) })
+        .catch(() => {});
+      return;
+    }
+    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
     if (viewingPatientIdRef.current) {
       setViewedFoodLog((prev) => [full, ...prev].slice(0, 200));
     } else {
@@ -1150,13 +1176,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logInsulinDose = useCallback((entry: Omit<InsulinLogEntry, "id">) => {
     const id = `ins_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const acc = accountRef.current;
-    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
+    const codeWrite = codeWriteRef.current;
     const full: InsulinLogEntry = {
       ...entry,
       id,
       ...(acc?.convexUserId ? { authorUserId: acc.convexUserId } : {}),
       authorName: deriveOwnAuthorName(profileRef.current, acc),
     };
+    if (codeWrite) {
+      if (!codeWrite.canLog) return;
+      setInsulinLog((prev) => [full, ...prev].slice(0, 500));
+      createConvexAuthClient()
+        .mutation(api.careLogs.addInsulinLogViaCode, { code: codeWrite.code, entry: toInsulinEntryPayload(full) })
+        .catch(() => {});
+      return;
+    }
+    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
     if (viewingPatientIdRef.current) {
       setViewedInsulinLog((prev) => [full, ...prev].slice(0, 500));
     } else {
@@ -1338,6 +1373,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
             setCaregiverCloudCode(normalized);
             setCaregiverCodeKind("access");
+            setAccessCodeRole(resolved.kind);
+            setAccessCodePermissions(resolved.permissions);
             setCaregiverSession(true);
             client.mutation(api.careCircle.touchAccessCode, { code: normalized }).catch(() => {});
             return true;
@@ -1372,6 +1409,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCaregiverSession(false);
     setCaregiverCloudCode(null);
     setCaregiverCodeKind(null);
+    setAccessCodeRole(null);
+    setAccessCodePermissions(null);
     setAccessLock(null);
     setFoodLog([]);
     setInsulinLog([]);
@@ -1682,6 +1721,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isChildMode,
         caregiverCloudCode,
         caregiverCodeKind,
+        accessCodeRole,
+        accessCodePermissions,
         setupProfile,
         updateProfile,
         setCGMConnection,

@@ -424,6 +424,12 @@ const careAccessCodes = defineTable({
   code: v.string(),
   /** Who/what this code is for, e.g. "Ms. Rivera (teacher)". Also the log byline if `log` is granted. */
   label: v.string(),
+  /**
+   * "caregiver" = external view-first access (teacher/babysitter). "child" = the patient's own kid
+   * on their own phone (kids have no account) — full-ish permissions the parent controls. Absent =
+   * legacy caregiver.
+   */
+  kind: v.optional(v.union(v.literal("caregiver"), v.literal("child"))),
   permissions: carePermissions,
   access: careAccess,
   status: v.union(v.literal("active"), v.literal("retired")),

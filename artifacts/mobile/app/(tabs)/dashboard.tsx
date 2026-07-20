@@ -1055,7 +1055,7 @@ export default function DashboardScreen() {
                       onPress={() => openSectionPopup(cardDef.key)}
                     />
                   ))}
-                  {row.length === 1 && <View style={{ flex: 1 }} />}
+                  {row.length === 1 && <View style={{ flex: 1, height: 96 }} />}
                 </View>
               ))}
             </View>

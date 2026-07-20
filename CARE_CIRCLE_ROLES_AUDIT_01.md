@@ -416,8 +416,29 @@ caregiver entry takes 6–8 chars; the dashboard caregiver-code section points i
   window/disabled/removed message + next-opening time, and an Exit that ends the session. Replaces
   the previous "just shows no data" behavior.
 
+**MODEL CHANGE (2026-07-20) — kids are codes, not accounts.** Decision: kids never have their own
+account. A kid uses a **child access code** on their own phone (like a caregiver code, but a
+distinct kind with parent-controlled permissions). This REPLACES the old parent-kid `dependentMode`
+account-flipping entirely, and means anyone with an email/account is a Guardian; co-guardian linking
+stays adult-to-adult (surfaced by the same-Dexcom finder).
+- Backend: `careAccessCodes.kind` = "caregiver" | "child"; `createAccessCode` takes `kind` (child
+  defaults to full permissions, caregiver to view-only); `isCircleAdmin` simplified to
+  patient-or-any-active-co-guardian (no dependentMode); child-logged entries use the patient's name
+  as byline (`codeAuthorName`); `getCircle`/`resolveAccessCode` return `kind`. `setDependentMode` /
+  `careSettings` remain but are unused/dormant.
+- Panel: removed the Parent-kid mode toggle + device-perms; new **Child Access** section
+  ("Generate child code" → `kind:"child"`, default label "<Kid>'s phone", the parent-kid permission
+  toggles inline: add logs / calculator / chat) with share+QR+remove; the Caregiver Codes section
+  now filters to non-child codes.
+- Kid session: `enterCaregiverMode` captures the code's `kind` + `permissions`; AuthContext exposes
+  `accessCodeRole` + `accessCodePermissions` and routes logging through `addFoodLogViaCode` /
+  `addInsulinLogViaCode` (so a child/caregiver with `log` writes to the patient's bucket, blocked
+  otherwise). Insulin Dose calculator and Chat show a "turned off" lock when the code lacks the
+  grant (view/logs already work via the existing caregiver-code data path).
+
 **Remaining (optional, later):** duplicate-ingestion cleanup when a shared-sensor link is accepted,
-universal-link deep-join (QR could then encode a URL), Libre same-sensor parity.
+universal-link deep-join, Libre same-sensor parity, tab-level (not just content-level) gating of
+calculator/chat for child sessions, retire the dormant `careSettings`/`setDependentMode`.
 
 ---
 *Audit basis: convex/schema.ts, auth.ts, patientProfile.ts, patientGlucose.ts, cgmIngest.ts,

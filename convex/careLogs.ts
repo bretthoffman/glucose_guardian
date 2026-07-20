@@ -243,13 +243,21 @@ export const importLogs = mutation({
 
 // ─── external-code-authorized mutations ──────────────────────────────────────────────────────
 
+/** A child logs under the patient's own name; a caregiver logs under the code's label. */
+async function codeAuthorName(
+  ctx: MutationCtx,
+  row: { kind?: "caregiver" | "child"; label: string; patientUserId: Id<"users"> },
+): Promise<string> {
+  return row.kind === "child" ? await patientDisplayName(ctx, row.patientUserId) : row.label;
+}
+
 export const addFoodLogViaCode = mutation({
   args: { code: v.string(), entry: foodEntryPayload },
   handler: async (ctx, args) => {
     const row = await resolveActiveAccessCode(ctx, args.code);
     if (!row || !row.permissions.log) throw new Error("This code cannot add logs");
     if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new Error("Outside this code's schedule");
-    await upsertFood(ctx, row.patientUserId, { authorName: row.label }, args.entry);
+    await upsertFood(ctx, row.patientUserId, { authorName: await codeAuthorName(ctx, row) }, args.entry);
   },
 });
 
@@ -259,7 +267,7 @@ export const addInsulinLogViaCode = mutation({
     const row = await resolveActiveAccessCode(ctx, args.code);
     if (!row || !row.permissions.log) throw new Error("This code cannot add logs");
     if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new Error("Outside this code's schedule");
-    await upsertInsulin(ctx, row.patientUserId, { authorName: row.label }, args.entry);
+    await upsertInsulin(ctx, row.patientUserId, { authorName: await codeAuthorName(ctx, row) }, args.entry);
   },
 });
 

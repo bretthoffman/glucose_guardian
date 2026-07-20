@@ -170,7 +170,9 @@ export default function ChatScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
-  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession, doctorSession, doctorMessages, markDoctorMessagesRead, foodLog, insulinLog } = useAuth();
+  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession, doctorSession, doctorMessages, markDoctorMessagesRead, foodLog, insulinLog, accessCodeRole, accessCodePermissions } = useAuth();
+  // A child/caregiver access-code session only sees the AI chat if the parent enabled it.
+  const chatLocked = accessCodeRole != null && !accessCodePermissions?.chat;
   const { prompt, fromParent } = useLocalSearchParams<{ prompt?: string; fromParent?: string }>();
   const promptSentRef = useRef<string | null>(null);
 
@@ -360,6 +362,18 @@ export default function ChatScreen() {
       <View style={[styles.root, { backgroundColor: colors.background }]}>
         <View style={{ height: topPadding, backgroundColor: colors.background }} />
         <DoctorMessaging colors={colors} isDoctor={true} />
+      </View>
+    );
+  }
+
+  if (chatLocked) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center", padding: 32, gap: 10 }]}>
+        <Feather name="lock" size={28} color={colors.textMuted} />
+        <Text style={{ fontSize: 17, fontWeight: "700", color: colors.text }}>Chat is off</Text>
+        <Text style={{ fontSize: 13, color: colors.textSecondary, textAlign: "center", lineHeight: 19 }}>
+          The AI chat isn't turned on for you. Ask a parent to enable it.
+        </Text>
       </View>
     );
   }

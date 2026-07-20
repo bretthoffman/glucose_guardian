@@ -159,7 +159,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const c = useThemeColors();
   const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose, notifyCgmSyncSuccess } = useGlucose();
-  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession, isMinor, foodLog, insulinLog, isViewingLinkedPatient, viewingPatientName, exitViewingMode } = useAuth();
+  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession, isMinor, foodLog, insulinLog, isViewingLinkedPatient, viewingPatientName, exitViewingMode, accessCodeRole } = useAuth();
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -170,7 +170,6 @@ export default function HomeScreen() {
   const [insightsVisible, setInsightsVisible] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
-  const [cgmLatestReading, setCgmLatestReading] = useState<{ glucose: number; timestamp: string } | null>(null);
   const [backupMissing, setBackupMissing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{
     diagnosticCategory: string;
@@ -208,7 +207,6 @@ export default function HomeScreen() {
     const wasConnected = prevConnectedRef.current;
     prevConnectedRef.current = isConnected;
     if (wasConnected && !isConnected) {
-      setCgmLatestReading(null);
       setLastSyncResult(null);
       clearHistory();
     }
@@ -297,9 +295,9 @@ export default function HomeScreen() {
 
   const deviceLabel = cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre";
 
-  const displayGlucose = isConnected && cgmLatestReading
-    ? cgmLatestReading.glucose
-    : latestReading?.glucose ?? 0;
+  // Always derive from `history` — the single source of truth the graph and header pill use — so
+  // the value can never diverge (e.g. leak a prior account's reading into a caregiver session).
+  const displayGlucose = latestReading?.glucose ?? 0;
   const recentHistory = [...history].reverse().slice(0, 10);
 
   /** Last-24h pattern analysis for the trend-pill popup (moved here from the Insulin Dose tab). */
@@ -311,10 +309,7 @@ export default function HomeScreen() {
 
   const effectiveTrend: TrendInfo | undefined = (() => {
     if (history.length === 0) return undefined;
-    const latest = isConnected && cgmLatestReading
-      ? history.find((h) => h.timestamp === cgmLatestReading.timestamp)
-      : history[history.length - 1];
-    if (!latest) return undefined;
+    const latest = history[history.length - 1];
     if (latest.dexcomTrend != null) return mapDexcomTrend(latest.dexcomTrend);
     if (history.length < 2) return undefined;
     const last = history[history.length - 1].glucose;
@@ -335,13 +330,20 @@ export default function HomeScreen() {
   const tabBarClearance = TAB_BAR_HEIGHT + (insets.bottom > 0 ? insets.bottom : 12) + 8;
 
   const patientName = profile?.childName ?? "Glucose Guardian";
-  // Guardian-role accounts (onboarding "parent/guardian"; parentName is only ever written for that
-  // role), caregiver-code sessions, and signed-in co-guardians viewing a linked patient all greet
-  // the guardian, not the patient — "Bella's Guardian".
-  const isGuardianViewer =
-    caregiverSession || isViewingLinkedPatient || profile?.accountRole === "parent" || !!profile?.parentName;
-  const childName =
-    isGuardianViewer && profile?.childName ? `${profile.childName}'s Guardian` : patientName;
+  // Greeting reflects who's actually looking:
+  //  - child code → the kid on their own phone, so just their name ("Bella").
+  //  - caregiver code (new or legacy) → "Bella's Caregiver".
+  //  - co-guardian viewing / guardian-role account (parentName is only written for that role) → "Bella's Guardian".
+  const childName = (() => {
+    const name = profile?.childName;
+    if (!name) return patientName;
+    if (accessCodeRole === "child") return name;
+    if (accessCodeRole === "caregiver" || caregiverSession) return `${name}'s Caregiver`;
+    if (isViewingLinkedPatient || profile?.accountRole === "parent" || !!profile?.parentName) {
+      return `${name}'s Guardian`;
+    }
+    return name;
+  })();
   const updatedLabel = (lastSyncResult || lastSyncTime)
     ? `Updated ${formatLastSync(lastSyncResult?.at ?? lastSyncTime).toLowerCase()}`
     : undefined;
@@ -386,7 +388,6 @@ export default function HomeScreen() {
 
       if (entries.length > 0) {
         const mostRecent = entries[entries.length - 1];
-        setCgmLatestReading({ glucose: mostRecent.glucose, timestamp: mostRecent.timestamp });
 
         if (alertPrefs.notificationsEnabled) {
           const g = mostRecent.glucose;

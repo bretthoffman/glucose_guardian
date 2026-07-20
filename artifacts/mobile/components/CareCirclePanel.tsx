@@ -49,6 +49,7 @@ interface AccessCodeRow {
   codeId: Id<"careAccessCodes">;
   code: string;
   label: string;
+  kind: "caregiver" | "child";
   permissions: CarePermissions;
   access: CareAccess;
   accessState: AccessState;
@@ -401,13 +402,15 @@ export default function CareCirclePanel({
   const targetPatientId = managingPatientId ?? myUserId;
   const managingOther = managingPatientId != null && managingPatientId !== myUserId;
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (silent = false) => {
     if (!account?.convexUserId || !targetPatientId) {
       setLoading(false);
       setError("Sign in with a Glucose Guardian account to use the Care Circle.");
       return;
     }
-    setLoading(true);
+    // Silent refreshes (after an action) update data in place — no full-panel spinner remount,
+    // which would blink the popup and jump the scroll back to the top.
+    if (!silent) setLoading(true);
     setError("");
     try {
       const client = createConvexAuthClient();
@@ -440,7 +443,7 @@ export default function CareCirclePanel({
       try {
         const client = createConvexAuthClient();
         await fn(client, account.convexUserId as Id<"users">, account.passwordHash);
-        await refresh();
+        await refresh(true);
       } catch (e) {
         Alert.alert("Care Circle", cleanConvexError(e));
       } finally {
@@ -449,6 +452,25 @@ export default function CareCirclePanel({
     },
     [account?.convexUserId, account?.passwordHash, refresh],
   );
+
+  /** Same-sensor discovery is a read-only query — no circle refresh, so the panel never blinks. */
+  const findSensorAccounts = useCallback(async () => {
+    if (!account?.convexUserId) return;
+    setBusy(true);
+    try {
+      const client = createConvexAuthClient();
+      const res = await client.query(api.careCircle.findSharedSensorAccounts, {
+        userId: account.convexUserId as Id<"users">,
+        passwordHash: account.passwordHash,
+      });
+      setSensorResult(res as typeof sensorResult);
+      setSensorSearched(true);
+    } catch (e) {
+      Alert.alert("Care Circle", cleanConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [account?.convexUserId, account?.passwordHash]);
 
   const shareCode = async (code: string, kind: "invite" | "access") => {
     const patientName = managingOther
@@ -465,10 +487,11 @@ export default function CareCirclePanel({
     }
   };
 
-  const adminCirclesIManages = memberships.filter((m) => m.dependentMode);
+  // Co-guardians are admins of every circle they're in, so all memberships are manageable.
+  const adminCirclesIManages = memberships;
   const isAdmin = circle?.isAdmin ?? false;
-  const dependentMode = circle?.settings.dependentMode ?? false;
-  const viewingAsManagedKid = !managingOther && dependentMode && !isAdmin;
+  const caregiverCodes = (circle?.accessCodes ?? []).filter((c) => c.kind !== "child");
+  const childCodes = (circle?.accessCodes ?? []).filter((c) => c.kind === "child");
 
   if (loading) {
     return (
@@ -496,7 +519,7 @@ export default function CareCirclePanel({
         <View style={[styles.errorBox, { backgroundColor: COLORS.dangerLight }]}>
           <Feather name="alert-circle" size={14} color={COLORS.danger} />
           <Text style={[styles.errorText, { color: COLORS.danger }]}>{error}</Text>
-          <Pressable onPress={refresh}>
+          <Pressable onPress={() => refresh()}>
             <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: 12 }}>Retry</Text>
           </Pressable>
         </View>
@@ -527,78 +550,91 @@ export default function CareCirclePanel({
 
       {circle && (
         <>
-          {viewingAsManagedKid && (
-            <View style={[styles.infoBanner, { backgroundColor: COLORS.primary + "12", borderColor: COLORS.primary + "40" }]}>
-              <Feather name="shield" size={14} color={COLORS.primary} />
-              <Text style={[styles.infoBannerText, { color: colors.textSecondary }]}>
-                This care circle is managed by your guardians.
-              </Text>
-            </View>
-          )}
-
-          {/* ── Parent-kid mode ── */}
-          {(isAdmin || !viewingAsManagedKid) && (
+          {/* ── Child Access (kids have no account — they use a code on their own phone) ── */}
+          {isAdmin && (
             <View style={[styles.sectionBox, { borderTopColor: colors.separator }]}>
-              <View style={styles.permRow}>
-                <View style={{ flex: 1, paddingRight: 10 }}>
-                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Parent-kid mode</Text>
-                  <Text style={[styles.sectionSub, { color: colors.textMuted }]}>
-                    Co-guardians manage this account; the patient's device gets limited controls.
-                  </Text>
-                </View>
-                <Switch
-                  value={dependentMode}
-                  disabled={busy || (!isAdmin && dependentMode)}
-                  trackColor={{ true: COLORS.primary }}
-                  onValueChange={(on) => {
-                    if (!targetPatientId) return;
-                    Alert.alert(
-                      on ? "Enable parent-kid mode?" : "Turn off parent-kid mode?",
-                      on
-                        ? "Co-guardians take over managing this care circle, and this becomes the kid's monitored account."
-                        : "The patient account takes back control of its own care circle.",
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        {
-                          text: on ? "Enable" : "Turn off",
-                          onPress: () =>
-                            runAction(async (client, userId, passwordHash) => {
-                              await client.mutation(api.careCircle.setDependentMode, {
-                                userId,
-                                passwordHash,
-                                patientUserId: targetPatientId,
-                                enabled: on,
-                              });
-                            }),
-                        },
-                      ],
-                    );
-                  }}
-                />
-              </View>
-              {dependentMode && isAdmin && (
-                <View style={{ marginTop: 8, gap: 6 }}>
-                  <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>Patient's device may:</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Child Access</Text>
+              <Text style={[styles.sectionSub, { color: colors.textMuted }]}>
+                Your child views their own data on their phone with this code — no account needed. You
+                control what they can do below.
+              </Text>
+              {childCodes.map((c) => (
+                <View key={String(c.codeId)} style={[styles.memberRow, { borderColor: colors.border, flexDirection: "column", alignItems: "stretch", gap: 10 }]}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[styles.memberName, { color: colors.text }]} numberOfLines={1}>{c.label}</Text>
+                      <Text style={[styles.codeText, { color: COLORS.primary }]}>{c.code}</Text>
+                    </View>
+                    <AccessChip accessState={c.accessState} colors={colors} />
+                  </View>
+                  <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>Your child may:</Text>
                   <PermissionToggles
-                    value={circle.settings.devicePermissions}
+                    value={c.permissions}
                     deviceOnly
                     colors={colors}
                     disabled={busy}
-                    onChange={(next) => {
-                      if (!targetPatientId) return;
+                    onChange={(next) =>
                       runAction(async (client, userId, passwordHash) => {
-                        await client.mutation(api.careCircle.setDependentMode, {
+                        await client.mutation(api.careCircle.updateAccessCode, {
                           userId,
                           passwordHash,
-                          patientUserId: targetPatientId,
-                          enabled: true,
-                          devicePermissions: next,
+                          codeId: c.codeId,
+                          permissions: next,
                         });
-                      });
-                    }}
+                      })
+                    }
                   />
+                  {qrCodeId === c.codeId && <CodeQR value={c.code} />}
+                  <View style={{ flexDirection: "row", gap: 16, alignItems: "center" }}>
+                    <Pressable disabled={busy} onPress={() => shareCode(c.code, "access")}>
+                      <Text style={[styles.actionLink, { color: COLORS.primary }]}>Share</Text>
+                    </Pressable>
+                    <Pressable disabled={busy} onPress={() => setQrCodeId(qrCodeId === c.codeId ? null : c.codeId)}>
+                      <Text style={[styles.actionLink, { color: COLORS.primary }]}>{qrCodeId === c.codeId ? "Hide QR" : "QR"}</Text>
+                    </Pressable>
+                    <Pressable
+                      disabled={busy}
+                      onPress={() =>
+                        Alert.alert("Remove child access?", "This code stops working immediately.", [
+                          { text: "Cancel", style: "cancel" },
+                          {
+                            text: "Remove",
+                            style: "destructive",
+                            onPress: () =>
+                              runAction(async (client, userId, passwordHash) => {
+                                await client.mutation(api.careCircle.retireAccessCode, { userId, passwordHash, codeId: c.codeId });
+                              }),
+                          },
+                        ])
+                      }
+                    >
+                      <Text style={[styles.dangerLink, { color: COLORS.danger }]}>Remove</Text>
+                    </Pressable>
+                  </View>
                 </View>
-              )}
+              ))}
+              <Pressable
+                disabled={busy}
+                style={({ pressed }) => [styles.primaryBtn, { backgroundColor: COLORS.primary, opacity: pressed || busy ? 0.8 : 1 }]}
+                onPress={() =>
+                  runAction(async (client, userId, passwordHash) => {
+                    if (!targetPatientId) return;
+                    const base = profile?.childName ? `${profile.childName}'s phone` : "My child's phone";
+                    const label = childCodes.length > 0 ? `${base} ${childCodes.length + 1}` : base;
+                    const result = await client.mutation(api.careCircle.createAccessCode, {
+                      userId,
+                      passwordHash,
+                      patientUserId: targetPatientId,
+                      label,
+                      kind: "child",
+                    });
+                    setCreatedCode({ code: result.code, label });
+                  })
+                }
+              >
+                <Feather name="plus" size={14} color="#fff" />
+                <Text style={styles.primaryBtnText}>{childCodes.length > 0 ? "Add another child device" : "Generate child code"}</Text>
+              </Pressable>
             </View>
           )}
 
@@ -728,10 +764,10 @@ export default function CareCirclePanel({
               For teachers, babysitters, nurses, and relatives — no account needed. They enter the
               code on the sign-in screen. Codes work until retired, only inside their schedule.
             </Text>
-            {circle.accessCodes.length === 0 && (
-              <Text style={[styles.emptyText, { color: colors.textMuted }]}>No access codes yet.</Text>
+            {caregiverCodes.length === 0 && (
+              <Text style={[styles.emptyText, { color: colors.textMuted }]}>No caregiver codes yet.</Text>
             )}
-            {circle.accessCodes.map((c) => {
+            {caregiverCodes.map((c) => {
               const editing = editingCodeId === c.codeId;
               return (
                 <View key={String(c.codeId)} style={[styles.memberRow, { borderColor: colors.border, flexDirection: "column", alignItems: "stretch", gap: 8 }]}>
@@ -912,15 +948,13 @@ export default function CareCirclePanel({
               <Pressable
                 disabled={busy}
                 style={({ pressed }) => [styles.secondaryBtn, { borderColor: colors.border, opacity: pressed || busy ? 0.8 : 1 }]}
-                onPress={() =>
-                  runAction(async (client, userId, passwordHash) => {
-                    const res = await client.query(api.careCircle.findSharedSensorAccounts, { userId, passwordHash });
-                    setSensorResult(res as typeof sensorResult);
-                    setSensorSearched(true);
-                  })
-                }
+                onPress={findSensorAccounts}
               >
-                <Text style={[styles.secondaryBtnText, { color: COLORS.primary }]}>Find accounts on my sensor</Text>
+                {busy ? (
+                  <ActivityIndicator color={COLORS.primary} size="small" />
+                ) : (
+                  <Text style={[styles.secondaryBtnText, { color: COLORS.primary }]}>Find accounts on my sensor</Text>
+                )}
               </Pressable>
               {sensorSearched && sensorResult && sensorResult.matches.length === 0 && (
                 <Text style={[styles.sectionSub, { color: colors.textMuted }]}>

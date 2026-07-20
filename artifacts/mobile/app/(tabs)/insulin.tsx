@@ -77,7 +77,9 @@ export default function InsulinScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { targetGlucose, carbRatio, correctionFactor, history, cgmSyncSuccessTick } = useGlucose();
-  const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode } = useAuth();
+  const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions } = useAuth();
+  // A child/caregiver access-code session only sees the dose calculator if the parent enabled it.
+  const calculatorLocked = accessCodeRole != null && !accessCodePermissions?.useCalculator;
 
   const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
   const [timeRange, setTimeRange] = useState<A1cRange>(DEFAULT_A1C_RANGE);
@@ -517,6 +519,14 @@ export default function InsulinScreen() {
           selectedInsulinLabel={insulinTypeLabel}
           onLogAdded={triggerLogPlusOne}
         />
+      ) : calculatorLocked ? (
+        <View style={[styles.lockedCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Feather name="lock" size={26} color={colors.textMuted} />
+          <Text style={[styles.lockedTitle, { color: colors.text }]}>Calculator is off</Text>
+          <Text style={[styles.lockedSub, { color: colors.textSecondary }]}>
+            The dose calculator isn't turned on for you. Ask a parent to enable it.
+          </Text>
+        </View>
       ) : (
       <ScrollView
         style={{ flex: 1 }}
@@ -1068,6 +1078,9 @@ const styles = StyleSheet.create({
   explainBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 11 },
   explainBtnText: { fontSize: 13, fontWeight: "600" },
   dosePrompt: { fontSize: 13, fontWeight: "400", lineHeight: 20, textAlign: "center", paddingVertical: 8 },
+  lockedCard: { margin: 20, borderRadius: 16, borderWidth: 1, padding: 28, alignItems: "center", gap: 10 },
+  lockedTitle: { fontSize: 17, fontWeight: "700" },
+  lockedSub: { fontSize: 13, fontWeight: "400", textAlign: "center", lineHeight: 19 },
 
   basalInfoBox: {
     flexDirection: "row",

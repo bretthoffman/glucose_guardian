@@ -134,17 +134,15 @@ async function activeLinkFor(
 }
 
 /**
- * Admin resolution: the patient account administers its own circle UNLESS dependentMode is on,
- * in which case active co-guardians administer instead (and the patient/kid account cannot).
+ * Admin resolution: the patient account and any active co-guardian administer the circle. (Kids
+ * have no account — they use a child access code — so there is no account-flipping to reason about.)
  */
 async function isCircleAdmin(
   ctx: QueryCtx | MutationCtx,
   patientUserId: Id<"users">,
   callerUserId: Id<"users">,
 ): Promise<boolean> {
-  const settings = settingsOrDefault(await getSettings(ctx, patientUserId));
-  if (callerUserId === patientUserId) return !settings.dependentMode;
-  if (!settings.dependentMode) return false;
+  if (callerUserId === patientUserId) return true;
   return (await activeLinkFor(ctx, patientUserId, callerUserId)) !== null;
 }
 
@@ -354,6 +352,7 @@ export const createAccessCode = mutation({
     passwordHash: v.string(),
     patientUserId: v.id("users"),
     label: v.string(),
+    kind: v.optional(v.union(v.literal("caregiver"), v.literal("child"))),
     permissions: v.optional(carePermissionsPayload),
     access: v.optional(careAccessPayload),
   },
@@ -362,13 +361,18 @@ export const createAccessCode = mutation({
     if (!(await isCircleAdmin(ctx, args.patientUserId, args.userId))) throw new Error("Not allowed");
     const label = args.label.trim();
     if (!label) throw new Error("Give this code a name (who it's for)");
+    const kind = args.kind ?? "caregiver";
+    // A child (the patient's own kid on their phone) gets full-ish defaults the parent then trims;
+    // a caregiver defaults to view-only.
+    const defaultPermissions = kind === "child" ? FULL_CARE_PERMISSIONS : VIEWER_CARE_PERMISSIONS;
     const now = Date.now();
     const code = await generateUniqueCode(ctx);
     const id = await ctx.db.insert("careAccessCodes", {
       patientUserId: args.patientUserId,
       code,
       label,
-      permissions: args.permissions ?? { ...VIEWER_CARE_PERMISSIONS },
+      kind,
+      permissions: args.permissions ?? { ...defaultPermissions },
       access: args.access ?? { mode: "always" },
       status: "active",
       createdAt: now,
@@ -509,6 +513,7 @@ export const getCircle = query({
         codeId: c._id,
         code: c.code,
         label: c.label,
+        kind: c.kind ?? ("caregiver" as const),
         permissions: c.permissions,
         access: c.access,
         accessState: evaluateCareAccess(c.access as CareAccess, now),
@@ -579,18 +584,19 @@ export const findSharedSensorAccounts = query({
       .query("patientDexcomCredentials")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .unique();
-    const key = mine?.usernameKey;
+    // Match on the actual Dexcom username (server-only) so this works regardless of whether the
+    // indexed `usernameKey` has been backfilled — no reconnect required.
+    const key = (mine?.usernameKey ?? mine?.dexcomUsername ?? "").trim().toLowerCase();
     if (!key) {
       return { hasCredentials: !!mine, matches: [] as { userId: Id<"users">; maskedEmail: string; name: string; alreadyLinked: boolean }[] };
     }
-    const rows = await ctx.db
-      .query("patientDexcomCredentials")
-      .withIndex("by_usernameKey", (q) => q.eq("usernameKey", key))
-      .collect();
+    const all = await ctx.db.query("patientDexcomCredentials").collect();
 
     const matches: { userId: Id<"users">; maskedEmail: string; name: string; alreadyLinked: boolean }[] = [];
-    for (const row of rows) {
+    for (const row of all) {
       if (row.userId === args.userId) continue;
+      const rowKey = (row.usernameKey ?? row.dexcomUsername ?? "").trim().toLowerCase();
+      if (rowKey !== key) continue;
       const user = await ctx.db.get(row.userId);
       if (!user) continue;
       const profile = await ctx.db
@@ -671,6 +677,7 @@ export const resolveAccessCode = query({
     const patient = await slimPatientProfile(ctx, row.patientUserId);
     return {
       label: row.label,
+      kind: row.kind ?? ("caregiver" as const),
       patientName: patient?.childName ?? "Patient",
       permissions: row.permissions,
       access: row.access,
