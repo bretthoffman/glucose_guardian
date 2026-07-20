@@ -391,7 +391,7 @@ export default function CareCirclePanel({
   const [editingCodeId, setEditingCodeId] = useState<Id<"careAccessCodes"> | null>(null);
   const [qrCodeId, setQrCodeId] = useState<Id<"careAccessCodes"> | null>(null);
   const [sensorResult, setSensorResult] = useState<
-    { hasCredentials: boolean; matches: { userId: string; maskedEmail: string; name: string; alreadyLinked: boolean }[] } | null
+    { hasCredentials: boolean; matches: { userId: string; email: string; name: string; alreadyLinked: boolean }[] } | null
   >(null);
   const [sensorSearched, setSensorSearched] = useState(false);
   const [editPermissions, setEditPermissions] = useState<CarePermissions>({ ...VIEWER_PERMISSIONS });
@@ -967,7 +967,7 @@ export default function CareCirclePanel({
                 <View key={m.userId} style={[styles.memberRow, { borderColor: colors.border }]}>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[styles.memberName, { color: colors.text }]} numberOfLines={1}>{m.name}</Text>
-                    <Text style={[styles.sectionSub, { color: colors.textMuted }]}>{m.maskedEmail}</Text>
+                    <Text style={[styles.sectionSub, { color: colors.textMuted }]}>{m.email}</Text>
                   </View>
                   {m.alreadyLinked ? (
                     <View style={[styles.chip, { backgroundColor: COLORS.success + "1E" }]}>

@@ -25,11 +25,11 @@ describe("dashboardSectionVisibility", () => {
     });
   });
 
-  it("hides patient sections + access in a read-only caregiver session, keeps Doctor & Care Team", () => {
+  it("hides patient sections, access, and Doctor & Care Team in a read-only caregiver session", () => {
     const vis = dashboardSectionVisibility({ ...patientParent, caregiverSession: true });
     expect(vis.showPatientSections).toBe(false);
     expect(vis.showAccessManagement).toBe(false);
-    expect(vis.showDoctorCareTeam).toBe(true);
+    expect(vis.showDoctorCareTeam).toBe(false);
   });
 
   it("in doctor mode keeps patient sections but hides Doctor & Care Team and Access Management", () => {
@@ -39,10 +39,10 @@ describe("dashboardSectionVisibility", () => {
     expect(vis.showAccessManagement).toBe(false);
   });
 
-  it("hides patient sections in child view but still allows Doctor & Care Team", () => {
+  it("hides patient sections and Doctor & Care Team in child view", () => {
     const vis = dashboardSectionVisibility({ ...patientParent, isChildMode: true });
     expect(vis.showPatientSections).toBe(false);
-    expect(vis.showDoctorCareTeam).toBe(true);
+    expect(vis.showDoctorCareTeam).toBe(false);
     expect(vis.showAccessManagement).toBe(false);
   });
 
@@ -73,12 +73,12 @@ describe("availableDashboardSections", () => {
     ]);
   });
 
-  it("returns only Doctor & Care Team in a caregiver session", () => {
-    expect(keys({ ...patientParent, caregiverSession: true })).toEqual(["doctor"]);
+  it("returns no management cards in a caregiver session", () => {
+    expect(keys({ ...patientParent, caregiverSession: true })).toEqual([]);
   });
 
-  it("returns only Doctor & Care Team in child view", () => {
-    expect(keys({ ...patientParent, isChildMode: true })).toEqual(["doctor"]);
+  it("returns no management cards in child view", () => {
+    expect(keys({ ...patientParent, isChildMode: true })).toEqual([]);
   });
 
   it("returns the four patient sections (no doctor/access) in doctor mode", () => {

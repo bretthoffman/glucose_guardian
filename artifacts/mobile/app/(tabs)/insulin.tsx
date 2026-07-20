@@ -78,10 +78,20 @@ export default function InsulinScreen() {
   const colors = isDark ? Colors.dark : Colors.light;
   const { targetGlucose, carbRatio, correctionFactor, history, cgmSyncSuccessTick } = useGlucose();
   const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions } = useAuth();
-  // A child/caregiver access-code session only sees the dose calculator if the parent enabled it.
-  const calculatorLocked = accessCodeRole != null && !accessCodePermissions?.useCalculator;
+  // A child/caregiver access-code session only sees the tabs its grants allow (dose calculator /
+  // logging). Everyone else — owner, co-guardian, doctor, legacy caregiver code — sees both.
+  const isAccessCodeSession = accessCodeRole != null;
+  const canUseCalculator = !isAccessCodeSession || !!accessCodePermissions?.useCalculator;
+  const canLog = !isAccessCodeSession || !!accessCodePermissions?.log;
+  const availableTabs = [
+    ...(canUseCalculator ? (["predict"] as ScreenTab[]) : []),
+    ...(canLog ? (["log"] as ScreenTab[]) : []),
+  ];
 
   const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
+  // The tab actually shown: fall back to the first allowed tab when the stored one isn't available
+  // (e.g. calculator grant off → default to Log; log grant off → only Dose).
+  const effectiveTab: ScreenTab = availableTabs.includes(screenTab) ? screenTab : (availableTabs[0] ?? "predict");
   const [timeRange, setTimeRange] = useState<A1cRange>(DEFAULT_A1C_RANGE);
 
 
@@ -430,7 +440,9 @@ export default function InsulinScreen() {
   }
 
   /** Shared by the bolus and basal action rows — identical logging behavior in both modes. */
-  const tookDoseButton = (
+  // Hidden when the access-code grant excludes logging: pressing it would be a no-op (logging is
+  // gated server-side by the `log` grant), so don't show it rather than have a dead button.
+  const tookDoseButton = canLog ? (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="I just took this dose"
@@ -449,7 +461,7 @@ export default function InsulinScreen() {
         {doseJustLogged ? "Dose Logged" : "I Just Took This Dose"}
       </Text>
     </Pressable>
-  );
+  ) : null;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -461,14 +473,14 @@ export default function InsulinScreen() {
         <TabGlucoseHeaderRow
           left={
             <View style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
-              {(["predict", "log"] as ScreenTab[]).map((t) => (
+              {availableTabs.map((t) => (
                 <Pressable
                   key={t}
                   accessibilityRole="tab"
-                  accessibilityState={{ selected: screenTab === t }}
+                  accessibilityState={{ selected: effectiveTab === t }}
                   style={[
                     styles.screenToggleBtn,
-                    screenTab === t && {
+                    effectiveTab === t && {
                       backgroundColor: colors.card,
                       shadowColor: "#000",
                       shadowOpacity: 0.08,
@@ -485,7 +497,7 @@ export default function InsulinScreen() {
                     numberOfLines={1}
                     style={[
                       styles.screenToggleText,
-                      { color: screenTab === t ? COLORS.primary : colors.textSecondary },
+                      { color: effectiveTab === t ? COLORS.primary : colors.textSecondary },
                     ]}
                   >
                     {t === "predict" ? "💉 Dose" : "📋 Log"}
@@ -511,7 +523,15 @@ export default function InsulinScreen() {
         />
       </TabGlucoseHeaderShell>
 
-      {screenTab === "log" ? (
+      {availableTabs.length === 0 ? (
+        <View style={[styles.lockedCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Feather name="lock" size={26} color={colors.textMuted} />
+          <Text style={[styles.lockedTitle, { color: colors.text }]}>Insulin isn't available</Text>
+          <Text style={[styles.lockedSub, { color: colors.textSecondary }]}>
+            Neither the dose calculator nor logging is turned on for you. Ask a parent to enable one.
+          </Text>
+        </View>
+      ) : effectiveTab === "log" ? (
         <LogHistory
           colors={colors}
           restrictToDay={caregiverSession}
@@ -519,14 +539,6 @@ export default function InsulinScreen() {
           selectedInsulinLabel={insulinTypeLabel}
           onLogAdded={triggerLogPlusOne}
         />
-      ) : calculatorLocked ? (
-        <View style={[styles.lockedCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="lock" size={26} color={colors.textMuted} />
-          <Text style={[styles.lockedTitle, { color: colors.text }]}>Calculator is off</Text>
-          <Text style={[styles.lockedSub, { color: colors.textSecondary }]}>
-            The dose calculator isn't turned on for you. Ask a parent to enable it.
-          </Text>
-        </View>
       ) : (
       <ScrollView
         style={{ flex: 1 }}

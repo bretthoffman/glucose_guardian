@@ -146,20 +146,6 @@ export interface AlertPreferences {
   urgentHighThreshold: number;
 }
 
-export type GuardianPinStatus =
-  | "loading"
-  | "not_set"
-  | "active"
-  | "temporarily_locked"
-  | "unauthorized";
-
-export type GuardianPinVerifyResult =
-  | { result: "verified" }
-  | { result: "invalid" }
-  | { result: "temporarily_locked"; lockoutRemainingMs: number }
-  | { result: "setup_required" }
-  | { result: "unauthorized" };
-
 export interface AuthContextType {
   profile: UserProfile | null;
   account: UserAccount | null;
@@ -172,11 +158,6 @@ export interface AuthContextType {
   foodLog: FoodLogEntry[];
   emergencyContacts: EmergencyContact[];
   alertPrefs: AlertPreferences;
-  guardianPinStatus: GuardianPinStatus;
-  guardianPinLockoutRemainingMs: number | null;
-  /** True when a backend (or legacy local) PIN is configured. */
-  guardianPinConfigured: boolean;
-  isGuardianUnlocked: boolean;
   caregiverSession: boolean;
   doctorSession: boolean;
   isChildMode: boolean;
@@ -195,11 +176,6 @@ export interface AuthContextType {
   addEmergencyContact: (contact: Omit<EmergencyContact, "id">) => Promise<void>;
   removeEmergencyContact: (id: string) => Promise<void>;
   updateAlertPrefs: (prefs: Partial<AlertPreferences>) => Promise<void>;
-  setupGuardianPin: (pin: string, pinConfirm: string) => Promise<{ ok: boolean; error?: string }>;
-  verifyGuardianPin: (pin: string) => Promise<GuardianPinVerifyResult>;
-  unlockGuardian: (pin: string) => Promise<GuardianPinVerifyResult>;
-  refreshGuardianPinStatus: () => Promise<void>;
-  lockGuardian: () => void;
   setChildMode: (enabled: boolean) => Promise<void>;
   generateCaregiverCode: () => Promise<string>;
   enterCaregiverMode: (code: string) => Promise<boolean>;
@@ -252,10 +228,10 @@ const INSULIN_LOG_KEY = "@gluco_guardian_insulin_log";
 const LOGS_MIGRATED_KEY_PREFIX = "@gluco_guardian_logs_migrated_";
 const EMERGENCY_CONTACTS_KEY = "@gluco_guardian_emergency_contacts";
 const ALERT_PREFS_KEY = "@gluco_guardian_alert_prefs";
-/** @deprecated Legacy local-only PIN storage — backend is authoritative when signed into Convex. */
-const GUARDIAN_PIN_KEY = "@gluco_guardian_pin";
 const ACCOUNT_KEY = "@gluco_guardian_account";
 const SESSION_KEY = "@gluco_guardian_session";
+/** Persisted access-code session so a caregiver/child stays signed in across app restarts. */
+const CAREGIVER_CODE_KEY = "@gluco_guardian_caregiver_code";
 const DOCTOR_MESSAGES_KEY = "@gluco_guardian_doctor_messages";
 const THERAPY_PROPOSAL_KEY = "@gluco_guardian_therapy_proposal";
 
@@ -382,10 +358,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [insulinLog, setInsulinLog] = useState<InsulinLogEntry[]>([]);
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [alertPrefs, setAlertPrefsState] = useState<AlertPreferences>(DEFAULT_ALERT_PREFS);
-  const [guardianPinStatus, setGuardianPinStatus] = useState<GuardianPinStatus>("loading");
-  const [guardianPinLockoutRemainingMs, setGuardianPinLockoutRemainingMs] = useState<number | null>(null);
-  const [legacyLocalPinPresent, setLegacyLocalPinPresent] = useState(false);
-  const [isGuardianUnlocked, setIsGuardianUnlocked] = useState(false);
   const [caregiverSession, setCaregiverSession] = useState(false);
   const [doctorSession, setDoctorSession] = useState(false);
   const [caregiverCloudCode, setCaregiverCloudCode] = useState<string | null>(null);
@@ -434,121 +406,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { alertPrefsRef.current = alertPrefs; }, [alertPrefs]);
   useEffect(() => { doctorMessagesRef.current = doctorMessages; }, [doctorMessages]);
   useEffect(() => { therapyProposalRef.current = therapyProposal; }, [therapyProposal]);
-
-  const refreshGuardianPinStatus = useCallback(async () => {
-    const acc = accountRef.current;
-    if (!acc?.convexUserId) {
-      try {
-        const stored = await AsyncStorage.getItem(GUARDIAN_PIN_KEY);
-        setLegacyLocalPinPresent(!!stored);
-        setGuardianPinStatus(stored ? "active" : "not_set");
-        setGuardianPinLockoutRemainingMs(null);
-      } catch {
-        setLegacyLocalPinPresent(false);
-        setGuardianPinStatus("not_set");
-        setGuardianPinLockoutRemainingMs(null);
-      }
-      return;
-    }
-    try {
-      const client = createConvexAuthClient();
-      const status = await client.query(api.patientGuardianPin.getStatus, {
-        userId: acc.convexUserId as Id<"users">,
-        passwordHash: acc.passwordHash,
-      });
-      if (status.status === "unauthorized") {
-        setGuardianPinStatus("unauthorized");
-        setGuardianPinLockoutRemainingMs(null);
-        return;
-      }
-      if (status.status === "temporarily_locked") {
-        setGuardianPinStatus("temporarily_locked");
-        setGuardianPinLockoutRemainingMs(status.lockoutRemainingMs);
-        return;
-      }
-      setGuardianPinStatus(status.status);
-      setGuardianPinLockoutRemainingMs(null);
-      setLegacyLocalPinPresent(false);
-    } catch {
-      setGuardianPinStatus("not_set");
-      setGuardianPinLockoutRemainingMs(null);
-    }
-  }, []);
-
-  const verifyGuardianPin = useCallback(async (pin: string): Promise<GuardianPinVerifyResult> => {
-    const acc = accountRef.current;
-    if (!acc?.convexUserId) {
-      try {
-        const stored = await AsyncStorage.getItem(GUARDIAN_PIN_KEY);
-        if (!stored) return { result: "setup_required" };
-        if (stored === pin) return { result: "verified" };
-        return { result: "invalid" };
-      } catch {
-        return { result: "invalid" };
-      }
-    }
-    try {
-      const client = createConvexAuthClient();
-      const res = await client.action(api.patientGuardianPinActions.verifyPin, {
-        userId: acc.convexUserId as Id<"users">,
-        passwordHash: acc.passwordHash,
-        pin,
-      });
-      if (res.result === "temporarily_locked") {
-        setGuardianPinStatus("temporarily_locked");
-        setGuardianPinLockoutRemainingMs(res.lockoutRemainingMs);
-      }
-      return res;
-    } catch {
-      return { result: "invalid" };
-    }
-  }, []);
-
-  const setupGuardianPin = useCallback(async (pin: string, pinConfirm: string) => {
-    const acc = accountRef.current;
-    if (!acc?.convexUserId) {
-      if (pin !== pinConfirm) return { ok: false, error: "PINs don't match" };
-      if (!/^\d{4}$/.test(pin)) return { ok: false, error: "PIN must be exactly 4 digits" };
-      await AsyncStorage.setItem(GUARDIAN_PIN_KEY, pin);
-      setLegacyLocalPinPresent(true);
-      setGuardianPinStatus("active");
-      return { ok: true };
-    }
-    try {
-      const client = createConvexAuthClient();
-      const res = await client.action(api.patientGuardianPinActions.setupPin, {
-        userId: acc.convexUserId as Id<"users">,
-        passwordHash: acc.passwordHash,
-        pin,
-        pinConfirm,
-      });
-      if (res.result === "ok") {
-        await AsyncStorage.removeItem(GUARDIAN_PIN_KEY);
-        setLegacyLocalPinPresent(false);
-        setGuardianPinStatus("active");
-        setGuardianPinLockoutRemainingMs(null);
-        return { ok: true };
-      }
-      if (res.result === "mismatch") return { ok: false, error: "PINs don't match" };
-      if (res.result === "invalid_format") return { ok: false, error: "PIN must be exactly 4 digits" };
-      if (res.result === "already_active") return { ok: false, error: "Guardian PIN is already configured" };
-      if (res.result === "unauthorized") return { ok: false, error: "Not authorized to set Guardian PIN" };
-      return { ok: false, error: "Could not save Guardian PIN. Try again." };
-    } catch {
-      return { ok: false, error: "Could not save Guardian PIN. Check your connection." };
-    }
-  }, []);
-
-  const unlockGuardian = useCallback(async (pin: string): Promise<GuardianPinVerifyResult> => {
-    const res = await verifyGuardianPin(pin);
-    if (res.result === "verified") {
-      setIsGuardianUnlocked(true);
-    }
-    return res;
-  }, [verifyGuardianPin]);
-
-  const guardianPinConfigured =
-    guardianPinStatus === "active" || (legacyLocalPinPresent && !account?.convexUserId);
 
   const commitProfile = useCallback(async (updated: UserProfile) => {
     profileRef.current = updated;
@@ -605,6 +462,160 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+
+    // Rehydrate a persisted access-code session (caregiver or child) on cold start. Re-validates
+    // against Convex so a revoked / view-readings-removed code is dropped (bounce to sign-in), an
+    // out-of-window code is still restored (the accessLock overlay handles the window), and an
+    // offline start falls back to the cached role/permissions so the code never has to be re-typed.
+    async function restoreCaregiverCodeSession(raw: string) {
+      let parsed: { code?: string; kind?: string; role?: string; permissions?: CarePermissions | null };
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        await AsyncStorage.removeItem(CAREGIVER_CODE_KEY);
+        return;
+      }
+      const code = normalizeCaregiverInputCode(parsed.code ?? "");
+      const kind = parsed.kind === "access" ? "access" : parsed.kind === "legacy" ? "legacy" : null;
+      if (!code || !kind) {
+        await AsyncStorage.removeItem(CAREGIVER_CODE_KEY);
+        return;
+      }
+
+      // An access-code session is accountless — drop any stale signed-out account state.
+      accountRef.current = null;
+      setAccount(null);
+
+      const client = createConvexAuthClient();
+
+      // Forget the code and return to a clean signed-out state. Used when the code has been deleted
+      // or its core view-readings grant removed — re-entering it on the auth screen would fail too.
+      const clearAndBounce = async () => {
+        profileRef.current = null;
+        setProfile(null);
+        setCaregiverSession(false);
+        setCaregiverCloudCode(null);
+        setCaregiverCodeKind(null);
+        setAccessCodeRole(null);
+        setAccessCodePermissions(null);
+        await AsyncStorage.multiRemove([
+          CAREGIVER_CODE_KEY,
+          PROFILE_KEY,
+          CGM_KEY,
+          FOOD_LOG_KEY,
+          INSULIN_LOG_KEY,
+          EMERGENCY_CONTACTS_KEY,
+          ALERT_PREFS_KEY,
+        ]);
+      };
+
+      if (kind === "access") {
+        try {
+          const resolved = await Promise.race([
+            client.query(api.careCircle.resolveAccessCode, { code }),
+            new Promise<null>((_, reject) =>
+              setTimeout(() => reject(new Error("resolve timeout")), CONVEX_SESSION_RESTORE_MS),
+            ),
+          ]);
+          if (cancelled) return;
+          if (resolved === null) {
+            await clearAndBounce();
+            return;
+          }
+          if (resolved) {
+            if (!resolved.permissions.viewReadings) {
+              await clearAndBounce();
+              return;
+            }
+            // Refresh the patient's slim profile (out-of-window is fine — accessLock handles it).
+            // Timeout-guarded like the sibling boot queries so a stalled network can't hang boot.
+            try {
+              const slim = await Promise.race([
+                client.query(api.careCircle.profileForAccessCode, { code }),
+                new Promise<null>((_, reject) =>
+                  setTimeout(() => reject(new Error("profile fetch timeout")), CONVEX_SESSION_RESTORE_MS),
+                ),
+              ]);
+              if (cancelled) return;
+              if (slim) {
+                const nextProfile: UserProfile = {
+                  childName: slim.childName ?? resolved.patientName,
+                  diabetesType: slim.diabetesType ?? "type1",
+                  dateOfBirth: slim.dateOfBirth ?? "",
+                  weightLbs: slim.weightLbs,
+                  insulinTypes: slim.insulinTypes,
+                  profilePhotoUri: slim.profilePhotoUri,
+                  carbRatio: slim.carbRatio,
+                  targetGlucose: slim.targetGlucose,
+                  correctionFactor: slim.correctionFactor,
+                };
+                profileRef.current = nextProfile;
+                setProfile(nextProfile);
+                await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+              }
+            } catch {
+              /* keep the AsyncStorage-cached profile */
+            }
+            setCaregiverCloudCode(code);
+            setCaregiverCodeKind("access");
+            setAccessCodeRole(resolved.kind);
+            setAccessCodePermissions(resolved.permissions);
+            setCaregiverSession(true);
+            await AsyncStorage.setItem(
+              CAREGIVER_CODE_KEY,
+              JSON.stringify({ code, kind: "access", role: resolved.kind, permissions: resolved.permissions }),
+            );
+            client.mutation(api.careCircle.touchAccessCode, { code }).catch(() => {});
+            return;
+          }
+        } catch {
+          /* offline / timeout — fall through to the cached optimistic restore below */
+        }
+        if (cancelled) return;
+        // Offline: restore from the cached profile + last-known role/permissions so the caregiver /
+        // child isn't forced to re-enter the code just because the network is down at launch.
+        const role = parsed.role === "caregiver" || parsed.role === "child" ? parsed.role : null;
+        setCaregiverCloudCode(code);
+        setCaregiverCodeKind("access");
+        setAccessCodeRole(role);
+        setAccessCodePermissions(parsed.permissions ?? null);
+        setCaregiverSession(true);
+        return;
+      }
+
+      // Legacy anonymous 6-char caregiver code.
+      try {
+        const remote = await Promise.race([
+          client.query(api.patientProfile.getByCaregiverCode, { code }),
+          new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error("resolve timeout")), CONVEX_SESSION_RESTORE_MS),
+          ),
+        ]);
+        if (cancelled) return;
+        if (remote === null) {
+          await clearAndBounce();
+          return;
+        }
+        if (remote) {
+          const { userId: _userId, ...profileFields } = remote as UserProfile & { userId: Id<"users"> };
+          const nextProfile = profileFields as UserProfile;
+          profileRef.current = nextProfile;
+          setProfile(nextProfile);
+          await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+          setCaregiverCloudCode(code);
+          setCaregiverCodeKind("legacy");
+          setCaregiverSession(true);
+          return;
+        }
+      } catch {
+        /* offline / timeout — fall through to the cached optimistic restore below */
+      }
+      if (cancelled) return;
+      setCaregiverCloudCode(code);
+      setCaregiverCodeKind("legacy");
+      setCaregiverSession(true);
+    }
+
     async function load() {
       try {
         const [
@@ -614,11 +625,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           storedInsulinLog,
           storedContacts,
           storedAlertPrefs,
-          storedPin,
           storedAccount,
           storedSession,
           storedDoctorMessages,
           storedTherapyProposal,
+          storedCaregiverCode,
         ] = await Promise.all([
           AsyncStorage.getItem(PROFILE_KEY),
           AsyncStorage.getItem(CGM_KEY),
@@ -626,11 +637,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(INSULIN_LOG_KEY),
           AsyncStorage.getItem(EMERGENCY_CONTACTS_KEY),
           AsyncStorage.getItem(ALERT_PREFS_KEY),
-          AsyncStorage.getItem(GUARDIAN_PIN_KEY),
           AsyncStorage.getItem(ACCOUNT_KEY),
           AsyncStorage.getItem(SESSION_KEY),
           AsyncStorage.getItem(DOCTOR_MESSAGES_KEY),
           AsyncStorage.getItem(THERAPY_PROPOSAL_KEY),
+          AsyncStorage.getItem(CAREGIVER_CODE_KEY),
         ]);
 
         if (storedSession === "true" && !storedAccount) {
@@ -662,12 +673,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (storedInsulinLog) setInsulinLog(JSON.parse(storedInsulinLog));
         if (storedContacts) setEmergencyContacts(JSON.parse(storedContacts));
         if (storedAlertPrefs) setAlertPrefsState({ ...DEFAULT_ALERT_PREFS, ...JSON.parse(storedAlertPrefs) });
-        if (storedPin) setLegacyLocalPinPresent(true);
         if (storedDoctorMessages) setDoctorMessages(JSON.parse(storedDoctorMessages));
         if (storedTherapyProposal) {
           try { setTherapyProposal(JSON.parse(storedTherapyProposal) as TherapyProposal); } catch { /* ignore corrupt proposal */ }
         }
 
+        let signedInRestored = false;
         if (storedAccount) {
           let acc: UserAccount;
           try {
@@ -685,6 +696,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (cancelled) return;
               if (ok) {
                 setIsSignedIn(true);
+                signedInRestored = true;
                 const client = createConvexAuthClient();
                 const userId = acc.convexUserId as Id<"users">;
                 try {
@@ -741,19 +753,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 } catch {
                   /* offline: keep AsyncStorage-hydrated profile and CGM */
                 }
-                await refreshGuardianPinStatus();
               } else {
                 await AsyncStorage.removeItem(SESSION_KEY);
               }
             } else {
               setIsSignedIn(true);
+              signedInRestored = true;
             }
           }
-        } else if (storedPin) {
-          setLegacyLocalPinPresent(true);
-          setGuardianPinStatus("active");
-        } else {
-          setGuardianPinStatus("not_set");
+        }
+
+        // Restore a persisted access-code (caregiver / child) session so it survives app restarts
+        // exactly like an email account does — no re-typing the code. Skipped when a signed-in
+        // account was restored above (the two are mutually exclusive).
+        if (!signedInRestored && storedCaregiverCode) {
+          await restoreCaregiverCodeSession(storedCaregiverCode);
         }
       } catch {
         try {
@@ -975,10 +989,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setInsulinLog([]);
     setEmergencyContacts([]);
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
-    setGuardianPinStatus("not_set");
-    setGuardianPinLockoutRemainingMs(null);
-    setLegacyLocalPinPresent(false);
-    setIsGuardianUnlocked(false);
     setCaregiverSession(false);
     setCaregiverCloudCode(null);
     setDoctorSession(false);
@@ -995,7 +1005,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       INSULIN_LOG_KEY,
       EMERGENCY_CONTACTS_KEY,
       ALERT_PREFS_KEY,
-      GUARDIAN_PIN_KEY,
+      CAREGIVER_CODE_KEY,
       GLUCOSE_HISTORY_STORAGE_KEY,
       GLUCOSE_SETTINGS_STORAGE_KEY,
     ]);
@@ -1030,6 +1040,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ]);
         await AsyncStorage.removeItem(PROFILE_KEY);
         await AsyncStorage.removeItem(CGM_KEY);
+        await AsyncStorage.removeItem(CAREGIVER_CODE_KEY);
         await AsyncStorage.removeItem(GLUCOSE_HISTORY_STORAGE_KEY);
         await AsyncStorage.removeItem(GLUCOSE_SETTINGS_STORAGE_KEY);
         setCGMConnectionState({ type: null });
@@ -1056,7 +1067,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch {
           /* offline — profile / CGM empty until network */
         }
-        await refreshGuardianPinStatus();
         return true;
       }
     } catch {
@@ -1081,7 +1091,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     setIsSignedIn(false);
-    setIsGuardianUnlocked(false);
     setCaregiverSession(false);
     setCaregiverCloudCode(null);
     setDoctorSession(false);
@@ -1090,7 +1099,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setViewedProfile(null);
     setViewedFoodLog([]);
     setViewedInsulinLog([]);
-    await AsyncStorage.removeItem(SESSION_KEY);
+    await AsyncStorage.multiRemove([SESSION_KEY, CAREGIVER_CODE_KEY]);
   }, []);
 
   const setupProfile = useCallback(async (p: UserProfile) => {
@@ -1242,10 +1251,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setInsulinLog([]);
     setEmergencyContacts([]);
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
-    setGuardianPinStatus("not_set");
-    setGuardianPinLockoutRemainingMs(null);
-    setLegacyLocalPinPresent(false);
-    setIsGuardianUnlocked(false);
     setIsSignedIn(false);
     setCaregiverSession(false);
     setCaregiverCloudCode(null);
@@ -1262,9 +1267,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       INSULIN_LOG_KEY,
       EMERGENCY_CONTACTS_KEY,
       ALERT_PREFS_KEY,
-      GUARDIAN_PIN_KEY,
       SESSION_KEY,
       ACCOUNT_KEY,
+      CAREGIVER_CODE_KEY,
       GLUCOSE_HISTORY_STORAGE_KEY,
       GLUCOSE_SETTINGS_STORAGE_KEY,
     ]);
@@ -1296,10 +1301,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
-  }, []);
-
-  const lockGuardian = useCallback(() => {
-    setIsGuardianUnlocked(false);
   }, []);
 
   const setChildMode = useCallback(async (enabled: boolean) => {
@@ -1376,6 +1377,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setAccessCodeRole(resolved.kind);
             setAccessCodePermissions(resolved.permissions);
             setCaregiverSession(true);
+            // Persist so this access-code session survives app restarts (no re-typing the code).
+            await AsyncStorage.setItem(
+              CAREGIVER_CODE_KEY,
+              JSON.stringify({ code: normalized, kind: "access", role: resolved.kind, permissions: resolved.permissions }),
+            );
             client.mutation(api.careCircle.touchAccessCode, { code: normalized }).catch(() => {});
             return true;
           }
@@ -1396,6 +1402,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setCaregiverCloudCode(normalized);
         setCaregiverCodeKind("legacy");
         setCaregiverSession(true);
+        // Persist so this access-code session survives app restarts (no re-typing the code).
+        await AsyncStorage.setItem(
+          CAREGIVER_CODE_KEY,
+          JSON.stringify({ code: normalized, kind: "legacy" }),
+        );
         return true;
       } catch {
         return false;
@@ -1414,6 +1425,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccessLock(null);
     setFoodLog([]);
     setInsulinLog([]);
+    // Manual caregiver/child sign-out — forget the persisted access code so it won't auto-restore.
+    void AsyncStorage.removeItem(CAREGIVER_CODE_KEY);
     if (hadCloudCaregiver && !isSignedIn) {
       profileRef.current = null;
       setProfile(null);
@@ -1424,7 +1437,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         INSULIN_LOG_KEY,
         EMERGENCY_CONTACTS_KEY,
         ALERT_PREFS_KEY,
-        GUARDIAN_PIN_KEY,
       ]);
     }
   }, [isSignedIn]);
@@ -1712,10 +1724,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         insulinLog: effectiveInsulinLog,
         emergencyContacts,
         alertPrefs,
-        guardianPinStatus,
-        guardianPinLockoutRemainingMs,
-        guardianPinConfigured,
-        isGuardianUnlocked,
         caregiverSession,
         doctorSession,
         isChildMode,
@@ -1737,11 +1745,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         addEmergencyContact,
         removeEmergencyContact,
         updateAlertPrefs,
-        setupGuardianPin,
-        verifyGuardianPin,
-        unlockGuardian,
-        refreshGuardianPinStatus,
-        lockGuardian,
         setChildMode,
         generateCaregiverCode,
         enterCaregiverMode,

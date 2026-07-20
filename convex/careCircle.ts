@@ -564,17 +564,11 @@ export const myDeviceSettings = query({
 
 // ─── same-sensor discovery ────────────────────────────────────────────────────────────────────
 
-function maskEmail(email: string): string {
-  const [local, domain] = email.split("@");
-  if (!domain) return "•••";
-  const head = local.slice(0, 1);
-  return `${head}${"•".repeat(Math.max(2, local.length - 1))}@${domain}`;
-}
-
 /**
  * Other accounts whose Dexcom credentials use the same username as the caller's — evidence they
  * share one sensor (e.g. a parent and kid). Surfaced manually from Care Circle (never a popup).
- * Returns masked identifiers only; flags accounts already linked to the caller.
+ * Returns the full email (these accounts demonstrably share the caller's own Dexcom login, and the
+ * user needs to see it to pick the right person). Flags accounts already linked to the caller.
  */
 export const findSharedSensorAccounts = query({
   args: { userId: v.id("users"), passwordHash: v.string() },
@@ -588,11 +582,11 @@ export const findSharedSensorAccounts = query({
     // indexed `usernameKey` has been backfilled — no reconnect required.
     const key = (mine?.usernameKey ?? mine?.dexcomUsername ?? "").trim().toLowerCase();
     if (!key) {
-      return { hasCredentials: !!mine, matches: [] as { userId: Id<"users">; maskedEmail: string; name: string; alreadyLinked: boolean }[] };
+      return { hasCredentials: !!mine, matches: [] as { userId: Id<"users">; email: string; name: string; alreadyLinked: boolean }[] };
     }
     const all = await ctx.db.query("patientDexcomCredentials").collect();
 
-    const matches: { userId: Id<"users">; maskedEmail: string; name: string; alreadyLinked: boolean }[] = [];
+    const matches: { userId: Id<"users">; email: string; name: string; alreadyLinked: boolean }[] = [];
     for (const row of all) {
       if (row.userId === args.userId) continue;
       const rowKey = (row.usernameKey ?? row.dexcomUsername ?? "").trim().toLowerCase();
@@ -608,7 +602,7 @@ export const findSharedSensorAccounts = query({
         (await activeLinkFor(ctx, row.userId, args.userId)) != null;
       matches.push({
         userId: row.userId,
-        maskedEmail: maskEmail(user.email),
+        email: user.email,
         name: profile?.childName?.trim() || "Glucose Guardian user",
         alreadyLinked: linked,
       });

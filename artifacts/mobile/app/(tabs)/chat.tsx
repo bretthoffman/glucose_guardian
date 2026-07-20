@@ -407,8 +407,8 @@ export default function ChatScreen() {
         />
       </TabGlucoseHeaderShell>
 
-      {/* Doctor inbox banner */}
-      {doctorMessages.length > 0 && !doctorSession && (
+      {/* Doctor inbox banner — hidden for any access-code session (kid / caregiver) */}
+      {doctorMessages.length > 0 && !doctorSession && !caregiverSession && (
         <Pressable
           style={[styles.doctorBanner, { backgroundColor: "#6366F1" + "12", borderColor: "#6366F1" + "30" }]}
           onPress={() => { setShowDoctorInbox(true); markDoctorMessagesRead(); }}

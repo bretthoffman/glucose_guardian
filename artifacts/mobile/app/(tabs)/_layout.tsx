@@ -32,13 +32,17 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const { scheme, colors: c } = useTheme();
   const styles = useMemo(() => makeStyles(c, scheme === "dark"), [c, scheme]);
-  const { isChildMode, caregiverSession, doctorSession } = useAuth();
-  const hidePredictTab = isChildMode && !caregiverSession;
+  const { isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions } = useAuth();
+  // Hide Insulin for a child-view-mode owner account, or for an access-code session (kid / caregiver)
+  // whose grants include neither the dose calculator nor logging — nothing to show there.
+  const hideInsulinTab =
+    (isChildMode && !caregiverSession) ||
+    (accessCodeRole != null && !accessCodePermissions?.useCalculator && !accessCodePermissions?.log);
   const hideFoodTab = !!doctorSession;
 
   const routes = state.routes.filter((r) => {
     if (!TAB_META[r.name]) return false;
-    if (r.name === "insulin" && hidePredictTab) return false;
+    if (r.name === "insulin" && hideInsulinTab) return false;
     if (r.name === "food" && hideFoodTab) return false;
     return true;
   });

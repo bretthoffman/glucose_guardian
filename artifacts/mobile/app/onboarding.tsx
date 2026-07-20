@@ -20,7 +20,7 @@ import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constan
 import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 
-type Step = "welcome" | "role" | "parent_name" | "name" | "birthday" | "diabetes" | "insulin_formula" | "guardian_pin";
+type Step = "welcome" | "role" | "parent_name" | "name" | "birthday" | "diabetes" | "insulin_formula";
 
 function isValidDate(month: string, day: string, year: string): boolean {
   const m = parseInt(month);
@@ -43,77 +43,12 @@ function getAgeFromDate(month: string, day: string, year: string): number {
   return age;
 }
 
-function PinDots({ entered, total = 4 }: { entered: number; total?: number }) {
-  return (
-    <View style={pinStyles.dotsRow}>
-      {Array.from({ length: total }).map((_, i) => (
-        <View
-          key={i}
-          style={[
-            pinStyles.dot,
-            i < entered ? pinStyles.dotFilled : pinStyles.dotEmpty,
-          ]}
-        />
-      ))}
-    </View>
-  );
-}
-
-function PinKeypad({
-  onPress,
-  onDelete,
-  colors,
-}: {
-  onPress: (digit: string) => void;
-  onDelete: () => void;
-  colors: (typeof Colors)["light"];
-}) {
-  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
-  return (
-    <View style={pinStyles.keypad}>
-      {keys.map((k, i) =>
-        k === "" ? (
-          <View key={i} style={pinStyles.keyEmpty} />
-        ) : k === "del" ? (
-          <Pressable
-            key={i}
-            style={({ pressed }) => [
-              pinStyles.key,
-              { backgroundColor: colors.card, opacity: pressed ? 0.6 : 1 },
-            ]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onDelete();
-            }}
-          >
-            <Feather name="delete" size={22} color={colors.text} />
-          </Pressable>
-        ) : (
-          <Pressable
-            key={i}
-            style={({ pressed }) => [
-              pinStyles.key,
-              { backgroundColor: colors.card, opacity: pressed ? 0.6 : 1 },
-            ]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onPress(k);
-            }}
-          >
-            <Text style={[pinStyles.keyText, { color: colors.text }]}>{k}</Text>
-          </Pressable>
-        )
-      )}
-    </View>
-  );
-}
-
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { setupProfile, setupGuardianPin } = useAuth();
+  const { setupProfile } = useAuth();
   const { saveFormula } = useGlucose();
 
   const [step, setStep] = useState<Step>("welcome");
@@ -139,11 +74,6 @@ export default function OnboardingScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
 
-  const [pinEntry, setPinEntry] = useState("");
-  const [pinConfirm, setPinConfirm] = useState("");
-  const [pinPhase, setPinPhase] = useState<"set" | "confirm">("set");
-  const [pinError, setPinError] = useState("");
-
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -151,45 +81,7 @@ export default function OnboardingScreen() {
   const previewAge = dobValid ? getAgeFromDate(birthMonth, birthDay, birthYear) : null;
   const isMinorPreview = previewAge !== null && previewAge < 18;
 
-  function handlePinDigit(digit: string) {
-    const current = pinPhase === "set" ? pinEntry : pinConfirm;
-    if (current.length >= 4) return;
-    const next = current + digit;
-    if (pinPhase === "set") {
-      setPinEntry(next);
-      if (next.length === 4) {
-        setTimeout(() => setPinPhase("confirm"), 200);
-      }
-    } else {
-      setPinConfirm(next);
-      if (next.length === 4) {
-        setTimeout(() => checkPinMatch(pinEntry, next), 200);
-      }
-    }
-  }
-
-  function handlePinDelete() {
-    if (pinPhase === "set") {
-      setPinEntry((p) => p.slice(0, -1));
-    } else {
-      setPinConfirm((p) => p.slice(0, -1));
-    }
-    setPinError("");
-  }
-
-  function checkPinMatch(set: string, confirm: string) {
-    if (set === confirm) {
-      finishSetup(set, confirm);
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setPinError("PINs don't match — try again");
-      setPinConfirm("");
-      setPinPhase("set");
-      setPinEntry("");
-    }
-  }
-
-  async function finishSetup(pin?: string, pinConfirm?: string) {
+  async function finishSetup() {
     if (!childName.trim() || !dobValid) return;
     setIsSaving(true);
     try {
@@ -204,16 +96,6 @@ export default function OnboardingScreen() {
         weightLbs: !isNaN(parsedWeight) && parsedWeight > 0 ? parsedWeight : undefined,
         insulinTypes: insulinTypes.length > 0 ? insulinTypes : undefined,
       });
-      if (pin && pinConfirm) {
-        const pinRes = await setupGuardianPin(pin, pinConfirm);
-        if (!pinRes.ok) {
-          setPinError(pinRes.error ?? "Could not save Guardian PIN");
-          setPinPhase("set");
-          setPinEntry("");
-          setPinConfirm("");
-          return;
-        }
-      }
       const parsedCarbGrams = parseFloat(carbRatioInput);
       const parsedTarget = parseFloat(targetGlucoseInput);
       const parsedISF = parseFloat(isfInput);
@@ -233,11 +115,7 @@ export default function OnboardingScreen() {
   }
 
   function advanceFromInsulinFormula() {
-    if (accountRole === "parent" && isMinorPreview) {
-      setStep("guardian_pin");
-    } else {
-      finishSetup();
-    }
+    finishSetup();
   }
 
   return (
@@ -357,7 +235,7 @@ export default function OnboardingScreen() {
 
         {step === "parent_name" && (
           <View style={styles.stepContainer}>
-            <StepBadge label="Step 2 of 7" colors={colors} />
+            <StepBadge label="Step 2 of 6" colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Your Name</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               What should Glucose Guardian call you? Used when speaking to you in caregiver mode.
@@ -400,7 +278,7 @@ export default function OnboardingScreen() {
 
         {step === "name" && (
           <View style={styles.stepContainer}>
-            <StepBadge label={accountRole === "parent" ? "Step 3 of 7" : "Step 2 of 5"} colors={colors} />
+            <StepBadge label={accountRole === "parent" ? "Step 3 of 6" : "Step 2 of 5"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>
               {accountRole === "parent" ? "What's your child's name?" : "What's your name?"}
             </Text>
@@ -466,7 +344,7 @@ export default function OnboardingScreen() {
 
         {step === "birthday" && (
           <View style={styles.stepContainer}>
-            <StepBadge label={accountRole === "parent" ? "Step 4 of 7" : "Step 3 of 5"} colors={colors} />
+            <StepBadge label={accountRole === "parent" ? "Step 4 of 6" : "Step 3 of 5"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Date of Birth</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               Used to set the right access level in the app
@@ -565,7 +443,7 @@ export default function OnboardingScreen() {
                   </Text>
                   <Text style={[styles.ageBadgeSub, { color: colors.textMuted }]}>
                     {isMinorPreview
-                      ? "A guardian PIN will protect sensitive settings"
+                      ? "Full access to health data and settings"
                       : "Full access to all app features and settings"}
                   </Text>
                 </View>
@@ -592,7 +470,7 @@ export default function OnboardingScreen() {
 
         {step === "diabetes" && (
           <View style={styles.stepContainer}>
-            <StepBadge label={accountRole === "parent" ? (isMinorPreview ? "Step 5 of 7" : "Step 5 of 6") : "Step 4 of 5"} colors={colors} />
+            <StepBadge label={accountRole === "parent" ? "Step 5 of 6" : "Step 4 of 5"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Diabetes Type</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               {accountRole === "parent" ? `Helps calibrate insulin calculations for ${childName}` : "Helps calibrate your insulin calculations"}
@@ -697,7 +575,7 @@ export default function OnboardingScreen() {
 
         {step === "insulin_formula" && (
           <View style={styles.stepContainer}>
-            <StepBadge label={accountRole === "parent" ? (isMinorPreview ? "Step 6 of 7" : "Step 6 of 6") : "Step 5 of 5"} colors={colors} />
+            <StepBadge label={accountRole === "parent" ? "Step 6 of 6" : "Step 5 of 5"} colors={colors} />
 
             <View style={[styles.logoCircle, { backgroundColor: COLORS.primary + "12" }]}>
               <Feather name="activity" size={32} color={COLORS.primary} />
@@ -828,60 +706,14 @@ export default function OnboardingScreen() {
               disabled={isSaving}
             >
               <Text style={styles.primaryBtnText}>
-                {isSaving ? "Setting up..." : isMinorPreview ? "Continue" : `Let's go, ${childName || "you"}!`}
+                {isSaving ? "Setting up..." : `Let's go, ${childName || "you"}!`}
               </Text>
-              <Feather name={isMinorPreview ? "arrow-right" : "check"} size={18} color="#fff" />
+              <Feather name="check" size={18} color="#fff" />
             </Pressable>
             <BackBtn onPress={() => setStep("diabetes")} colors={colors} />
           </View>
         )}
 
-        {step === "guardian_pin" && (
-          <View style={styles.stepContainer}>
-            <StepBadge label="Step 7 of 7" colors={colors} />
-
-            <View style={[styles.logoCircle, { backgroundColor: COLORS.accent + "15", width: 80, height: 80, borderRadius: 40 }]}>
-              <Feather name="lock" size={36} color={COLORS.accent} />
-            </View>
-
-            <Text style={[styles.stepTitle, { color: colors.text }]}>
-              {pinPhase === "set" ? "Set Guardian PIN" : "Confirm PIN"}
-            </Text>
-            <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
-              {pinPhase === "set"
-                ? `Choose a 4-digit PIN that only you know. You'll use it to access settings on ${childName}'s account.`
-                : "Enter the same PIN again to confirm"}
-            </Text>
-
-            <PinDots entered={pinPhase === "set" ? pinEntry.length : pinConfirm.length} />
-
-            {pinError ? (
-              <View style={[pinStyles.errorBadge, { backgroundColor: COLORS.danger + "15" }]}>
-                <Feather name="alert-circle" size={14} color={COLORS.danger} />
-                <Text style={[pinStyles.errorText, { color: COLORS.danger }]}>{pinError}</Text>
-              </View>
-            ) : null}
-
-            <PinKeypad onPress={handlePinDigit} onDelete={handlePinDelete} colors={colors} />
-
-            {pinPhase === "confirm" && (
-              <Pressable
-                onPress={() => {
-                  setPinPhase("set");
-                  setPinEntry("");
-                  setPinConfirm("");
-                  setPinError("");
-                }}
-                style={pinStyles.resetBtn}
-              >
-                <Feather name="refresh-ccw" size={14} color={colors.textMuted} />
-                <Text style={[pinStyles.resetText, { color: colors.textMuted }]}>Start over</Text>
-              </Pressable>
-            )}
-
-            <BackBtn onPress={() => { setStep("diabetes"); setPinPhase("set"); setPinEntry(""); setPinConfirm(""); setPinError(""); }} colors={colors} />
-          </View>
-        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -909,76 +741,6 @@ const stepStyles = StyleSheet.create({
   badgeText: { fontSize: 13, fontWeight: "600" },
   backBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8 },
   backBtnText: { fontSize: 14, fontWeight: "500" },
-});
-
-const pinStyles = StyleSheet.create({
-  dotsRow: {
-    flexDirection: "row",
-    gap: 20,
-    justifyContent: "center",
-    marginVertical: 8,
-  },
-  dot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-  },
-  dotFilled: {
-    backgroundColor: COLORS.accent,
-    borderColor: COLORS.accent,
-  },
-  dotEmpty: {
-    backgroundColor: "transparent",
-    borderColor: COLORS.accent + "60",
-  },
-  keypad: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 14,
-    width: "100%",
-    maxWidth: 300,
-    alignSelf: "center",
-    marginTop: 8,
-  },
-  key: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  keyEmpty: {
-    width: 76,
-    height: 76,
-  },
-  keyText: {
-    fontSize: 26,
-    fontWeight: "600",
-  },
-  errorBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  errorText: {
-    fontSize: 13,
-    fontWeight: "500",
-  },
-  resetBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 8,
-  },
-  resetText: {
-    fontSize: 13,
-    fontWeight: "400",
-  },
 });
 
 const styles = StyleSheet.create({

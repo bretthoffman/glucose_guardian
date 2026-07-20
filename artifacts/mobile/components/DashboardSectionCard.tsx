@@ -39,6 +39,23 @@ export function DashboardSectionCard({ title, icon, onPress, colors }: Props) {
   );
 }
 
+/**
+ * Invisible same-size filler for the empty slot in an odd last row (e.g. a lone Care Circle card).
+ * It MUST reuse the card's exact `styles.card` box: an empty flex spacer (`{ flex: 1 }`) does NOT
+ * split the row evenly against a content-bearing `flex: 1` card, so the lone card renders wider than
+ * the paired cards. Sharing the same box makes the two flex siblings symmetric → identical widths.
+ */
+export function DashboardSectionCardGhost() {
+  return (
+    <View
+      style={[styles.card, { backgroundColor: "transparent", borderColor: "transparent" }]}
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    />
+  );
+}
+
 const styles = StyleSheet.create({
   card: {
     flex: 1,

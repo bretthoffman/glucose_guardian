@@ -9,7 +9,6 @@ import {
   Alert,
   Image,
   Linking,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -26,7 +25,7 @@ import ProfileChip from "@/components/ProfileChip";
 import TreatmentProposalCard from "@/components/TreatmentProposalCard";
 import { SettingsModal } from "@/components/SettingsModal";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
-import { DashboardSectionCard } from "@/components/DashboardSectionCard";
+import { DashboardSectionCard, DashboardSectionCardGhost } from "@/components/DashboardSectionCard";
 import CareCirclePanel from "@/components/CareCirclePanel";
 import {
   availableDashboardSections,
@@ -58,102 +57,6 @@ const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Fea
   careCircle: "share-2",
 };
 
-function GuardianLock({ colors, onPress }: { colors: (typeof Colors)["light"]; onPress?: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        guardianStyles.container,
-        { backgroundColor: colors.backgroundTertiary, borderColor: onPress ? COLORS.warning + "60" : colors.border },
-        onPress && pressed && { opacity: 0.75 },
-      ]}
-    >
-      <View style={[guardianStyles.iconWrap, { backgroundColor: COLORS.warning + "20" }]}>
-        <Feather name="lock" size={20} color={COLORS.warning} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[guardianStyles.title, { color: colors.text }]}>Guardian Permission Required</Text>
-        <Text style={[guardianStyles.sub, { color: colors.textMuted }]}>
-          {onPress ? "Tap here to enter your PIN and unlock." : "Use the Guardian Access section to unlock and edit this."}
-        </Text>
-      </View>
-      {onPress && <Feather name="chevron-right" size={18} color={COLORS.warning} />}
-    </Pressable>
-  );
-}
-
-const guardianStyles = StyleSheet.create({
-  container: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, marginTop: 4 },
-  iconWrap: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  title: { fontSize: 14, fontWeight: "700", marginBottom: 3 },
-  sub: { fontSize: 13, fontWeight: "400", lineHeight: 18 },
-});
-
-function PinDots({ entered, total = 4, shake }: { entered: number; total?: number; shake?: boolean }) {
-  return (
-    <View style={pinStyles.dotsRow}>
-      {Array.from({ length: total }).map((_, i) => (
-        <View
-          key={i}
-          style={[
-            pinStyles.dot,
-            i < entered ? pinStyles.dotFilled : pinStyles.dotEmpty,
-            shake ? { borderColor: COLORS.danger } : undefined,
-          ]}
-        />
-      ))}
-    </View>
-  );
-}
-
-function PinKeypad({
-  onPress,
-  onDelete,
-  colors,
-}: {
-  onPress: (digit: string) => void;
-  onDelete: () => void;
-  colors: (typeof Colors)["light"];
-}) {
-  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
-  return (
-    <View style={pinStyles.keypad}>
-      {keys.map((k, i) =>
-        k === "" ? (
-          <View key={i} style={pinStyles.keyEmpty} />
-        ) : k === "del" ? (
-          <Pressable
-            key={i}
-            style={({ pressed }) => [pinStyles.key, { backgroundColor: colors.card, opacity: pressed ? 0.6 : 1 }]}
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onDelete(); }}
-          >
-            <Feather name="delete" size={22} color={colors.text} />
-          </Pressable>
-        ) : (
-          <Pressable
-            key={i}
-            style={({ pressed }) => [pinStyles.key, { backgroundColor: colors.card, opacity: pressed ? 0.6 : 1 }]}
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(k); }}
-          >
-            <Text style={[pinStyles.keyText, { color: colors.text }]}>{k}</Text>
-          </Pressable>
-        )
-      )}
-    </View>
-  );
-}
-
-const pinStyles = StyleSheet.create({
-  dotsRow: { flexDirection: "row", gap: 20, justifyContent: "center", marginVertical: 12 },
-  dot: { width: 18, height: 18, borderRadius: 9, borderWidth: 2 },
-  dotFilled: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-  dotEmpty: { backgroundColor: "transparent", borderColor: COLORS.accent + "60" },
-  keypad: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 14, width: "100%", maxWidth: 300, alignSelf: "center", marginTop: 8 },
-  key: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center" },
-  keyEmpty: { width: 76, height: 76 },
-  keyText: { fontSize: 26, fontWeight: "600" },
-});
-
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { scheme } = useTheme();
@@ -183,14 +86,6 @@ export default function DashboardScreen() {
     addEmergencyContact,
     removeEmergencyContact,
     updateAlertPrefs,
-    guardianPinStatus,
-    guardianPinConfigured,
-    guardianPinLockoutRemainingMs,
-    isGuardianUnlocked,
-    unlockGuardian,
-    verifyGuardianPin,
-    setupGuardianPin,
-    lockGuardian,
     isSignedIn,
     account,
     isChildMode,
@@ -218,8 +113,6 @@ export default function DashboardScreen() {
 
   const isParent = profile?.accountRole === "parent" || profile?.accountRole === undefined;
   const isAdult = profile?.accountRole === "adult";
-
-  const isGuarded = isMinor && !isGuardianUnlocked && !doctorSession;
 
   // Which Dashboard management sections are available for the current role (pure helper, shared with
   // the section-card grid so cards and the inline guards/popups can never drift apart). These booleans
@@ -271,13 +164,6 @@ export default function DashboardScreen() {
   const [newContactName, setNewContactName] = useState("");
   const [newContactPhone, setNewContactPhone] = useState("");
   const [newContactRelation, setNewContactRelation] = useState("");
-
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinEntry, setPinEntry] = useState("");
-  const [pinError, setPinError] = useState("");
-  const [pinShake, setPinShake] = useState(false);
-  const [pinPurpose, setPinPurpose] = useState<"unlock" | "disable_child_mode" | "setup" | "setup_confirm">("unlock");
-  const [setupPinDraft, setSetupPinDraft] = useState("");
 
   const [editingThresholds, setEditingThresholds] = useState(false);
   const [editUrgentLow, setEditUrgentLow] = useState(String(alertPrefs.urgentLowThreshold));
@@ -645,137 +531,6 @@ export default function DashboardScreen() {
     finally { setIsGeneratingPDF(false); }
   }
 
-  function handlePinDigit(digit: string) {
-    if (pinEntry.length >= 4) return;
-    const next = pinEntry + digit;
-    setPinEntry(next);
-    setPinError("");
-    if (next.length === 4) {
-      setTimeout(async () => {
-        if (pinPurpose === "setup") {
-          setSetupPinDraft(next);
-          setPinEntry("");
-          setPinPurpose("setup_confirm");
-          return;
-        }
-        if (pinPurpose === "setup_confirm") {
-          const res = await setupGuardianPin(setupPinDraft, next);
-          if (res.ok) {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setShowPinModal(false);
-            setPinEntry("");
-            setSetupPinDraft("");
-            setPinError("");
-            setPinPurpose("unlock");
-          } else {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            setPinShake(true);
-            setTimeout(() => {
-              setPinShake(false);
-              setPinEntry("");
-              setSetupPinDraft("");
-              setPinPurpose("setup");
-              setPinError(res.error ?? "Could not save PIN");
-            }, 600);
-          }
-          return;
-        }
-        if (pinPurpose === "disable_child_mode") {
-          const res = await verifyGuardianPin(next);
-          if (res.result === "verified") {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setShowPinModal(false);
-            setPinEntry("");
-            setPinError("");
-            setPinPurpose("unlock");
-            setChildMode(false);
-          } else if (res.result === "temporarily_locked") {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            setPinShake(true);
-            setTimeout(() => {
-              setPinShake(false);
-              setPinEntry("");
-              setPinError("Too many attempts — try again later");
-            }, 600);
-          } else if (res.result === "setup_required") {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            setPinShake(true);
-            setTimeout(() => {
-              setPinShake(false);
-              setPinEntry("");
-              setPinError("Guardian PIN not configured — set a new PIN first");
-            }, 600);
-          } else {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            setPinShake(true);
-            setTimeout(() => { setPinShake(false); setPinEntry(""); setPinError("Incorrect PIN — try again"); }, 600);
-          }
-        } else {
-          const res = await unlockGuardian(next);
-          if (res.result === "verified") {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setShowPinModal(false);
-            setPinEntry("");
-            setPinError("");
-          } else if (res.result === "temporarily_locked") {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            setPinShake(true);
-            setTimeout(() => {
-              setPinShake(false);
-              setPinEntry("");
-              setPinError("Too many attempts — try again later");
-            }, 600);
-          } else if (res.result === "setup_required") {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            setPinShake(true);
-            setTimeout(() => {
-              setPinShake(false);
-              setPinEntry("");
-              setPinPurpose("setup");
-              setPinError("Set a new Guardian PIN to continue");
-            }, 600);
-          } else {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            setPinShake(true);
-            setTimeout(() => { setPinShake(false); setPinEntry(""); setPinError("Incorrect PIN — try again"); }, 600);
-          }
-        }
-      }, 200);
-    }
-  }
-
-  function handlePinDelete() {
-    setPinEntry((p) => p.slice(0, -1));
-    setPinError("");
-  }
-
-  function closePinModal() {
-    setShowPinModal(false);
-    setPinEntry("");
-    setPinError("");
-    setPinShake(false);
-    setSetupPinDraft("");
-    setPinPurpose("unlock");
-  }
-
-  function openPinUnlock() {
-    if (guardianPinStatus === "temporarily_locked") {
-      setPinError("Too many attempts — try again later");
-    }
-    setPinPurpose("unlock");
-    setPinEntry("");
-    setPinError("");
-    setShowPinModal(true);
-  }
-
-  function openPinSetup() {
-    setPinPurpose("setup");
-    setPinEntry("");
-    setSetupPinDraft("");
-    setPinError("");
-    setShowPinModal(true);
-  }
-
   const diabetesLabel: Record<string, string> = { type1: "Type 1", type2: "Type 2", other: "Other" };
 
   return (
@@ -799,7 +554,7 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {!isGuarded && <TreatmentProposalCard />}
+        <TreatmentProposalCard />
 
         {caregiverSession && (
           <View style={[styles.modeBanner, { backgroundColor: COLORS.accent + "15", borderColor: COLORS.accent + "35" }]}>
@@ -907,97 +662,12 @@ export default function DashboardScreen() {
               <Feather name="eye" size={16} color={COLORS.primary} />
               <View>
                 <Text style={[styles.modeBannerTitle, { color: COLORS.primary }]}>Child View Active</Text>
-                <Text style={[styles.modeBannerSub, { color: colors.textSecondary }]}>Settings are hidden — guardian PIN required</Text>
+                <Text style={[styles.modeBannerSub, { color: colors.textSecondary }]}>Settings are hidden for child safety</Text>
               </View>
             </View>
           </View>
         )}
 
-        {!isChildMode && !caregiverSession && isMinor && (
-          <View style={[styles.childBanner, { backgroundColor: COLORS.primary + "10", borderColor: COLORS.primary + "30" }]}>
-            <Feather name="info" size={16} color={COLORS.primary} />
-            <Text style={[styles.childBannerText, { color: colors.textSecondary }]}>
-              You can view all your health data. Some sections require guardian access to edit.
-            </Text>
-          </View>
-        )}
-
-        {!isChildMode && !caregiverSession && isMinor && guardianPinStatus === "not_set" && isSignedIn && account && (
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: COLORS.warning + "50" }]}>
-            <View style={styles.guardianAccessHeader}>
-              <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.warning + "18" }]}>
-                <Feather name="shield" size={20} color={COLORS.warning} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Set Guardian PIN</Text>
-                <Text style={[styles.guardianAccessSub, { color: colors.textMuted }]}>
-                  Guardian PIN protection is required but not configured for this account yet.
-                </Text>
-              </View>
-              <Pressable
-                style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.warning + "18", opacity: pressed ? 0.7 : 1 }]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  openPinSetup();
-                }}
-              >
-                <Feather name="plus" size={14} color={COLORS.warning} />
-                <Text style={[styles.guardianBtnText, { color: COLORS.warning }]}>Set PIN</Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
-
-        {!isChildMode && !caregiverSession && isMinor && guardianPinConfigured && (
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: isGuardianUnlocked ? COLORS.success + "50" : colors.border }]}>
-            <View style={styles.guardianAccessHeader}>
-              <View style={[styles.guardianAccessIcon, { backgroundColor: isGuardianUnlocked ? COLORS.success + "18" : COLORS.warning + "18" }]}>
-                <Feather
-                  name={isGuardianUnlocked ? "unlock" : "lock"}
-                  size={20}
-                  color={isGuardianUnlocked ? COLORS.success : COLORS.warning}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Guardian Access</Text>
-                <Text style={[styles.guardianAccessSub, { color: isGuardianUnlocked ? COLORS.success : colors.textMuted }]}>
-                  {isGuardianUnlocked ? "Unlocked — settings are editable" : "Locked — enter PIN to unlock"}
-                </Text>
-              </View>
-              {isGuardianUnlocked ? (
-                <Pressable
-                  style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.success + "18", opacity: pressed ? 0.7 : 1 }]}
-                  onPress={() => {
-                    lockGuardian();
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  }}
-                >
-                  <Feather name="lock" size={14} color={COLORS.success} />
-                  <Text style={[styles.guardianBtnText, { color: COLORS.success }]}>Lock</Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.warning + "18", opacity: pressed ? 0.7 : 1 }]}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setShowPinModal(true);
-                  }}
-                >
-                  <Feather name="unlock" size={14} color={COLORS.warning} />
-                  <Text style={[styles.guardianBtnText, { color: COLORS.warning }]}>Unlock</Text>
-                </Pressable>
-              )}
-            </View>
-            {isGuardianUnlocked && (
-              <View style={[styles.unlockedNote, { backgroundColor: COLORS.success + "10", borderColor: COLORS.success + "30" }]}>
-                <Feather name="check-circle" size={13} color={COLORS.success} />
-                <Text style={[styles.unlockedNoteText, { color: COLORS.success }]}>
-                  Guardian mode is active. Tap Lock when you're done to protect these settings again.
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
 
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.profileTop}>
@@ -1030,8 +700,9 @@ export default function DashboardScreen() {
         {(() => {
           // Compact 2-column section grid. Each card opens the matching section's existing content in a
           // popup. Cards appear only for sections the current role is authorized to see (same guards as
-          // the section content), so an odd count is possible — the last lone card stays half-width in
-          // the left column with the right slot left empty (never stretched).
+          // the section content), so an odd count is possible — the last lone card keeps the identical
+          // half-width via a same-size invisible ghost filler in the right slot (a bare empty spacer
+          // would let the lone card render wider — see DashboardSectionCardGhost).
           const cards = availableDashboardSections({
             isChildMode,
             caregiverSession,
@@ -1055,7 +726,7 @@ export default function DashboardScreen() {
                       onPress={() => openSectionPopup(cardDef.key)}
                     />
                   ))}
-                  {row.length === 1 && <View style={{ flex: 1, height: 96 }} />}
+                  {row.length === 1 && <DashboardSectionCardGhost />}
                 </View>
               ))}
             </View>
@@ -1203,7 +874,7 @@ export default function DashboardScreen() {
                 Customize each alert level (mg/dL)
               </Text>
             </View>
-            {!isGuarded && !editingThresholds && (
+            {!editingThresholds && (
               <Pressable
                 style={({ pressed }) => [styles.addContactBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.7 : 1 }]}
                 onPress={() => {
@@ -1221,9 +892,7 @@ export default function DashboardScreen() {
             )}
           </View>
 
-          {isGuarded ? (
-            <GuardianLock colors={colors} onPress={openPinUnlock} />
-          ) : (
+          {(
             <>
               <View style={styles.thresholdGrid}>
                 <ThresholdCell
@@ -1402,9 +1071,7 @@ export default function DashboardScreen() {
               <RangeItem label="In Range" value={inRange} unit="readings" colors={colors} />
             </View>
             <TrendChart readings={history} height={130} />
-            {isGuarded ? (
-              <GuardianLock colors={colors} onPress={openPinUnlock} />
-            ) : (
+            {(
               <Pressable
                 style={({ pressed }) => [styles.dangerBtn, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
                 onPress={promptClearHistory}
@@ -1424,7 +1091,7 @@ export default function DashboardScreen() {
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.cardHeader}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>Insulin Settings</Text>
-            {!isGuarded && (
+            {(
               <Pressable
                 onPress={() => {
                   if (editing) { saveSettings(); } else {
@@ -1452,7 +1119,7 @@ export default function DashboardScreen() {
               <Text style={[styles.settingLabel, { color: colors.text }]}>Carb Ratio</Text>
               <Text style={[styles.settingDesc, { color: colors.textMuted }]}>grams of carbs per unit of insulin</Text>
             </View>
-            {(editing && !isGuarded) ? (
+            {editing ? (
               <View style={{ gap: 8, minWidth: 160 }}>
                 <View style={{ flexDirection: "row", gap: 6 }}>
                   {(["full", "half"] as const).map((u) => (
@@ -1492,8 +1159,8 @@ export default function DashboardScreen() {
               <Text style={[styles.settingValue, { color: COLORS.primary }]}>1:{carbRatio} g/unit</Text>
             )}
           </View>
-          <SettingRow label="Target Glucose" description="desired blood glucose level" displayValue={`${targetGlucose} mg/dL`} editing={editing && !isGuarded} value={editTarget} onChange={setEditTarget} colors={colors} />
-          <SettingRow label="Correction Factor (ISF)" description="points glucose drops per unit" displayValue={`1:${correctionFactor}`} editing={editing && !isGuarded} value={editISF} onChange={setEditISF} colors={colors} last />
+          <SettingRow label="Target Glucose" description="desired blood glucose level" displayValue={`${targetGlucose} mg/dL`} editing={editing} value={editTarget} onChange={setEditTarget} colors={colors} />
+          <SettingRow label="Correction Factor (ISF)" description="points glucose drops per unit" displayValue={`1:${correctionFactor}`} editing={editing} value={editISF} onChange={setEditISF} colors={colors} last />
 
           <View style={[styles.insulinTypesSection, { borderTopColor: colors.separator }]}>
             <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Insulin Used</Text>
@@ -1516,17 +1183,15 @@ export default function DashboardScreen() {
                             {
                               backgroundColor: selected ? COLORS.accent + "18" : colors.backgroundTertiary,
                               borderColor: selected ? COLORS.accent : colors.border,
-                              opacity: (pressed || isGuarded) ? 0.7 : 1,
+                              opacity: pressed ? 0.7 : 1,
                             },
                           ]}
                           onPress={() => {
-                            if (isGuarded) return;
                             const current = profile?.insulinTypes ?? [];
                             const next = selected ? current.filter((x) => x !== chipLabel) : [...current, chipLabel];
                             updateProfile({ insulinTypes: next });
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                           }}
-                          disabled={isGuarded}
                         >
                           {selected && <Feather name="check" size={11} color={COLORS.accent} />}
                           <View>
@@ -1545,7 +1210,6 @@ export default function DashboardScreen() {
             )}
           </View>
 
-          {isGuarded && <GuardianLock colors={colors} onPress={openPinUnlock} />}
         </View>
         </DashboardSectionModal>
         </>)}
@@ -1607,7 +1271,7 @@ export default function DashboardScreen() {
         >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor & Care Team</Text>
-          {!isGuarded && !isChildMode && !caregiverSession && (
+          {!isChildMode && !caregiverSession && (
             <>
               {editingProfile ? (
                 <View style={{ gap: 10 }}>
@@ -1703,11 +1367,6 @@ export default function DashboardScreen() {
             <Feather name="share-2" size={16} color="#fff" />
             <Text style={styles.shareBtnText}>{isSharing ? "Generating..." : "Share Report with Doctor"}</Text>
           </Pressable>
-          {isGuarded && (
-            <Text style={[styles.shareNote, { color: colors.textMuted }]}>
-              Doctor info can be managed by unlocking Guardian Access above.
-            </Text>
-          )}
         </View>
         </DashboardSectionModal>
         )}
@@ -1759,9 +1418,7 @@ export default function DashboardScreen() {
             {dayKeys.length > 3 && (
               <Text style={[styles.foodLogMore, { color: colors.textMuted }]}>+{dayKeys.length - 3} earlier days in report</Text>
             )}
-            {isGuarded ? (
-              <GuardianLock colors={colors} onPress={openPinUnlock} />
-            ) : !caregiverSession ? (
+            {!caregiverSession ? (
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                 {foodLog.length > 0 && (
                   <Pressable
@@ -1798,35 +1455,17 @@ export default function DashboardScreen() {
                   Hides settings — safe for child to use the app
                 </Text>
               </View>
-              {isMinor && !isGuardianUnlocked ? (
-                <View style={[styles.guardianBtn, { backgroundColor: colors.backgroundTertiary }]}>
-                  <Feather name="lock" size={14} color={colors.textMuted} />
-                </View>
-              ) : (
-                <Pressable
-                  style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
-                  onPress={() => {
-                    if (isMinor && !isGuardianUnlocked) {
-                      setShowPinModal(true);
-                    } else {
-                      setChildMode(true);
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    }
-                  }}
-                >
-                  <Feather name="toggle-right" size={14} color={COLORS.primary} />
-                  <Text style={[styles.guardianBtnText, { color: COLORS.primary }]}>Enable</Text>
-                </Pressable>
-              )}
+              <Pressable
+                style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  setChildMode(true);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                }}
+              >
+                <Feather name="toggle-right" size={14} color={COLORS.primary} />
+                <Text style={[styles.guardianBtnText, { color: COLORS.primary }]}>Enable</Text>
+              </Pressable>
             </View>
-            {isMinor && !isGuardianUnlocked && (
-              <View style={[styles.unlockedNote, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
-                <Feather name="lock" size={13} color={colors.textMuted} />
-                <Text style={[styles.unlockedNoteText, { color: colors.textMuted }]}>
-                  Unlock Guardian Access above to enable Child View Mode
-                </Text>
-              </View>
-            )}
           </View>
         )}
 
@@ -1844,14 +1483,7 @@ export default function DashboardScreen() {
                 style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "15", opacity: pressed ? 0.7 : 1 }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  if (guardianPinConfigured) {
-                    setPinPurpose("disable_child_mode");
-                    setPinEntry("");
-                    setPinError("");
-                    setShowPinModal(true);
-                  } else {
-                    setChildMode(false);
-                  }
+                  setChildMode(false);
                 }}
               >
                 <Feather name="toggle-left" size={14} color={COLORS.danger} />
@@ -1923,7 +1555,6 @@ export default function DashboardScreen() {
                 <Pressable
                   style={({ pressed }) => [styles.outlineBtn, { borderColor: "#6366F1" + "50", backgroundColor: "#6366F1" + "08", opacity: pressed ? 0.8 : 1 }]}
                   onPress={async () => {
-                    if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
                     const code = await generateDoctorCode();
                     Alert.alert("Doctor Code Created", `Your doctor code is:\n\n${code}\n\nShare this ONLY with your verified doctor. They enter it on the login screen to access editing rights.`, [{ text: "OK" }]);
                   }}
@@ -1936,7 +1567,7 @@ export default function DashboardScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.caregiverCodeLabel, { color: colors.textMuted }]}>Active code</Text>
                     <Text style={[styles.caregiverCodeValue, { color: colors.text }]}>
-                      {isMinor && !isGuardianUnlocked ? "••••••" : profile.doctorCode}
+                      {profile.doctorCode}
                     </Text>
                     {profile.doctorCodeIssuedAt ? (
                       <Text style={[styles.accessTimestamp, { color: colors.textMuted }]}>
@@ -1947,18 +1578,14 @@ export default function DashboardScreen() {
                   <View style={{ flexDirection: "row", gap: 8 }}>
                     <Pressable
                       style={({ pressed }) => [styles.guardianBtn, { backgroundColor: "#6366F1" + "15", opacity: pressed ? 0.7 : 1 }]}
-                      onPress={() => {
-                        if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
-                        Alert.alert("Doctor Code", `Share this ONLY with your verified doctor:\n\n${profile.doctorCode}\n\nThey enter it on the login screen.`, [{ text: "OK" }]);
+                      onPress={() => {                        Alert.alert("Doctor Code", `Share this ONLY with your verified doctor:\n\n${profile.doctorCode}\n\nThey enter it on the login screen.`, [{ text: "OK" }]);
                       }}
                     >
                       <Feather name="share-2" size={14} color="#6366F1" />
                     </Pressable>
                     <Pressable
                       style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "12", opacity: pressed ? 0.7 : 1 }]}
-                      onPress={() => {
-                        if (isMinor && !isGuardianUnlocked) { setShowPinModal(true); return; }
-                        Alert.alert("Revoke Doctor Code?", "This will invalidate the current code. Your doctor will lose editing access until you share a new code.", [
+                      onPress={() => {                        Alert.alert("Revoke Doctor Code?", "This will invalidate the current code. Your doctor will lose editing access until you share a new code.", [
                           { text: "Cancel", style: "cancel" },
                           { text: "Revoke", style: "destructive", onPress: async () => { const code = await generateDoctorCode(); Alert.alert("New Doctor Code", `New code:\n\n${code}`, [{ text: "OK" }]); } },
                         ]);
@@ -2011,60 +1638,6 @@ export default function DashboardScreen() {
         </View>
       </ScrollView>
 
-      <Modal
-        visible={showPinModal}
-        transparent
-        animationType="slide"
-        onRequestClose={closePinModal}
-      >
-        <View style={modalStyles.overlay}>
-          <Pressable style={modalStyles.backdrop} onPress={closePinModal} />
-          <View style={[modalStyles.sheet, { backgroundColor: colors.card }]}>
-            <View style={modalStyles.handle} />
-
-            <View style={[modalStyles.iconCircle, { backgroundColor: COLORS.warning + "18" }]}>
-              <Feather name="shield" size={28} color={COLORS.warning} />
-            </View>
-
-            <Text style={[modalStyles.title, { color: colors.text }]}>
-              {pinPurpose === "disable_child_mode"
-                ? "Turn Off Child View"
-                : pinPurpose === "setup" || pinPurpose === "setup_confirm"
-                ? pinPurpose === "setup"
-                  ? "Set Guardian PIN"
-                  : "Confirm Guardian PIN"
-                : "Guardian Access"}
-            </Text>
-            <Text style={[modalStyles.sub, { color: colors.textSecondary }]}>
-              {pinPurpose === "disable_child_mode"
-                ? "Enter your guardian PIN to turn off Child View Mode"
-                : pinPurpose === "setup"
-                ? "Choose a 4-digit PIN that only you know"
-                : pinPurpose === "setup_confirm"
-                ? "Enter the same PIN again to confirm"
-                : guardianPinStatus === "temporarily_locked" && guardianPinLockoutRemainingMs
-                ? "Too many attempts — try again later"
-                : "Enter the 4-digit guardian PIN to unlock settings"}
-            </Text>
-
-            <PinDots entered={pinEntry.length} shake={pinShake} />
-
-            {pinError ? (
-              <View style={[modalStyles.errorBadge, { backgroundColor: COLORS.danger + "15" }]}>
-                <Feather name="alert-circle" size={13} color={COLORS.danger} />
-                <Text style={[modalStyles.errorText, { color: COLORS.danger }]}>{pinError}</Text>
-              </View>
-            ) : null}
-
-            <PinKeypad onPress={handlePinDigit} onDelete={handlePinDelete} colors={colors} />
-
-            <Pressable style={modalStyles.cancelBtn} onPress={closePinModal}>
-              <Text style={[modalStyles.cancelBtnText, { color: colors.textMuted }]}>Cancel</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
-
       <SettingsModal
         visible={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -2075,20 +1648,6 @@ export default function DashboardScreen() {
     </View>
   );
 }
-
-const modalStyles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end" },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" },
-  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingBottom: 40, paddingTop: 16, alignItems: "center", gap: 12 },
-  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#ccc", marginBottom: 8 },
-  iconCircle: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center" },
-  title: { fontSize: 22, fontWeight: "700", textAlign: "center" },
-  sub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20, marginTop: -4 },
-  errorBadge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
-  errorText: { fontSize: 13, fontWeight: "500" },
-  cancelBtn: { paddingVertical: 12, paddingHorizontal: 24, marginTop: 4 },
-  cancelBtnText: { fontSize: 15, fontWeight: "500" },
-});
 
 function ToggleRow({
   label, description, value, onToggle, colors, last,
@@ -2227,14 +1786,11 @@ const styles = StyleSheet.create({
   childBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 16 },
   childBannerText: { flex: 1, fontSize: 13, fontWeight: "400", lineHeight: 18 },
 
-  guardianAccessHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   guardianAccessIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   guardianAccessTitle: { fontSize: 15, fontWeight: "700", marginBottom: 2 },
   guardianAccessSub: { fontSize: 12, fontWeight: "400" },
   guardianBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
   guardianBtnText: { fontSize: 13, fontWeight: "600" },
-  unlockedNote: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1 },
-  unlockedNoteText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 17 },
 
   profileTop: { flexDirection: "row", alignItems: "center", gap: 14 },
   avatarCircle: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },

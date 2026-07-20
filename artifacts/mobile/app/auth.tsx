@@ -323,7 +323,7 @@ export default function AuthScreen() {
               >
                 <Feather name="users" size={14} color={COLORS.accent} />
                 <Text style={[styles.caregiverLinkText, { color: COLORS.accent }]}>
-                  Caregiver? Enter your access code →
+                  Sign in with access code →
                 </Text>
               </Pressable>
               <Pressable
@@ -338,9 +338,9 @@ export default function AuthScreen() {
             </View>
           ) : showCaregiverEntry ? (
             <View style={styles.caregiverForm}>
-              <Text style={[styles.caregiverFormTitle, { color: "#fff" }]}>Caregiver Access</Text>
+              <Text style={[styles.caregiverFormTitle, { color: "#fff" }]}>Sign In with Access Code</Text>
               <Text style={[styles.caregiverFormSub, { color: "rgba(255,255,255,0.55)" }]}>
-                Enter the caregiver code shared by the account owner
+                Enter the code shared by the account owner
               </Text>
               <View style={[styles.caregiverInputWrap, { backgroundColor: "rgba(255,255,255,0.06)", borderColor: caregiverError ? COLORS.danger : "rgba(255,255,255,0.15)" }]}>
                 <Feather name="key" size={15} color="rgba(255,255,255,0.5)" />

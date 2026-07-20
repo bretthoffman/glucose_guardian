@@ -7,7 +7,8 @@
  * they rendered inline:
  *  - Notifications / Glucose Alert Thresholds / Emergency Contacts / Insulin Settings → `showPatientSections`
  *    (`!isChildMode && !caregiverSession`). The inline analytics cards + Glucose Trend share this guard.
- *  - Doctor & Care Team → `showDoctorCareTeam` (`!doctorSession`).
+ *  - Doctor & Care Team → `showDoctorCareTeam` (`!doctorSession && !isChildMode && !caregiverSession`;
+ *    owner-only — hidden for the doctor's own session and any access-code / child-view session).
  *  - Access Management → `showAccessManagement` (`(isParent || isAdult)` and not child/caregiver/doctor).
  */
 export type DashboardSectionKey =
@@ -38,7 +39,9 @@ export function dashboardSectionVisibility(role: DashboardRoleFlags): DashboardS
   const showPatientSections = !role.isChildMode && !role.caregiverSession;
   return {
     showPatientSections,
-    showDoctorCareTeam: !role.doctorSession,
+    // Doctor & Care Team (incl. "Share Report with Doctor") is an owner-only section — hidden for the
+    // doctor's own session and for any access-code / child-view session (kid or caregiver).
+    showDoctorCareTeam: !role.doctorSession && !role.isChildMode && !role.caregiverSession,
     showAccessManagement:
       (role.isParent || role.isAdult) && !role.isChildMode && !role.caregiverSession && !role.doctorSession,
   };
