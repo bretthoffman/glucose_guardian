@@ -603,6 +603,7 @@ const sharedProfilePatchPayload = v.object({
 });
 
 const OWNER_ONLY_PROFILE_FIELDS = [
+  "dateOfBirth",
   "weightLbs",
   "insulinTypes",
   "carbRatio",

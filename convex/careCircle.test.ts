@@ -308,13 +308,24 @@ describe("merged co-guardian care (one pool, owner-inherited settings)", () => {
     const ownerProfile = await t.query(api.patientProfile.get, { userId: patient, passwordHash: HASH_A });
     expect(ownerProfile?.doctorPhone).toBe("(843) 555-0100");
 
-    // But dosing ground truth is owner-only.
+    // But dosing ground truth — and the child's birthday/weight — is owner-only.
     await expect(
       t.mutation(api.careCircle.updateSharedProfile, { userId: member, passwordHash: HASH_B, patch: { carbRatio: 8 } }),
     ).rejects.toThrow(/circle owner/);
     await expect(
       t.mutation(api.careCircle.updateSharedProfile, { userId: member, passwordHash: HASH_B, patch: { weightLbs: 70 } }),
     ).rejects.toThrow(/circle owner/);
+    await expect(
+      t.mutation(api.careCircle.updateSharedProfile, { userId: member, passwordHash: HASH_B, patch: { dateOfBirth: "2010-05-05" } }),
+    ).rejects.toThrow(/circle owner/);
+    // The owner may still change it, and the member's inherited copy follows.
+    await t.mutation(api.careCircle.updateSharedProfile, {
+      userId: patient,
+      passwordHash: HASH_A,
+      patch: { dateOfBirth: "2013-06-02" },
+    });
+    const afterDob = await t.query(api.careCircle.circleContext, { userId: member, passwordHash: HASH_B });
+    expect(afterDob?.shared?.dateOfBirth).toBe("2013-06-02");
   });
 
   it("pools quick foods and emergency contacts mutually across the circle", async () => {

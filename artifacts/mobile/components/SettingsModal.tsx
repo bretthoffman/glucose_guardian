@@ -59,37 +59,80 @@ function ageLabel(ageYears: number | null): string {
   return `${ageYears} yrs`;
 }
 
+/** Same calendar check the onboarding birthday step uses (rejects 02/31 and out-of-range years). */
+function isValidDate(month: string, day: string, year: string): boolean {
+  const m = parseInt(month, 10);
+  const d = parseInt(day, 10);
+  const y = parseInt(year, 10);
+  if (isNaN(m) || isNaN(d) || isNaN(y)) return false;
+  if (m < 1 || m > 12) return false;
+  if (d < 1 || d > 31) return false;
+  if (y < 1900 || y > new Date().getFullYear()) return false;
+  const date = new Date(y, m - 1, d);
+  return date.getMonth() === m - 1 && date.getDate() === d;
+}
+
+/** Split a stored `YYYY-MM-DD` profile birthday into the three editor fields. */
+function splitDateOfBirth(iso?: string): { month: string; day: string; year: string } {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((iso ?? "").trim());
+  if (!match) return { month: "", day: "", year: "" };
+  return { year: match[1], month: match[2], day: match[3] };
+}
+
 export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canEditPhoto }: Props) {
   const { colors: c, scheme, preference, setPreference } = useTheme();
   const { profile, ageYears, updateProfile, isCircleMember, circleOwnerName } = useAuth();
   const [schemeExpanded, setSchemeExpanded] = useState(false);
 
-  // Inline account editor (name + weight). Same edit gate as the profile photo.
+  // Inline account editor (name + birthday + weight). Same edit gate as the profile photo.
   const [accountExpanded, setAccountExpanded] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [weightInput, setWeightInput] = useState("");
+  const [birthMonth, setBirthMonth] = useState("");
+  const [birthDay, setBirthDay] = useState("");
+  const [birthYear, setBirthYear] = useState("");
   const [savingAccount, setSavingAccount] = useState(false);
+
+  // Birthday and weight belong to the care circle's owner: a linked co-guardian inherits both and
+  // views them read-only, then regains editing if they ever leave the circle.
+  const canEditSharedFields = !isCircleMember;
 
   const openAccountEditor = () => {
     if (!accountExpanded) {
       setNameInput(profile?.childName ?? "");
       setWeightInput(profile?.weightLbs != null ? String(profile.weightLbs) : "");
+      const dob = splitDateOfBirth(profile?.dateOfBirth);
+      setBirthMonth(dob.month);
+      setBirthDay(dob.day);
+      setBirthYear(dob.year);
     }
     setSchemeExpanded(false);
     setAccountExpanded((v) => !v);
   };
 
+  const birthdayEntered = !!(birthMonth.trim() || birthDay.trim() || birthYear.trim());
+  const birthdayValid = isValidDate(birthMonth, birthDay, birthYear);
+  // Block the save on a half-typed / impossible date rather than silently discarding it.
+  const birthdayInvalid = canEditSharedFields && birthdayEntered && !birthdayValid;
+  const canSaveAccount = !!nameInput.trim() && !birthdayInvalid;
+
   const saveAccount = async () => {
     const name = nameInput.trim();
-    if (!name || savingAccount) return;
+    if (!canSaveAccount || savingAccount) return;
     setSavingAccount(true);
     try {
       const w = parseFloat(weightInput);
-      // Weight is an owner-only circle setting — a linked co-guardian saves the name only.
-      if (isCircleMember) {
+      if (!canEditSharedFields) {
         await updateProfile({ childName: name });
       } else {
-        await updateProfile({ childName: name, weightLbs: !isNaN(w) && w > 0 ? w : undefined });
+        await updateProfile({
+          childName: name,
+          weightLbs: !isNaN(w) && w > 0 ? w : undefined,
+          // Leave the stored birthday untouched when the fields were cleared out entirely.
+          ...(birthdayValid
+            ? { dateOfBirth: `${birthYear}-${birthMonth.padStart(2, "0")}-${birthDay.padStart(2, "0")}` }
+            : {}),
+        });
       }
       setAccountExpanded(false);
     } finally {
@@ -203,6 +246,66 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
                 autoCapitalize="words"
                 returnKeyType="next"
               />
+              <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 12 }]}>Birthday</Text>
+              <View style={styles.dobRow}>
+                <TextInput
+                  value={birthMonth}
+                  onChangeText={(v) => setBirthMonth(v.replace(/\D/g, "").slice(0, 2))}
+                  placeholder="MM"
+                  placeholderTextColor={c.textMuted}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                  editable={canEditSharedFields}
+                  style={[
+                    styles.input,
+                    styles.dobInput,
+                    { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary },
+                    canEditSharedFields ? null : { opacity: 0.5 },
+                  ]}
+                  returnKeyType="next"
+                />
+                <Text style={[styles.dobSeparator, { color: c.textMuted }]}>/</Text>
+                <TextInput
+                  value={birthDay}
+                  onChangeText={(v) => setBirthDay(v.replace(/\D/g, "").slice(0, 2))}
+                  placeholder="DD"
+                  placeholderTextColor={c.textMuted}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                  editable={canEditSharedFields}
+                  style={[
+                    styles.input,
+                    styles.dobInput,
+                    { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary },
+                    canEditSharedFields ? null : { opacity: 0.5 },
+                  ]}
+                  returnKeyType="next"
+                />
+                <Text style={[styles.dobSeparator, { color: c.textMuted }]}>/</Text>
+                <TextInput
+                  value={birthYear}
+                  onChangeText={(v) => setBirthYear(v.replace(/\D/g, "").slice(0, 4))}
+                  placeholder="YYYY"
+                  placeholderTextColor={c.textMuted}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                  editable={canEditSharedFields}
+                  style={[
+                    styles.input,
+                    styles.dobInput,
+                    styles.dobYearInput,
+                    { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary },
+                    canEditSharedFields ? null : { opacity: 0.5 },
+                  ]}
+                  returnKeyType="next"
+                />
+              </View>
+              {birthdayInvalid ? (
+                <Text style={[styles.hint, { color: T.color.coral }]}>
+                  Enter a real date, e.g. 04 / 09 / 2014.
+                </Text>
+              ) : null}
+
               <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 12 }]}>Weight (lbs)</Text>
               <TextInput
                 value={weightInput}
@@ -210,18 +313,18 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
                 placeholder="Optional"
                 placeholderTextColor={c.textMuted}
                 keyboardType="decimal-pad"
-                editable={!isCircleMember}
+                editable={canEditSharedFields}
                 style={[
                   styles.input,
                   { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary },
-                  isCircleMember ? { opacity: 0.5 } : null,
+                  canEditSharedFields ? null : { opacity: 0.5 },
                 ]}
                 returnKeyType="done"
                 onSubmitEditing={saveAccount}
               />
-              {isCircleMember ? (
-                <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 6, textTransform: "none", letterSpacing: 0 }]}>
-                  Weight is managed by {circleOwnerName || "the circle owner"} for your care circle.
+              {!canEditSharedFields ? (
+                <Text style={[styles.hint, { color: c.textMuted }]}>
+                  Birthday and weight are managed by {circleOwnerName || "the circle owner"} for your care circle.
                 </Text>
               ) : null}
               <View style={styles.editorBtns}>
@@ -236,10 +339,10 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
                 <Pressable
                   style={({ pressed }) => [
                     styles.saveBtn,
-                    { backgroundColor: nameInput.trim() ? T.color.violetActive : withAlpha(c.textMuted, 0.2), opacity: pressed ? 0.85 : 1 },
+                    { backgroundColor: canSaveAccount ? T.color.violetActive : withAlpha(c.textMuted, 0.2), opacity: pressed ? 0.85 : 1 },
                   ]}
                   onPress={saveAccount}
-                  disabled={!nameInput.trim() || savingAccount}
+                  disabled={!canSaveAccount || savingAccount}
                   accessibilityRole="button"
                   accessibilityLabel="Save profile"
                 >
@@ -358,6 +461,7 @@ const styles = StyleSheet.create({
 
   editor: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, paddingBottom: 6 },
   fieldLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 6 },
+  hint: { fontSize: 12, fontWeight: "500", marginTop: 6, lineHeight: 16 },
   input: {
     borderWidth: 1,
     borderRadius: 12,
@@ -366,6 +470,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "500",
   },
+  dobRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  dobInput: { flex: 1, paddingHorizontal: 10, textAlign: "center" },
+  dobYearInput: { flex: 1.5 },
+  dobSeparator: { fontSize: 15, fontWeight: "600" },
   editorBtns: { flexDirection: "row", gap: 10, marginTop: 16 },
   cancelBtn: {
     flex: 1,
