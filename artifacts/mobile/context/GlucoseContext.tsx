@@ -96,7 +96,7 @@ function parseLocalHistory(raw: string | null): GlucoseEntry[] {
 }
 
 export function GlucoseProvider({ children }: { children: React.ReactNode }) {
-  const { account, isSignedIn, isLoading: authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind, viewingPatientId, profile } = useAuth();
+  const { account, isSignedIn, isLoading: authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind, viewingPatientId, profile, isCircleMember } = useAuth();
   const [history, setHistory] = useState<GlucoseEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [carbRatio, setCarbRatioState] = useState(15);
@@ -345,15 +345,34 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     };
   }, [authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind]);
 
-  // Apply the viewed profile's dose settings — for a standalone caregiver (code) OR a signed-in
-  // co-guardian viewing a linked patient (`profile` is the patient's slim profile in both cases).
+  // Apply the viewed profile's dose settings — for a standalone caregiver (code), a signed-in
+  // co-guardian viewing a linked patient, or a LINKED CO-GUARDIAN whose whole app inherits the
+  // circle owner's dose math (`profile` carries the owner's values in all three cases). For a
+  // linked member the inherited values are also persisted: if they ever leave the circle they
+  // keep the circle's current settings rather than reverting to stale pre-link math.
   useEffect(() => {
-    const viewingSomeone = (caregiverSession && caregiverCloudCode) || viewingPatientId;
+    const viewingSomeone = (caregiverSession && caregiverCloudCode) || viewingPatientId || isCircleMember;
     if (!viewingSomeone || !profile) return;
     if (typeof profile.carbRatio === "number") setCarbRatioState(profile.carbRatio);
     if (typeof profile.targetGlucose === "number") setTargetGlucoseState(profile.targetGlucose);
     if (typeof profile.correctionFactor === "number") setCorrectionFactorState(profile.correctionFactor);
-  }, [caregiverSession, caregiverCloudCode, viewingPatientId, profile?.carbRatio, profile?.targetGlucose, profile?.correctionFactor]);
+    if (isCircleMember) {
+      AsyncStorage.getItem(SETTINGS_KEY)
+        .then((s) => {
+          const curr = s ? JSON.parse(s) : {};
+          return AsyncStorage.setItem(
+            SETTINGS_KEY,
+            JSON.stringify({
+              ...curr,
+              ...(typeof profile.carbRatio === "number" ? { carbRatio: profile.carbRatio } : {}),
+              ...(typeof profile.targetGlucose === "number" ? { targetGlucose: profile.targetGlucose } : {}),
+              ...(typeof profile.correctionFactor === "number" ? { correctionFactor: profile.correctionFactor } : {}),
+            }),
+          );
+        })
+        .catch(() => {});
+    }
+  }, [caregiverSession, caregiverCloudCode, viewingPatientId, isCircleMember, profile?.carbRatio, profile?.targetGlucose, profile?.correctionFactor]);
 
   const addReading = useCallback(
     (entry: GlucoseEntry) => {

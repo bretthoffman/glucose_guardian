@@ -3,8 +3,7 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -27,8 +26,6 @@ import { useAuth } from "@/context/AuthContext";
 import { getEffectiveTrend } from "@/utils/trend";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
 import FoodInsulinModal from "@/components/FoodInsulinModal";
-import { QUICK_FOODS_STORAGE_KEY } from "@/constants/storage-keys";
-import { DEFAULT_QUICK_FOODS, insertQuickFood, parseStoredQuickFoods } from "@/utils/quickFoods";
 import { apiUrl } from "@/utils/api-base-url";
 
 interface FoodResult {
@@ -57,8 +54,6 @@ interface MealGuidance {
   trendDirection: string;
 }
 
-const QUICK_FOODS = DEFAULT_QUICK_FOODS;
-
 const TREND_LABELS: Record<string, string> = {
   rapidly_rising: "↑↑ Rising fast",
   rising: "↑ Rising",
@@ -85,7 +80,7 @@ export default function FoodScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { carbRatio, targetGlucose, correctionFactor, latestReading, history, cgmSyncSuccessTick } = useGlucose();
-  const { addFoodLogEntry, isMinor } = useAuth();
+  const { addFoodLogEntry, isMinor, quickFoods, saveQuickFood } = useAuth();
 
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<FoodResult | null>(null);
@@ -103,24 +98,13 @@ export default function FoodScreen() {
   const [insulinTakenAtTick, setInsulinTakenAtTick] = useState<number | null>(null);
   const insulinTaken = insulinTakenAtTick !== null && insulinTakenAtTick === cgmSyncSuccessTick;
 
-  // ── User-customizable Quick Lookup chips (fixed length; saves go to the front) ──
-  const [quickFoods, setQuickFoods] = useState<string[]>(QUICK_FOODS);
+  // ── Quick Lookup chips now live in AuthContext: one mutual list for the whole care circle
+  // (an add by any co-guardian shows up on every guardian's Food tab within a poll). ──
   const [savedToQuick, setSavedToQuick] = useState(false);
-
-  useEffect(() => {
-    AsyncStorage.getItem(QUICK_FOODS_STORAGE_KEY)
-      .then((raw) => {
-        const stored = parseStoredQuickFoods(raw);
-        if (stored) setQuickFoods(stored.slice(0, QUICK_FOODS.length));
-      })
-      .catch(() => {});
-  }, []);
 
   function saveToQuickLookup() {
     if (!result || savedToQuick) return;
-    const next = insertQuickFood(quickFoods, result.foodName, QUICK_FOODS.length);
-    setQuickFoods(next);
-    AsyncStorage.setItem(QUICK_FOODS_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+    saveQuickFood(result.foodName);
     setSavedToQuick(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }

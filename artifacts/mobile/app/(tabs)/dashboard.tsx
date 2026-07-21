@@ -96,6 +96,8 @@ export default function DashboardScreen() {
     exitDoctorMode,
     addAccessLogEntry,
     syncToDoctor,
+    isCircleMember,
+    circleOwnerName,
   } = useAuth();
 
   useEffect(() => {
@@ -219,6 +221,9 @@ export default function DashboardScreen() {
       return;
     }
     saveFormula(cr, tg, isf);
+    // Mirror to the backend profile — this is the copy co-guardians inherit and the doctor portal
+    // reads, so the account's live dose math and the shared/synced one can never drift apart.
+    updateProfile({ carbRatio: cr, targetGlucose: tg, correctionFactor: isf });
     if (doctorSession) {
       addAccessLogEntry(`Doctor updated dosing: CR=${cr}g/u, Target=${tg}, ISF=${isf}`, "doctor");
       Alert.alert("Dosing Updated", "New parameters saved and applied immediately. The account holder has been notified in their access log.", [{ text: "OK" }]);
@@ -873,8 +878,9 @@ export default function DashboardScreen() {
                 Customize each alert level (mg/dL)
               </Text>
             </View>
-            {/* Access-code sessions (kid / caregiver) view the owner's thresholds read-only — no Edit. */}
-            {!editingThresholds && !caregiverSession && (
+            {/* Access-code sessions (kid / caregiver) and linked co-guardians view the circle
+                owner's thresholds read-only — no Edit. */}
+            {!editingThresholds && !caregiverSession && !isCircleMember && (
               <Pressable
                 style={({ pressed }) => [styles.addContactBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.7 : 1 }]}
                 onPress={() => {
@@ -949,7 +955,9 @@ export default function DashboardScreen() {
                 <View style={[styles.threshLegend, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
                   <Feather name="info" size={12} color={colors.textMuted} />
                   <Text style={[styles.threshLegendText, { color: colors.textMuted }]}>
-                    These levels control chart lines, alert triggers, and dot colors throughout the app.
+                    {isCircleMember
+                      ? `Shared with your care circle — only ${circleOwnerName || "the circle owner"} can change these levels.`
+                      : "These levels control chart lines, alert triggers, and dot colors throughout the app."}
                   </Text>
                 </View>
               )}
@@ -1091,7 +1099,8 @@ export default function DashboardScreen() {
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.cardHeader}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>Insulin Settings</Text>
-            {(
+            {/* Owner-only: linked co-guardians see the circle's live values read-only. */}
+            {!isCircleMember && (
               <Pressable
                 onPress={() => {
                   if (editing) { saveSettings(); } else {
@@ -1114,6 +1123,14 @@ export default function DashboardScreen() {
               </Pressable>
             )}
           </View>
+          {isCircleMember && (
+            <View style={[styles.threshLegend, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, marginBottom: 10 }]}>
+              <Feather name="users" size={12} color={colors.textMuted} />
+              <Text style={[styles.threshLegendText, { color: colors.textMuted }]}>
+                Shared with your care circle — only {circleOwnerName || "the circle owner"} can edit insulin settings.
+              </Text>
+            </View>
+          )}
           <View style={[styles.settingRow, { borderBottomWidth: 1, borderBottomColor: colors.separator }]}>
             <View style={styles.settingInfo}>
               <Text style={[styles.settingLabel, { color: colors.text }]}>Carb Ratio</Text>
@@ -1187,6 +1204,7 @@ export default function DashboardScreen() {
                             },
                           ]}
                           onPress={() => {
+                            if (isCircleMember) return; // owner-only — members view the shared list
                             const current = profile?.insulinTypes ?? [];
                             const next = selected ? current.filter((x) => x !== chipLabel) : [...current, chipLabel];
                             updateProfile({ insulinTypes: next });
@@ -1378,6 +1396,11 @@ export default function DashboardScreen() {
               Share with your verified doctor or endocrinologist. They can update carb ratios and correction factors.
             </Text>
             {!profile?.doctorCode ? (
+              isCircleMember ? (
+                <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
+                  Your care circle shares one doctor code. Ask {circleOwnerName || "the circle owner"} to generate it.
+                </Text>
+              ) : (
               <Pressable
                 style={({ pressed }) => [styles.outlineBtn, { borderColor: "#6366F1" + "50", backgroundColor: "#6366F1" + "08", opacity: pressed ? 0.8 : 1 }]}
                 onPress={async () => {
@@ -1388,6 +1411,7 @@ export default function DashboardScreen() {
                 <Feather name="plus" size={14} color="#6366F1" />
                 <Text style={[styles.outlineBtnText, { color: "#6366F1" }]}>Generate Doctor Code</Text>
               </Pressable>
+              )
             ) : (
               <View style={[styles.caregiverCodeDisplay, { backgroundColor: "#6366F1" + "0A", borderColor: "#6366F1" + "30" }]}>
                 <View style={{ flex: 1 }}>
@@ -1408,6 +1432,8 @@ export default function DashboardScreen() {
                   >
                     <Feather name="share-2" size={14} color="#6366F1" />
                   </Pressable>
+                  {/* Rotating the shared code is owner-only — a member device only shares it. */}
+                  {!isCircleMember && (
                   <Pressable
                     style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "12", opacity: pressed ? 0.7 : 1 }]}
                     onPress={() => { Alert.alert("Revoke Doctor Code?", "This will invalidate the current code. Your doctor will lose editing access until you share a new code.", [
@@ -1418,6 +1444,7 @@ export default function DashboardScreen() {
                   >
                     <Feather name="refresh-cw" size={14} color={COLORS.danger} />
                   </Pressable>
+                  )}
                 </View>
               </View>
             )}

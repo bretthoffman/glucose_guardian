@@ -396,7 +396,7 @@ export default function CareCirclePanel({
   /** Close the hosting dashboard popup — used after entering viewing mode. */
   onClose?: () => void;
 }) {
-  const { account, profile, enterViewingMode } = useAuth();
+  const { account, profile, enterViewingMode, refreshCareMemberships } = useAuth();
 
   const [circle, setCircle] = useState<CircleData | null>(null);
   const [memberships, setMemberships] = useState<MembershipRow[]>([]);
@@ -486,13 +486,16 @@ export default function CareCirclePanel({
         const client = createConvexAuthClient();
         await fn(client, account.convexUserId as Id<"users">, account.passwordHash);
         await refresh(true);
+        // Re-anchor the whole app right away: joining/leaving a circle swaps which log pool and
+        // owner-settings the account runs on, and that must not wait for the next 60s poll.
+        void refreshCareMemberships();
       } catch (e) {
         Alert.alert("Care Circle", cleanConvexError(e));
       } finally {
         setBusy(false);
       }
     },
-    [account?.convexUserId, account?.passwordHash, refresh],
+    [account?.convexUserId, account?.passwordHash, refresh, refreshCareMemberships],
   );
 
   /** Same-sensor discovery is a read-only query — no circle refresh, so the panel never blinks. */

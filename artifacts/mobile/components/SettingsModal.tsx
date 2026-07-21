@@ -61,7 +61,7 @@ function ageLabel(ageYears: number | null): string {
 
 export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canEditPhoto }: Props) {
   const { colors: c, scheme, preference, setPreference } = useTheme();
-  const { profile, ageYears, updateProfile } = useAuth();
+  const { profile, ageYears, updateProfile, isCircleMember, circleOwnerName } = useAuth();
   const [schemeExpanded, setSchemeExpanded] = useState(false);
 
   // Inline account editor (name + weight). Same edit gate as the profile photo.
@@ -85,7 +85,12 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
     setSavingAccount(true);
     try {
       const w = parseFloat(weightInput);
-      await updateProfile({ childName: name, weightLbs: !isNaN(w) && w > 0 ? w : undefined });
+      // Weight is an owner-only circle setting — a linked co-guardian saves the name only.
+      if (isCircleMember) {
+        await updateProfile({ childName: name });
+      } else {
+        await updateProfile({ childName: name, weightLbs: !isNaN(w) && w > 0 ? w : undefined });
+      }
       setAccountExpanded(false);
     } finally {
       setSavingAccount(false);
@@ -205,10 +210,20 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
                 placeholder="Optional"
                 placeholderTextColor={c.textMuted}
                 keyboardType="decimal-pad"
-                style={[styles.input, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
+                editable={!isCircleMember}
+                style={[
+                  styles.input,
+                  { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary },
+                  isCircleMember ? { opacity: 0.5 } : null,
+                ]}
                 returnKeyType="done"
                 onSubmitEditing={saveAccount}
               />
+              {isCircleMember ? (
+                <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 6, textTransform: "none", letterSpacing: 0 }]}>
+                  Weight is managed by {circleOwnerName || "the circle owner"} for your care circle.
+                </Text>
+              ) : null}
               <View style={styles.editorBtns}>
                 <Pressable
                   style={({ pressed }) => [styles.cancelBtn, { borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}

@@ -123,6 +123,24 @@ async function resolveActiveAccessCode(ctx: QueryCtx | MutationCtx, rawCode: str
   return row && row.status === "active" ? row : null;
 }
 
+/**
+ * The shared log bucket a caller's "my logs" resolve to: their circle owner's bucket when they are
+ * an active co-guardian, else their own. This is what makes linked accounts ONE log pool — every
+ * read and write a member's device aims at itself is redirected here, so the calculator, the Logs
+ * tab, and chat context all see the same merged stream on every guardian's phone (including app
+ * builds that predate the linking feature).
+ */
+export async function circleBucketFor(
+  ctx: QueryCtx | MutationCtx,
+  callerUserId: Id<"users">,
+): Promise<Id<"users">> {
+  const membership = await ctx.db
+    .query("careLinks")
+    .withIndex("by_member", (q) => q.eq("memberUserId", callerUserId).eq("status", "active"))
+    .first();
+  return membership?.patientUserId ?? callerUserId;
+}
+
 // ─── pruning ─────────────────────────────────────────────────────────────────────────────────
 
 async function pruneFood(ctx: MutationCtx, patientUserId: Id<"users">) {
@@ -191,6 +209,91 @@ async function upsertInsulin(
   await pruneInsulin(ctx, patientUserId);
 }
 
+/**
+ * Join-time backfill: copy every log in `fromPatientUserId`'s bucket into `toPatientUserId`'s
+ * bucket so a joining co-guardian's pre-link history (yesterday's meals, last week's doses) is
+ * visible to the whole circle. Idempotent via clientId — safe to run on rejoin. Entries the joiner
+ * authored themselves take the circle byline (`selfAuthorName`, the link display name); entries
+ * other people wrote into the joiner's old bucket keep their original byline. Prunes once at the
+ * end (not per row) to stay well inside mutation read limits.
+ */
+export async function copyBucketLogs(
+  ctx: MutationCtx,
+  fromPatientUserId: Id<"users">,
+  toPatientUserId: Id<"users">,
+  selfAuthorName: string,
+): Promise<void> {
+  if (fromPatientUserId === toPatientUserId) return;
+  const bylineFor = (row: { authorUserId?: Id<"users">; authorName: string }): WriteAuth =>
+    row.authorUserId === fromPatientUserId || row.authorUserId === undefined
+      ? { authorUserId: fromPatientUserId, authorName: selfAuthorName }
+      : { authorUserId: row.authorUserId, authorName: row.authorName };
+
+  const food = await ctx.db
+    .query("careFoodLogs")
+    .withIndex("by_patient_time", (q) => q.eq("patientUserId", fromPatientUserId))
+    .order("desc")
+    .take(FOOD_CAP);
+  for (const row of food) {
+    const existing = await ctx.db
+      .query("careFoodLogs")
+      .withIndex("by_patient_client", (q) =>
+        q.eq("patientUserId", toPatientUserId).eq("clientId", row.clientId),
+      )
+      .first();
+    if (existing) continue;
+    const auth = bylineFor(row);
+    await ctx.db.insert("careFoodLogs", {
+      patientUserId: toPatientUserId,
+      ...(auth.authorUserId ? { authorUserId: auth.authorUserId } : {}),
+      authorName: auth.authorName,
+      createdAt: row.createdAt,
+      clientId: row.clientId,
+      timestamp: row.timestamp,
+      foodName: row.foodName,
+      estimatedCarbs: row.estimatedCarbs,
+      insulinUnits: row.insulinUnits,
+      confidence: row.confidence,
+      fromPhoto: row.fromPhoto,
+      ...(row.photoUri != null ? { photoUri: row.photoUri } : {}),
+    });
+  }
+
+  const insulin = await ctx.db
+    .query("careInsulinLogs")
+    .withIndex("by_patient_time", (q) => q.eq("patientUserId", fromPatientUserId))
+    .order("desc")
+    .take(INSULIN_CAP);
+  for (const row of insulin) {
+    const existing = await ctx.db
+      .query("careInsulinLogs")
+      .withIndex("by_patient_client", (q) =>
+        q.eq("patientUserId", toPatientUserId).eq("clientId", row.clientId),
+      )
+      .first();
+    if (existing) continue;
+    const auth = bylineFor(row);
+    await ctx.db.insert("careInsulinLogs", {
+      patientUserId: toPatientUserId,
+      ...(auth.authorUserId ? { authorUserId: auth.authorUserId } : {}),
+      authorName: auth.authorName,
+      createdAt: row.createdAt,
+      clientId: row.clientId,
+      timestamp: row.timestamp,
+      units: row.units,
+      type: row.type,
+      ...(row.note != null ? { note: row.note } : {}),
+      ...(row.foodLogId != null ? { foodLogId: row.foodLogId } : {}),
+      ...(row.insulinType != null ? { insulinType: row.insulinType } : {}),
+      ...(row.recommendedUnits != null ? { recommendedUnits: row.recommendedUnits } : {}),
+      ...(row.manualOverride != null ? { manualOverride: row.manualOverride } : {}),
+    });
+  }
+
+  await pruneFood(ctx, toPatientUserId);
+  await pruneInsulin(ctx, toPatientUserId);
+}
+
 // ─── account-authorized mutations (patient + co-guardians) ───────────────────────────────────
 
 export const addFoodLog = mutation({
@@ -202,9 +305,12 @@ export const addFoodLog = mutation({
   },
   handler: async (ctx, args) => {
     if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    const auth = await resolveAccountWriteAuth(ctx, args.userId, args.patientUserId);
+    // "Log to myself" lands in the caller's circle bucket, so a co-guardian's entry reaches everyone.
+    const patientUserId =
+      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
+    const auth = await resolveAccountWriteAuth(ctx, args.userId, patientUserId);
     if (!auth) throw new Error("Not allowed to log for this patient");
-    await upsertFood(ctx, args.patientUserId, auth, args.entry);
+    await upsertFood(ctx, patientUserId, auth, args.entry);
   },
 });
 
@@ -217,9 +323,11 @@ export const addInsulinLog = mutation({
   },
   handler: async (ctx, args) => {
     if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    const auth = await resolveAccountWriteAuth(ctx, args.userId, args.patientUserId);
+    const patientUserId =
+      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
+    const auth = await resolveAccountWriteAuth(ctx, args.userId, patientUserId);
     if (!auth) throw new Error("Not allowed to log for this patient");
-    await upsertInsulin(ctx, args.patientUserId, auth, args.entry);
+    await upsertInsulin(ctx, patientUserId, auth, args.entry);
   },
 });
 
@@ -234,10 +342,12 @@ export const importLogs = mutation({
   },
   handler: async (ctx, args) => {
     if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    const auth = await resolveAccountWriteAuth(ctx, args.userId, args.patientUserId);
+    const patientUserId =
+      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
+    const auth = await resolveAccountWriteAuth(ctx, args.userId, patientUserId);
     if (!auth) throw new Error("Not allowed to log for this patient");
-    for (const entry of args.food) await upsertFood(ctx, args.patientUserId, auth, entry);
-    for (const entry of args.insulin) await upsertInsulin(ctx, args.patientUserId, auth, entry);
+    for (const entry of args.food) await upsertFood(ctx, patientUserId, auth, entry);
+    for (const entry of args.insulin) await upsertInsulin(ctx, patientUserId, auth, entry);
   },
 });
 
@@ -334,8 +444,16 @@ export const listLogs = query({
   args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users") },
   handler: async (ctx, args) => {
     if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return null;
-    if (!(await resolveAccountReadAuth(ctx, args.userId, args.patientUserId))) return null;
-    return await readLogs(ctx, args.patientUserId);
+    // A member asking for "my logs" is served the circle's pool. If their grant/schedule currently
+    // blocks viewing it, they get EMPTY logs — never their stale pre-link private bucket, which
+    // would silently mislead the dose calculator.
+    const patientUserId =
+      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
+    if (!(await resolveAccountReadAuth(ctx, args.userId, patientUserId))) {
+      if (patientUserId !== args.patientUserId) return { foodLog: [], insulinLog: [] };
+      return null;
+    }
+    return await readLogs(ctx, patientUserId);
   },
 });
 
@@ -361,10 +479,12 @@ export const clearFood = mutation({
   args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users") },
   handler: async (ctx, args) => {
     if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    if (!(await resolveClearAuth(ctx, args.userId, args.patientUserId))) throw new Error("Not allowed");
+    const patientUserId =
+      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
+    if (!(await resolveClearAuth(ctx, args.userId, patientUserId))) throw new Error("Not allowed");
     const rows = await ctx.db
       .query("careFoodLogs")
-      .withIndex("by_patient_time", (q) => q.eq("patientUserId", args.patientUserId))
+      .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
       .collect();
     for (const row of rows) await ctx.db.delete(row._id);
   },
@@ -374,10 +494,12 @@ export const clearInsulin = mutation({
   args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users") },
   handler: async (ctx, args) => {
     if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    if (!(await resolveClearAuth(ctx, args.userId, args.patientUserId))) throw new Error("Not allowed");
+    const patientUserId =
+      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
+    if (!(await resolveClearAuth(ctx, args.userId, patientUserId))) throw new Error("Not allowed");
     const rows = await ctx.db
       .query("careInsulinLogs")
-      .withIndex("by_patient_time", (q) => q.eq("patientUserId", args.patientUserId))
+      .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
       .collect();
     for (const row of rows) await ctx.db.delete(row._id);
   },

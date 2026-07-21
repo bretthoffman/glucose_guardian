@@ -4,14 +4,16 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { CarePermissions } from "../../../convex/careSchedule";
-import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY } from "@/constants/storage-keys";
+import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY, QUICK_FOODS_STORAGE_KEY } from "@/constants/storage-keys";
 import { apiUrl } from "@/utils/api-base-url";
 import { mergeCloudLogs } from "@/utils/careLogsMerge";
+import { DEFAULT_QUICK_FOODS, insertQuickFood, parseStoredQuickFoods } from "@/utils/quickFoods";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import {
   mergeDoctorMessages,
@@ -105,6 +107,41 @@ export interface CareMembership {
   };
   accessState: { state: "ok" | "before_window" | "outside_window" | "disabled"; nextStartMs?: number };
   dependentMode: boolean;
+}
+
+/**
+ * The circle owner's settings a linked co-guardian's app inherits wholesale. While a membership is
+ * active these — not the member's own stored values — are what the whole app displays and doses
+ * with (thresholds ride separately into `alertPrefs`). Personal fields (parent name, photo,
+ * notification toggles, chat) deliberately never appear here.
+ */
+export interface CircleSharedProfile {
+  childName?: string;
+  diabetesType?: "type1" | "type2" | "other";
+  dateOfBirth?: string;
+  weightLbs?: number;
+  doctorName?: string;
+  doctorEmail?: string;
+  doctorPhone?: string;
+  doctorInstitution?: string;
+  insulinTypes?: string[];
+  carbRatio?: number;
+  targetGlucose?: number;
+  correctionFactor?: number;
+  alertPreferences?: {
+    lowThreshold?: number | null;
+    highThreshold?: number | null;
+    urgentLowThreshold?: number | null;
+    urgentHighThreshold?: number | null;
+  } | null;
+  doctorCode?: string;
+  doctorCodeIssuedAt?: string;
+}
+
+export interface CircleShared {
+  anchorPatientUserId: string;
+  ownerName: string;
+  profile: CircleSharedProfile;
 }
 
 export interface CGMConnection {
@@ -207,6 +244,17 @@ export interface AuthContextType {
   /** Care circles this signed-in account belongs to as a co-guardian. */
   careMemberships: CareMembership[];
   refreshCareMemberships: () => Promise<void>;
+  /**
+   * True while this signed-in account is a linked co-guardian in someone else's circle: the app
+   * then runs on the circle owner's inherited settings and owner-only settings are read-only here.
+   */
+  isCircleMember: boolean;
+  /** Display name of the circle owner whose settings this member inherits (lock-copy in the UI). */
+  circleOwnerName: string | null;
+  /** Quick Lookup meals — the circle's mutual list for cloud accounts, device-local otherwise. */
+  quickFoods: string[];
+  /** Put a meal at the front of the Quick Lookup list (syncs to every guardian in the circle). */
+  saveQuickFood: (name: string) => void;
   /** The linked patient's userId currently being viewed (null = viewing my own account). */
   viewingPatientId: string | null;
   viewingPatientName: string | null;
@@ -232,6 +280,10 @@ const ACCOUNT_KEY = "@gluco_guardian_account";
 const SESSION_KEY = "@gluco_guardian_session";
 /** Persisted access-code session so a caregiver/child stays signed in across app restarts. */
 const CAREGIVER_CODE_KEY = "@gluco_guardian_caregiver_code";
+/** Persisted co-guardian memberships so the circle anchor is known instantly on cold start. */
+const CARE_MEMBERSHIPS_KEY = "@gluco_guardian_care_memberships";
+/** Persisted owner-settings overlay so a member's app inherits offline too. */
+const CIRCLE_SHARED_KEY = "@gluco_guardian_circle_shared";
 const DOCTOR_MESSAGES_KEY = "@gluco_guardian_doctor_messages";
 const THERAPY_PROPOSAL_KEY = "@gluco_guardian_therapy_proposal";
 
@@ -309,6 +361,25 @@ function thresholdsToBackend(prefs: AlertPreferences) {
     urgentHighThreshold: prefs.urgentHighThreshold,
   };
 }
+
+/** Profile fields that belong to the CIRCLE (owner's account) while linked; the rest is personal. */
+const SHARED_PROFILE_EDIT_KEYS = [
+  "childName",
+  "diabetesType",
+  "dateOfBirth",
+  "weightLbs",
+  "doctorName",
+  "doctorEmail",
+  "doctorPhone",
+  "doctorInstitution",
+  "insulinTypes",
+  "carbRatio",
+  "targetGlucose",
+  "correctionFactor",
+] as const;
+
+/** Max Quick Lookup entries (list length stays constant; saving pushes the oldest off). */
+const QUICK_FOODS_MAX = DEFAULT_QUICK_FOODS.length;
 
 function hashPassword(password: string): string {
   const salted = `gg::${password}::glucose_guardian_2025`;
@@ -397,6 +468,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [accessCodePermissions, setAccessCodePermissions] = useState<CarePermissions | null>(null);
   // ── Co-guardian viewing overlay (signed-in account viewing a linked patient's data) ──
   const [careMemberships, setCareMemberships] = useState<CareMembership[]>([]);
+  /** Owner-settings inheritance for a linked co-guardian (null when solo / circle owner). */
+  const [circleShared, setCircleShared] = useState<CircleShared | null>(null);
+  /** Bumped to force an immediate circle re-hydrate (e.g. right after joining/leaving a circle). */
+  const [hydrateNonce, setHydrateNonce] = useState(0);
+  /** Quick Lookup meals — hydrated from the circle pool for cloud accounts. */
+  const [quickFoods, setQuickFoods] = useState<string[]>(DEFAULT_QUICK_FOODS);
   const [viewingPatientId, setViewingPatientId] = useState<string | null>(null);
   const [viewedProfile, setViewedProfile] = useState<UserProfile | null>(null);
   const [viewedFoodLog, setViewedFoodLog] = useState<FoodLogEntry[]>([]);
@@ -420,6 +497,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /** Live mirrors for the log-write path (which patient bucket + what byline to use). */
   const viewingPatientIdRef = useRef<string | null>(null);
   useEffect(() => { viewingPatientIdRef.current = viewingPatientId; }, [viewingPatientId]);
+  /** The circle bucket this account's logs/settings target: owner's account when a member, else self. */
+  const circleAnchorRef = useRef<string | null>(null);
+  useEffect(() => {
+    circleAnchorRef.current = careMemberships[0]?.patientUserId ?? account?.convexUserId ?? null;
+  }, [careMemberships, account?.convexUserId]);
+  const circleSharedRef = useRef<CircleShared | null>(null);
+  useEffect(() => { circleSharedRef.current = circleShared; }, [circleShared]);
+  const emergencyContactsRef = useRef<EmergencyContact[]>([]);
+  useEffect(() => { emergencyContactsRef.current = emergencyContacts; }, [emergencyContacts]);
+  const quickFoodsRef = useRef<string[]>(DEFAULT_QUICK_FOODS);
+  useEffect(() => { quickFoodsRef.current = quickFoods; }, [quickFoods]);
+  /** Set on every local profile commit so the hydrate poll never clobbers an in-flight edit. */
+  const lastProfileCommitAtRef = useRef(0);
   /** For an access-code session that may write logs (child, or a caregiver granted `log`). */
   const codeWriteRef = useRef<{ code: string; canLog: boolean } | null>(null);
   useEffect(() => {
@@ -439,6 +529,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { therapyProposalRef.current = therapyProposal; }, [therapyProposal]);
 
   const commitProfile = useCallback(async (updated: UserProfile) => {
+    lastProfileCommitAtRef.current = Date.now();
     profileRef.current = updated;
     setProfile(updated);
     try {
@@ -663,6 +754,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           storedDoctorMessages,
           storedTherapyProposal,
           storedCaregiverCode,
+          storedMemberships,
+          storedCircleShared,
+          storedQuickFoods,
         ] = await Promise.all([
           AsyncStorage.getItem(PROFILE_KEY),
           AsyncStorage.getItem(CGM_KEY),
@@ -675,6 +769,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(DOCTOR_MESSAGES_KEY),
           AsyncStorage.getItem(THERAPY_PROPOSAL_KEY),
           AsyncStorage.getItem(CAREGIVER_CODE_KEY),
+          AsyncStorage.getItem(CARE_MEMBERSHIPS_KEY),
+          AsyncStorage.getItem(CIRCLE_SHARED_KEY),
+          AsyncStorage.getItem(QUICK_FOODS_STORAGE_KEY),
         ]);
 
         if (storedSession === "true" && !storedAccount) {
@@ -707,6 +804,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (storedContacts) setEmergencyContacts(JSON.parse(storedContacts));
         if (storedAlertPrefs) setAlertPrefsState({ ...DEFAULT_ALERT_PREFS, ...JSON.parse(storedAlertPrefs) });
         if (storedDoctorMessages) setDoctorMessages(JSON.parse(storedDoctorMessages));
+        // Circle state: restore instantly so a co-guardian's first render is already anchored to
+        // the shared pool + owner settings (the hydrate poll re-verifies against Convex right after).
+        if (storedMemberships) {
+          try {
+            const rows = JSON.parse(storedMemberships) as CareMembership[];
+            if (Array.isArray(rows)) setCareMemberships(rows);
+          } catch { /* ignore corrupt cache */ }
+        }
+        if (storedCircleShared) {
+          try {
+            const parsed = JSON.parse(storedCircleShared) as CircleShared;
+            if (parsed && typeof parsed === "object" && parsed.profile) setCircleShared(parsed);
+          } catch { /* ignore corrupt cache */ }
+        }
+        const parsedQuickFoods = parseStoredQuickFoods(storedQuickFoods);
+        if (parsedQuickFoods) setQuickFoods(parsedQuickFoods.slice(0, QUICK_FOODS_MAX));
         if (storedTherapyProposal) {
           try { setTherapyProposal(JSON.parse(storedTherapyProposal) as TherapyProposal); } catch { /* ignore corrupt proposal */ }
         }
@@ -836,10 +949,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // shared logs everywhere it reads `profile`/`foodLog`/`insulinLog`; the co-guardian's own state
   // is preserved internally for when they exit.
   const isViewingLinkedPatient = viewingPatientId != null && viewedProfile != null;
-  const effectiveProfile = isViewingLinkedPatient ? viewedProfile : profile;
+
+  // ── Owner-settings inheritance: a linked co-guardian's app runs on the circle owner's shared
+  // fields, with only truly personal fields (their name, photo, account role, notifications, chat)
+  // coming from their own profile. The member's own stored values are fully shadowed while linked —
+  // no trace on screen or in any tool — which is exactly what makes four calculators agree.
+  const isCircleMember = isSignedIn && !!account?.convexUserId && circleShared != null;
+  const mergedOwnProfile = useMemo(() => {
+    if (!isCircleMember || !circleShared) return profile;
+    const overlay: Partial<UserProfile> = {};
+    for (const key of [...SHARED_PROFILE_EDIT_KEYS, "doctorCode", "doctorCodeIssuedAt"] as const) {
+      const value = circleShared.profile[key as keyof CircleSharedProfile];
+      if (value !== undefined && value !== null) (overlay as Record<string, unknown>)[key] = value;
+    }
+    const base: UserProfile =
+      profile ?? ({ childName: "", diabetesType: "type1", dateOfBirth: "" } as UserProfile);
+    return { ...base, ...overlay };
+  }, [isCircleMember, circleShared, profile]);
+
+  const effectiveProfile = isViewingLinkedPatient ? viewedProfile : mergedOwnProfile;
   const effectiveFoodLog = isViewingLinkedPatient ? viewedFoodLog : foodLog;
   const effectiveInsulinLog = isViewingLinkedPatient ? viewedInsulinLog : insulinLog;
   const viewingPatientName = isViewingLinkedPatient ? viewedProfile.childName : null;
+  /** Doctor sync + report paths must see the INHERITED profile (owner's child data + doctor code). */
+  const effectiveProfileRef = useRef<UserProfile | null>(null);
+  useEffect(() => { effectiveProfileRef.current = effectiveProfile; }, [effectiveProfile]);
 
   const ageYears = effectiveProfile?.dateOfBirth ? computeAge(effectiveProfile.dateOfBirth) : null;
   const isMinor = ageYears !== null ? ageYears < 18 : false;
@@ -857,8 +991,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn, account?.convexUserId, account?.passwordHash]);
 
-  // ── Own shared-log bucket: one-time local→cloud migration, then hydrate + poll every 60s so a
-  // co-guardian's / co-parent's logs appear here on their own (≤1-min lag). ──
+  // ── Circle hydrate poll (every 60s): memberships → anchor, owner-settings overlay + pools,
+  // one-time local→cloud log migration into the ANCHOR bucket, then the pooled logs themselves.
+  // This is why a co-guardian's entry shows up on every guardian's Logs tab / calculator / chat
+  // within a minute — and STAYS: the poll reads the same circle bucket the writes land in.
   useEffect(() => {
     if (isLoading) return; // wait for the boot AsyncStorage load so migration sees local logs
     if (!isSignedIn || !account?.convexUserId) return;
@@ -869,9 +1005,96 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function hydrateOwn() {
       try {
         const client = createConvexAuthClient();
-        // Migrate local AsyncStorage logs into the cloud once per account (idempotent by clientId).
-        const migratedKey = `${LOGS_MIGRATED_KEY_PREFIX}${userId}`;
-        const already = await AsyncStorage.getItem(migratedKey);
+
+        // 0) Memberships → the circle anchor. On network failure fall back to the cached anchor.
+        let anchor: Id<"users"> = (circleAnchorRef.current as Id<"users">) ?? userId;
+        try {
+          const rows = (await client.query(api.careCircle.myMemberships, {
+            userId,
+            passwordHash,
+          })) as CareMembership[];
+          if (cancelled) return;
+          setCareMemberships(rows);
+          AsyncStorage.setItem(CARE_MEMBERSHIPS_KEY, JSON.stringify(rows)).catch(() => {});
+          anchor = (rows[0]?.patientUserId as Id<"users">) ?? userId;
+          circleAnchorRef.current = anchor;
+        } catch {
+          /* offline — keep cached anchor */
+        }
+
+        // 1) Owner-settings overlay + the mutual quick-meals / emergency-contact pools.
+        try {
+          const circle = await client.query(api.careCircle.circleContext, { userId, passwordHash });
+          if (cancelled) return;
+          if (circle) {
+            if (!circle.isOwner && circle.shared) {
+              const nextShared: CircleShared = {
+                anchorPatientUserId: String(circle.anchorPatientUserId),
+                ownerName: circle.ownerName,
+                profile: circle.shared as CircleSharedProfile,
+              };
+              circleSharedRef.current = nextShared;
+              setCircleShared(nextShared);
+              AsyncStorage.setItem(CIRCLE_SHARED_KEY, JSON.stringify(nextShared)).catch(() => {});
+              // The owner's alert thresholds are the circle's thresholds (notif toggles stay local).
+              const overlay = thresholdOverlay(nextShared.profile.alertPreferences);
+              if (overlay) {
+                setAlertPrefsState((prev) => {
+                  const merged = { ...prev, ...overlay };
+                  AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(merged)).catch(() => {});
+                  return merged;
+                });
+              }
+            } else {
+              circleSharedRef.current = null;
+              setCircleShared(null);
+              AsyncStorage.removeItem(CIRCLE_SHARED_KEY).catch(() => {});
+            }
+            if (Array.isArray(circle.quickFoods)) {
+              const pool = (circle.quickFoods as string[]).slice(0, QUICK_FOODS_MAX);
+              const next = pool.length > 0 ? pool : DEFAULT_QUICK_FOODS;
+              setQuickFoods(next);
+              AsyncStorage.setItem(QUICK_FOODS_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+            } else if (circle.isOwner && quickFoodsRef.current.length > 0) {
+              // Seed the pool once from this device's list (owner only — a joiner's old local list
+              // must never displace the owner's).
+              client
+                .mutation(api.careCircle.setQuickFoods, { userId, passwordHash, foods: quickFoodsRef.current })
+                .catch(() => {});
+            } else if (!circle.isOwner) {
+              // Member of a circle whose pool isn't seeded yet: show the clean default list, never
+              // this device's pre-link leftovers (the owner's list becomes THE list on join).
+              setQuickFoods(DEFAULT_QUICK_FOODS);
+              AsyncStorage.setItem(QUICK_FOODS_STORAGE_KEY, JSON.stringify(DEFAULT_QUICK_FOODS)).catch(() => {});
+            }
+            if (Array.isArray(circle.emergencyContacts)) {
+              const pool = circle.emergencyContacts as EmergencyContact[];
+              setEmergencyContacts(pool);
+              AsyncStorage.setItem(EMERGENCY_CONTACTS_KEY, JSON.stringify(pool)).catch(() => {});
+            } else if (circle.isOwner && emergencyContactsRef.current.length > 0) {
+              client
+                .mutation(api.careCircle.importSharedEmergencyContacts, {
+                  userId,
+                  passwordHash,
+                  contacts: emergencyContactsRef.current,
+                })
+                .catch(() => {});
+            } else if (!circle.isOwner) {
+              setEmergencyContacts([]);
+              AsyncStorage.setItem(EMERGENCY_CONTACTS_KEY, "[]").catch(() => {});
+            }
+          }
+        } catch {
+          /* offline — cached overlay/pools remain */
+        }
+
+        // 2) Migrate local AsyncStorage logs into the cloud once per account+bucket (idempotent by
+        // clientId). Bucket-scoped so joining a circle re-runs it INTO the pool.
+        const migratedKey = `${LOGS_MIGRATED_KEY_PREFIX}${userId}_${anchor}`;
+        const already =
+          (await AsyncStorage.getItem(migratedKey)) ??
+          // Original single-bucket marker still counts when we're our own bucket.
+          (anchor === userId ? await AsyncStorage.getItem(`${LOGS_MIGRATED_KEY_PREFIX}${userId}`) : null);
         if (!already) {
           const localFood = foodLogRef.current;
           const localInsulin = insulinLogRef.current;
@@ -879,17 +1102,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await client.mutation(api.careLogs.importLogs, {
               userId,
               passwordHash,
-              patientUserId: userId,
+              patientUserId: anchor,
               food: localFood.map(toFoodEntryPayload),
               insulin: localInsulin.map(toInsulinEntryPayload),
             });
           }
           await AsyncStorage.setItem(migratedKey, "1");
         }
+
+        // 3) The pooled logs (server also redirects a self-read, so a stale anchor still pools).
         const remote = await client.query(api.careLogs.listLogs, {
           userId,
           passwordHash,
-          patientUserId: userId,
+          patientUserId: anchor,
         });
         if (cancelled || !remote) return;
         setFoodLog((prev) => {
@@ -902,6 +1127,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.setItem(INSULIN_LOG_KEY, JSON.stringify(next)).catch(() => {});
           return next;
         });
+
+        // 4) Refresh this account's own profile so a co-guardian's edit to shared fields (which
+        // lands on the OWNER's document) reaches the owner's device without a re-login. Skipped
+        // briefly after a local commit so an in-flight edit can't be clobbered by a stale read.
+        if (Date.now() - lastProfileCommitAtRef.current > 15_000) {
+          const remoteProfile = await client.query(api.patientProfile.get, { userId, passwordHash });
+          if (cancelled) return;
+          if (remoteProfile) {
+            const { alertPreferences: remotePrefs, ...p } = remoteProfile as UserProfile & {
+              alertPreferences?: RemoteThresholds;
+            };
+            if (JSON.stringify(p) !== JSON.stringify(profileRef.current)) {
+              profileRef.current = p as UserProfile;
+              setProfile(p as UserProfile);
+              AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(p)).catch(() => {});
+            }
+            // Own thresholds only apply when NOT inheriting a circle owner's.
+            if (!circleSharedRef.current) {
+              const overlay = thresholdOverlay(remotePrefs);
+              if (overlay) {
+                setAlertPrefsState((prev) => {
+                  const merged = { ...prev, ...overlay };
+                  AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(merged)).catch(() => {});
+                  return merged;
+                });
+              }
+            }
+          }
+        }
       } catch {
         /* offline — AsyncStorage-cached logs remain until the next poll */
       }
@@ -913,7 +1167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [isLoading, isSignedIn, account?.convexUserId, account?.passwordHash]);
+  }, [isLoading, isSignedIn, account?.convexUserId, account?.passwordHash, hydrateNonce]);
 
   // ── Viewed patient's shared logs (co-guardian viewing) — fetch + poll every 60s. ──
   useEffect(() => {
@@ -1039,6 +1293,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCaregiverSession(false);
     setCaregiverCloudCode(null);
     setDoctorSession(false);
+    setCareMemberships([]);
+    setCircleShared(null);
+    circleSharedRef.current = null;
+    setQuickFoods(DEFAULT_QUICK_FOODS);
     setAccount(acc);
     setIsSignedIn(true);
     await AsyncStorage.multiSet([
@@ -1053,6 +1311,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       EMERGENCY_CONTACTS_KEY,
       ALERT_PREFS_KEY,
       CAREGIVER_CODE_KEY,
+      CARE_MEMBERSHIPS_KEY,
+      CIRCLE_SHARED_KEY,
+      QUICK_FOODS_STORAGE_KEY,
       GLUCOSE_HISTORY_STORAGE_KEY,
       GLUCOSE_SETTINGS_STORAGE_KEY,
     ]);
@@ -1079,6 +1340,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setCaregiverSession(false);
         setCaregiverCloudCode(null);
         setDoctorSession(false);
+        setCareMemberships([]);
+        setCircleShared(null);
+        circleSharedRef.current = null;
+        setQuickFoods(DEFAULT_QUICK_FOODS);
         profileRef.current = null;
         setProfile(null);
         await AsyncStorage.multiSet([
@@ -1088,6 +1353,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.removeItem(PROFILE_KEY);
         await AsyncStorage.removeItem(CGM_KEY);
         await AsyncStorage.removeItem(CAREGIVER_CODE_KEY);
+        await AsyncStorage.removeItem(CARE_MEMBERSHIPS_KEY);
+        await AsyncStorage.removeItem(CIRCLE_SHARED_KEY);
+        await AsyncStorage.removeItem(QUICK_FOODS_STORAGE_KEY);
         await AsyncStorage.removeItem(GLUCOSE_HISTORY_STORAGE_KEY);
         await AsyncStorage.removeItem(GLUCOSE_SETTINGS_STORAGE_KEY);
         setCGMConnectionState({ type: null });
@@ -1149,11 +1417,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCaregiverCloudCode(null);
     setDoctorSession(false);
     setCareMemberships([]);
+    setCircleShared(null);
+    circleSharedRef.current = null;
     setViewingPatientId(null);
     setViewedProfile(null);
     setViewedFoodLog([]);
     setViewedInsulinLog([]);
-    await AsyncStorage.multiRemove([SESSION_KEY, CAREGIVER_CODE_KEY]);
+    await AsyncStorage.multiRemove([SESSION_KEY, CAREGIVER_CODE_KEY, CARE_MEMBERSHIPS_KEY, CIRCLE_SHARED_KEY]);
   }, []);
 
   const setupProfile = useCallback(async (p: UserProfile) => {
@@ -1161,6 +1431,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [commitProfile]);
 
   const updateProfile = useCallback(async (partial: Partial<UserProfile>) => {
+    // A linked co-guardian's shared fields live on the OWNER's account: route those through the
+    // circle mutation (optimistically reflected via the overlay) and keep only personal fields on
+    // this account's own document. Owner-locked fields are rejected server-side as a backstop.
+    const shared = circleSharedRef.current;
+    const acc = accountRef.current;
+    if (shared && acc?.convexUserId) {
+      const sharedPatch: Partial<Pick<UserProfile, (typeof SHARED_PROFILE_EDIT_KEYS)[number]>> = {};
+      const personal: Partial<UserProfile> = {};
+      for (const [key, value] of Object.entries(partial)) {
+        if ((SHARED_PROFILE_EDIT_KEYS as readonly string[]).includes(key)) {
+          (sharedPatch as Record<string, unknown>)[key] = value;
+        } else {
+          (personal as Record<string, unknown>)[key] = value;
+        }
+      }
+      if (Object.keys(sharedPatch).length > 0) {
+        const nextShared: CircleShared = {
+          ...shared,
+          profile: { ...shared.profile, ...(sharedPatch as Partial<CircleSharedProfile>) },
+        };
+        circleSharedRef.current = nextShared;
+        setCircleShared(nextShared);
+        AsyncStorage.setItem(CIRCLE_SHARED_KEY, JSON.stringify(nextShared)).catch(() => {});
+        createConvexAuthClient()
+          .mutation(api.careCircle.updateSharedProfile, {
+            userId: acc.convexUserId as Id<"users">,
+            passwordHash: acc.passwordHash,
+            patch: sharedPatch,
+          })
+          .catch(() => {
+            /* offline or owner-only field — the next poll re-syncs the authoritative copy */
+          });
+      }
+      if (Object.keys(personal).length > 0) {
+        const prev = profileRef.current;
+        if (prev) await commitProfile({ ...prev, ...personal });
+      }
+      return;
+    }
     const prev = profileRef.current;
     if (!prev) return;
     await commitProfile({ ...prev, ...partial });
@@ -1195,7 +1504,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .catch(() => {});
       return;
     }
-    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
+    const targetPatientId = viewingPatientIdRef.current ?? circleAnchorRef.current ?? acc?.convexUserId ?? null;
     if (viewingPatientIdRef.current) {
       setViewedFoodLog((prev) => [full, ...prev].slice(0, 200));
     } else {
@@ -1219,7 +1528,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearFoodLog = useCallback(() => {
     const acc = accountRef.current;
-    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
+    const targetPatientId = viewingPatientIdRef.current ?? circleAnchorRef.current ?? acc?.convexUserId ?? null;
     if (viewingPatientIdRef.current) setViewedFoodLog([]);
     else {
       setFoodLog([]);
@@ -1254,7 +1563,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .catch(() => {});
       return;
     }
-    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
+    const targetPatientId = viewingPatientIdRef.current ?? circleAnchorRef.current ?? acc?.convexUserId ?? null;
     if (viewingPatientIdRef.current) {
       setViewedInsulinLog((prev) => [full, ...prev].slice(0, 500));
     } else {
@@ -1278,7 +1587,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearInsulinLog = useCallback(() => {
     const acc = accountRef.current;
-    const targetPatientId = viewingPatientIdRef.current ?? acc?.convexUserId ?? null;
+    const targetPatientId = viewingPatientIdRef.current ?? circleAnchorRef.current ?? acc?.convexUserId ?? null;
     if (viewingPatientIdRef.current) setViewedInsulinLog([]);
     else {
       setInsulinLog([]);
@@ -1310,6 +1619,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCaregiverCloudCode(null);
     setDoctorSession(false);
     setCareMemberships([]);
+    setCircleShared(null);
+    circleSharedRef.current = null;
+    setQuickFoods(DEFAULT_QUICK_FOODS);
     setViewingPatientId(null);
     setViewedProfile(null);
     setViewedFoodLog([]);
@@ -1324,6 +1636,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       SESSION_KEY,
       ACCOUNT_KEY,
       CAREGIVER_CODE_KEY,
+      CARE_MEMBERSHIPS_KEY,
+      CIRCLE_SHARED_KEY,
+      QUICK_FOODS_STORAGE_KEY,
       GLUCOSE_HISTORY_STORAGE_KEY,
       GLUCOSE_SETTINGS_STORAGE_KEY,
     ]);
@@ -1339,12 +1654,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.setItem(EMERGENCY_CONTACTS_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
+    // Mutual circle pool: the contact appears on every co-guardian's list within a poll.
+    // (Never from an access-code session — that device is borrowing a view, not the account.)
+    const acc = accountRef.current;
+    if (acc?.convexUserId && !caregiverSessionRef.current) {
+      createConvexAuthClient()
+        .mutation(api.careCircle.addSharedEmergencyContact, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          contact: full,
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const removeEmergencyContact = useCallback(async (id: string) => {
     setEmergencyContacts((prev) => {
       const next = prev.filter((c) => c.id !== id);
       AsyncStorage.setItem(EMERGENCY_CONTACTS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+    const acc = accountRef.current;
+    if (acc?.convexUserId && !caregiverSessionRef.current) {
+      createConvexAuthClient()
+        .mutation(api.careCircle.removeSharedEmergencyContact, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          contactId: id,
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  /** Quick Lookup meals: front-insert locally, then sync the circle's mutual list. */
+  const saveQuickFood = useCallback((name: string) => {
+    setQuickFoods((prev) => {
+      const next = insertQuickFood(prev, name, QUICK_FOODS_MAX);
+      AsyncStorage.setItem(QUICK_FOODS_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+      const acc = accountRef.current;
+      if (acc?.convexUserId && !caregiverSessionRef.current) {
+        createConvexAuthClient()
+          .mutation(api.careCircle.setQuickFoods, {
+            userId: acc.convexUserId as Id<"users">,
+            passwordHash: acc.passwordHash,
+            foods: next,
+          })
+          .catch(() => {});
+      }
       return next;
     });
   }, []);
@@ -1355,6 +1711,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // touch this device's local cache and don't write the owner's backend thresholds.
     if (caregiverSessionRef.current) {
       setAlertPrefsState((prev) => ({ ...prev, ...partial }));
+      return;
+    }
+    // A linked co-guardian inherits the OWNER's thresholds read-only: keep their personal
+    // notification toggles, drop any threshold keys (the UI hides Edit; this is the backstop),
+    // and never push thresholds to the backend from a member device.
+    if (circleSharedRef.current) {
+      const { notificationsEnabled, emergencyAlertsEnabled } = partial;
+      const toggles: Partial<AlertPreferences> = {
+        ...(notificationsEnabled !== undefined ? { notificationsEnabled } : {}),
+        ...(emergencyAlertsEnabled !== undefined ? { emergencyAlertsEnabled } : {}),
+      };
+      setAlertPrefsState((prev) => {
+        const next = { ...prev, ...toggles };
+        AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(next)).catch(() => {});
+        return next;
+      });
       return;
     }
     setAlertPrefsState((prev) => {
@@ -1520,6 +1892,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isSignedIn]);
 
   const generateDoctorCode = useCallback(async (): Promise<string> => {
+    // Only the circle owner rotates the shared doctor code — a member device returns the
+    // inherited one untouched (the UI hides the buttons; this is the backstop).
+    if (circleSharedRef.current) return circleSharedRef.current.profile.doctorCode ?? "";
     const prev = profileRef.current;
     if (!prev) return "";
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -1570,6 +1945,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         passwordHash: acc.passwordHash,
       });
       setCareMemberships(rows as CareMembership[]);
+      AsyncStorage.setItem(CARE_MEMBERSHIPS_KEY, JSON.stringify(rows)).catch(() => {});
+      circleAnchorRef.current =
+        (rows as CareMembership[])[0]?.patientUserId ?? acc.convexUserId ?? null;
+      // Re-run the full circle hydrate NOW (owner settings + pools + pooled logs) so accepting or
+      // leaving a circle takes effect immediately, not on the next 60s poll.
+      setHydrateNonce((n) => n + 1);
       // If we're viewing a patient whose link vanished (revoked / left), drop back to our own data.
       const stillValid = (rows as CareMembership[]).some((m) => m.patientUserId === viewingPatientId);
       if (viewingPatientId && !stillValid) {
@@ -1711,7 +2092,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const syncToDoctor = useCallback(async (
     glucoseReadings: { value: number; trend: string; timestamp: string }[] = [],
   ) => {
-    const currentProfile = profileRef.current;
+    // The EFFECTIVE profile: a linked co-guardian syncs the owner's child data under the owner's
+    // shared doctor code, so every guardian feeds the same portal thread.
+    const currentProfile = effectiveProfileRef.current ?? profileRef.current;
     const currentInsulinLog = insulinLogRef.current;
     const currentFoodLog = foodLogRef.current;
     const currentAlertPrefs = alertPrefsRef.current;
@@ -1767,7 +2150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const decideTherapyProposal = useCallback(async (status: "approved" | "declined") => {
     const p = therapyProposalRef.current;
     if (!p) return;
-    const code = profileRef.current?.doctorCode?.toUpperCase();
+    const code = (effectiveProfileRef.current ?? profileRef.current)?.doctorCode?.toUpperCase();
     recentlyDecidedProposalIdRef.current = p.id;
     therapyProposalRef.current = null;
     setTherapyProposal(null);
@@ -1839,6 +2222,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         decideTherapyProposal,
         careMemberships,
         refreshCareMemberships,
+        isCircleMember,
+        circleOwnerName: isCircleMember ? circleShared?.ownerName ?? null : null,
+        quickFoods,
+        saveQuickFood,
         viewingPatientId,
         viewingPatientName,
         isViewingLinkedPatient,

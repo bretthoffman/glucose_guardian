@@ -31,7 +31,7 @@ interface ChangeRow {
 export default function TreatmentProposalCard() {
   const { scheme } = useTheme();
   const colors = scheme === "dark" ? Colors.dark : Colors.light;
-  const { therapyProposal, decideTherapyProposal, updateProfile, doctorSession, caregiverSession } =
+  const { therapyProposal, decideTherapyProposal, updateProfile, doctorSession, caregiverSession, isCircleMember, circleOwnerName } =
     useAuth();
   const { carbRatio, correctionFactor, targetGlucose, saveFormula } = useGlucose();
   const [submitting, setSubmitting] = useState<null | "approved" | "declined">(null);
@@ -140,9 +140,12 @@ export default function TreatmentProposalCard() {
       ) : null}
 
       <Text style={[styles.disclaimer, { color: colors.textSecondary }]}>
-        Nothing changes until you approve. Approving updates the app's dosing settings.
+        {isCircleMember
+          ? `Insulin settings are owner-managed in your care circle — ${circleOwnerName || "the circle owner"} approves or declines this on their device.`
+          : "Nothing changes until you approve. Approving updates the app's dosing settings."}
       </Text>
 
+      {isCircleMember ? null : (
       <View style={styles.actions}>
         <Pressable
           style={[styles.btn, styles.declineBtn, { borderColor: colors.border }]}
@@ -170,6 +173,7 @@ export default function TreatmentProposalCard() {
           )}
         </Pressable>
       </View>
+      )}
     </View>
   );
 }

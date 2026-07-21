@@ -208,3 +208,187 @@ describe("co-guardian invite → redeem → link", () => {
     ).rejects.toThrow(/Invalid or already-used/);
   });
 });
+
+describe("merged co-guardian care (one pool, owner-inherited settings)", () => {
+  async function linked() {
+    const { t, patient, member } = await setup();
+    const { code } = await t.mutation(api.careCircle.createInvite, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
+    await t.mutation(api.careCircle.redeemInvite, { userId: member, passwordHash: HASH_B, code });
+    return { t, patient, member };
+  }
+
+  it("redirects a member's self-targeted log writes AND reads to the circle pool", async () => {
+    const { t, patient, member } = await linked();
+
+    // The member's device logs "to itself" (what an un-updated app does) — it must land in the pool.
+    await t.mutation(api.careLogs.addFoodLog, {
+      userId: member,
+      passwordHash: HASH_B,
+      patientUserId: member,
+      entry: { clientId: "mf1", timestamp: new Date().toISOString(), foodName: "Toast", estimatedCarbs: 20, insulinUnits: 1, confidence: "medium", fromPhoto: false },
+    });
+
+    // The owner sees it, and the member reading "their own" logs sees the same pool — permanently,
+    // not just until the next poll.
+    const ownerLogs = await t.query(api.careLogs.listLogs, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
+    expect(ownerLogs?.foodLog.map((f) => f.id)).toEqual(["mf1"]);
+    expect(ownerLogs?.foodLog[0].authorName).toBe("Dad");
+    const memberLogs = await t.query(api.careLogs.listLogs, { userId: member, passwordHash: HASH_B, patientUserId: member });
+    expect(memberLogs?.foodLog.map((f) => f.id)).toEqual(["mf1"]);
+  });
+
+  it("backfills the joiner's pre-link history into the pool at redeem time", async () => {
+    const { t, patient, member } = await setup();
+
+    // Yesterday, before linking, the member logged a meal + a dose in their own private bucket.
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await t.mutation(api.careLogs.addFoodLog, {
+      userId: member,
+      passwordHash: HASH_B,
+      patientUserId: member,
+      entry: { clientId: "old-f", timestamp: yesterday, foodName: "Pasta", estimatedCarbs: 45, insulinUnits: 3, confidence: "high", fromPhoto: false },
+    });
+    await t.mutation(api.careLogs.addInsulinLog, {
+      userId: member,
+      passwordHash: HASH_B,
+      patientUserId: member,
+      entry: { clientId: "old-i", timestamp: yesterday, units: 3, type: "bolus" },
+    });
+
+    const { code } = await t.mutation(api.careCircle.createInvite, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
+    await t.mutation(api.careCircle.redeemInvite, { userId: member, passwordHash: HASH_B, code });
+
+    // The owner now sees yesterday's entries, credited to the joiner.
+    const ownerLogs = await t.query(api.careLogs.listLogs, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
+    expect(ownerLogs?.foodLog.map((f) => f.id)).toContain("old-f");
+    expect(ownerLogs?.insulinLog.map((i) => i.id)).toContain("old-i");
+    expect(ownerLogs?.foodLog.find((f) => f.id === "old-f")?.authorName).toBe("Dad");
+  });
+
+  it("inherits the owner's settings via circleContext and enforces owner-only edits", async () => {
+    const { t, patient, member } = await linked();
+
+    // Owner curates the account: dose math, insulin types, weight, thresholds, doctor office+code.
+    await t.mutation(api.patientProfile.replace, {
+      userId: patient,
+      passwordHash: HASH_A,
+      profile: {
+        childName: "Bella", diabetesType: "type1", dateOfBirth: "2014-01-01", weightLbs: 62,
+        doctorName: "Dr. Rivera", doctorEmail: "rivera@clinic.com", doctorInstitution: "MUSC",
+        insulinTypes: ["Humalog · 100 u/mL"], carbRatio: 12, targetGlucose: 110, correctionFactor: 45,
+        doctorCode: "DOC123", doctorCodeIssuedAt: new Date().toISOString(),
+      },
+    });
+    await t.mutation(api.patientProfile.setAlertPreferences, {
+      userId: patient,
+      passwordHash: HASH_A,
+      alertPreferences: { urgentLowThreshold: 50, lowThreshold: 65, highThreshold: 190, urgentHighThreshold: 260 },
+    });
+
+    // The member's app receives the owner's copy of everything — including the same doctor code.
+    const ctx = await t.query(api.careCircle.circleContext, { userId: member, passwordHash: HASH_B });
+    expect(ctx?.isOwner).toBe(false);
+    expect(ctx?.anchorPatientUserId).toBe(patient);
+    expect(ctx?.shared?.carbRatio).toBe(12);
+    expect(ctx?.shared?.weightLbs).toBe(62);
+    expect(ctx?.shared?.insulinTypes).toEqual(["Humalog · 100 u/mL"]);
+    expect(ctx?.shared?.doctorCode).toBe("DOC123");
+    expect(ctx?.shared?.alertPreferences?.highThreshold).toBe(190);
+    // The owner's own context carries no overlay (their profile IS the source).
+    const ownerCtx = await t.query(api.careCircle.circleContext, { userId: patient, passwordHash: HASH_A });
+    expect(ownerCtx?.isOwner).toBe(true);
+    expect(ownerCtx?.shared).toBeNull();
+
+    // A member may edit the doctor office info — the write lands on the owner's profile.
+    await t.mutation(api.careCircle.updateSharedProfile, {
+      userId: member,
+      passwordHash: HASH_B,
+      patch: { doctorPhone: "(843) 555-0100" },
+    });
+    const ownerProfile = await t.query(api.patientProfile.get, { userId: patient, passwordHash: HASH_A });
+    expect(ownerProfile?.doctorPhone).toBe("(843) 555-0100");
+
+    // But dosing ground truth is owner-only.
+    await expect(
+      t.mutation(api.careCircle.updateSharedProfile, { userId: member, passwordHash: HASH_B, patch: { carbRatio: 8 } }),
+    ).rejects.toThrow(/circle owner/);
+    await expect(
+      t.mutation(api.careCircle.updateSharedProfile, { userId: member, passwordHash: HASH_B, patch: { weightLbs: 70 } }),
+    ).rejects.toThrow(/circle owner/);
+  });
+
+  it("pools quick foods and emergency contacts mutually across the circle", async () => {
+    const { t, patient, member } = await linked();
+
+    // Owner's device seeds its local contacts once; a member's import is a no-op by design.
+    await t.mutation(api.careCircle.importSharedEmergencyContacts, {
+      userId: patient,
+      passwordHash: HASH_A,
+      contacts: [{ id: "c1", name: "Grandma", phone: "555-1111", relation: "Family" }],
+    });
+    await t.mutation(api.careCircle.importSharedEmergencyContacts, {
+      userId: member,
+      passwordHash: HASH_B,
+      contacts: [{ id: "cx", name: "ShouldNotAppear", phone: "555-9999", relation: "Family" }],
+    });
+
+    // The member adds one — every guardian sees both.
+    await t.mutation(api.careCircle.addSharedEmergencyContact, {
+      userId: member,
+      passwordHash: HASH_B,
+      contact: { id: "c2", name: "Uncle Joe", phone: "555-2222", relation: "Family" },
+    });
+    const ownerCtx = await t.query(api.careCircle.circleContext, { userId: patient, passwordHash: HASH_A });
+    expect(ownerCtx?.emergencyContacts?.map((c) => c.id).sort()).toEqual(["c1", "c2"]);
+
+    // The member updates the quick-meals list — the owner's next poll shows it.
+    await t.mutation(api.careCircle.setQuickFoods, {
+      userId: member,
+      passwordHash: HASH_B,
+      foods: ["Mac and cheese", "Apple", "Pizza"],
+    });
+    const ownerCtx2 = await t.query(api.careCircle.circleContext, { userId: patient, passwordHash: HASH_A });
+    expect(ownerCtx2?.quickFoods).toEqual(["Mac and cheese", "Apple", "Pizza"]);
+    const memberCtx = await t.query(api.careCircle.circleContext, { userId: member, passwordHash: HASH_B });
+    expect(memberCtx?.quickFoods).toEqual(["Mac and cheese", "Apple", "Pizza"]);
+  });
+
+  it("leaves the departing member with the circle's current settings — minus the doctor code", async () => {
+    const { t, patient, member } = await linked();
+    await t.mutation(api.patientProfile.replace, {
+      userId: patient,
+      passwordHash: HASH_A,
+      profile: {
+        childName: "Bella", diabetesType: "type1", dateOfBirth: "2014-01-01", weightLbs: 62,
+        doctorName: "Dr. Rivera", insulinTypes: ["Humalog · 100 u/mL"],
+        carbRatio: 12, targetGlucose: 110, correctionFactor: 45, doctorCode: "DOC123",
+      },
+    });
+    await t.mutation(api.patientProfile.setAlertPreferences, {
+      userId: patient,
+      passwordHash: HASH_A,
+      alertPreferences: { urgentLowThreshold: 50, lowThreshold: 65, highThreshold: 190, urgentHighThreshold: 260 },
+    });
+    await t.mutation(api.careCircle.setQuickFoods, { userId: patient, passwordHash: HASH_A, foods: ["Pizza", "Rice"] });
+
+    const circle = await t.query(api.careCircle.getCircle, { userId: member, passwordHash: HASH_B, patientUserId: patient });
+    const myLink = circle?.coGuardians.find((c) => c.isMe);
+    await t.mutation(api.careCircle.revokeLink, { userId: member, passwordHash: HASH_B, linkId: myLink!.linkId });
+
+    // The ex-member's own account now holds the owner's settings (continuity, never a blank app)…
+    const mine = await t.query(api.patientProfile.get, { userId: member, passwordHash: HASH_B });
+    expect(mine?.childName).toBe("Bella");
+    expect(mine?.carbRatio).toBe(12);
+    expect(mine?.weightLbs).toBe(62);
+    expect(mine?.insulinTypes).toEqual(["Humalog · 100 u/mL"]);
+    expect(mine?.alertPreferences?.urgentHighThreshold).toBe(260);
+    // …except the doctor code, which must stay unique to the owner's account.
+    expect(mine?.doctorCode).toBeUndefined();
+
+    // Solo again: their circle context is their own, seeded with the pool copy.
+    const soloCtx = await t.query(api.careCircle.circleContext, { userId: member, passwordHash: HASH_B });
+    expect(soloCtx?.isOwner).toBe(true);
+    expect(soloCtx?.anchorPatientUserId).toBe(member);
+    expect(soloCtx?.quickFoods).toEqual(["Pizza", "Rice"]);
+  });
+});

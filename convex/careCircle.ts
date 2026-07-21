@@ -27,6 +27,7 @@ import {
   type CareAccess,
   type CarePermissions,
 } from "./careSchedule";
+import { copyBucketLogs } from "./careLogs";
 
 // ─── validators (mirror schema.ts) ───────────────────────────────────────────────────────────
 
@@ -316,12 +317,79 @@ export const redeemInvite = mutation({
       redeemedByUserId: args.userId,
       redeemedAt: now,
     });
+    // Merge care immediately: everything the joiner logged before linking (their old private
+    // bucket) backfills into the circle's shared pool so every guardian sees the same history.
+    await copyBucketLogs(ctx, args.userId, invite.patientUserId, displayName);
     const patient = await slimPatientProfile(ctx, invite.patientUserId);
     return { patientUserId: invite.patientUserId, patientName: patient?.childName ?? "Patient" };
   },
 });
 
 // ─── links (co-guardians) ────────────────────────────────────────────────────────────────────
+
+/**
+ * Leave/removal snapshot: the departing member keeps the circle's CURRENT settings as their own
+ * (they're still caring for the same child — reverting to whatever they had before joining could
+ * silently resurrect months-old dosing math). Copies the owner's shared profile fields + the
+ * shared quick-meals/contact pool onto the member's own records. Deliberately NOT the doctor code:
+ * two accounts must never share one code (the portal resolves codes uniquely) — the ex-member
+ * generates a fresh code from their dashboard if they still see that practice.
+ */
+async function snapshotSharedToMember(
+  ctx: MutationCtx,
+  patientUserId: Id<"users">,
+  memberUserId: Id<"users">,
+) {
+  const ownerProfile = await ctx.db
+    .query("patientProfiles")
+    .withIndex("by_userId", (q) => q.eq("userId", patientUserId))
+    .unique();
+  const now = Date.now();
+  if (ownerProfile) {
+    const sharedFields = {
+      childName: ownerProfile.childName,
+      diabetesType: ownerProfile.diabetesType,
+      dateOfBirth: ownerProfile.dateOfBirth,
+      weightLbs: ownerProfile.weightLbs,
+      doctorName: ownerProfile.doctorName,
+      doctorEmail: ownerProfile.doctorEmail,
+      doctorPhone: ownerProfile.doctorPhone,
+      doctorInstitution: ownerProfile.doctorInstitution,
+      insulinTypes: ownerProfile.insulinTypes,
+      carbRatio: ownerProfile.carbRatio,
+      targetGlucose: ownerProfile.targetGlucose,
+      correctionFactor: ownerProfile.correctionFactor,
+      alertPreferences: ownerProfile.alertPreferences,
+    };
+    const memberProfile = await ctx.db
+      .query("patientProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", memberUserId))
+      .unique();
+    if (memberProfile) {
+      await ctx.db.patch(memberProfile._id, { ...sharedFields, updatedAt: now });
+    } else {
+      await ctx.db.insert("patientProfiles", { userId: memberUserId, ...sharedFields, updatedAt: now });
+    }
+  }
+  const pool = await ctx.db
+    .query("careShared")
+    .withIndex("by_patient", (q) => q.eq("patientUserId", patientUserId))
+    .unique();
+  if (pool) {
+    const memberPool = await ctx.db
+      .query("careShared")
+      .withIndex("by_patient", (q) => q.eq("patientUserId", memberUserId))
+      .unique();
+    const doc = {
+      patientUserId: memberUserId,
+      quickFoods: pool.quickFoods,
+      emergencyContacts: pool.emergencyContacts,
+      updatedAt: now,
+    };
+    if (memberPool) await ctx.db.replace(memberPool._id, doc);
+    else await ctx.db.insert("careShared", doc);
+  }
+}
 
 export const revokeLink = mutation({
   args: { userId: v.id("users"), passwordHash: v.string(), linkId: v.id("careLinks") },
@@ -347,6 +415,8 @@ export const revokeLink = mutation({
       revokedBy: isMemberLeaving ? "member" : "patient_side",
       updatedAt: Date.now(),
     });
+    // The ex-member walks away with the circle's current settings — never a blanked account.
+    await snapshotSharedToMember(ctx, link.patientUserId, link.memberUserId);
   },
 });
 
@@ -504,6 +574,214 @@ export const setDependentMode = mutation({
     };
     if (existing) await ctx.db.replace(existing._id, doc);
     else await ctx.db.insert("careSettings", doc);
+  },
+});
+
+// ─── shared circle settings (co-guardian inheritance) ────────────────────────────────────────
+// When accounts link as co-guardians they merge care: the circle OWNER's settings are the one
+// live copy every member's app reads and every tool uses. Members may edit the "anyone" subset
+// (child identity, doctor office info) in place; the safety-critical subset (weight, insulin
+// settings, dose math, alert thresholds, doctor-code rotation) stays owner-only. The quick-meals
+// list and emergency contacts are a mutual pool on `careShared`.
+
+/** Shared profile fields a co-guardian may edit (writes land on the owner's profile). */
+const sharedProfilePatchPayload = v.object({
+  childName: v.optional(v.string()),
+  diabetesType: v.optional(v.union(v.literal("type1"), v.literal("type2"), v.literal("other"))),
+  dateOfBirth: v.optional(v.string()),
+  doctorName: v.optional(v.string()),
+  doctorEmail: v.optional(v.string()),
+  doctorPhone: v.optional(v.string()),
+  doctorInstitution: v.optional(v.string()),
+  // Owner-only below — accepted in the payload so the owner can use the same mutation, but a
+  // non-owner sending any of them is rejected.
+  weightLbs: v.optional(v.number()),
+  insulinTypes: v.optional(v.array(v.string())),
+  carbRatio: v.optional(v.number()),
+  targetGlucose: v.optional(v.number()),
+  correctionFactor: v.optional(v.number()),
+});
+
+const OWNER_ONLY_PROFILE_FIELDS = [
+  "weightLbs",
+  "insulinTypes",
+  "carbRatio",
+  "targetGlucose",
+  "correctionFactor",
+] as const;
+
+const emergencyContactPayload = v.object({
+  id: v.string(),
+  name: v.string(),
+  phone: v.string(),
+  relation: v.string(),
+});
+
+const MAX_EMERGENCY_CONTACTS = 5;
+const MAX_QUICK_FOODS = 12;
+
+/** The circle bucket a caller's shared settings resolve to (owner's account, or self when solo). */
+async function circleAnchorFor(
+  ctx: QueryCtx | MutationCtx,
+  callerUserId: Id<"users">,
+): Promise<{ anchor: Id<"users">; isOwner: boolean }> {
+  const membership = await ctx.db
+    .query("careLinks")
+    .withIndex("by_member", (q) => q.eq("memberUserId", callerUserId).eq("status", "active"))
+    .first();
+  return membership
+    ? { anchor: membership.patientUserId, isOwner: false }
+    : { anchor: callerUserId, isOwner: true };
+}
+
+async function getCareSharedRow(ctx: QueryCtx | MutationCtx, patientUserId: Id<"users">) {
+  return await ctx.db
+    .query("careShared")
+    .withIndex("by_patient", (q) => q.eq("patientUserId", patientUserId))
+    .unique();
+}
+
+/**
+ * Everything a device needs to render its circle-inherited state, in one call polled alongside
+ * logs: who the anchor is, the owner's shared profile fields (members only — an owner's own
+ * profile is already the source of truth), and the mutual quick-meals + emergency-contact pool.
+ */
+export const circleContext = query({
+  args: { userId: v.id("users"), passwordHash: v.string() },
+  handler: async (ctx, args) => {
+    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return null;
+    const { anchor, isOwner } = await circleAnchorFor(ctx, args.userId);
+    const pool = await getCareSharedRow(ctx, anchor);
+
+    let shared: null | Record<string, unknown> = null;
+    let ownerName = "";
+    if (!isOwner) {
+      ownerName = await displayNameFor(ctx, anchor);
+      const row = await ctx.db
+        .query("patientProfiles")
+        .withIndex("by_userId", (q) => q.eq("userId", anchor))
+        .unique();
+      if (row) {
+        shared = {
+          childName: row.childName,
+          diabetesType: row.diabetesType,
+          dateOfBirth: row.dateOfBirth,
+          weightLbs: row.weightLbs,
+          doctorName: row.doctorName,
+          doctorEmail: row.doctorEmail,
+          doctorPhone: row.doctorPhone,
+          doctorInstitution: row.doctorInstitution,
+          insulinTypes: row.insulinTypes,
+          carbRatio: row.carbRatio,
+          targetGlucose: row.targetGlucose,
+          correctionFactor: row.correctionFactor,
+          alertPreferences: row.alertPreferences,
+          // Same doctor office, same code: a member's app syncs to the owner's portal thread.
+          doctorCode: row.doctorCode,
+          doctorCodeIssuedAt: row.doctorCodeIssuedAt,
+        };
+      }
+    }
+
+    return {
+      anchorPatientUserId: anchor,
+      isOwner,
+      ownerName,
+      shared,
+      quickFoods: pool?.quickFoods ?? null,
+      emergencyContacts: pool?.emergencyContacts ?? null,
+    };
+  },
+});
+
+/**
+ * Edit shared profile fields in place on the circle owner's profile. Owner may change anything in
+ * the payload; a member is limited to the "anyone" subset — the owner-only fields (weight, insulin
+ * types, dose math) are rejected so no co-guardian can quietly change the dosing ground truth.
+ */
+export const updateSharedProfile = mutation({
+  args: { userId: v.id("users"), passwordHash: v.string(), patch: sharedProfilePatchPayload },
+  handler: async (ctx, args) => {
+    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const { anchor, isOwner } = await circleAnchorFor(ctx, args.userId);
+    const patch: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(args.patch)) {
+      if (value === undefined) continue;
+      if (!isOwner && (OWNER_ONLY_PROFILE_FIELDS as readonly string[]).includes(key)) {
+        throw new Error("Only the circle owner can change this setting");
+      }
+      patch[key] = value;
+    }
+    if (Object.keys(patch).length === 0) return;
+    const row = await ctx.db
+      .query("patientProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", anchor))
+      .unique();
+    if (!row) throw new Error("The circle owner hasn't finished setting up their profile");
+    await ctx.db.patch(row._id, { ...patch, updatedAt: Date.now() });
+  },
+});
+
+/** Replace the circle's Quick Lookup meals list (mutual: any guardian may update it). */
+export const setQuickFoods = mutation({
+  args: { userId: v.id("users"), passwordHash: v.string(), foods: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const { anchor } = await circleAnchorFor(ctx, args.userId);
+    const foods = args.foods.map((f) => f.trim()).filter(Boolean).slice(0, MAX_QUICK_FOODS);
+    const existing = await getCareSharedRow(ctx, anchor);
+    if (existing) await ctx.db.patch(existing._id, { quickFoods: foods, updatedAt: Date.now() });
+    else await ctx.db.insert("careShared", { patientUserId: anchor, quickFoods: foods, updatedAt: Date.now() });
+  },
+});
+
+/** Add to the circle's mutual emergency-contact pool (idempotent by contact id, capped). */
+export const addSharedEmergencyContact = mutation({
+  args: { userId: v.id("users"), passwordHash: v.string(), contact: emergencyContactPayload },
+  handler: async (ctx, args) => {
+    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const { anchor } = await circleAnchorFor(ctx, args.userId);
+    const existing = await getCareSharedRow(ctx, anchor);
+    const contacts = existing?.emergencyContacts ?? [];
+    if (contacts.some((c) => c.id === args.contact.id)) return;
+    if (contacts.length >= MAX_EMERGENCY_CONTACTS) return;
+    const next = [...contacts, args.contact];
+    if (existing) await ctx.db.patch(existing._id, { emergencyContacts: next, updatedAt: Date.now() });
+    else await ctx.db.insert("careShared", { patientUserId: anchor, emergencyContacts: next, updatedAt: Date.now() });
+  },
+});
+
+export const removeSharedEmergencyContact = mutation({
+  args: { userId: v.id("users"), passwordHash: v.string(), contactId: v.string() },
+  handler: async (ctx, args) => {
+    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const { anchor } = await circleAnchorFor(ctx, args.userId);
+    const existing = await getCareSharedRow(ctx, anchor);
+    if (!existing?.emergencyContacts) return;
+    await ctx.db.patch(existing._id, {
+      emergencyContacts: existing.emergencyContacts.filter((c) => c.id !== args.contactId),
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * One-time seed of the contact pool from a device's pre-cloud local list. Owner-only and only
+ * while the pool is empty — a joining member's old local contacts must never overwrite the
+ * owner's pool (on join, the owner's list IS the list).
+ */
+export const importSharedEmergencyContacts = mutation({
+  args: { userId: v.id("users"), passwordHash: v.string(), contacts: v.array(emergencyContactPayload) },
+  handler: async (ctx, args) => {
+    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const { anchor, isOwner } = await circleAnchorFor(ctx, args.userId);
+    if (!isOwner) return;
+    const existing = await getCareSharedRow(ctx, anchor);
+    if (existing?.emergencyContacts && existing.emergencyContacts.length > 0) return;
+    const contacts = args.contacts.slice(0, MAX_EMERGENCY_CONTACTS);
+    if (contacts.length === 0) return;
+    if (existing) await ctx.db.patch(existing._id, { emergencyContacts: contacts, updatedAt: Date.now() });
+    else await ctx.db.insert("careShared", { patientUserId: anchor, emergencyContacts: contacts, updatedAt: Date.now() });
   },
 });
 

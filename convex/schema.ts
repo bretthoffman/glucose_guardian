@@ -462,6 +462,28 @@ const careSettings = defineTable({
   updatedAt: v.number(),
 }).index("by_patient", ["patientUserId"]);
 
+/**
+ * Per-patient shared care data beyond logs: the Quick Lookup meals list and the emergency-contact
+ * pool. One row per circle (keyed by the owner/patient account); every co-guardian reads and
+ * writes the same row, so an edit by one appears on all of them. Kept off `patientProfiles`
+ * because the mobile app replaces that document wholesale (`patientProfile.replace`).
+ */
+const careShared = defineTable({
+  patientUserId: v.id("users"),
+  quickFoods: v.optional(v.array(v.string())),
+  emergencyContacts: v.optional(
+    v.array(
+      v.object({
+        id: v.string(),
+        name: v.string(),
+        phone: v.string(),
+        relation: v.string(),
+      }),
+    ),
+  ),
+  updatedAt: v.number(),
+}).index("by_patient", ["patientUserId"]);
+
 // ─── Care Circle shared log bucket (Phase 2) ─────────────────────────────────────────────────
 // One authored bucket per patient. Every care-circle member (patient, co-guardians, and external
 // code holders with the `log` grant) writes here with their own identity; every viewer reads the
@@ -518,6 +540,7 @@ export default defineSchema({
   careInvites,
   careAccessCodes,
   careSettings,
+  careShared,
   careFoodLogs,
   careInsulinLogs,
   doctorAccounts,
