@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
+import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 type Mode = "signin" | "create";
 
@@ -128,6 +129,7 @@ export default function AuthScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
+        {...NO_AUTO_CONTENT_INSETS}
         contentContainerStyle={[
           styles.scroll,
           { paddingTop: (Platform.OS === "web" ? 60 : insets.top) + 24, paddingBottom: insets.bottom + 40 },

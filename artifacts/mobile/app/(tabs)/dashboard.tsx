@@ -44,6 +44,7 @@ import {
   requestNotificationPermissions,
   type NotificationPermissionStatus,
 } from "@/services/notifications";
+import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 // Icon shown on each compact section card (presentation only; section availability lives in the pure
 // `utils/dashboardSections` helper). One entry per DashboardSectionKey.
@@ -543,6 +544,7 @@ export default function DashboardScreen() {
         scrollEnabled={openSection === null}
         contentContainerStyle={[styles.scroll, { paddingTop: topPadding + 12, paddingBottom: bottomPadding + 80 }]}
         showsVerticalScrollIndicator={false}
+        {...NO_AUTO_CONTENT_INSETS}
       >
         <View style={styles.pageHeader}>
           <View style={styles.pageTitleWrap}>

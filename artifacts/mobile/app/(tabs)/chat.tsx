@@ -24,6 +24,7 @@ import DoctorMessaging from "@/components/DoctorMessaging";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
 import { apiUrl } from "@/utils/api-base-url";
 import { downsampleReadingsForContext, formatReadingTimeLabel } from "@/utils/glucoseHistoryContext";
+import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 interface Message {
   id: string;
@@ -450,6 +451,7 @@ export default function ChatScreen() {
         data={messages}
         keyExtractor={(m) => m.id}
         inverted
+        {...NO_AUTO_CONTENT_INSETS}
         contentContainerStyle={[styles.list, { paddingBottom: 12 }]}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={

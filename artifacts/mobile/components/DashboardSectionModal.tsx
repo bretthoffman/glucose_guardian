@@ -13,7 +13,9 @@
  */
 import React from "react";
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,6 +27,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { withAlpha } from "@/constants/theme";
 import { useTheme } from "@/context/ThemeContext";
 import { dashboardModalMaxBodyHeight } from "@/utils/dashboardSectionModalLayout";
+import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 interface Props {
   visible: boolean;
@@ -65,7 +68,16 @@ export function DashboardSectionModal({ visible, onClose, accessibilityLabel, ch
           accessibilityRole="button"
           accessibilityLabel={closeA11y}
         />
-        <View style={styles.centerCol} pointerEvents="box-none">
+        {/* Same keyboard treatment as the Settings popup — a plain KeyboardAvoidingView, which is
+            reliable inside a <Modal>. Do NOT reach for `automaticallyAdjustKeyboardInsets` here:
+            RN derives that inset from the scroll view's position in WINDOW coordinates
+            (RCTScrollView `_keyboardWillChangeFrame`), and a Modal renders in its own window, so the
+            bottom inset it computes is wrong — that is the "popup scrolls into an endless void" bug. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.centerCol}
+          pointerEvents="box-none"
+        >
           <View style={styles.closeRow} pointerEvents="box-none">
             <Pressable
               onPress={onClose}
@@ -84,13 +96,13 @@ export function DashboardSectionModal({ visible, onClose, accessibilityLabel, ch
               nestedScrollEnabled
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
-              automaticallyAdjustKeyboardInsets
               contentContainerStyle={styles.body}
+              {...NO_AUTO_CONTENT_INSETS}
             >
               {children}
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );

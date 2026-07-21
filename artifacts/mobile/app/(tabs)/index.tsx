@@ -43,6 +43,7 @@ import {
   shouldUseAnimatedScrollCorrection,
 } from "@/utils/homeScrollRecovery";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 /** Visual pull threshold — aligned with iOS RefreshControl release distance (~72pt). */
@@ -857,6 +858,7 @@ export default function HomeScreen() {
       )}
       <Animated.ScrollView
         ref={scrollViewRef}
+        {...NO_AUTO_CONTENT_INSETS}
         contentContainerStyle={[styles.scroll, { paddingTop: topPadding + 8, paddingBottom: tabBarClearance }]}
         showsVerticalScrollIndicator={false}
         scrollEnabled={!chartCursorActive}

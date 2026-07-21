@@ -19,6 +19,7 @@ import Colors, { COLORS } from "@/constants/colors";
 import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constants/insulin";
 import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
+import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 type Step = "welcome" | "role" | "parent_name" | "name" | "birthday" | "diabetes" | "insulin_formula";
 
@@ -124,6 +125,7 @@ export default function OnboardingScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <ScrollView
+        {...NO_AUTO_CONTENT_INSETS}
         contentContainerStyle={[
           styles.scroll,
           { paddingTop: topPadding + 40, paddingBottom: bottomPadding + 40, minHeight: "100%" },

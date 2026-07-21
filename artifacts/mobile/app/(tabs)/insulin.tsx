@@ -65,6 +65,7 @@ import {
   type InsulinOption,
 } from "@/constants/insulin";
 import { DOSE_INSULIN_TYPE_STORAGE_KEY } from "@/constants/storage-keys";
+import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
@@ -545,6 +546,7 @@ export default function InsulinScreen() {
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPadding + 80 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        {...NO_AUTO_CONTENT_INSETS}
         onScrollBeginDrag={() => {
           if (doseEditing) doseInputRef.current?.blur();
         }}

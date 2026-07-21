@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { apiUrl } from "@/utils/api-base-url";
+import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 type CGMType = "dexcom" | "libre";
 
@@ -203,6 +204,7 @@ export default function CGMSetupScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <ScrollView
+        {...NO_AUTO_CONTENT_INSETS}
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPadding + 40 }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}

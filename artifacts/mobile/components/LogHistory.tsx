@@ -36,6 +36,7 @@ import {
 import { filterFoodLogsForDay, filterInsulinLogsForDay } from "@/utils/logDayEntries";
 import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
 import { startOfLocalDay } from "@/utils/localDayBoundaries";
+import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 function fmtTime(ts: string) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -139,6 +140,7 @@ export default function LogHistory({
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         scrollEnabled={!chartCursorActive}
+        {...NO_AUTO_CONTENT_INSETS}
       >
         <View style={styles.logInsulinRow}>
           <Pressable

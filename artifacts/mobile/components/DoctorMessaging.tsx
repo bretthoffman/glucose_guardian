@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import type { DoctorMessage } from "@/context/AuthContext";
+import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 function fmtTime(iso: string): string {
   const d = new Date(iso);
@@ -105,6 +106,7 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
         ref={flatListRef}
         data={groups}
         keyExtractor={(g) => g.date}
+        {...NO_AUTO_CONTENT_INSETS}
         contentContainerStyle={[styles.listContent, { paddingBottom: 24 }]}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}

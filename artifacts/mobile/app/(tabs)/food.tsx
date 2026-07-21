@@ -27,6 +27,7 @@ import { getEffectiveTrend } from "@/utils/trend";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
 import FoodInsulinModal from "@/components/FoodInsulinModal";
 import { apiUrl } from "@/utils/api-base-url";
+import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 interface FoodResult {
   foodName: string;
@@ -343,6 +344,7 @@ export default function FoodScreen() {
         </TabGlucoseHeaderShell>
       )}
       <ScrollView
+        {...NO_AUTO_CONTENT_INSETS}
         contentContainerStyle={[
           styles.scroll,
           {
