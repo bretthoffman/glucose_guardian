@@ -204,7 +204,14 @@ async function readRecentGlucose(
 // ─── invites (co-guardians) ──────────────────────────────────────────────────────────────────
 
 export const createInvite = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users") },
+  args: {
+    userId: v.id("users"),
+    passwordHash: v.string(),
+    patientUserId: v.id("users"),
+    // When set, the invite is delivered to this account's Care Circle as an incoming request to
+    // accept (the "found a matching account, invite them" flow) — no code to copy out-of-band.
+    targetUserId: v.optional(v.id("users")),
+  },
   handler: async (ctx, args) => {
     if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
     if (!(await isCircleAdmin(ctx, args.patientUserId, args.userId))) throw new Error("Not allowed");
@@ -213,6 +220,24 @@ export const createInvite = mutation({
       throw new Error(`This care circle already has ${MAX_CO_GUARDIANS} co-guardians`);
     }
     const now = Date.now();
+
+    if (args.targetUserId) {
+      if (args.targetUserId === args.patientUserId) throw new Error("You can't invite the patient's own account");
+      const target = await ctx.db.get(args.targetUserId);
+      if (!target) throw new Error("That account no longer exists");
+      if (await activeLinkFor(ctx, args.patientUserId, args.targetUserId)) {
+        throw new Error("That account is already a co-guardian");
+      }
+      // Reuse an existing live invite to the same target so tapping "Invite" twice doesn't pile up
+      // duplicate incoming requests — the code stays stable and they still see a single request.
+      const existing = await ctx.db
+        .query("careInvites")
+        .withIndex("by_target", (q) => q.eq("targetUserId", args.targetUserId).eq("status", "pending"))
+        .collect();
+      const live = existing.find((i) => i.patientUserId === args.patientUserId && i.expiresAt > now);
+      if (live) return { code: live.code, expiresAt: live.expiresAt, delivered: true };
+    }
+
     const code = await generateUniqueCode(ctx);
     await ctx.db.insert("careInvites", {
       patientUserId: args.patientUserId,
@@ -221,11 +246,12 @@ export const createInvite = mutation({
       presetPermissions: { ...FULL_CARE_PERMISSIONS },
       presetAccess: { mode: "always" },
       createdByUserId: args.userId,
+      ...(args.targetUserId ? { targetUserId: args.targetUserId } : {}),
       expiresAt: now + INVITE_TTL_MS,
       status: "pending",
       createdAt: now,
     });
-    return { code, expiresAt: now + INVITE_TTL_MS };
+    return { code, expiresAt: now + INVITE_TTL_MS, delivered: !!args.targetUserId };
   },
 });
 
@@ -252,6 +278,11 @@ export const redeemInvite = mutation({
     if (!invite || invite.status !== "pending") throw new Error("Invalid or already-used invite code");
     if (Date.now() > invite.expiresAt) throw new Error("This invite code has expired");
     if (invite.patientUserId === args.userId) throw new Error("You cannot join your own care circle");
+    // A directed invite can only be accepted by the account it was addressed to — sharing its code
+    // with someone else must not let them hijack the seat.
+    if (invite.targetUserId && invite.targetUserId !== args.userId) {
+      throw new Error("This invitation was sent to a different account");
+    }
 
     const existing = await activeLinkFor(ctx, invite.patientUserId, args.userId);
     if (existing) throw new Error("You are already in this care circle");
@@ -521,6 +552,40 @@ export const getCircle = query({
         createdAt: c.createdAt,
       })),
     };
+  },
+});
+
+/**
+ * Invitations addressed to me (from the "found a matching account, invite them" flow) that I can
+ * accept in-app. This is the inbound side of a directed invite — no code sharing required. Stale,
+ * already-linked, or full-circle invites are filtered out so the list only shows actionable requests.
+ */
+export const incomingInvites = query({
+  args: { userId: v.id("users"), passwordHash: v.string() },
+  handler: async (ctx, args) => {
+    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return [];
+    const invites = await ctx.db
+      .query("careInvites")
+      .withIndex("by_target", (q) => q.eq("targetUserId", args.userId).eq("status", "pending"))
+      .collect();
+    const now = Date.now();
+    const out = [];
+    for (const invite of invites) {
+      if (invite.expiresAt <= now) continue;
+      if (await activeLinkFor(ctx, invite.patientUserId, args.userId)) continue;
+      const links = await activeCoGuardianLinks(ctx, invite.patientUserId);
+      if (links.length >= MAX_CO_GUARDIANS) continue;
+      const patient = await slimPatientProfile(ctx, invite.patientUserId);
+      out.push({
+        inviteId: invite._id,
+        code: invite.code,
+        patientUserId: invite.patientUserId,
+        patientName: patient?.childName ?? "Patient",
+        invitedByName: await displayNameFor(ctx, invite.createdByUserId),
+        expiresAt: invite.expiresAt,
+      });
+    }
+    return out;
   },
 });
 

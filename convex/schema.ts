@@ -405,6 +405,10 @@ const careInvites = defineTable({
   presetPermissions: carePermissions,
   presetAccess: careAccess,
   createdByUserId: v.id("users"),
+  // Directed invite: when set, this invite is "addressed" to a specific account, which sees it as an
+  // incoming request it can accept in-app (no out-of-band code sharing). Untargeted invites (this
+  // field absent) are the shareable-code flow — anyone with the code may redeem.
+  targetUserId: v.optional(v.id("users")),
   expiresAt: v.number(),
   status: v.union(v.literal("pending"), v.literal("redeemed"), v.literal("cancelled")),
   redeemedByUserId: v.optional(v.id("users")),
@@ -412,7 +416,8 @@ const careInvites = defineTable({
   createdAt: v.number(),
 })
   .index("by_code", ["code"])
-  .index("by_patient", ["patientUserId", "status"]);
+  .index("by_patient", ["patientUserId", "status"])
+  .index("by_target", ["targetUserId", "status"]);
 
 /**
  * Named, persistent access codes for EXTERNAL guardians (teacher / babysitter / relative) — no

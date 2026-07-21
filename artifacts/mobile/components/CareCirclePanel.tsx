@@ -75,6 +75,15 @@ interface MembershipRow {
   dependentMode: boolean;
 }
 
+interface IncomingInvite {
+  inviteId: Id<"careInvites">;
+  code: string;
+  patientUserId: Id<"users">;
+  patientName: string;
+  invitedByName: string;
+  expiresAt: number;
+}
+
 const VIEWER_PERMISSIONS: CarePermissions = {
   viewReadings: true,
   viewLogs: true,
@@ -378,6 +387,7 @@ export default function CareCirclePanel({
   const [managingPatientId, setManagingPatientId] = useState<Id<"users"> | null>(null);
   const [circle, setCircle] = useState<CircleData | null>(null);
   const [memberships, setMemberships] = useState<MembershipRow[]>([]);
+  const [incoming, setIncoming] = useState<IncomingInvite[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -391,7 +401,7 @@ export default function CareCirclePanel({
   const [editingCodeId, setEditingCodeId] = useState<Id<"careAccessCodes"> | null>(null);
   const [qrCodeId, setQrCodeId] = useState<Id<"careAccessCodes"> | null>(null);
   const [sensorResult, setSensorResult] = useState<
-    { hasCredentials: boolean; matches: { userId: string; email: string; name: string; alreadyLinked: boolean }[] } | null
+    { hasCredentials: boolean; matches: { userId: Id<"users">; email: string; name: string; alreadyLinked: boolean }[] } | null
   >(null);
   const [sensorSearched, setSensorSearched] = useState(false);
   const [editPermissions, setEditPermissions] = useState<CarePermissions>({ ...VIEWER_PERMISSIONS });
@@ -415,16 +425,18 @@ export default function CareCirclePanel({
     try {
       const client = createConvexAuthClient();
       const userId = account.convexUserId as Id<"users">;
-      const [c, m] = await Promise.all([
+      const [c, m, inc] = await Promise.all([
         client.query(api.careCircle.getCircle, {
           userId,
           passwordHash: account.passwordHash,
           patientUserId: targetPatientId,
         }),
         client.query(api.careCircle.myMemberships, { userId, passwordHash: account.passwordHash }),
+        client.query(api.careCircle.incomingInvites, { userId, passwordHash: account.passwordHash }),
       ]);
       setCircle(c as CircleData | null);
       setMemberships(m as MembershipRow[]);
+      setIncoming(inc as IncomingInvite[]);
     } catch {
       setError("Could not load the care circle. Check your connection and try again.");
     } finally {
@@ -979,13 +991,16 @@ export default function CareCirclePanel({
                       onPress={() =>
                         runAction(async (client, userId, passwordHash) => {
                           if (!targetPatientId) return;
-                          const result = await client.mutation(api.careCircle.createInvite, {
+                          await client.mutation(api.careCircle.createInvite, {
                             userId,
                             passwordHash,
                             patientUserId: targetPatientId,
+                            targetUserId: m.userId,
                           });
-                          setCreatedInvite(result);
-                          Alert.alert("Care Circle", "Invite created. Share the code with them to link as a co-guardian.");
+                          Alert.alert(
+                            "Invitation sent",
+                            `${m.name} will see your co-guardian request in their Care Circle. It also appears there for them to accept.`,
+                          );
                         })
                       }
                     >
@@ -997,6 +1012,48 @@ export default function CareCirclePanel({
             </View>
           )}
         </>
+      )}
+
+      {/* ── Invitations addressed to me (directed-invite inbox) ── */}
+      {!managingOther && incoming.length > 0 && (
+        <View style={[styles.sectionBox, { borderTopColor: colors.separator }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Invitations for you</Text>
+          <Text style={[styles.sectionSub, { color: colors.textMuted }]}>
+            You've been invited to help care for someone. Accept to become a co-guardian.
+          </Text>
+          {incoming.map((inv) => (
+            <View key={String(inv.inviteId)} style={[styles.memberRow, { borderColor: colors.border }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.memberName, { color: colors.text }]} numberOfLines={1}>
+                  {inv.patientName}
+                </Text>
+                <Text style={[styles.sectionSub, { color: colors.textMuted }]} numberOfLines={1}>
+                  Invited by {inv.invitedByName}
+                </Text>
+              </View>
+              <Pressable
+                disabled={busy}
+                style={({ pressed }) => [
+                  styles.viewBtn,
+                  { borderColor: COLORS.primary, backgroundColor: COLORS.primary + "12", opacity: pressed || busy ? 0.7 : 1 },
+                ]}
+                onPress={() =>
+                  runAction(async (client, userId, passwordHash) => {
+                    const result = await client.mutation(api.careCircle.redeemInvite, {
+                      userId,
+                      passwordHash,
+                      code: inv.code,
+                    });
+                    Alert.alert("Care Circle", `You're now a co-guardian for ${result.patientName}.`);
+                  })
+                }
+              >
+                <Feather name="check" size={13} color={COLORS.primary} />
+                <Text style={[styles.actionLink, { color: COLORS.primary }]}>Accept</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
       )}
 
       {/* ── Circles I'm in + join ── */}
