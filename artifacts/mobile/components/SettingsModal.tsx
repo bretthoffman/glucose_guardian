@@ -12,10 +12,13 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -58,8 +61,36 @@ function ageLabel(ageYears: number | null): string {
 
 export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canEditPhoto }: Props) {
   const { colors: c, scheme, preference, setPreference } = useTheme();
-  const { profile, ageYears } = useAuth();
+  const { profile, ageYears, updateProfile } = useAuth();
   const [schemeExpanded, setSchemeExpanded] = useState(false);
+
+  // Inline account editor (name + weight). Same edit gate as the profile photo.
+  const [accountExpanded, setAccountExpanded] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [weightInput, setWeightInput] = useState("");
+  const [savingAccount, setSavingAccount] = useState(false);
+
+  const openAccountEditor = () => {
+    if (!accountExpanded) {
+      setNameInput(profile?.childName ?? "");
+      setWeightInput(profile?.weightLbs != null ? String(profile.weightLbs) : "");
+    }
+    setSchemeExpanded(false);
+    setAccountExpanded((v) => !v);
+  };
+
+  const saveAccount = async () => {
+    const name = nameInput.trim();
+    if (!name || savingAccount) return;
+    setSavingAccount(true);
+    try {
+      const w = parseFloat(weightInput);
+      await updateProfile({ childName: name, weightLbs: !isNaN(w) && w > 0 ? w : undefined });
+      setAccountExpanded(false);
+    } finally {
+      setSavingAccount(false);
+    }
+  };
 
   const firstName = (profile?.childName ?? "").trim().split(/\s+/).filter(Boolean)[0] ?? "";
   const ageStr = ageLabel(ageYears);
@@ -73,6 +104,12 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
         onPress={onClose}
         accessibilityLabel="Close settings"
       >
+        {/* Lift the card above the keyboard while the account fields are being edited. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.kav}
+          pointerEvents="box-none"
+        >
         {/* Inner Pressable captures touches so taps inside the card do not dismiss. */}
         <Pressable
           style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
@@ -132,6 +169,75 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
             </Pressable>
           ) : null}
 
+          {/* Edit Profile — name + weight (same edit gate as the profile photo) */}
+          {canEditPhoto ? (
+            <Pressable
+              style={[styles.row, { borderTopColor: c.border }]}
+              onPress={openAccountEditor}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: accountExpanded }}
+              accessibilityLabel="Edit profile name and weight"
+            >
+              <View style={[styles.rowIcon, { backgroundColor: withAlpha(T.color.violet, 0.14) }]}>
+                <Feather name="user" size={16} color={T.color.violetActive} />
+              </View>
+              <Text style={[styles.rowLabel, { color: c.textPrimary }]}>Edit Profile</Text>
+              <Feather name={accountExpanded ? "chevron-up" : "chevron-down"} size={18} color={c.textMuted} />
+            </Pressable>
+          ) : null}
+
+          {canEditPhoto && accountExpanded ? (
+            <View style={[styles.editor, { borderTopColor: c.border }]}>
+              <Text style={[styles.fieldLabel, { color: c.textMuted }]}>Name</Text>
+              <TextInput
+                value={nameInput}
+                onChangeText={setNameInput}
+                placeholder="Name"
+                placeholderTextColor={c.textMuted}
+                style={[styles.input, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
+                autoCapitalize="words"
+                returnKeyType="next"
+              />
+              <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 12 }]}>Weight (lbs)</Text>
+              <TextInput
+                value={weightInput}
+                onChangeText={(v) => setWeightInput(v.replace(/[^0-9.]/g, "").slice(0, 6))}
+                placeholder="Optional"
+                placeholderTextColor={c.textMuted}
+                keyboardType="decimal-pad"
+                style={[styles.input, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
+                returnKeyType="done"
+                onSubmitEditing={saveAccount}
+              />
+              <View style={styles.editorBtns}>
+                <Pressable
+                  style={({ pressed }) => [styles.cancelBtn, { borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => setAccountExpanded(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel"
+                >
+                  <Text style={[styles.cancelBtnText, { color: c.textSecondary }]}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.saveBtn,
+                    { backgroundColor: nameInput.trim() ? T.color.violetActive : withAlpha(c.textMuted, 0.2), opacity: pressed ? 0.85 : 1 },
+                  ]}
+                  onPress={saveAccount}
+                  disabled={!nameInput.trim() || savingAccount}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save profile"
+                >
+                  {savingAccount ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.saveBtnText}>Save</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+
           {/* Color Scheme */}
           <Pressable
             style={[styles.row, { borderTopColor: c.border }]}
@@ -182,6 +288,7 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
             </View>
           ) : null}
         </Pressable>
+        </KeyboardAvoidingView>
       </Pressable>
     </Modal>
   );
@@ -194,6 +301,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 24,
   },
+  kav: { width: "100%", maxWidth: 400, alignItems: "center" },
   card: {
     width: "100%",
     maxWidth: 400,
@@ -232,6 +340,35 @@ const styles = StyleSheet.create({
   rowIcon: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   rowLabel: { flex: 1, fontSize: 15, fontWeight: "600" },
   rowValue: { fontSize: 14, fontWeight: "500" },
+
+  editor: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, paddingBottom: 6 },
+  fieldLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 6 },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  editorBtns: { flexDirection: "row", gap: 10, marginTop: 16 },
+  cancelBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelBtnText: { fontSize: 15, fontWeight: "600" },
+  saveBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
 
   options: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 4 },
   optionRow: {

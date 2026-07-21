@@ -281,6 +281,35 @@ const DEFAULT_ALERT_PREFS: AlertPreferences = {
   urgentHighThreshold: 250,
 };
 
+type RemoteThresholds = {
+  lowThreshold?: number | null;
+  highThreshold?: number | null;
+  urgentLowThreshold?: number | null;
+  urgentHighThreshold?: number | null;
+} | null | undefined;
+
+/** Pull just the four numeric thresholds out of a backend `alertPreferences` (notification toggles
+ *  stay device-local). Returns `null` when the account has no stored thresholds. */
+function thresholdOverlay(remote: RemoteThresholds): Partial<AlertPreferences> | null {
+  if (!remote) return null;
+  const out: Partial<AlertPreferences> = {};
+  if (typeof remote.urgentLowThreshold === "number") out.urgentLowThreshold = remote.urgentLowThreshold;
+  if (typeof remote.lowThreshold === "number") out.lowThreshold = remote.lowThreshold;
+  if (typeof remote.highThreshold === "number") out.highThreshold = remote.highThreshold;
+  if (typeof remote.urgentHighThreshold === "number") out.urgentHighThreshold = remote.urgentHighThreshold;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** The account-scoped subset of alert prefs that persists to the backend profile. */
+function thresholdsToBackend(prefs: AlertPreferences) {
+  return {
+    lowThreshold: prefs.lowThreshold,
+    highThreshold: prefs.highThreshold,
+    urgentLowThreshold: prefs.urgentLowThreshold,
+    urgentHighThreshold: prefs.urgentHighThreshold,
+  };
+}
+
 function hashPassword(password: string): string {
   const salted = `gg::${password}::glucose_guardian_2025`;
   let encoded = "";
@@ -380,6 +409,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const profileRef = useRef(profile);
   const accountRef = useRef<UserAccount | null>(null);
   const caregiverCloudCodeRef = useRef<string | null>(null);
+  const caregiverSessionRef = useRef(false);
   const insulinLogRef = useRef(insulinLog);
   const foodLogRef = useRef(foodLog);
   const alertPrefsRef = useRef(alertPrefs);
@@ -401,6 +431,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { profileRef.current = profile; }, [profile]);
   useEffect(() => { accountRef.current = account; }, [account]);
   useEffect(() => { caregiverCloudCodeRef.current = caregiverCloudCode; }, [caregiverCloudCode]);
+  useEffect(() => { caregiverSessionRef.current = caregiverSession; }, [caregiverSession]);
   useEffect(() => { insulinLogRef.current = insulinLog; }, [insulinLog]);
   useEffect(() => { foodLogRef.current = foodLog; }, [foodLog]);
   useEffect(() => { alertPrefsRef.current = alertPrefs; }, [alertPrefs]);
@@ -552,6 +583,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 profileRef.current = nextProfile;
                 setProfile(nextProfile);
                 await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+                // Show the code owner's alert thresholds for this restored session (in memory only).
+                setAlertPrefsState((prev) => ({ ...prev, ...DEFAULT_ALERT_PREFS, ...(thresholdOverlay(slim.alertPreferences) ?? {}) }));
               }
             } catch {
               /* keep the AsyncStorage-cached profile */
@@ -706,10 +739,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   });
                   if (cancelled) return;
                   if (remote) {
-                    const p = remote as UserProfile;
-                    profileRef.current = p;
-                    setProfile(p);
+                    const { alertPreferences: remotePrefs, ...p } = remote as UserProfile & { alertPreferences?: RemoteThresholds };
+                    profileRef.current = p as UserProfile;
+                    setProfile(p as UserProfile);
                     await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+                    // Account-scoped thresholds: adopt the account's saved ranges, or seed the backend
+                    // from this device's local thresholds if the account has none yet.
+                    const overlay = thresholdOverlay(remotePrefs);
+                    if (overlay) {
+                      const next = { ...DEFAULT_ALERT_PREFS, ...(storedAlertPrefs ? JSON.parse(storedAlertPrefs) : {}), ...overlay };
+                      setAlertPrefsState(next);
+                      await AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(next)).catch(() => {});
+                    } else if (storedAlertPrefs) {
+                      client.mutation(api.patientProfile.setAlertPreferences, {
+                        userId,
+                        passwordHash: acc.passwordHash,
+                        alertPreferences: thresholdsToBackend({ ...DEFAULT_ALERT_PREFS, ...JSON.parse(storedAlertPrefs) }),
+                      }).catch(() => {});
+                    }
                   } else if (localProfileFromStorage && isMigratableLocalProfile(localProfileFromStorage)) {
                     const profilePayload = JSON.parse(JSON.stringify(localProfileFromStorage));
                     await client.mutation(api.patientProfile.replace, {
@@ -1050,10 +1097,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             passwordHash: acc.passwordHash,
           });
           if (remote) {
-            const p = remote as UserProfile;
-            profileRef.current = p;
-            setProfile(p);
+            const { alertPreferences: remotePrefs, ...p } = remote as UserProfile & { alertPreferences?: RemoteThresholds };
+            profileRef.current = p as UserProfile;
+            setProfile(p as UserProfile);
             await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+            // Thresholds are account-scoped. Adopt this account's saved ranges over a clean default
+            // base so nothing carries over from a previous session; if the account has none yet,
+            // fall back to defaults (migration from a local-only account happens on the next boot,
+            // where the device's stored thresholds are still intact — see the boot-restore path).
+            const next = { ...DEFAULT_ALERT_PREFS, ...(thresholdOverlay(remotePrefs) ?? {}) };
+            setAlertPrefsState(next);
+            await AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(next)).catch(() => {});
           }
           const remoteCgm = await client.query(api.patientCgm.get, {
             userId: acc.convexUserId as Id<"users">,
@@ -1296,9 +1350,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateAlertPrefs = useCallback(async (partial: Partial<AlertPreferences>) => {
+    // In an access-code (kid/caregiver) session the thresholds on screen belong to the code owner —
+    // this device is only viewing. Update in memory for the current view, but never persist: don't
+    // touch this device's local cache and don't write the owner's backend thresholds.
+    if (caregiverSessionRef.current) {
+      setAlertPrefsState((prev) => ({ ...prev, ...partial }));
+      return;
+    }
     setAlertPrefsState((prev) => {
       const next = { ...prev, ...partial };
       AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(next)).catch(() => {});
+      // Persist thresholds to the account so any access code it issues carries these ranges.
+      const acc = accountRef.current;
+      if (acc?.convexUserId) {
+        createConvexAuthClient()
+          .mutation(api.patientProfile.setAlertPreferences, {
+            userId: acc.convexUserId as Id<"users">,
+            passwordHash: acc.passwordHash,
+            alertPreferences: thresholdsToBackend(next),
+          })
+          .catch(() => {});
+      }
       return next;
     });
   }, []);
@@ -1372,6 +1444,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             profileRef.current = nextProfile;
             setProfile(nextProfile);
             await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+            // Adopt the code owner's alert thresholds for this session (in memory only — never write
+            // this borrowed view over the device's own account thresholds). Fall back to the owner's
+            // defaults so we never leave the previous account's ranges in place.
+            setAlertPrefsState((prev) => ({ ...prev, ...DEFAULT_ALERT_PREFS, ...(thresholdOverlay(slim?.alertPreferences) ?? {}) }));
             setCaregiverCloudCode(normalized);
             setCaregiverCodeKind("access");
             setAccessCodeRole(resolved.kind);
@@ -1425,6 +1501,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccessLock(null);
     setFoodLog([]);
     setInsulinLog([]);
+    // Drop the owner's borrowed thresholds so they can't bleed into the next (real-account) sign-in.
+    setAlertPrefsState(DEFAULT_ALERT_PREFS);
     // Manual caregiver/child sign-out — forget the persisted access code so it won't auto-restore.
     void AsyncStorage.removeItem(CAREGIVER_CODE_KEY);
     if (hadCloudCaregiver && !isSignedIn) {

@@ -57,9 +57,23 @@ interface AccessCodeRow {
   createdAt: number;
 }
 
+/** A peer in the shared circle — the owner (Dexcom/patient account) or a co-guardian. */
+interface GuardianRow {
+  userId: Id<"users">;
+  displayName: string;
+  isMe: boolean;
+  isOwner: boolean;
+  linkId: Id<"careLinks"> | null;
+  accessState: AccessState;
+}
+
 interface CircleData {
   isAdmin: boolean;
   settings: { dependentMode: boolean; devicePermissions: CarePermissions };
+  patientUserId: Id<"users">;
+  patientName: string;
+  guardians: GuardianRow[];
+  maxGuardians: number;
   coGuardians: CoGuardianRow[];
   pendingInvites: { inviteId: Id<"careInvites">; code: string; expiresAt: number }[];
   accessCodes: AccessCodeRow[];
@@ -384,7 +398,6 @@ export default function CareCirclePanel({
 }) {
   const { account, profile, enterViewingMode } = useAuth();
 
-  const [managingPatientId, setManagingPatientId] = useState<Id<"users"> | null>(null);
   const [circle, setCircle] = useState<CircleData | null>(null);
   const [memberships, setMemberships] = useState<MembershipRow[]>([]);
   const [incoming, setIncoming] = useState<IncomingInvite[]>([]);
@@ -409,11 +422,15 @@ export default function CareCirclePanel({
   const [joinCode, setJoinCode] = useState("");
 
   const myUserId = (account?.convexUserId ?? null) as Id<"users"> | null;
-  const targetPatientId = managingPatientId ?? myUserId;
-  const managingOther = managingPatientId != null && managingPatientId !== myUserId;
+  // Co-guardians share ONE circle, anchored on the patient/Dexcom-owner account. If I'm a co-guardian
+  // of someone's circle, that shared circle is my view; otherwise I'm the owner of my own. Both sides
+  // resolve to the same anchor, so both render the identical roster/codes. The loaded circle's own
+  // `patientUserId` is the authoritative target for every create/manage action.
+  const targetPatientId = (circle?.patientUserId as Id<"users"> | undefined) ?? myUserId;
+  const viewingOthersCircle = circle != null && myUserId != null && circle.patientUserId !== myUserId;
 
   const refresh = useCallback(async (silent = false) => {
-    if (!account?.convexUserId || !targetPatientId) {
+    if (!account?.convexUserId) {
       setLoading(false);
       setError("Sign in with a Glucose Guardian account to use the Care Circle.");
       return;
@@ -425,24 +442,28 @@ export default function CareCirclePanel({
     try {
       const client = createConvexAuthClient();
       const userId = account.convexUserId as Id<"users">;
-      const [c, m, inc] = await Promise.all([
-        client.query(api.careCircle.getCircle, {
-          userId,
-          passwordHash: account.passwordHash,
-          patientUserId: targetPatientId,
-        }),
+      // Resolve the shared anchor first (memberships tell me whose circle I belong to), then load
+      // that one merged circle — so a co-guardian and the owner see identical data.
+      const [m, inc] = await Promise.all([
         client.query(api.careCircle.myMemberships, { userId, passwordHash: account.passwordHash }),
         client.query(api.careCircle.incomingInvites, { userId, passwordHash: account.passwordHash }),
       ]);
+      const memberships = m as MembershipRow[];
+      const anchor = (memberships[0]?.patientUserId as Id<"users"> | undefined) ?? userId;
+      const c = await client.query(api.careCircle.getCircle, {
+        userId,
+        passwordHash: account.passwordHash,
+        patientUserId: anchor,
+      });
       setCircle(c as CircleData | null);
-      setMemberships(m as MembershipRow[]);
+      setMemberships(memberships);
       setIncoming(inc as IncomingInvite[]);
     } catch {
       setError("Could not load the care circle. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
-  }, [account?.convexUserId, account?.passwordHash, targetPatientId]);
+  }, [account?.convexUserId, account?.passwordHash]);
 
   useEffect(() => {
     refresh();
@@ -485,9 +506,8 @@ export default function CareCirclePanel({
   }, [account?.convexUserId, account?.passwordHash]);
 
   const shareCode = async (code: string, kind: "invite" | "access") => {
-    const patientName = managingOther
-      ? memberships.find((m) => m.patientUserId === managingPatientId)?.patientName ?? "a patient"
-      : profile?.childName ?? "a Glucose Guardian user";
+    // Always name the shared circle's patient (works whether I'm the owner or a co-guardian of it).
+    const patientName = circle?.patientName ?? profile?.childName ?? "a Glucose Guardian user";
     const message =
       kind === "invite"
         ? `You're invited to join ${patientName}'s care circle as a co-guardian on Glucose Guardian. Download the app, sign in, and enter this invite code in Dashboard → Care Circle → Join: ${code}`
@@ -499,11 +519,15 @@ export default function CareCirclePanel({
     }
   };
 
-  // Co-guardians are admins of every circle they're in, so all memberships are manageable.
-  const adminCirclesIManages = memberships;
   const isAdmin = circle?.isAdmin ?? false;
   const caregiverCodes = (circle?.accessCodes ?? []).filter((c) => c.kind !== "child");
   const childCodes = (circle?.accessCodes ?? []).filter((c) => c.kind === "child");
+
+  // Roster of the shared circle with "You" pinned to the top.
+  const guardians = [...(circle?.guardians ?? [])].sort((a, b) => (a.isMe === b.isMe ? 0 : a.isMe ? -1 : 1));
+  const maxGuardians = circle?.maxGuardians ?? 4;
+  // When I'm a co-guardian (not the owner), let me open the patient's live glucose in viewing mode.
+  const membershipForCircle = memberships.find((m) => m.patientUserId === circle?.patientUserId);
 
   if (loading) {
     return (
@@ -537,27 +561,21 @@ export default function CareCirclePanel({
         </View>
       )}
 
-      {/* ── Circle selector (only when I administer someone else's circle) ── */}
-      {adminCirclesIManages.length > 0 && (
-        <View style={styles.modeChipsRow}>
-          {[{ id: null as Id<"users"> | null, name: "My circle" }, ...adminCirclesIManages.map((m) => ({ id: m.patientUserId as Id<"users"> | null, name: `${m.patientName}'s` }))].map(
-            (opt) => {
-              const active = (managingPatientId ?? null) === opt.id;
-              return (
-                <Pressable
-                  key={String(opt.id ?? "mine")}
-                  style={[
-                    styles.modeChip,
-                    { backgroundColor: active ? COLORS.primary : colors.backgroundTertiary, borderColor: active ? COLORS.primary : colors.border },
-                  ]}
-                  onPress={() => setManagingPatientId(opt.id)}
-                >
-                  <Text style={[styles.modeChipText, { color: active ? "#fff" : colors.textSecondary }]}>{opt.name}</Text>
-                </Pressable>
-              );
-            },
-          )}
-        </View>
+      {/* ── View the patient's live glucose (co-guardians only; the owner already sees it natively) ── */}
+      {viewingOthersCircle && membershipForCircle?.accessState.state === "ok" && membershipForCircle.permissions.viewReadings && (
+        <Pressable
+          disabled={busy}
+          style={({ pressed }) => [styles.viewCircleBtn, { borderColor: COLORS.primary, opacity: pressed ? 0.7 : 1 }]}
+          onPress={async () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            const ok = await enterViewingMode(circle!.patientUserId);
+            if (ok) onClose?.();
+            else Alert.alert("Care Circle", "Access to this patient's data isn't available right now.");
+          }}
+        >
+          <Feather name="eye" size={15} color={COLORS.primary} />
+          <Text style={[styles.viewCircleBtnText, { color: COLORS.primary }]}>View {circle!.patientName}'s glucose</Text>
+        </Pressable>
       )}
 
       {circle && (
@@ -650,57 +668,56 @@ export default function CareCirclePanel({
             </View>
           )}
 
-          {/* ── Co-guardians ── */}
+          {/* ── Co-guardians (shared roster: you + everyone else, identical on both accounts) ── */}
           <View style={[styles.sectionBox, { borderTopColor: colors.separator }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Co-guardians ({circle.coGuardians.length}/3)
+              Co-guardians ({guardians.length}/{maxGuardians})
             </Text>
-            {circle.coGuardians.length === 0 && (
-              <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-                No co-guardians linked yet.
-              </Text>
-            )}
-            {circle.coGuardians.map((g) => (
-              <View key={String(g.linkId)} style={[styles.memberRow, { borderColor: colors.border }]}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={[styles.memberName, { color: colors.text }]} numberOfLines={1}>
-                    {g.displayName}
-                    {g.isMe ? "  (you)" : ""}
-                  </Text>
-                  <AccessChip accessState={g.accessState} colors={colors} />
+            {guardians.map((g) => {
+              // The owner has no link to sever; a member can Leave themselves; an admin can Remove others.
+              const canRemove = g.linkId != null && (g.isMe || isAdmin);
+              return (
+                <View key={String(g.userId)} style={[styles.memberRow, { borderColor: colors.border }]}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[styles.memberName, { color: colors.text }]} numberOfLines={1}>
+                      {g.isMe ? "You" : g.displayName}
+                      {g.isOwner ? "  ·  owner" : ""}
+                    </Text>
+                    {!g.isOwner && <AccessChip accessState={g.accessState} colors={colors} />}
+                  </View>
+                  {canRemove && (
+                    <Pressable
+                      disabled={busy}
+                      onPress={() =>
+                        Alert.alert(
+                          g.isMe ? "Leave this care circle?" : `Remove ${g.displayName}?`,
+                          g.isMe
+                            ? "You'll immediately lose access to this patient's data."
+                            : "They immediately lose access to this patient's data.",
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: g.isMe ? "Leave" : "Remove",
+                              style: "destructive",
+                              onPress: () =>
+                                runAction(async (client, userId, passwordHash) => {
+                                  await client.mutation(api.careCircle.revokeLink, {
+                                    userId,
+                                    passwordHash,
+                                    linkId: g.linkId!,
+                                  });
+                                }),
+                            },
+                          ],
+                        )
+                      }
+                    >
+                      <Text style={[styles.dangerLink, { color: COLORS.danger }]}>{g.isMe ? "Leave" : "Remove"}</Text>
+                    </Pressable>
+                  )}
                 </View>
-                {(isAdmin || g.isMe) && (
-                  <Pressable
-                    disabled={busy}
-                    onPress={() =>
-                      Alert.alert(
-                        g.isMe ? "Leave this care circle?" : `Remove ${g.displayName}?`,
-                        g.isMe
-                          ? "You'll immediately lose access to this patient's data."
-                          : "They immediately lose access to this patient's data.",
-                        [
-                          { text: "Cancel", style: "cancel" },
-                          {
-                            text: g.isMe ? "Leave" : "Remove",
-                            style: "destructive",
-                            onPress: () =>
-                              runAction(async (client, userId, passwordHash) => {
-                                await client.mutation(api.careCircle.revokeLink, {
-                                  userId,
-                                  passwordHash,
-                                  linkId: g.linkId,
-                                });
-                              }),
-                          },
-                        ],
-                      )
-                    }
-                  >
-                    <Text style={[styles.dangerLink, { color: COLORS.danger }]}>{g.isMe ? "Leave" : "Remove"}</Text>
-                  </Pressable>
-                )}
-              </View>
-            ))}
+              );
+            })}
 
             {circle.pendingInvites.map((inv) => (
               <View key={String(inv.inviteId)} style={[styles.memberRow, { borderColor: COLORS.primary + "40" }]}>
@@ -732,7 +749,7 @@ export default function CareCirclePanel({
               </View>
             ))}
 
-            {isAdmin && circle.coGuardians.length < 3 && (
+            {isAdmin && guardians.length < maxGuardians && (
               <Pressable
                 disabled={busy}
                 style={({ pressed }) => [styles.primaryBtn, { backgroundColor: COLORS.primary, opacity: pressed || busy ? 0.8 : 1 }]}
@@ -949,8 +966,8 @@ export default function CareCirclePanel({
             )}
           </View>
 
-          {/* ── Shared-sensor discovery (manual; own circle only) ── */}
-          {isAdmin && !managingOther && (
+          {/* ── Shared-sensor discovery (manual) ── */}
+          {isAdmin && !viewingOthersCircle && (
             <View style={[styles.sectionBox, { borderTopColor: colors.separator }]}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Sharing a sensor?</Text>
               <Text style={[styles.sectionSub, { color: colors.textMuted }]}>
@@ -1015,7 +1032,7 @@ export default function CareCirclePanel({
       )}
 
       {/* ── Invitations addressed to me (directed-invite inbox) ── */}
-      {!managingOther && incoming.length > 0 && (
+      {incoming.length > 0 && (
         <View style={[styles.sectionBox, { borderTopColor: colors.separator }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Invitations for you</Text>
           <Text style={[styles.sectionSub, { color: colors.textMuted }]}>
@@ -1056,64 +1073,12 @@ export default function CareCirclePanel({
         </View>
       )}
 
-      {/* ── Circles I'm in + join ── */}
-      {!managingOther && (
-        <View style={[styles.sectionBox, { borderTopColor: colors.separator }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Circles I'm in</Text>
-          {memberships.length === 0 && (
-            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-              You're not in anyone's care circle yet.
-            </Text>
-          )}
-          {memberships.map((m) => (
-            <View key={String(m.linkId)} style={[styles.memberRow, { borderColor: colors.border }]}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.memberName, { color: colors.text }]} numberOfLines={1}>
-                  {m.patientName} · co-guardian
-                </Text>
-                <AccessChip accessState={m.accessState} colors={colors} />
-              </View>
-              {m.accessState.state === "ok" && m.permissions.viewReadings && (
-                <Pressable
-                  disabled={busy}
-                  style={({ pressed }) => [styles.viewBtn, { borderColor: COLORS.primary, opacity: pressed ? 0.7 : 1 }]}
-                  onPress={async () => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    const ok = await enterViewingMode(m.patientUserId);
-                    if (ok) onClose?.();
-                    else Alert.alert("Care Circle", "Access to this patient's data isn't available right now.");
-                  }}
-                >
-                  <Feather name="eye" size={13} color={COLORS.primary} />
-                  <Text style={[styles.actionLink, { color: COLORS.primary }]}>View</Text>
-                </Pressable>
-              )}
-              <Pressable
-                disabled={busy}
-                onPress={() =>
-                  Alert.alert(`Leave ${m.patientName}'s circle?`, "You'll immediately lose access to their data.", [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Leave",
-                      style: "destructive",
-                      onPress: () =>
-                        runAction(async (client, userId, passwordHash) => {
-                          await client.mutation(api.careCircle.revokeLink, {
-                            userId,
-                            passwordHash,
-                            linkId: m.linkId,
-                          });
-                          setManagingPatientId(null);
-                        }),
-                    },
-                  ])
-                }
-              >
-                <Text style={[styles.dangerLink, { color: COLORS.danger }]}>Leave</Text>
-              </Pressable>
-            </View>
-          ))}
-
+      {/* ── Join a circle with an invite code (co-guardians share one merged circle above) ── */}
+      <View style={[styles.sectionBox, { borderTopColor: colors.separator }]}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Have an invite code?</Text>
+        <Text style={[styles.sectionSub, { color: colors.textMuted }]}>
+          Enter a co-guardian invite code to join and share that circle.
+        </Text>
           <View style={styles.joinRow}>
             <TextInput
               value={joinCode}
@@ -1146,8 +1111,7 @@ export default function CareCirclePanel({
               <Text style={[styles.primaryBtnText, { color: joinCode.length === 8 ? "#fff" : colors.textMuted }]}>Join</Text>
             </Pressable>
           </View>
-        </View>
-      )}
+      </View>
     </View>
   );
 }
@@ -1183,6 +1147,8 @@ const styles = StyleSheet.create({
   actionLink: { fontSize: 12, fontWeight: "700" },
   dangerLink: { fontSize: 12, fontWeight: "700" },
   viewBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 },
+  viewCircleBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingVertical: 12 },
+  viewCircleBtnText: { fontSize: 14, fontWeight: "700" },
 
   primaryBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10 },
   primaryBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },

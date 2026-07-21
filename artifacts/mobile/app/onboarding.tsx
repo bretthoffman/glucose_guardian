@@ -345,7 +345,9 @@ export default function OnboardingScreen() {
         {step === "birthday" && (
           <View style={styles.stepContainer}>
             <StepBadge label={accountRole === "parent" ? "Step 4 of 6" : "Step 3 of 5"} colors={colors} />
-            <Text style={[styles.stepTitle, { color: colors.text }]}>Date of Birth</Text>
+            <Text style={[styles.stepTitle, { color: colors.text }]}>
+              {accountRole === "parent" && childName.trim() ? `${childName.trim()}'s Date of Birth` : "Date of Birth"}
+            </Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               Used to set the right access level in the app
             </Text>

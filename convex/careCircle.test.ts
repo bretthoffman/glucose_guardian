@@ -44,20 +44,29 @@ describe("co-guardian invite → redeem → link", () => {
     });
     expect(redeem.patientName).toBe("Bella");
 
-    // Patient sees the co-guardian.
-    const circle = await t.query(api.careCircle.getCircle, {
-      userId: patient,
-      passwordHash: HASH_A,
-      patientUserId: patient,
-    });
-    expect(circle?.coGuardians).toHaveLength(1);
-    expect(circle?.coGuardians[0].memberUserId).toBe(member);
+    // Both accounts resolve to the SAME shared circle (anchored on the patient) and see an identical
+    // roster: owner + co-guardian, with "you" being whoever is asking.
+    const ownerView = await t.query(api.careCircle.getCircle, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
+    const memberView = await t.query(api.careCircle.getCircle, { userId: member, passwordHash: HASH_B, patientUserId: patient });
 
-    // Member sees the membership.
-    const memberships = await t.query(api.careCircle.myMemberships, {
-      userId: member,
-      passwordHash: HASH_B,
-    });
+    for (const view of [ownerView, memberView]) {
+      expect(view?.guardians).toHaveLength(2); // owner + one co-guardian
+      expect(view?.maxGuardians).toBe(4);
+      expect(view?.patientName).toBe("Bella");
+      expect(view?.guardians[0].isOwner).toBe(true);
+      expect(view?.guardians.map((g) => g.userId).sort()).toEqual([patient, member].sort());
+    }
+    // "isMe" flips per viewer; the owner entry is always the patient account.
+    expect(ownerView?.guardians.find((g) => g.isMe)?.userId).toBe(patient);
+    expect(memberView?.guardians.find((g) => g.isMe)?.userId).toBe(member);
+    expect(ownerView?.guardians.find((g) => g.isOwner)?.userId).toBe(patient);
+    expect(memberView?.guardians.find((g) => g.isOwner)?.userId).toBe(patient);
+    // Only co-guardian members carry a linkId (the owner can't be removed).
+    expect(memberView?.guardians.find((g) => g.isOwner)?.linkId).toBeNull();
+    expect(memberView?.guardians.find((g) => !g.isOwner)?.linkId).not.toBeNull();
+
+    // Member also still sees the membership (drives anchor resolution on their device).
+    const memberships = await t.query(api.careCircle.myMemberships, { userId: member, passwordHash: HASH_B });
     expect(memberships).toHaveLength(1);
     expect(memberships[0].patientUserId).toBe(patient);
     expect(memberships[0].accessState.state).toBe("ok");
@@ -127,6 +136,39 @@ describe("co-guardian invite → redeem → link", () => {
     expect(circle?.coGuardians).toHaveLength(1);
     const inboxAfter = await t.query(api.careCircle.incomingInvites, { userId: member, passwordHash: HASH_B });
     expect(inboxAfter).toHaveLength(0);
+  });
+
+  it("carries the code owner's alert thresholds to an access-code (child) session", async () => {
+    const { t, patient } = await setup();
+
+    // Owner sets custom thresholds; they persist and survive a later profile save.
+    await t.mutation(api.patientProfile.setAlertPreferences, {
+      userId: patient,
+      passwordHash: HASH_A,
+      alertPreferences: { lowThreshold: 80, highThreshold: 200, urgentLowThreshold: 60, urgentHighThreshold: 260 },
+    });
+    const got = await t.query(api.patientProfile.get, { userId: patient, passwordHash: HASH_A });
+    expect(got?.alertPreferences?.highThreshold).toBe(200);
+
+    await t.mutation(api.patientProfile.replace, {
+      userId: patient,
+      passwordHash: HASH_A,
+      profile: { childName: "Bella", diabetesType: "type1", dateOfBirth: "2014-01-01" },
+    });
+    const afterSave = await t.query(api.patientProfile.get, { userId: patient, passwordHash: HASH_A });
+    expect(afterSave?.alertPreferences?.highThreshold).toBe(200); // profile save didn't wipe them
+
+    // A child access code exposes the owner's thresholds to the borrowing device.
+    const { code } = await t.mutation(api.careCircle.createAccessCode, {
+      userId: patient,
+      passwordHash: HASH_A,
+      patientUserId: patient,
+      label: "Bella's phone",
+      kind: "child",
+    });
+    const slim = await t.query(api.careCircle.profileForAccessCode, { code });
+    expect(slim?.alertPreferences?.highThreshold).toBe(200);
+    expect(slim?.alertPreferences?.lowThreshold).toBe(80);
   });
 
   it("rejects a stale/self/duplicate redemption", async () => {

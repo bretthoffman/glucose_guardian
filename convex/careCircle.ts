@@ -54,6 +54,8 @@ const careAccessPayload = v.union(
 // ─── shared helpers ──────────────────────────────────────────────────────────────────────────
 
 const MAX_CO_GUARDIANS = 3;
+/** Total guardians in a circle = the owner + co-guardians. Drives the "N/4" counter. */
+const MAX_GUARDIANS_TOTAL = MAX_CO_GUARDIANS + 1;
 const INVITE_TTL_MS = 48 * 60 * 60 * 1000;
 /** No lookalike characters (I/O/0/1). 8 chars ≈ 1.1e12 combinations. */
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -175,6 +177,8 @@ async function slimPatientProfile(ctx: QueryCtx | MutationCtx, patientUserId: Id
     carbRatio: row.carbRatio,
     targetGlucose: row.targetGlucose,
     correctionFactor: row.correctionFactor,
+    /** So a kid/caregiver device evaluates readings against the owner's ranges, not its own. */
+    alertPreferences: row.alertPreferences,
   };
 }
 
@@ -515,6 +519,7 @@ export const getCircle = query({
     const now = Date.now();
     const settings = settingsOrDefault(await getSettings(ctx, args.patientUserId));
     const links = await activeCoGuardianLinks(ctx, args.patientUserId);
+    const patientProfile = await slimPatientProfile(ctx, args.patientUserId);
     const invites = await ctx.db
       .query("careInvites")
       .withIndex("by_patient", (q) => q.eq("patientUserId", args.patientUserId).eq("status", "pending"))
@@ -524,9 +529,37 @@ export const getCircle = query({
       .withIndex("by_patient", (q) => q.eq("patientUserId", args.patientUserId).eq("status", "active"))
       .collect();
 
+    // Unified peer list — the circle owner (Dexcom/patient account) and every active co-guardian are
+    // equal members of ONE shared circle, so both sides render the same roster. The owner has no
+    // linkId (they can't be "removed") and always has open access.
+    const okAccess = evaluateCareAccess({ mode: "always" }, now);
+    const guardians = [
+      {
+        userId: args.patientUserId,
+        displayName: await displayNameFor(ctx, args.patientUserId),
+        isMe: args.patientUserId === args.userId,
+        isOwner: true,
+        linkId: null as Id<"careLinks"> | null,
+        accessState: okAccess,
+      },
+      ...links.map((l) => ({
+        userId: l.memberUserId,
+        displayName: l.displayName,
+        isMe: l.memberUserId === args.userId,
+        isOwner: false,
+        linkId: l._id as Id<"careLinks"> | null,
+        accessState: evaluateCareAccess(l.access as CareAccess, now),
+      })),
+    ];
+
     return {
       isAdmin: admin,
       settings,
+      patientUserId: args.patientUserId,
+      patientName: patientProfile?.childName ?? "Patient",
+      /** Owner + co-guardians as equal peers (owner first). `MAX_GUARDIANS_TOTAL` is the cap incl. owner. */
+      guardians,
+      maxGuardians: MAX_GUARDIANS_TOTAL,
       coGuardians: links.map((l) => ({
         linkId: l._id,
         memberUserId: l.memberUserId,

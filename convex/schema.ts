@@ -122,6 +122,9 @@ const patientProfiles = defineTable({
   carbRatio: v.optional(v.number()),
   targetGlucose: v.optional(v.number()),
   correctionFactor: v.optional(v.number()),
+  // Glucose alert thresholds, account-scoped so an access-code (kid/caregiver) device shows the
+  // code owner's ranges — not whatever was cached locally from a previous sign-in.
+  alertPreferences: v.optional(alertPreferences),
   updatedAt: v.number(),
 })
   .index("by_userId", ["userId"])

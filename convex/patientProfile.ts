@@ -10,6 +10,14 @@ const accessLogEntry = v.object({
   actor: v.union(v.literal("owner"), v.literal("caregiver"), v.literal("doctor")),
 });
 
+/** The four glucose alert thresholds — account-scoped so they travel with an access code. */
+const alertPreferencesPayload = v.object({
+  lowThreshold: v.optional(v.number()),
+  highThreshold: v.optional(v.number()),
+  urgentLowThreshold: v.optional(v.number()),
+  urgentHighThreshold: v.optional(v.number()),
+});
+
 /** Matches mobile `UserProfile` (required + optional fields). */
 export const patientProfilePayload = v.object({
   childName: v.string(),
@@ -122,6 +130,7 @@ export const get = query({
       carbRatio: row.carbRatio,
       targetGlucose: row.targetGlucose,
       correctionFactor: row.correctionFactor,
+      alertPreferences: row.alertPreferences,
     };
   },
 });
@@ -143,6 +152,9 @@ export const replace = mutation({
     const doc = {
       userId: args.userId,
       ...args.profile,
+      // `replace` overwrites the whole doc and the profile payload carries no thresholds — carry the
+      // account's existing alert thresholds forward so a profile save never wipes them.
+      alertPreferences: existing?.alertPreferences,
       updatedAt: now,
     };
     if (existing) {
@@ -150,5 +162,26 @@ export const replace = mutation({
     } else {
       await ctx.db.insert("patientProfiles", doc);
     }
+  },
+});
+
+/** Persist this account's glucose alert thresholds (account-scoped; travels with access codes). */
+export const setAlertPreferences = mutation({
+  args: {
+    userId: v.id("users"),
+    passwordHash: v.string(),
+    alertPreferences: alertPreferencesPayload,
+  },
+  handler: async (ctx, args) => {
+    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
+    if (!ok) throw new Error("Unauthorized");
+    const existing = await ctx.db
+      .query("patientProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .unique();
+    // Thresholds live on the profile row; if the profile hasn't been created yet there's nothing to
+    // attach them to (onboarding writes the profile first), so silently no-op.
+    if (!existing) return;
+    await ctx.db.patch(existing._id, { alertPreferences: args.alertPreferences, updatedAt: Date.now() });
   },
 });

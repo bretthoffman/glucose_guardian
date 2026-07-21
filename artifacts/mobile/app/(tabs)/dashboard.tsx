@@ -874,7 +874,8 @@ export default function DashboardScreen() {
                 Customize each alert level (mg/dL)
               </Text>
             </View>
-            {!editingThresholds && (
+            {/* Access-code sessions (kid / caregiver) view the owner's thresholds read-only — no Edit. */}
+            {!editingThresholds && !caregiverSession && (
               <Pressable
                 style={({ pressed }) => [styles.addContactBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.7 : 1 }]}
                 onPress={() => {
