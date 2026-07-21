@@ -126,13 +126,16 @@ async function activeLinkFor(
   patientUserId: Id<"users">,
   memberUserId: Id<"users">,
 ) {
-  const link = await ctx.db
+  // A pair can accumulate several rows over join/leave/rejoin cycles (the index has no status), so
+  // scan them and return the ACTIVE one — never just `.first()`, which might be a stale revoked row
+  // and would make an existing co-guardian look unlinked (blanking their whole circle view).
+  const links = await ctx.db
     .query("careLinks")
     .withIndex("by_patient_member", (q) =>
       q.eq("patientUserId", patientUserId).eq("memberUserId", memberUserId),
     )
-    .first();
-  return link && link.status === "active" ? link : null;
+    .collect();
+  return links.find((l) => l.status === "active") ?? null;
 }
 
 /**

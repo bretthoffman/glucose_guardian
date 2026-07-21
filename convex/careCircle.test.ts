@@ -138,6 +138,28 @@ describe("co-guardian invite → redeem → link", () => {
     expect(inboxAfter).toHaveLength(0);
   });
 
+  it("keeps the shared circle loadable after leave + rejoin (stale revoked link must not blank it)", async () => {
+    const { t, patient, member } = await setup();
+
+    const inv1 = await t.mutation(api.careCircle.createInvite, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
+    await t.mutation(api.careCircle.redeemInvite, { userId: member, passwordHash: HASH_B, code: inv1.code });
+    const mem1 = await t.query(api.careCircle.myMemberships, { userId: member, passwordHash: HASH_B });
+    // Member leaves — link is revoked (row stays in the table).
+    await t.mutation(api.careCircle.revokeLink, { userId: member, passwordHash: HASH_B, linkId: mem1[0].linkId });
+    expect(await t.query(api.careCircle.myMemberships, { userId: member, passwordHash: HASH_B })).toHaveLength(0);
+
+    // Rejoin — now the (patient, member) pair has BOTH a revoked and an active careLink row.
+    const inv2 = await t.mutation(api.careCircle.createInvite, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
+    await t.mutation(api.careCircle.redeemInvite, { userId: member, passwordHash: HASH_B, code: inv2.code });
+
+    // The shared circle must still load for the member (activeLinkFor must find the ACTIVE row, not
+    // the first/revoked one) — otherwise the whole panel goes blank.
+    const view = await t.query(api.careCircle.getCircle, { userId: member, passwordHash: HASH_B, patientUserId: patient });
+    expect(view).not.toBeNull();
+    expect(view?.guardians).toHaveLength(2);
+    expect(view?.guardians.some((g) => g.isMe && !g.isOwner)).toBe(true);
+  });
+
   it("carries the code owner's alert thresholds to an access-code (child) session", async () => {
     const { t, patient } = await setup();
 

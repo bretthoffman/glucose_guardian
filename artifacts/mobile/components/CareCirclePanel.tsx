@@ -450,12 +450,21 @@ export default function CareCirclePanel({
       ]);
       const memberships = m as MembershipRow[];
       const anchor = (memberships[0]?.patientUserId as Id<"users"> | undefined) ?? userId;
-      const c = await client.query(api.careCircle.getCircle, {
+      let c = (await client.query(api.careCircle.getCircle, {
         userId,
         passwordHash: account.passwordHash,
         patientUserId: anchor,
-      });
-      setCircle(c as CircleData | null);
+      })) as CircleData | null;
+      // Never leave the panel blank: if the shared circle can't be loaded (e.g. a stale membership),
+      // fall back to my own circle so I can always manage codes and invites.
+      if (!c && anchor !== userId) {
+        c = (await client.query(api.careCircle.getCircle, {
+          userId,
+          passwordHash: account.passwordHash,
+          patientUserId: userId,
+        })) as CircleData | null;
+      }
+      setCircle(c);
       setMemberships(memberships);
       setIncoming(inc as IncomingInvite[]);
     } catch {
