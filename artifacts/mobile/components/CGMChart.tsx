@@ -46,8 +46,8 @@ import {
 } from "@/utils/cgmChartDisplayMode";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-/** Log-marker icon box — matches the y-axis legend text scale. */
-const EVENT_MARKER_SIZE = 13;
+/** On-graph food/insulin log-marker box — enlarged 75% for legibility (icon size scales with it). */
+const EVENT_MARKER_SIZE = 23;
 
 export const Y_MIN = 40;
 export const Y_MAX = 400;
@@ -482,7 +482,7 @@ export function CGMChart({
             >
               <MaterialCommunityIcons
                 name={m.kind === "insulin" ? "needle" : "silverware-fork-knife"}
-                size={11}
+                size={19}
                 color={c.textMuted}
               />
             </View>
