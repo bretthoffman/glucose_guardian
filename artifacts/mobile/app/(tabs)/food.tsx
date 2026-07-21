@@ -8,6 +8,7 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -159,6 +160,8 @@ export default function FoodScreen() {
   }
 
   async function search(food: string) {
+    // Estimate Carbs button + Quick Lookup chips both route here — dismiss the keyboard on tap.
+    Keyboard.dismiss();
     const q = food.trim();
     if (!q) return;
     setQuery(q);

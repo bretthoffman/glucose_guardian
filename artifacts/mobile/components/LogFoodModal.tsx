@@ -10,6 +10,7 @@ import * as Haptics from "expo-haptics";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
@@ -84,6 +85,8 @@ export default function LogFoodModal({
   }, [visible]);
 
   async function search(food: string) {
+    // Estimate Carbs button + Quick Lookup chips both route here — dismiss the keyboard on tap.
+    Keyboard.dismiss();
     const q = food.trim();
     if (!q || isLoading) return;
     setQuery(q);

@@ -61,14 +61,13 @@ describe("dashboardSectionVisibility", () => {
 });
 
 describe("availableDashboardSections", () => {
-  it("returns all seven cards in authoritative grid order for a regular patient", () => {
+  it("returns all six cards in authoritative grid order for a regular patient", () => {
     expect(keys(patientParent)).toEqual([
       "notifications",
       "thresholds",
       "emergency",
       "insulin",
       "doctor",
-      "access",
       "careCircle",
     ]);
   });
@@ -81,7 +80,7 @@ describe("availableDashboardSections", () => {
     expect(keys({ ...patientParent, isChildMode: true })).toEqual([]);
   });
 
-  it("returns the four patient sections (no doctor/access) in doctor mode", () => {
+  it("returns the four patient sections (no doctor/care circle) in doctor mode", () => {
     expect(keys({ ...patientParent, doctorSession: true })).toEqual([
       "notifications",
       "thresholds",
@@ -90,7 +89,7 @@ describe("availableDashboardSections", () => {
     ]);
   });
 
-  it("omits Access Management for a non-owner patient, yielding an odd count", () => {
+  it("omits Care Circle for a non-owner patient, yielding an odd count", () => {
     const k = keys({ ...patientParent, isParent: false, isAdult: false });
     expect(k).toEqual(["notifications", "thresholds", "emergency", "insulin", "doctor"]);
     expect(k.length % 2).toBe(1); // last lone card stays in the left column (right slot empty)
@@ -105,5 +104,10 @@ describe("availableDashboardSections", () => {
   it("labels the thresholds section Alert Thresholds", () => {
     const section = availableDashboardSections(patientParent).find((s) => s.key === "thresholds");
     expect(section?.title).toBe("Alert Thresholds");
+  });
+
+  it("labels the doctor section Doctor Office", () => {
+    const section = availableDashboardSections(patientParent).find((s) => s.key === "doctor");
+    expect(section?.title).toBe("Doctor Office");
   });
 });

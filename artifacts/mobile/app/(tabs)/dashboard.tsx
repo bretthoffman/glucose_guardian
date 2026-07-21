@@ -53,7 +53,6 @@ const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Fea
   emergency: "users",
   insulin: "droplet",
   doctor: "activity",
-  access: "key",
   careCircle: "share-2",
 };
 
@@ -1268,10 +1267,10 @@ export default function DashboardScreen() {
         <DashboardSectionModal
           visible={openSection === "doctor"}
           onClose={() => setOpenSection(null)}
-          accessibilityLabel="Doctor & Care Team"
+          accessibilityLabel="Doctor Office"
         >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor & Care Team</Text>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor Office</Text>
           {!isChildMode && !caregiverSession && (
             <>
               {editingProfile ? (
@@ -1368,6 +1367,90 @@ export default function DashboardScreen() {
             <Feather name="share-2" size={16} color="#fff" />
             <Text style={styles.shareBtnText}>{isSharing ? "Generating..." : "Share Report with Doctor"}</Text>
           </Pressable>
+
+          <View style={[styles.accessSection, { borderColor: colors.border }]}>
+            <View style={styles.accessSectionHeader}>
+              <Feather name="activity" size={14} color="#6366F1" />
+              <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Doctor Code</Text>
+              <Text style={[styles.accessSectionBadge, { backgroundColor: "#6366F1" + "18", color: "#6366F1" }]}>Full edit access</Text>
+            </View>
+            <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
+              Share with your verified doctor or endocrinologist. They can update carb ratios and correction factors.
+            </Text>
+            {!profile?.doctorCode ? (
+              <Pressable
+                style={({ pressed }) => [styles.outlineBtn, { borderColor: "#6366F1" + "50", backgroundColor: "#6366F1" + "08", opacity: pressed ? 0.8 : 1 }]}
+                onPress={async () => {
+                  const code = await generateDoctorCode();
+                  Alert.alert("Doctor Code Created", `Your doctor code is:\n\n${code}\n\nShare this ONLY with your verified doctor. They enter it on the login screen to access editing rights.`, [{ text: "OK" }]);
+                }}
+              >
+                <Feather name="plus" size={14} color="#6366F1" />
+                <Text style={[styles.outlineBtnText, { color: "#6366F1" }]}>Generate Doctor Code</Text>
+              </Pressable>
+            ) : (
+              <View style={[styles.caregiverCodeDisplay, { backgroundColor: "#6366F1" + "0A", borderColor: "#6366F1" + "30" }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.caregiverCodeLabel, { color: colors.textMuted }]}>Active code</Text>
+                  <Text style={[styles.caregiverCodeValue, { color: colors.text }]}>
+                    {profile.doctorCode}
+                  </Text>
+                  {profile.doctorCodeIssuedAt ? (
+                    <Text style={[styles.accessTimestamp, { color: colors.textMuted }]}>
+                      Issued {new Date(profile.doctorCodeIssuedAt).toLocaleDateString()}
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    style={({ pressed }) => [styles.guardianBtn, { backgroundColor: "#6366F1" + "15", opacity: pressed ? 0.7 : 1 }]}
+                    onPress={() => { Alert.alert("Doctor Code", `Share this ONLY with your verified doctor:\n\n${profile.doctorCode}\n\nThey enter it on the login screen.`, [{ text: "OK" }]); }}
+                  >
+                    <Feather name="share-2" size={14} color="#6366F1" />
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "12", opacity: pressed ? 0.7 : 1 }]}
+                    onPress={() => { Alert.alert("Revoke Doctor Code?", "This will invalidate the current code. Your doctor will lose editing access until you share a new code.", [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Revoke", style: "destructive", onPress: async () => { const code = await generateDoctorCode(); Alert.alert("New Doctor Code", `New code:\n\n${code}`, [{ text: "OK" }]); } },
+                      ]);
+                    }}
+                  >
+                    <Feather name="refresh-cw" size={14} color={COLORS.danger} />
+                  </Pressable>
+                </View>
+              </View>
+            )}
+          </View>
+
+          {(profile?.accessLog ?? []).length > 0 && (
+            <View style={[styles.accessSection, { borderColor: colors.border }]}>
+              <View style={styles.accessSectionHeader}>
+                <Feather name="clock" size={14} color={colors.textMuted} />
+                <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Access Log</Text>
+              </View>
+              {[...(profile?.accessLog ?? [])].reverse().slice(0, 8).map((entry) => (
+                <View key={entry.id} style={[styles.accessLogRow, { borderColor: colors.border }]}>
+                  <View style={[styles.accessLogDot, {
+                    backgroundColor: entry.actor === "doctor" ? "#6366F1" : entry.actor === "caregiver" ? COLORS.accent : colors.textMuted
+                  }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.accessLogAction, { color: colors.text }]}>{entry.action}</Text>
+                    <Text style={[styles.accessLogTime, { color: colors.textMuted }]}>
+                      {new Date(entry.timestamp).toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={[styles.accessLogActorBadge, {
+                    backgroundColor: entry.actor === "doctor" ? "#6366F1" + "18" : entry.actor === "caregiver" ? COLORS.accent + "18" : colors.backgroundTertiary
+                  }]}>
+                    <Text style={[styles.accessLogActorText, {
+                      color: entry.actor === "doctor" ? "#6366F1" : entry.actor === "caregiver" ? COLORS.accent : colors.textMuted
+                    }]}>{entry.actor}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
         </DashboardSectionModal>
         )}
@@ -1501,133 +1584,6 @@ export default function DashboardScreen() {
             accessibilityLabel="Care Circle"
           >
             <CareCirclePanel colors={colors} onClose={() => setOpenSection(null)} />
-          </DashboardSectionModal>
-        )}
-
-        {showAccessManagement && (
-          <DashboardSectionModal
-            visible={openSection === "access"}
-            onClose={() => setOpenSection(null)}
-            accessibilityLabel="Access Management"
-          >
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={styles.cardHeader}>
-              <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.accent + "15" }]}>
-                <Feather name="shield" size={20} color={COLORS.accent} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Access Management</Text>
-                <Text style={[styles.guardianAccessSub, { color: colors.textMuted }]}>
-                  Manage who can view or edit your data
-                </Text>
-              </View>
-            </View>
-
-            <View style={[styles.accessSection, { borderColor: colors.border }]}>
-              <View style={styles.accessSectionHeader}>
-                <Feather name="users" size={14} color={COLORS.accent} />
-                <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Caregiver Codes</Text>
-                <Text style={[styles.accessSectionBadge, { backgroundColor: COLORS.primary + "18", color: COLORS.primary }]}>Care Circle</Text>
-              </View>
-              <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
-                Codes for caregivers — teachers, babysitters, nurses, relatives — now live in Care
-                Circle, where you can name each one and set what they see and when.
-                {profile?.caregiverCode ? " Your older code still works until you retire it." : ""}
-              </Text>
-              <Pressable
-                style={({ pressed }) => [styles.outlineBtn, { borderColor: COLORS.primary + "50", backgroundColor: COLORS.primary + "08", opacity: pressed ? 0.8 : 1 }]}
-                onPress={() => { setOpenSection(null); requestAnimationFrame(() => setOpenSection("careCircle")); }}
-              >
-                <Feather name="share-2" size={14} color={COLORS.primary} />
-                <Text style={[styles.outlineBtnText, { color: COLORS.primary }]}>Open Care Circle</Text>
-              </Pressable>
-            </View>
-
-            <View style={[styles.accessSection, { borderColor: colors.border }]}>
-              <View style={styles.accessSectionHeader}>
-                <Feather name="activity" size={14} color="#6366F1" />
-                <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Doctor Code</Text>
-                <Text style={[styles.accessSectionBadge, { backgroundColor: "#6366F1" + "18", color: "#6366F1" }]}>Full edit access</Text>
-              </View>
-              <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
-                Share with your verified doctor or endocrinologist. They can update carb ratios and correction factors.
-              </Text>
-              {!profile?.doctorCode ? (
-                <Pressable
-                  style={({ pressed }) => [styles.outlineBtn, { borderColor: "#6366F1" + "50", backgroundColor: "#6366F1" + "08", opacity: pressed ? 0.8 : 1 }]}
-                  onPress={async () => {
-                    const code = await generateDoctorCode();
-                    Alert.alert("Doctor Code Created", `Your doctor code is:\n\n${code}\n\nShare this ONLY with your verified doctor. They enter it on the login screen to access editing rights.`, [{ text: "OK" }]);
-                  }}
-                >
-                  <Feather name="plus" size={14} color="#6366F1" />
-                  <Text style={[styles.outlineBtnText, { color: "#6366F1" }]}>Generate Doctor Code</Text>
-                </Pressable>
-              ) : (
-                <View style={[styles.caregiverCodeDisplay, { backgroundColor: "#6366F1" + "0A", borderColor: "#6366F1" + "30" }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.caregiverCodeLabel, { color: colors.textMuted }]}>Active code</Text>
-                    <Text style={[styles.caregiverCodeValue, { color: colors.text }]}>
-                      {profile.doctorCode}
-                    </Text>
-                    {profile.doctorCodeIssuedAt ? (
-                      <Text style={[styles.accessTimestamp, { color: colors.textMuted }]}>
-                        Issued {new Date(profile.doctorCodeIssuedAt).toLocaleDateString()}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <Pressable
-                      style={({ pressed }) => [styles.guardianBtn, { backgroundColor: "#6366F1" + "15", opacity: pressed ? 0.7 : 1 }]}
-                      onPress={() => {                        Alert.alert("Doctor Code", `Share this ONLY with your verified doctor:\n\n${profile.doctorCode}\n\nThey enter it on the login screen.`, [{ text: "OK" }]);
-                      }}
-                    >
-                      <Feather name="share-2" size={14} color="#6366F1" />
-                    </Pressable>
-                    <Pressable
-                      style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "12", opacity: pressed ? 0.7 : 1 }]}
-                      onPress={() => {                        Alert.alert("Revoke Doctor Code?", "This will invalidate the current code. Your doctor will lose editing access until you share a new code.", [
-                          { text: "Cancel", style: "cancel" },
-                          { text: "Revoke", style: "destructive", onPress: async () => { const code = await generateDoctorCode(); Alert.alert("New Doctor Code", `New code:\n\n${code}`, [{ text: "OK" }]); } },
-                        ]);
-                      }}
-                    >
-                      <Feather name="refresh-cw" size={14} color={COLORS.danger} />
-                    </Pressable>
-                  </View>
-                </View>
-              )}
-            </View>
-
-            {(profile?.accessLog ?? []).length > 0 && (
-              <View style={[styles.accessSection, { borderColor: colors.border }]}>
-                <View style={styles.accessSectionHeader}>
-                  <Feather name="clock" size={14} color={colors.textMuted} />
-                  <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Access Log</Text>
-                </View>
-                {[...(profile?.accessLog ?? [])].reverse().slice(0, 8).map((entry) => (
-                  <View key={entry.id} style={[styles.accessLogRow, { borderColor: colors.border }]}>
-                    <View style={[styles.accessLogDot, {
-                      backgroundColor: entry.actor === "doctor" ? "#6366F1" : entry.actor === "caregiver" ? COLORS.accent : colors.textMuted
-                    }]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.accessLogAction, { color: colors.text }]}>{entry.action}</Text>
-                      <Text style={[styles.accessLogTime, { color: colors.textMuted }]}>
-                        {new Date(entry.timestamp).toLocaleString()}
-                      </Text>
-                    </View>
-                    <View style={[styles.accessLogActorBadge, {
-                      backgroundColor: entry.actor === "doctor" ? "#6366F1" + "18" : entry.actor === "caregiver" ? COLORS.accent + "18" : colors.backgroundTertiary
-                    }]}>
-                      <Text style={[styles.accessLogActorText, {
-                        color: entry.actor === "doctor" ? "#6366F1" : entry.actor === "caregiver" ? COLORS.accent : colors.textMuted
-                      }]}>{entry.actor}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
           </DashboardSectionModal>
         )}
 

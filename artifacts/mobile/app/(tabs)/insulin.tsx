@@ -955,6 +955,13 @@ export default function InsulinScreen() {
           </Text>
         </View>
       )}
+
+      <View style={[styles.disclaimer, { backgroundColor: colors.backgroundTertiary }]}>
+        <Feather name="info" size={14} color={colors.textMuted} />
+        <Text style={[styles.disclaimerText, { color: colors.textMuted }]}>
+          This app provides estimates only and does not replace medical advice. Always follow your doctor's instructions.
+        </Text>
+      </View>
     </ScrollView>
       )}
 
@@ -1063,6 +1070,8 @@ const styles = StyleSheet.create({
 
 
   sectionTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10 },
+  disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 14, borderRadius: 12, marginTop: 4 },
+  disclaimerText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 18 },
 
 
   emptyCard: { borderRadius: 16, borderWidth: 1, padding: 28, alignItems: "center", gap: 10, marginTop: 10 },

@@ -3,13 +3,14 @@
  * in the root vitest run. The Dashboard consumes BOTH helpers here so the compact section-card grid and
  * the inline section guards/popups can never drift out of sync with each other.
  *
- * The six management sections each live behind a guard that exactly mirrors how they were gated when
+ * The management sections each live behind a guard that exactly mirrors how they were gated when
  * they rendered inline:
  *  - Notifications / Glucose Alert Thresholds / Emergency Contacts / Insulin Settings → `showPatientSections`
  *    (`!isChildMode && !caregiverSession`). The inline analytics cards + Glucose Trend share this guard.
- *  - Doctor & Care Team → `showDoctorCareTeam` (`!doctorSession && !isChildMode && !caregiverSession`;
- *    owner-only — hidden for the doctor's own session and any access-code / child-view session).
- *  - Access Management → `showAccessManagement` (`(isParent || isAdult)` and not child/caregiver/doctor).
+ *  - Doctor Office (doctor info + report + doctor code + access log) → `showDoctorCareTeam`
+ *    (`!doctorSession && !isChildMode && !caregiverSession`; owner-only — hidden for the doctor's own
+ *    session and any access-code / child-view session).
+ *  - Care Circle → `showAccessManagement` (owner-only: `(isParent || isAdult)` and not child/caregiver/doctor).
  */
 export type DashboardSectionKey =
   | "notifications"
@@ -17,7 +18,6 @@ export type DashboardSectionKey =
   | "emergency"
   | "insulin"
   | "doctor"
-  | "access"
   | "careCircle";
 
 export interface DashboardRoleFlags {
@@ -52,14 +52,13 @@ export interface DashboardSectionDef {
   title: string;
 }
 
-/** Authoritative grid order: row1 Notifications/Thresholds, row2 Emergency/Insulin, row3 Doctor/Access, row4 Care Circle. */
+/** Authoritative grid order: row1 Notifications/Thresholds, row2 Emergency/Insulin, row3 Doctor Office/Care Circle. */
 const ALL_SECTIONS: { key: DashboardSectionKey; title: string; gate: keyof DashboardSectionVisibility }[] = [
   { key: "notifications", title: "Notifications", gate: "showPatientSections" },
   { key: "thresholds", title: "Alert Thresholds", gate: "showPatientSections" },
   { key: "emergency", title: "Emergency Contacts", gate: "showPatientSections" },
   { key: "insulin", title: "Insulin Settings", gate: "showPatientSections" },
-  { key: "doctor", title: "Doctor & Care Team", gate: "showDoctorCareTeam" },
-  { key: "access", title: "Access Management", gate: "showAccessManagement" },
+  { key: "doctor", title: "Doctor Office", gate: "showDoctorCareTeam" },
   { key: "careCircle", title: "Care Circle", gate: "showAccessManagement" },
 ];
 

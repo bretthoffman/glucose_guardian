@@ -792,6 +792,43 @@ export const glucoseForAccessCode = query({
   },
 });
 
+/**
+ * Day-scoped glucose for a new (8-char) access-code session — the Log tab's per-day graph. Same
+ * view-readings + schedule gating as glucoseForAccessCode; lets a kid/caregiver page back through
+ * days like an owner (the legacy patientGlucose.listForDayRangeForCaregiver is 6-char codes only).
+ */
+export const listForDayRangeForAccessCode = query({
+  args: {
+    code: v.string(),
+    startTimestamp: v.string(),
+    endTimestamp: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const row = await resolveActiveAccessCode(ctx, args.code);
+    if (!row) return [];
+    if (!row.permissions.viewReadings) return [];
+    if (!careAccessAllowed(row.access as CareAccess, Date.now())) return [];
+    const lim = Math.min(Math.max(args.limit ?? GLUCOSE_DEFAULT_LIMIT, 1), GLUCOSE_MAX_LIMIT);
+    const rows = await ctx.db
+      .query("patientGlucoseReadings")
+      .withIndex("by_user_time", (q) =>
+        q
+          .eq("userId", row.patientUserId)
+          .gte("timestamp", args.startTimestamp)
+          .lt("timestamp", args.endTimestamp),
+      )
+      .order("asc")
+      .take(lim);
+    return rows.map((r) => ({
+      glucose: r.glucose,
+      timestamp: r.timestamp,
+      anomaly: r.anomaly,
+      dexcomTrend: r.dexcomTrend,
+    }));
+  },
+});
+
 export const profileForAccessCode = query({
   args: { code: v.string() },
   handler: async (ctx, args) => {

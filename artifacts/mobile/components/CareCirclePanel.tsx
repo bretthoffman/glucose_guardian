@@ -799,8 +799,10 @@ export default function CareCirclePanel({
           <View style={[styles.sectionBox, { borderTopColor: colors.separator }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Caregiver codes</Text>
             <Text style={[styles.sectionSub, { color: colors.textMuted }]}>
-              For teachers, babysitters, nurses, and relatives — no account needed. They enter the
-              code on the sign-in screen. Codes work until retired, only inside their schedule.
+              {(profile?.accountRole === "adult"
+                ? "For spouses, relatives, trusted friends — no account needed."
+                : "For relatives, babysitters, teachers, nurses — no account needed.") +
+                " They enter the code on the sign-in screen. Codes work until retired, only inside their schedule."}
             </Text>
             {caregiverCodes.length === 0 && (
               <Text style={[styles.emptyText, { color: colors.textMuted }]}>No caregiver codes yet.</Text>

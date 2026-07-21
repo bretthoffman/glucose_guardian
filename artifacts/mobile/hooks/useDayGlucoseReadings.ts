@@ -36,7 +36,7 @@ interface Options {
 }
 
 export function useDayGlucoseReadings({ enabled, dayOffset, selectedDay }: Options) {
-  const { account, isSignedIn, caregiverSession, caregiverCloudCode } = useAuth();
+  const { account, isSignedIn, caregiverSession, caregiverCloudCode, caregiverCodeKind } = useAuth();
   const { history } = useGlucose();
   const [readings, setReadings] = useState<CGMReading[]>([]);
   const [status, setStatus] = useState<DayGlucoseLoadStatus>("idle");
@@ -72,16 +72,27 @@ export function useDayGlucoseReadings({ enabled, dayOffset, selectedDay }: Optio
           endTimestamp: bounds.endIso,
         });
       } else if (caregiverSession && caregiverCloudCode) {
-        remote = await client.query(api.patientGlucose.listForDayRangeForCaregiver, {
-          code: caregiverCloudCode,
-          startTimestamp: bounds.startIso,
-          endTimestamp: bounds.endIso,
-        });
+        // New 8-char Care Circle codes (kid/caregiver) resolve via careCircle; the legacy
+        // patientGlucose query is 6-char-only and returns [] for them (which would blank the graph).
+        remote =
+          caregiverCodeKind === "access"
+            ? await client.query(api.careCircle.listForDayRangeForAccessCode, {
+                code: caregiverCloudCode,
+                startTimestamp: bounds.startIso,
+                endTimestamp: bounds.endIso,
+              })
+            : await client.query(api.patientGlucose.listForDayRangeForCaregiver, {
+                code: caregiverCloudCode,
+                startTimestamp: bounds.startIso,
+                endTimestamp: bounds.endIso,
+              });
       }
 
       if (requestId !== requestIdRef.current) return;
 
-      if (remote) {
+      // An empty array must NOT clobber a populated local history (the reactive today-effect already
+      // painted it) — fall through to the local fallback below when the remote day-range is empty.
+      if (remote && remote.length > 0) {
         setDayGlucoseCache(bounds.dayKey, remote);
         setReadings(remote);
         setStatus("success");
@@ -127,6 +138,7 @@ export function useDayGlucoseReadings({ enabled, dayOffset, selectedDay }: Optio
     account?.passwordHash,
     caregiverSession,
     caregiverCloudCode,
+    caregiverCodeKind,
     history,
   ]);
 
