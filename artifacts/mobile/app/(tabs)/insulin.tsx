@@ -1088,9 +1088,11 @@ const styles = StyleSheet.create({
   // doseCard.marginBottom (above) and opCardsRow.marginTop (below), keeping them symmetric.
   calcHeadRow: { marginTop: 0, marginBottom: 0 },
   calcHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
-  opCardsRow: { flexDirection: "row", alignItems: "stretch", gap: 2, marginTop: 20 },
+  opCardsRow: { flexDirection: "row", alignItems: "flex-start", gap: 2, marginTop: 20 },
   opSymbol: { fontSize: 14, fontWeight: "800", alignSelf: "center", width: 12, textAlign: "center" },
-  opCard: { flex: 1, minWidth: 0, borderWidth: 1.5, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 4, alignItems: "center", gap: 5 },
+  // aspectRatio 1 makes each card a square (height follows the flex-computed width); content is
+  // centered vertically now that the card is taller.
+  opCard: { flex: 1, minWidth: 0, aspectRatio: 1, borderWidth: 1.5, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", gap: 5 },
   opLabel: { fontSize: 9.5, fontWeight: "700", textAlign: "center", lineHeight: 12 },
   opValue: { fontSize: 15, fontWeight: "800", textAlign: "center" },
   calcNote: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, borderRadius: 10, marginTop: 10 },
