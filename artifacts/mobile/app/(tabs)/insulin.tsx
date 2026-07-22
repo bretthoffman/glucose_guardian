@@ -76,10 +76,9 @@ function fmtU(v: number): string {
 
 /** One tappable colored operation card in the "How your dose is calculated" row. */
 function OpCard({
-  def, index, selected, onPress, colors,
+  def, selected, onPress, colors,
 }: {
   def: OpCardDef;
-  index: number;
   selected: boolean;
   onPress: () => void;
   colors: (typeof Colors)["light"];
@@ -102,14 +101,7 @@ function OpCard({
         },
       ]}
     >
-      <View style={[styles.opBadge, { borderColor: def.color }]}>
-        {def.isResult ? (
-          <Feather name="check" size={10} color={def.color} />
-        ) : (
-          <Text style={[styles.opBadgeText, { color: def.color }]}>{index + 1}</Text>
-        )}
-      </View>
-      <Text style={[styles.opLabel, { color: def.color }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>{def.label}</Text>
+      <Text style={[styles.opLabel, def.isResult && styles.opLabelResult, { color: def.color }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>{def.label}</Text>
       <Text style={[styles.opValue, { color: def.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
         {fmtU(def.value)}
       </Text>
@@ -782,7 +774,6 @@ export default function InsulinScreen() {
                   )}
                   <OpCard
                     def={c}
-                    index={i}
                     selected={expandedCard === c.key}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1101,12 +1092,10 @@ const styles = StyleSheet.create({
   opSymbol: { fontSize: 14, fontWeight: "800", alignSelf: "center", width: 12, textAlign: "center" },
   opCard: { flex: 1, minWidth: 0, borderWidth: 1.5, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 4, alignItems: "center", gap: 5 },
   opCardResult: { paddingHorizontal: 2 },
-  // Hollow badge: an outline in the card's accent color with the card background showing through,
-  // and the number/checkmark inside painted the same accent color.
-  opBadge: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, backgroundColor: "transparent", alignItems: "center", justifyContent: "center" },
-  opBadgeText: { fontSize: 10, fontWeight: "800" },
   opLabel: { fontSize: 9.5, fontWeight: "700", textAlign: "center", lineHeight: 12 },
-  opValue: { fontSize: 9.5, fontWeight: "800", textAlign: "center" },
+  // Result card's label is a touch smaller so the longer "Suggested" fits on one line.
+  opLabelResult: { fontSize: 8, lineHeight: 10 },
+  opValue: { fontSize: 15, fontWeight: "800", textAlign: "center" },
   calcNote: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, borderRadius: 10, marginTop: 10 },
   calcNoteText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 17 },
 
