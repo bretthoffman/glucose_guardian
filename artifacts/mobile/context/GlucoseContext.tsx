@@ -96,7 +96,7 @@ function parseLocalHistory(raw: string | null): GlucoseEntry[] {
 }
 
 export function GlucoseProvider({ children }: { children: React.ReactNode }) {
-  const { account, isSignedIn, isLoading: authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind, viewingPatientId, nurseViewCode, profile, isCircleMember } = useAuth();
+  const { account, isSignedIn, isLoading: authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind, viewingPatientId, nurseViewCode, profile, isCircleMember, updateProfile } = useAuth();
   const [history, setHistory] = useState<GlucoseEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [carbRatio, setCarbRatioState] = useState(15);
@@ -192,6 +192,29 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [authLoading, account?.convexUserId, isSignedIn, viewingPatientId]);
+
+  // ── Backfill: mirror the guardian's OWN dose settings to their backend profile whenever the
+  // device-local values differ from it. Historically dose settings only lived in AsyncStorage
+  // (onboarding/older builds never wrote them to `patientProfiles`), so a co-guardian or caregiver
+  // inheriting through an access code / link read stale defaults. This converges the profile to the
+  // real values with no user action. Skipped for any borrowed/inherited session (viewing a child,
+  // an access-code session, or a co-guardian member who inherits rather than owns these). ──
+  useEffect(() => {
+    if (authLoading || isLoading) return; // wait until local settings have loaded
+    if (viewingPatientId || nurseViewCode || caregiverSession || isCircleMember) return;
+    if (!isSignedIn || !account?.convexUserId || !profile) return;
+    if (profile.accountRole === "caregiver") return; // nurse accounts have no dose settings of their own
+    if (
+      profile.carbRatio !== carbRatio ||
+      profile.targetGlucose !== targetGlucose ||
+      profile.correctionFactor !== correctionFactor
+    ) {
+      void updateProfile({ carbRatio, targetGlucose, correctionFactor });
+    }
+  }, [
+    authLoading, isLoading, viewingPatientId, nurseViewCode, caregiverSession, isCircleMember,
+    isSignedIn, account?.convexUserId, profile, carbRatio, targetGlucose, correctionFactor, updateProfile,
+  ]);
 
   useEffect(() => {
     if (authLoading) return;

@@ -91,6 +91,12 @@ export default function OnboardingScreen() {
     try {
       const dobStr = `${birthYear}-${birthMonth.padStart(2, "0")}-${birthDay.padStart(2, "0")}`;
       const parsedWeight = parseFloat(weightLbs);
+      const parsedCarbGrams = parseFloat(carbRatioInput);
+      const parsedTarget = parseFloat(targetGlucoseInput);
+      const parsedISF = parseFloat(isfInput);
+      const cr = !isNaN(parsedCarbGrams) && parsedCarbGrams > 0 ? (carbUnitHalf ? parsedCarbGrams * 2 : parsedCarbGrams) : 40;
+      const tg = !isNaN(parsedTarget) && parsedTarget > 0 ? parsedTarget : 120;
+      const cf = !isNaN(parsedISF) && parsedISF > 0 ? parsedISF : 50;
       await setupProfile({
         childName: childName.trim(),
         childLastName: childLastName.trim() ? childLastName.trim() : undefined,
@@ -101,13 +107,12 @@ export default function OnboardingScreen() {
         dateOfBirth: dobStr,
         weightLbs: !isNaN(parsedWeight) && parsedWeight > 0 ? parsedWeight : undefined,
         insulinTypes: insulinTypes.length > 0 ? insulinTypes : undefined,
+        // Persist dose settings to the backend profile too (not just device-local) so co-guardians
+        // and caregivers inheriting via an access code / link read the guardian's real values.
+        carbRatio: cr,
+        targetGlucose: tg,
+        correctionFactor: cf,
       });
-      const parsedCarbGrams = parseFloat(carbRatioInput);
-      const parsedTarget = parseFloat(targetGlucoseInput);
-      const parsedISF = parseFloat(isfInput);
-      const cr = !isNaN(parsedCarbGrams) && parsedCarbGrams > 0 ? (carbUnitHalf ? parsedCarbGrams * 2 : parsedCarbGrams) : 40;
-      const tg = !isNaN(parsedTarget) && parsedTarget > 0 ? parsedTarget : 120;
-      const cf = !isNaN(parsedISF) && parsedISF > 0 ? parsedISF : 50;
       saveFormula(cr, tg, cf);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)");

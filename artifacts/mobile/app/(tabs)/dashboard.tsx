@@ -20,13 +20,13 @@ import {
 } from "react-native";
 import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { TrendChart } from "@/components/TrendChart";
 import ProfileChip from "@/components/ProfileChip";
 import TreatmentProposalCard from "@/components/TreatmentProposalCard";
 import { SettingsModal } from "@/components/SettingsModal";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DashboardSectionCard, DashboardSectionCardGhost } from "@/components/DashboardSectionCard";
 import CareCirclePanel from "@/components/CareCirclePanel";
+import A1CEstimateCard from "@/components/A1CEstimateCard";
 import {
   availableDashboardSections,
   dashboardSectionVisibility,
@@ -1083,27 +1083,8 @@ export default function DashboardScreen() {
           <StatCard label="Alerts" value={String(anomalyCount)} unit="flagged" icon="alert-triangle" color={anomalyCount > 0 ? COLORS.danger : COLORS.success} colors={colors} />
         </View>
 
-        {history.length > 0 && (
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.cardTitle, { color: colors.text }]}>Glucose Trend</Text>
-            <View style={styles.rangeRow}>
-              <RangeItem label="Min" value={minGlucose} colors={colors} />
-              <RangeItem label="Max" value={maxGlucose} colors={colors} />
-              <RangeItem label="In Range" value={inRange} unit="readings" colors={colors} />
-            </View>
-            <TrendChart readings={history} height={130} />
-            {/* A nurse viewing a child can't clear the child's data. */}
-            {!isCaregiverViewingChild && (
-              <Pressable
-                style={({ pressed }) => [styles.dangerBtn, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
-                onPress={promptClearHistory}
-              >
-                <Feather name="trash-2" size={14} color={COLORS.danger} />
-                <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear All Readings</Text>
-              </Pressable>
-            )}
-          </View>
-        )}
+        {/* Estimated A1C (moved here from the Insulin "Dose" tab; replaces the old Glucose Trend). */}
+        <A1CEstimateCard />
 
         <DashboardSectionModal
           visible={openSection === "insulin"}
@@ -1637,6 +1618,20 @@ export default function DashboardScreen() {
             This app provides estimates only and does not replace medical advice. Always follow your doctor's instructions.
           </Text>
         </View>
+
+        {/* Clear All Readings — its own window, last on the page. Hidden entirely for account types
+            that can't clear (e.g. a caregiver email account viewing a child through an access code). */}
+        {history.length > 0 && !isCaregiverViewingChild && (
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Pressable
+              style={({ pressed }) => [styles.dangerBtn, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
+              onPress={promptClearHistory}
+            >
+              <Feather name="trash-2" size={14} color={COLORS.danger} />
+              <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear All Readings</Text>
+            </Pressable>
+          </View>
+        )}
       </ScrollView>
 
       <SettingsModal
@@ -1715,16 +1710,6 @@ function StatCard({ label, value, unit, icon, color, colors }: { label: string; 
       <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
       <Text style={[styles.statUnit, { color }]}>{unit}</Text>
       <Text style={[styles.statLabel, { color: colors.textMuted }]}>{label}</Text>
-    </View>
-  );
-}
-
-function RangeItem({ label, value, unit, colors }: { label: string; value: number; unit?: string; colors: (typeof Colors)["light"] }) {
-  return (
-    <View style={styles.rangeItem}>
-      <Text style={[styles.rangeValue, { color: colors.text }]}>{value}</Text>
-      {unit && <Text style={[styles.rangeUnit, { color: colors.textSecondary }]}>{unit}</Text>}
-      <Text style={[styles.rangeLabel, { color: colors.textMuted }]}>{label}</Text>
     </View>
   );
 }

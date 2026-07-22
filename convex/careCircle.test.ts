@@ -473,3 +473,37 @@ describe("merged co-guardian care (one pool, owner-inherited settings)", () => {
     expect(soloCtx?.quickFoods).toEqual(["Pizza", "Rice"]);
   });
 });
+
+describe("access-code inheritance contract (what a caregiver's view reads from the guardian)", () => {
+  it("profileForAccessCode returns the guardian's dose settings, thresholds, and shared contacts", async () => {
+    const t = convexTest(schema, modules);
+    const guardian = await t.mutation(api.auth.register, { email: "g@example.com", passwordHash: "h-g" });
+    await t.mutation(api.patientProfile.replace, {
+      userId: guardian, passwordHash: "h-g",
+      profile: {
+        childName: "Bella", accountRole: "parent", diabetesType: "type1", dateOfBirth: "2014-01-01",
+        carbRatio: 40, targetGlucose: 110, correctionFactor: 45,
+      },
+    });
+    await t.mutation(api.patientProfile.setAlertPreferences, {
+      userId: guardian, passwordHash: "h-g",
+      alertPreferences: { urgentLowThreshold: 50, lowThreshold: 65, highThreshold: 190, urgentHighThreshold: 260 },
+    });
+    await t.mutation(api.careCircle.addSharedEmergencyContact, {
+      userId: guardian, passwordHash: "h-g",
+      contact: { id: "c1", name: "Grandma", phone: "555-1111", relation: "Family" },
+    });
+    const { code } = await t.mutation(api.careCircle.createAccessCode, {
+      userId: guardian, passwordHash: "h-g", patientUserId: guardian, label: "Nurse", kind: "caregiver",
+      permissions: { viewReadings: true, viewLogs: true, log: false, useCalculator: true, chat: false },
+    });
+
+    const slim = await t.query(api.careCircle.profileForAccessCode, { code });
+    // The exact fields a nurse's kid-view inherits (carb ratio was the reported bug: 1:40 not 1:15).
+    expect(slim?.carbRatio).toBe(40);
+    expect(slim?.targetGlucose).toBe(110);
+    expect(slim?.correctionFactor).toBe(45);
+    expect(slim?.alertPreferences?.highThreshold).toBe(190);
+    expect(slim?.emergencyContacts?.map((c) => c.name)).toEqual(["Grandma"]);
+  });
+});
