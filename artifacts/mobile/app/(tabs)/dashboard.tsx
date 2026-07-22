@@ -99,7 +99,10 @@ export default function DashboardScreen() {
     syncToDoctor,
     isCircleMember,
     circleOwnerName,
+    isCaregiverViewingChild,
   } = useAuth();
+  // A nurse viewing a child inherits settings read-only — treat edit gating like a co-guardian member.
+  const settingsReadOnly = isCircleMember || isCaregiverViewingChild;
 
   useEffect(() => {
     if (!profile?.doctorCode || !history.length) return;
@@ -125,6 +128,7 @@ export default function DashboardScreen() {
     doctorSession,
     isParent,
     isAdult,
+    caregiverViewingChild: isCaregiverViewingChild,
   });
 
   // The single section popup that is open (null = none). Mutually exclusive with the Settings popup.
@@ -715,6 +719,7 @@ export default function DashboardScreen() {
             doctorSession,
             isParent,
             isAdult,
+            caregiverViewingChild: isCaregiverViewingChild,
           }).map((s) => ({ ...s, icon: SECTION_ICONS[s.key] }));
           if (cards.length === 0) return null;
           const rows: (typeof cards)[] = [];
@@ -880,9 +885,9 @@ export default function DashboardScreen() {
                 Customize each alert level (mg/dL)
               </Text>
             </View>
-            {/* Access-code sessions (kid / caregiver) and linked co-guardians view the circle
-                owner's thresholds read-only — no Edit. */}
-            {!editingThresholds && !caregiverSession && !isCircleMember && (
+            {/* Access-code sessions (kid / caregiver), linked co-guardians, and a nurse viewing a
+                child all view the owner's thresholds read-only — no Edit. */}
+            {!editingThresholds && !caregiverSession && !settingsReadOnly && (
               <Pressable
                 style={({ pressed }) => [styles.addContactBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.7 : 1 }]}
                 onPress={() => {
@@ -957,7 +962,9 @@ export default function DashboardScreen() {
                 <View style={[styles.threshLegend, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
                   <Feather name="info" size={12} color={colors.textMuted} />
                   <Text style={[styles.threshLegendText, { color: colors.textMuted }]}>
-                    {isCircleMember
+                    {isCaregiverViewingChild
+                      ? `Set by ${profile?.childName ?? "this child"}'s guardians — view only.`
+                      : isCircleMember
                       ? `Shared with your care circle — only ${circleOwnerName || "the circle owner"} can change these levels.`
                       : "These levels control chart lines, alert triggers, and dot colors throughout the app."}
                   </Text>
@@ -981,7 +988,8 @@ export default function DashboardScreen() {
                 Up to 5 contacts for urgent glucose alerts
               </Text>
             </View>
-            {emergencyContacts.length < 5 && !addingContact && (
+            {/* A nurse viewing a child inherits the guardians' contacts read-only — no Add. */}
+            {emergencyContacts.length < 5 && !addingContact && !isCaregiverViewingChild && (
               <Pressable
                 style={[styles.addContactBtn, { backgroundColor: COLORS.primary }]}
                 onPress={() => setAddingContact(true)}
@@ -996,7 +1004,9 @@ export default function DashboardScreen() {
             <View style={[styles.emptyContacts, { backgroundColor: colors.backgroundTertiary }]}>
               <Feather name="users" size={22} color={colors.textMuted} />
               <Text style={[styles.emptyContactsText, { color: colors.textMuted }]}>
-                No emergency contacts yet. Add a parent, guardian, or family member.
+                {isCaregiverViewingChild
+                  ? "No emergency contacts have been added by this child's guardians yet."
+                  : "No emergency contacts yet. Add a parent, guardian, or family member."}
               </Text>
             </View>
           )}
@@ -1006,6 +1016,7 @@ export default function DashboardScreen() {
               key={contact.id}
               contact={contact}
               colors={colors}
+              canRemove={!isCaregiverViewingChild}
               onRemove={() => confirmRemoveContact(contact)}
               onSendAlert={() => sendTestAlert(contact)}
             />
@@ -1081,7 +1092,8 @@ export default function DashboardScreen() {
               <RangeItem label="In Range" value={inRange} unit="readings" colors={colors} />
             </View>
             <TrendChart readings={history} height={130} />
-            {(
+            {/* A nurse viewing a child can't clear the child's data. */}
+            {!isCaregiverViewingChild && (
               <Pressable
                 style={({ pressed }) => [styles.dangerBtn, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
                 onPress={promptClearHistory}
@@ -1101,8 +1113,8 @@ export default function DashboardScreen() {
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.cardHeader}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>Insulin Settings</Text>
-            {/* Owner-only: linked co-guardians see the circle's live values read-only. */}
-            {!isCircleMember && (
+            {/* Owner-only: linked co-guardians and a nurse viewing a child see the values read-only. */}
+            {!settingsReadOnly && (
               <Pressable
                 onPress={() => {
                   if (editing) { saveSettings(); } else {
@@ -1125,11 +1137,13 @@ export default function DashboardScreen() {
               </Pressable>
             )}
           </View>
-          {isCircleMember && (
+          {settingsReadOnly && (
             <View style={[styles.threshLegend, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, marginBottom: 10 }]}>
               <Feather name="users" size={12} color={colors.textMuted} />
               <Text style={[styles.threshLegendText, { color: colors.textMuted }]}>
-                Shared with your care circle — only {circleOwnerName || "the circle owner"} can edit insulin settings.
+                {isCaregiverViewingChild
+                  ? `Set by ${profile?.childName ?? "this child"}'s guardians — view only.`
+                  : `Shared with your care circle — only ${circleOwnerName || "the circle owner"} can edit insulin settings.`}
               </Text>
             </View>
           )}
@@ -1206,7 +1220,7 @@ export default function DashboardScreen() {
                             },
                           ]}
                           onPress={() => {
-                            if (isCircleMember) return; // owner-only — members view the shared list
+                            if (settingsReadOnly) return; // owner-only — members/nurse view the shared list
                             const current = profile?.insulinTypes ?? [];
                             const next = selected ? current.filter((x) => x !== chipLabel) : [...current, chipLabel];
                             updateProfile({ insulinTypes: next });
@@ -1531,7 +1545,8 @@ export default function DashboardScreen() {
             {dayKeys.length > 3 && (
               <Text style={[styles.foodLogMore, { color: colors.textMuted }]}>+{dayKeys.length - 3} earlier days in report</Text>
             )}
-            {!caregiverSession ? (
+            {/* A nurse viewing a child can't clear the child's meals/insulin. */}
+            {!caregiverSession && !isCaregiverViewingChild ? (
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                 {foodLog.length > 0 && (
                   <Pressable
@@ -1556,7 +1571,7 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {isParent && !isChildMode && !caregiverSession && (
+        {isParent && !isChildMode && !caregiverSession && !isCaregiverViewingChild && (
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.cardHeader}>
               <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.primary + "15" }]}>
@@ -1659,10 +1674,10 @@ function ToggleRow({
 }
 
 function ContactRow({
-  contact, colors, onRemove, onSendAlert,
+  contact, colors, onRemove, onSendAlert, canRemove = true,
 }: {
   contact: EmergencyContact; colors: (typeof Colors)["light"];
-  onRemove: () => void; onSendAlert: () => void;
+  onRemove: () => void; onSendAlert: () => void; canRemove?: boolean;
 }) {
   return (
     <View style={[styles.contactRow, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
@@ -1682,9 +1697,11 @@ function ContactRow({
         <Feather name="send" size={13} color={COLORS.danger} />
         <Text style={[styles.contactAlertBtnText, { color: COLORS.danger }]}>Alert</Text>
       </Pressable>
-      <Pressable onPress={onRemove} style={styles.contactRemoveBtn} hitSlop={8}>
-        <Feather name="x" size={16} color={colors.textMuted} />
-      </Pressable>
+      {canRemove && (
+        <Pressable onPress={onRemove} style={styles.contactRemoveBtn} hitSlop={8}>
+          <Feather name="x" size={16} color={colors.textMuted} />
+        </Pressable>
+      )}
     </View>
   );
 }

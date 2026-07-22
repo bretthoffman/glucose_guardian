@@ -1117,6 +1117,13 @@ export const profileForAccessCode = query({
     const row = await resolveActiveAccessCode(ctx, args.code);
     if (!row) return null;
     if (!careAccessAllowed(row.access as CareAccess, Date.now())) return null;
-    return await slimPatientProfile(ctx, row.patientUserId);
+    const slim = await slimPatientProfile(ctx, row.patientUserId);
+    if (!slim) return null;
+    // The circle's shared emergency-contact pool — a caregiver inherits it read-only for this child.
+    const shared = await ctx.db
+      .query("careShared")
+      .withIndex("by_patient", (q) => q.eq("patientUserId", row.patientUserId))
+      .unique();
+    return { ...slim, emergencyContacts: shared?.emergencyContacts ?? [] };
   },
 });

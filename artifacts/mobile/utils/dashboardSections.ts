@@ -26,6 +26,8 @@ export interface DashboardRoleFlags {
   doctorSession: boolean;
   isParent: boolean;
   isAdult: boolean;
+  /** A Caregiver (nurse) email account viewing a child — hides Doctor Office + Care Circle. */
+  caregiverViewingChild?: boolean;
 }
 
 export interface DashboardSectionVisibility {
@@ -37,13 +39,15 @@ export interface DashboardSectionVisibility {
 
 export function dashboardSectionVisibility(role: DashboardRoleFlags): DashboardSectionVisibility {
   const showPatientSections = !role.isChildMode && !role.caregiverSession;
+  const viewingChild = !!role.caregiverViewingChild;
   return {
+    // Thresholds / Insulin / Emergency still SHOW for a nurse viewing a child (read-only inherited).
     showPatientSections,
     // Doctor & Care Team (incl. "Share Report with Doctor") is an owner-only section — hidden for the
-    // doctor's own session and for any access-code / child-view session (kid or caregiver).
-    showDoctorCareTeam: !role.doctorSession && !role.isChildMode && !role.caregiverSession,
+    // doctor's own session, any access-code / child-view session, and a nurse viewing a child.
+    showDoctorCareTeam: !role.doctorSession && !role.isChildMode && !role.caregiverSession && !viewingChild,
     showAccessManagement:
-      (role.isParent || role.isAdult) && !role.isChildMode && !role.caregiverSession && !role.doctorSession,
+      (role.isParent || role.isAdult) && !role.isChildMode && !role.caregiverSession && !role.doctorSession && !viewingChild,
   };
 }
 

@@ -272,6 +272,8 @@ export interface AuthContextType {
   exitViewingMode: () => void;
   /** True when the signed-in account is a Caregiver (school-nurse) account. */
   isCaregiverAccount: boolean;
+  /** True while a caregiver (nurse) account is viewing a child — settings are inherited read-only. */
+  isCaregiverViewingChild: boolean;
   /**
    * Nurse opens a linked child's live view via their access code (like a co-guardian's "View
    * glucose"). Sets the viewing overlay + the code's permissions; data is sourced from the code, and
@@ -509,6 +511,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [viewedInsulinLog, setViewedInsulinLog] = useState<InsulinLogEntry[]>([]);
   /** When a Caregiver (nurse) is viewing a linked child, the access code powering it (null else). */
   const [nurseViewCode, setNurseViewCode] = useState<string | null>(null);
+  /** The viewed child's shared emergency contacts, inherited read-only while a nurse views them. */
+  const [viewedEmergencyContacts, setViewedEmergencyContacts] = useState<EmergencyContact[]>([]);
   /** Set when the current "someone else's data" session falls outside its schedule / is removed. */
   const [accessLock, setAccessLock] = useState<{ reason: "outside_window" | "disabled" | "revoked"; nextStartMs?: number } | null>(null);
   const [doctorMessages, setDoctorMessages] = useState<DoctorMessage[]>([]);
@@ -1184,8 +1188,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setProfile(p as UserProfile);
               AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(p)).catch(() => {});
             }
-            // Own thresholds only apply when NOT inheriting a circle owner's.
-            if (!circleSharedRef.current) {
+            // Own thresholds only apply when NOT inheriting (a circle owner's, or a viewed child's).
+            if (!circleSharedRef.current && !nurseViewCodeRef.current) {
               const overlay = thresholdOverlay(remotePrefs);
               if (overlay) {
                 setAlertPrefsState((prev) => {
@@ -1738,6 +1742,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addEmergencyContact = useCallback(async (contact: Omit<EmergencyContact, "id">) => {
+    // A nurse viewing a child sees the child's shared pool read-only — never edits it.
+    if (nurseViewCodeRef.current) return;
     const full: EmergencyContact = {
       ...contact,
       id: `ec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -1762,6 +1768,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const removeEmergencyContact = useCallback(async (id: string) => {
+    if (nurseViewCodeRef.current) return; // read-only borrowed pool while a nurse views a child
     setEmergencyContacts((prev) => {
       const next = prev.filter((c) => c.id !== id);
       AsyncStorage.setItem(EMERGENCY_CONTACTS_KEY, JSON.stringify(next)).catch(() => {});
@@ -1806,10 +1813,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAlertPrefsState((prev) => ({ ...prev, ...partial }));
       return;
     }
-    // A linked co-guardian inherits the OWNER's thresholds read-only: keep their personal
-    // notification toggles, drop any threshold keys (the UI hides Edit; this is the backstop),
-    // and never push thresholds to the backend from a member device.
-    if (circleSharedRef.current) {
+    // A linked co-guardian OR a nurse viewing a child inherits the owner's thresholds read-only: keep
+    // personal notification toggles, drop any threshold keys (the UI hides Edit; backstop here), and
+    // never push thresholds to the backend from this borrowing session.
+    if (circleSharedRef.current || nurseViewCodeRef.current) {
       const { notificationsEnabled, emergencyAlertsEnabled } = partial;
       const toggles: Partial<AlertPreferences> = {
         ...(notificationsEnabled !== undefined ? { notificationsEnabled } : {}),
@@ -2113,6 +2120,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           childName?: string; diabetesType?: "type1" | "type2" | "other"; dateOfBirth?: string;
           weightLbs?: number; insulinTypes?: string[]; profilePhotoUri?: string;
           carbRatio?: number; targetGlucose?: number; correctionFactor?: number;
+          alertPreferences?: RemoteThresholds;
+          emergencyContacts?: EmergencyContact[];
         } | null;
         const nextProfile: UserProfile = {
           childName: s?.childName ?? resolved.patientName ?? patientName,
@@ -2128,6 +2137,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setViewedFoodLog([]);
         setViewedInsulinLog([]);
         setViewedProfile(nextProfile);
+        // Inherit THIS child's alert thresholds (in-memory only — never persisted to the nurse's
+        // account). Keep the nurse's own notification toggles; only the 4 thresholds are borrowed.
+        setAlertPrefsState((prev) => ({
+          ...prev,
+          urgentLowThreshold: DEFAULT_ALERT_PREFS.urgentLowThreshold,
+          lowThreshold: DEFAULT_ALERT_PREFS.lowThreshold,
+          highThreshold: DEFAULT_ALERT_PREFS.highThreshold,
+          urgentHighThreshold: DEFAULT_ALERT_PREFS.urgentHighThreshold,
+          ...(thresholdOverlay(s?.alertPreferences) ?? {}),
+        }));
+        // Inherit the child's shared emergency-contact pool (read-only view).
+        setViewedEmergencyContacts(s?.emergencyContacts ?? []);
         setAccessCodeRole(resolved.kind);
         setAccessCodePermissions(resolved.permissions);
         setNurseViewCode(code);
@@ -2148,12 +2169,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setViewedFoodLog([]);
     setViewedInsulinLog([]);
     setAccessLock(null);
-    // Nurse kid-view teardown: clear the code + its borrowed permissions so the tabs/menu reset.
+    // Nurse kid-view teardown: clear the code + its borrowed permissions/settings so the menu resets.
     if (nurseViewCodeRef.current) {
       setNurseViewCode(null);
       nurseViewCodeRef.current = null;
       setAccessCodeRole(null);
       setAccessCodePermissions(null);
+      setViewedEmergencyContacts([]);
+      // Drop the borrowed thresholds back to defaults; keep the nurse's own notification toggles.
+      setAlertPrefsState((prev) => ({
+        ...prev,
+        urgentLowThreshold: DEFAULT_ALERT_PREFS.urgentLowThreshold,
+        lowThreshold: DEFAULT_ALERT_PREFS.lowThreshold,
+        highThreshold: DEFAULT_ALERT_PREFS.highThreshold,
+        urgentHighThreshold: DEFAULT_ALERT_PREFS.urgentHighThreshold,
+      }));
     }
   }, []);
 
@@ -2326,6 +2356,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isChildMode = !isViewingLinkedPatient && !!(profile?.childModeEnabled || caregiverSession);
   // Based on the OWN profile (not the viewed kid's) so it stays true while a nurse views a child.
   const isCaregiverAccount = isSignedIn && profile?.accountRole === "caregiver";
+  // A nurse actively inside a child's view (via their access code) — drives read-only inherited settings.
+  const isCaregiverViewingChild = isCaregiverAccount && nurseViewCode != null;
+  // While a nurse views a child, the emergency list is the child's shared pool (inherited read-only).
+  const effectiveEmergencyContacts = isCaregiverViewingChild ? viewedEmergencyContacts : emergencyContacts;
 
   return (
     <AuthContext.Provider
@@ -2340,7 +2374,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         cgmConnection,
         foodLog: effectiveFoodLog,
         insulinLog: effectiveInsulinLog,
-        emergencyContacts,
+        emergencyContacts: effectiveEmergencyContacts,
         alertPrefs,
         caregiverSession,
         doctorSession,
@@ -2389,6 +2423,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         enterViewingMode,
         exitViewingMode,
         isCaregiverAccount,
+        isCaregiverViewingChild,
         enterKidView,
         nurseViewCode,
         accessLock,

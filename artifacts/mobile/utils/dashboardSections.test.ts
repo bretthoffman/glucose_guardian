@@ -58,6 +58,21 @@ describe("dashboardSectionVisibility", () => {
       dashboardSectionVisibility({ ...patientParent, isParent: false, isAdult: false }).showAccessManagement,
     ).toBe(false);
   });
+
+  it("hides Doctor Office + Care Circle but keeps patient sections when a nurse views a child", () => {
+    // A nurse viewing a child looks like a parent (viewed profile has no role) but must not see the
+    // owner-only Doctor Office / Care Circle sections — they view thresholds/insulin/emergency read-only.
+    const vis = dashboardSectionVisibility({ ...patientParent, caregiverViewingChild: true });
+    expect(vis.showPatientSections).toBe(true);
+    expect(vis.showDoctorCareTeam).toBe(false);
+    expect(vis.showAccessManagement).toBe(false);
+    expect(keys({ ...patientParent, caregiverViewingChild: true })).toEqual([
+      "notifications",
+      "thresholds",
+      "emergency",
+      "insulin",
+    ]);
+  });
 });
 
 describe("availableDashboardSections", () => {
