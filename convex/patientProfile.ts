@@ -21,8 +21,11 @@ const alertPreferencesPayload = v.object({
 /** Matches mobile `UserProfile` (required + optional fields). */
 export const patientProfilePayload = v.object({
   childName: v.string(),
+  childLastName: v.optional(v.string()),
   parentName: v.optional(v.string()),
-  accountRole: v.optional(v.union(v.literal("parent"), v.literal("adult"))),
+  parentLastName: v.optional(v.string()),
+  accountRole: v.optional(v.union(v.literal("parent"), v.literal("adult"), v.literal("caregiver"))),
+  organization: v.optional(v.string()),
   diabetesType: v.union(v.literal("type1"), v.literal("type2"), v.literal("other")),
   dateOfBirth: v.string(),
   weightLbs: v.optional(v.number()),
@@ -110,8 +113,11 @@ export const get = query({
     if (!row) return null;
     return {
       childName: row.childName,
+      childLastName: row.childLastName,
       parentName: row.parentName,
+      parentLastName: row.parentLastName,
       accountRole: row.accountRole,
+      organization: row.organization,
       diabetesType: row.diabetesType,
       dateOfBirth: row.dateOfBirth,
       weightLbs: row.weightLbs,

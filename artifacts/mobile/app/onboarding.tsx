@@ -21,7 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
-type Step = "welcome" | "role" | "parent_name" | "name" | "birthday" | "diabetes" | "insulin_formula";
+type Step = "welcome" | "role" | "parent_name" | "organization" | "name" | "birthday" | "diabetes" | "insulin_formula";
 
 function isValidDate(month: string, day: string, year: string): boolean {
   const m = parseInt(month);
@@ -53,9 +53,12 @@ export default function OnboardingScreen() {
   const { saveFormula } = useGlucose();
 
   const [step, setStep] = useState<Step>("welcome");
-  const [accountRole, setAccountRole] = useState<"parent" | "adult">("parent");
+  const [accountRole, setAccountRole] = useState<"parent" | "adult" | "caregiver">("parent");
   const [parentNameInput, setParentNameInput] = useState("");
+  const [parentLastNameInput, setParentLastNameInput] = useState("");
+  const [organizationInput, setOrganizationInput] = useState("");
   const [childName, setChildName] = useState("");
+  const [childLastName, setChildLastName] = useState("");
   const [weightLbs, setWeightLbs] = useState("");
   const [birthMonth, setBirthMonth] = useState("");
   const [birthDay, setBirthDay] = useState("");
@@ -90,7 +93,9 @@ export default function OnboardingScreen() {
       const parsedWeight = parseFloat(weightLbs);
       await setupProfile({
         childName: childName.trim(),
+        childLastName: childLastName.trim() ? childLastName.trim() : undefined,
         parentName: accountRole === "parent" && parentNameInput.trim() ? parentNameInput.trim() : undefined,
+        parentLastName: accountRole === "parent" && parentLastNameInput.trim() ? parentLastNameInput.trim() : undefined,
         accountRole,
         diabetesType,
         dateOfBirth: dobStr,
@@ -104,6 +109,29 @@ export default function OnboardingScreen() {
       const tg = !isNaN(parsedTarget) && parsedTarget > 0 ? parsedTarget : 120;
       const cf = !isNaN(parsedISF) && parsedISF > 0 ? parsedISF : 50;
       saveFormula(cr, tg, cf);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace("/(tabs)");
+    } catch {
+      setIsSaving(false);
+    }
+  }
+
+  /** Caregiver (school-nurse) accounts: name + optional organization only — no child/CGM/dosing. */
+  async function finishCaregiverSetup() {
+    const name = parentNameInput.trim();
+    if (!name) return;
+    setIsSaving(true);
+    try {
+      await setupProfile({
+        // The nurse's own name lives in childName/childLastName so every name/avatar surface reuses
+        // it; a placeholder diabetesType + empty DOB satisfy the required profile fields (never shown).
+        childName: name,
+        childLastName: parentLastNameInput.trim() ? parentLastNameInput.trim() : undefined,
+        accountRole: "caregiver",
+        organization: organizationInput.trim() ? organizationInput.trim() : undefined,
+        diabetesType: "type1",
+        dateOfBirth: "",
+      });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)");
     } catch {
@@ -180,19 +208,21 @@ export default function OnboardingScreen() {
 
         {step === "role" && (
           <View style={styles.stepContainer}>
-            <StepBadge label={accountRole === "parent" ? "Step 1 of 6" : "Step 1 of 5"} colors={colors} />
+            <StepBadge label={accountRole === "parent" ? "Step 1 of 6" : accountRole === "caregiver" ? "Step 1 of 3" : "Step 1 of 5"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Who is this account for?</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
               This helps us personalize the app for you
             </Text>
 
-            {(["parent", "adult"] as const).map((role) => {
+            {(["parent", "adult", "caregiver"] as const).map((role) => {
               const isSelected = accountRole === role;
-              const icon = role === "parent" ? "users" : "user";
-              const title = role === "parent" ? "Parent or Guardian" : "Adult (myself)";
+              const icon = role === "parent" ? "users" : role === "adult" ? "user" : "briefcase";
+              const title = role === "parent" ? "Parent or Guardian" : role === "adult" ? "Adult (myself)" : "Caregiver";
               const desc = role === "parent"
                 ? "Setting up Glucose Guardian for your child's diabetes management"
-                : "Managing my own diabetes — I'm 18 or older";
+                : role === "adult"
+                ? "Managing my own diabetes — I'm 18 or older"
+                : "A nurse, teacher, or aide watching over one or more kids with access codes";
               return (
                 <Pressable
                   key={role}
@@ -225,7 +255,9 @@ export default function OnboardingScreen() {
               ]}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setStep(accountRole === "parent" ? "parent_name" : "name");
+                // Parent + caregiver both start with the person's own name step; adult goes straight
+                // to the (own) name step.
+                setStep(accountRole === "adult" ? "name" : "parent_name");
               }}
             >
               <Text style={styles.primaryBtnText}>Continue</Text>
@@ -237,10 +269,12 @@ export default function OnboardingScreen() {
 
         {step === "parent_name" && (
           <View style={styles.stepContainer}>
-            <StepBadge label="Step 2 of 6" colors={colors} />
+            <StepBadge label={accountRole === "caregiver" ? "Step 2 of 3" : "Step 2 of 6"} colors={colors} />
             <Text style={[styles.stepTitle, { color: colors.text }]}>Your Name</Text>
             <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
-              What should Glucose Guardian call you? Used when speaking to you in caregiver mode.
+              {accountRole === "caregiver"
+                ? "Shown on the kids' cards you manage, so families know who's watching over them."
+                : "What should Glucose Guardian call you? Used when speaking to you in caregiver mode."}
             </Text>
 
             <TextInput
@@ -254,27 +288,91 @@ export default function OnboardingScreen() {
               ]}
               value={parentNameInput}
               onChangeText={setParentNameInput}
-              placeholder="Your first name (optional)..."
+              placeholder={accountRole === "caregiver" ? "Your first name..." : "Your first name (optional)..."}
               placeholderTextColor={colors.textMuted}
               autoFocus
               returnKeyType="next"
               maxLength={30}
-              onSubmitEditing={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setStep("name"); }}
+            />
+            <TextInput
+              style={[
+                styles.nameInput,
+                { marginTop: 12, backgroundColor: colors.card, borderColor: parentLastNameInput.trim() ? COLORS.primary : colors.border, color: colors.text },
+              ]}
+              value={parentLastNameInput}
+              onChangeText={setParentLastNameInput}
+              placeholder="Last name (optional)..."
+              placeholderTextColor={colors.textMuted}
+              returnKeyType="next"
+              maxLength={30}
+              onSubmitEditing={() => {
+                if (accountRole === "caregiver" && !parentNameInput.trim()) return;
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setStep(accountRole === "caregiver" ? "organization" : "name");
+              }}
             />
 
             <Pressable
+              disabled={accountRole === "caregiver" && !parentNameInput.trim()}
               style={({ pressed }) => [
                 styles.primaryBtn,
-                { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 },
+                {
+                  backgroundColor: accountRole === "caregiver" && !parentNameInput.trim() ? colors.border : COLORS.primary,
+                  opacity: pressed ? 0.85 : 1,
+                },
               ]}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setStep("name"); }}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setStep(accountRole === "caregiver" ? "organization" : "name"); }}
             >
               <Text style={styles.primaryBtnText}>
-                {parentNameInput.trim() ? "Continue" : "Skip for now"}
+                {accountRole === "caregiver" ? "Continue" : parentNameInput.trim() ? "Continue" : "Skip for now"}
               </Text>
               <Feather name="arrow-right" size={18} color="#fff" />
             </Pressable>
             <BackBtn onPress={() => setStep("role")} colors={colors} />
+          </View>
+        )}
+
+        {step === "organization" && (
+          <View style={styles.stepContainer}>
+            <StepBadge label="Step 3 of 3" colors={colors} />
+            <Text style={[styles.stepTitle, { color: colors.text }]}>Your Organization</Text>
+            <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
+              Where do you provide care? For example, a school or clinic name. Optional.
+            </Text>
+
+            <TextInput
+              style={[
+                styles.nameInput,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: organizationInput.trim() ? COLORS.primary : colors.border,
+                  color: colors.text,
+                },
+              ]}
+              value={organizationInput}
+              onChangeText={setOrganizationInput}
+              placeholder="Organization (optional)..."
+              placeholderTextColor={colors.textMuted}
+              autoFocus
+              returnKeyType="done"
+              maxLength={60}
+              onSubmitEditing={() => { if (!isSaving) finishCaregiverSetup(); }}
+            />
+
+            <Pressable
+              disabled={isSaving}
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                { backgroundColor: COLORS.primary, opacity: pressed || isSaving ? 0.85 : 1 },
+              ]}
+              onPress={() => { if (!isSaving) finishCaregiverSetup(); }}
+            >
+              <Text style={styles.primaryBtnText}>
+                {isSaving ? "Setting up…" : organizationInput.trim() ? "Finish" : "Skip & Finish"}
+              </Text>
+              <Feather name={isSaving ? "loader" : "check"} size={18} color="#fff" />
+            </Pressable>
+            <BackBtn onPress={() => setStep("parent_name")} colors={colors} />
           </View>
         )}
 
@@ -301,9 +399,21 @@ export default function OnboardingScreen() {
               ]}
               value={childName}
               onChangeText={setChildName}
-              placeholder={accountRole === "parent" ? "Enter child's name..." : "Enter your name..."}
+              placeholder={accountRole === "parent" ? "Child's first name..." : "Your first name..."}
               placeholderTextColor={colors.textMuted}
               autoFocus
+              returnKeyType="next"
+              maxLength={30}
+            />
+            <TextInput
+              style={[
+                styles.nameInput,
+                { marginTop: 12, backgroundColor: colors.card, borderColor: childLastName.trim() ? COLORS.primary : colors.border, color: colors.text },
+              ]}
+              value={childLastName}
+              onChangeText={setChildLastName}
+              placeholder="Last name (optional)..."
+              placeholderTextColor={colors.textMuted}
               returnKeyType="next"
               maxLength={30}
             />

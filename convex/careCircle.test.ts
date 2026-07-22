@@ -94,8 +94,11 @@ describe("co-guardian invite → redeem → link", () => {
     const logs = await t.query(api.careLogs.listLogs, { userId: member, passwordHash: HASH_B, patientUserId: patient });
     expect(logs?.foodLog).toHaveLength(1);
     expect(logs?.insulinLog).toHaveLength(1);
-    expect(logs?.insulinLog[0].authorName).toBe("Dad"); // co-guardian byline
-    expect(logs?.foodLog[0].authorName).toBe("Bella"); // patient byline
+    expect(logs?.insulinLog[0].authorName).toBe("Dad"); // co-guardian byline (their parentName)
+    // The patient/owner's own log is credited to the GUARDIAN, never the shared child name. This
+    // setup's patient has no parentName, so it falls back to the email handle — but never "Bella".
+    expect(logs?.foodLog[0].authorName).toBe("parent-a");
+    expect(logs?.foodLog[0].authorName).not.toBe("Bella");
   });
 
   it("delivers a directed invite to the target's inbox and lets only them accept", async () => {
@@ -206,6 +209,73 @@ describe("co-guardian invite → redeem → link", () => {
     await expect(
       t.mutation(api.careCircle.redeemInvite, { userId: member, passwordHash: HASH_B, code }),
     ).rejects.toThrow(/Invalid or already-used/);
+  });
+});
+
+describe("co-guardian log bylines credit the guardian, not the shared child", () => {
+  it("shows each guardian's own name — even when both used the child's name as childName", async () => {
+    // The reported bug: Brian (owner) and Brittany (member) each typed "Bella" (the child) as their
+    // account's child name. Both their logs showed "Bella" instead of their own names.
+    const t = convexTest(schema, modules);
+    const brian = await t.mutation(api.auth.register, { email: "brian@example.com", passwordHash: "hash-brian" });
+    const brittany = await t.mutation(api.auth.register, { email: "brittany@example.com", passwordHash: "hash-britt" });
+    await t.mutation(api.patientProfile.replace, {
+      userId: brian,
+      passwordHash: "hash-brian",
+      profile: { childName: "Bella", parentName: "Brian", accountRole: "parent", diabetesType: "type1", dateOfBirth: "2014-01-01" },
+    });
+    await t.mutation(api.patientProfile.replace, {
+      userId: brittany,
+      passwordHash: "hash-britt",
+      profile: { childName: "Bella", parentName: "Brittany", accountRole: "parent", diabetesType: "type1", dateOfBirth: "2014-01-01" },
+    });
+    const { code } = await t.mutation(api.careCircle.createInvite, { userId: brian, passwordHash: "hash-brian", patientUserId: brian });
+    await t.mutation(api.careCircle.redeemInvite, { userId: brittany, passwordHash: "hash-britt", code });
+
+    // Both log "to themselves" (what each device does) — the circle bucket pools them.
+    await t.mutation(api.careLogs.addFoodLog, {
+      userId: brian, passwordHash: "hash-brian", patientUserId: brian,
+      entry: { clientId: "bf1", timestamp: new Date().toISOString(), foodName: "Waffles", estimatedCarbs: 45, insulinUnits: 1.3, confidence: "high", fromPhoto: false },
+    });
+    await t.mutation(api.careLogs.addFoodLog, {
+      userId: brittany, passwordHash: "hash-britt", patientUserId: brittany,
+      entry: { clientId: "bf2", timestamp: new Date().toISOString(), foodName: "Pasta", estimatedCarbs: 45, insulinUnits: 1.3, confidence: "high", fromPhoto: false },
+    });
+
+    const logs = await t.query(api.careLogs.listLogs, { userId: brittany, passwordHash: "hash-britt", patientUserId: brittany });
+    const byId = Object.fromEntries((logs?.foodLog ?? []).map((f) => [f.id, f.authorName]));
+    expect(byId["bf1"]).toBe("Brian"); // the OWNER's own log — was showing "Bella"
+    expect(byId["bf2"]).toBe("Brittany"); // the member's log
+    expect(Object.values(byId)).not.toContain("Bella");
+  });
+
+  it("re-derives bylines live, repairing rows stored under the child name and reflecting renames", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.mutation(api.auth.register, { email: "owner@example.com", passwordHash: "h-own" });
+    await t.mutation(api.patientProfile.replace, {
+      userId: owner, passwordHash: "h-own",
+      profile: { childName: "Bella", accountRole: "parent", diabetesType: "type1", dateOfBirth: "2014-01-01" },
+    });
+    // Simulate a legacy row already stored under the child's name (pre-fix data).
+    await t.run(async (ctx) => {
+      await ctx.db.insert("careFoodLogs", {
+        patientUserId: owner, authorUserId: owner, authorName: "Bella", clientId: "old",
+        timestamp: new Date().toISOString(), foodName: "Juice", estimatedCarbs: 25, insulinUnits: 0.7,
+        confidence: "high", fromPhoto: false, createdAt: Date.now(),
+      });
+    });
+    // No parent name yet → falls back to the email handle, never the child's name.
+    let logs = await t.query(api.careLogs.listLogs, { userId: owner, passwordHash: "h-own", patientUserId: owner });
+    expect(logs?.foodLog[0].authorName).toBe("owner");
+    expect(logs?.foodLog[0].authorName).not.toBe("Bella");
+    // Owner sets their name in settings → the SAME historical row now shows it (live re-derivation).
+    await t.mutation(api.careCircle.updateSharedProfile, { userId: owner, passwordHash: "h-own", patch: { doctorName: "keep" } });
+    await t.mutation(api.patientProfile.replace, {
+      userId: owner, passwordHash: "h-own",
+      profile: { childName: "Bella", parentName: "Brian", accountRole: "parent", diabetesType: "type1", dateOfBirth: "2014-01-01" },
+    });
+    logs = await t.query(api.careLogs.listLogs, { userId: owner, passwordHash: "h-own", patientUserId: owner });
+    expect(logs?.foodLog[0].authorName).toBe("Brian");
   });
 });
 

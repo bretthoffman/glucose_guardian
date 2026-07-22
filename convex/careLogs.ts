@@ -63,6 +63,34 @@ async function patientDisplayName(ctx: QueryCtx | MutationCtx, patientUserId: Id
   return profile?.childName?.trim() || "Patient";
 }
 
+/**
+ * The name to credit a LOG to for an account holder (`userId`). This is the guardian's own name —
+ * never the child they care for, because in a co-guardian circle every guardian shares one child
+ * name, so crediting logs to the child makes every byline identical (the "everything says Bella"
+ * bug). Resolution: the guardian's own name (`parentName`) → for an adult-managing-own account the
+ * person's own name lives in `childName` → else the email handle. A parent account with no name yet
+ * deliberately falls back to the email handle, NOT the child's name.
+ */
+async function guardianDisplayName(ctx: QueryCtx | MutationCtx, userId: Id<"users">): Promise<string> {
+  const profile = await ctx.db
+    .query("patientProfiles")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .unique();
+  const parent = profile?.parentName?.trim();
+  if (parent) return parent;
+  // "Adult (myself)" and "caregiver" (nurse) accounts store the person's OWN name in childName —
+  // there is no separate kid on those accounts.
+  if (profile?.accountRole === "adult" || profile?.accountRole === "caregiver") {
+    const own = profile.childName?.trim();
+    if (own) return own;
+  }
+  const user = await ctx.db.get(userId);
+  const handle = user?.email?.split("@")[0]?.trim();
+  if (handle) return handle;
+  // Legacy accounts with no role and no parent name — last resort only.
+  return profile?.childName?.trim() || "Guardian";
+}
+
 interface WriteAuth {
   authorUserId?: Id<"users">;
   authorName: string;
@@ -81,7 +109,8 @@ async function resolveAccountWriteAuth(
       .unique();
     // In dependent mode the kid's own device may log only if granted; otherwise the patient always may.
     if (settings?.dependentMode && !settings.devicePermissions.log) return null;
-    return { authorUserId: callerUserId, authorName: await patientDisplayName(ctx, patientUserId) };
+    // Credit to the guardian who logged, not the child (their own account IS the circle owner).
+    return { authorUserId: callerUserId, authorName: await guardianDisplayName(ctx, callerUserId) };
   }
   const link = await ctx.db
     .query("careLinks")
@@ -92,7 +121,9 @@ async function resolveAccountWriteAuth(
   if (!link || link.status !== "active") return null;
   if (!link.permissions.log) return null;
   if (!careAccessAllowed(link.access as CareAccess, Date.now())) return null;
-  return { authorUserId: callerUserId, authorName: link.displayName };
+  // Derive the co-guardian's name live from their own profile (not the join-time link snapshot, which
+  // goes stale if they set/change their name after joining).
+  return { authorUserId: callerUserId, authorName: await guardianDisplayName(ctx, callerUserId) };
 }
 
 /** Resolve whether `callerUserId` may READ `patientUserId`'s logs. */
@@ -361,33 +392,79 @@ async function codeAuthorName(
   return row.kind === "child" ? await patientDisplayName(ctx, row.patientUserId) : row.label;
 }
 
+/**
+ * The byline for a log written via an access code. A signed-in Caregiver (school-nurse) account
+ * logging through a code it holds is credited to THAT account (name + authorUserId, which drives the
+ * live re-derivation on read) — so guardians see the nurse's real name. An accountless access-code
+ * session (kid device / teacher with just a code) falls back to the child's name / the code label.
+ */
+async function viaCodeWriteAuth(
+  ctx: MutationCtx,
+  row: { kind?: "caregiver" | "child"; label: string; patientUserId: Id<"users"> },
+  authorUserId: Id<"users"> | undefined,
+  passwordHash: string | undefined,
+): Promise<WriteAuth> {
+  if (authorUserId && passwordHash && (await assertPatientAuth(ctx, authorUserId, passwordHash))) {
+    return { authorUserId, authorName: await guardianDisplayName(ctx, authorUserId) };
+  }
+  return { authorName: await codeAuthorName(ctx, row) };
+}
+
 export const addFoodLogViaCode = mutation({
-  args: { code: v.string(), entry: foodEntryPayload },
+  args: {
+    code: v.string(),
+    entry: foodEntryPayload,
+    // Set when a signed-in caregiver account logs through the code (attributes the log to them).
+    authorUserId: v.optional(v.id("users")),
+    passwordHash: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const row = await resolveActiveAccessCode(ctx, args.code);
     if (!row || !row.permissions.log) throw new Error("This code cannot add logs");
     if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new Error("Outside this code's schedule");
-    await upsertFood(ctx, row.patientUserId, { authorName: await codeAuthorName(ctx, row) }, args.entry);
+    const auth = await viaCodeWriteAuth(ctx, row, args.authorUserId, args.passwordHash);
+    await upsertFood(ctx, row.patientUserId, auth, args.entry);
   },
 });
 
 export const addInsulinLogViaCode = mutation({
-  args: { code: v.string(), entry: insulinEntryPayload },
+  args: {
+    code: v.string(),
+    entry: insulinEntryPayload,
+    authorUserId: v.optional(v.id("users")),
+    passwordHash: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const row = await resolveActiveAccessCode(ctx, args.code);
     if (!row || !row.permissions.log) throw new Error("This code cannot add logs");
     if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new Error("Outside this code's schedule");
-    await upsertInsulin(ctx, row.patientUserId, { authorName: await codeAuthorName(ctx, row) }, args.entry);
+    const auth = await viaCodeWriteAuth(ctx, row, args.authorUserId, args.passwordHash);
+    await upsertInsulin(ctx, row.patientUserId, auth, args.entry);
   },
 });
 
 // ─── reads ───────────────────────────────────────────────────────────────────────────────────
 
-function mapFood(row: {
-  clientId: string; timestamp: string; foodName: string; estimatedCarbs: number;
-  insulinUnits: number; confidence: "high" | "medium" | "low"; fromPhoto: boolean;
-  photoUri?: string; authorUserId?: string; authorName: string;
-}) {
+/** Prefer the author's CURRENT guardian name (re-derived on read) over the row's stored snapshot. */
+function bylineFor(
+  row: { authorUserId?: string; authorName: string },
+  liveNames: Map<string, string>,
+): string {
+  if (row.authorUserId) {
+    const live = liveNames.get(row.authorUserId);
+    if (live) return live;
+  }
+  return row.authorName;
+}
+
+function mapFood(
+  row: {
+    clientId: string; timestamp: string; foodName: string; estimatedCarbs: number;
+    insulinUnits: number; confidence: "high" | "medium" | "low"; fromPhoto: boolean;
+    photoUri?: string; authorUserId?: string; authorName: string;
+  },
+  liveNames: Map<string, string>,
+) {
   return {
     id: row.clientId,
     timestamp: row.timestamp,
@@ -398,16 +475,19 @@ function mapFood(row: {
     fromPhoto: row.fromPhoto,
     photoUri: row.photoUri,
     authorUserId: row.authorUserId,
-    authorName: row.authorName,
+    authorName: bylineFor(row, liveNames),
   };
 }
 
-function mapInsulin(row: {
-  clientId: string; timestamp: string; units: number;
-  type: "bolus" | "correction" | "manual" | "basal"; note?: string; foodLogId?: string;
-  insulinType?: string; recommendedUnits?: number; manualOverride?: boolean;
-  authorUserId?: string; authorName: string;
-}) {
+function mapInsulin(
+  row: {
+    clientId: string; timestamp: string; units: number;
+    type: "bolus" | "correction" | "manual" | "basal"; note?: string; foodLogId?: string;
+    insulinType?: string; recommendedUnits?: number; manualOverride?: boolean;
+    authorUserId?: string; authorName: string;
+  },
+  liveNames: Map<string, string>,
+) {
   return {
     id: row.clientId,
     timestamp: row.timestamp,
@@ -419,7 +499,7 @@ function mapInsulin(row: {
     recommendedUnits: row.recommendedUnits,
     manualOverride: row.manualOverride,
     authorUserId: row.authorUserId,
-    authorName: row.authorName,
+    authorName: bylineFor(row, liveNames),
   };
 }
 
@@ -436,7 +516,21 @@ async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
       .order("desc")
       .take(INSULIN_CAP),
   ]);
-  return { foodLog: food.map(mapFood), insulinLog: insulin.map(mapInsulin) };
+  // Re-derive each account-author's CURRENT guardian name once (a circle has ≤4 guardians, so this
+  // is a handful of lookups regardless of log count). This makes bylines always show the guardian's
+  // live name — repairing rows stored under the child's name and reflecting later name changes.
+  // Access-code logs (child/caregiver, no authorUserId) keep their stored label.
+  const authorIds = new Set<string>();
+  for (const r of food) if (r.authorUserId) authorIds.add(r.authorUserId);
+  for (const r of insulin) if (r.authorUserId) authorIds.add(r.authorUserId);
+  const liveNames = new Map<string, string>();
+  for (const id of authorIds) {
+    liveNames.set(id, await guardianDisplayName(ctx, id as Id<"users">));
+  }
+  return {
+    foodLog: food.map((r) => mapFood(r, liveNames)),
+    insulinLog: insulin.map((r) => mapInsulin(r, liveNames)),
+  };
 }
 
 /** Merged authored logs for a patient — patient themselves or an authorized co-guardian. */

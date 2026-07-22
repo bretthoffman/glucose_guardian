@@ -22,6 +22,7 @@ import {
   View,
 } from "react-native";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { T, withAlpha, type ThemePreference } from "@/constants/theme";
 import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
@@ -81,26 +82,41 @@ function splitDateOfBirth(iso?: string): { month: string; day: string; year: str
 
 export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canEditPhoto }: Props) {
   const { colors: c, scheme, preference, setPreference } = useTheme();
-  const { profile, ageYears, updateProfile, isCircleMember, circleOwnerName } = useAuth();
+  const { profile, ageYears, updateProfile, isCircleMember, circleOwnerName, signOut } = useAuth();
   const [schemeExpanded, setSchemeExpanded] = useState(false);
 
-  // Inline account editor (name + birthday + weight). Same edit gate as the profile photo.
+  // Inline account editor (your name + child name + birthday + weight). Same edit gate as the photo.
   const [accountExpanded, setAccountExpanded] = useState(false);
+  const [yourNameInput, setYourNameInput] = useState("");
+  const [yourLastNameInput, setYourLastNameInput] = useState("");
   const [nameInput, setNameInput] = useState("");
+  const [lastNameInput, setLastNameInput] = useState("");
   const [weightInput, setWeightInput] = useState("");
+  const [organizationInput, setOrganizationInput] = useState("");
   const [birthMonth, setBirthMonth] = useState("");
   const [birthDay, setBirthDay] = useState("");
   const [birthYear, setBirthYear] = useState("");
   const [savingAccount, setSavingAccount] = useState(false);
 
+  // A Caregiver (school-nurse) account has no child — just their own name + organization.
+  const isCaregiverAccount = profile?.accountRole === "caregiver";
+  // A "parent/guardian" account has a separate guardian name (`parentName`) distinct from the child
+  // name; an "adult (myself)" account's own name IS the child-name field, so no extra field there.
+  const isParentAccount = profile?.accountRole !== "adult" && !isCaregiverAccount;
+
   // Birthday and weight belong to the care circle's owner: a linked co-guardian inherits both and
-  // views them read-only, then regains editing if they ever leave the circle.
+  // views them read-only, then regains editing if they ever leave the circle. "Your name" is always
+  // personal — a co-guardian keeps and edits their own name so log bylines credit the right person.
   const canEditSharedFields = !isCircleMember;
 
   const openAccountEditor = () => {
     if (!accountExpanded) {
+      setYourNameInput(profile?.parentName ?? "");
+      setYourLastNameInput(profile?.parentLastName ?? "");
       setNameInput(profile?.childName ?? "");
+      setLastNameInput(profile?.childLastName ?? "");
       setWeightInput(profile?.weightLbs != null ? String(profile.weightLbs) : "");
+      setOrganizationInput(profile?.organization ?? "");
       const dob = splitDateOfBirth(profile?.dateOfBirth);
       setBirthMonth(dob.month);
       setBirthDay(dob.day);
@@ -113,7 +129,7 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
   const birthdayEntered = !!(birthMonth.trim() || birthDay.trim() || birthYear.trim());
   const birthdayValid = isValidDate(birthMonth, birthDay, birthYear);
   // Block the save on a half-typed / impossible date rather than silently discarding it.
-  const birthdayInvalid = canEditSharedFields && birthdayEntered && !birthdayValid;
+  const birthdayInvalid = !isCaregiverAccount && canEditSharedFields && birthdayEntered && !birthdayValid;
   const canSaveAccount = !!nameInput.trim() && !birthdayInvalid;
 
   const saveAccount = async () => {
@@ -122,11 +138,26 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
     setSavingAccount(true);
     try {
       const w = parseFloat(weightInput);
+      const childLastName = lastNameInput.trim() || undefined;
+      if (isCaregiverAccount) {
+        // Nurse account: their own name (stored in childName/childLastName) + organization.
+        await updateProfile({ childName: name, childLastName, organization: organizationInput.trim() || undefined });
+        setAccountExpanded(false);
+        return;
+      }
+      // "Your name" is personal to this account (never inherited from the circle owner), so it saves
+      // for a co-guardian member too; updateProfile routes it to their own profile. The child's name
+      // (childName/childLastName) is shared and routes to the circle owner for a member.
+      const yourNamePatch = isParentAccount
+        ? { parentName: yourNameInput.trim() || undefined, parentLastName: yourLastNameInput.trim() || undefined }
+        : {};
       if (!canEditSharedFields) {
-        await updateProfile({ childName: name });
+        await updateProfile({ childName: name, childLastName, ...yourNamePatch });
       } else {
         await updateProfile({
           childName: name,
+          childLastName,
+          ...yourNamePatch,
           weightLbs: !isNaN(w) && w > 0 ? w : undefined,
           // Leave the stored birthday untouched when the fields were cleared out entirely.
           ...(birthdayValid
@@ -140,10 +171,19 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
     }
   };
 
+  const handleSignOut = async () => {
+    onClose();
+    await signOut();
+    router.replace("/auth");
+  };
+
   const firstName = (profile?.childName ?? "").trim().split(/\s+/).filter(Boolean)[0] ?? "";
   const ageStr = ageLabel(ageYears);
   const typeStr = diabetesLabel(profile?.diabetesType);
-  const subParts = [ageStr, typeStr].filter(Boolean).join(" · ");
+  // A caregiver shows their organization (if any) instead of an age/diabetes sub-line.
+  const subParts = isCaregiverAccount
+    ? (profile?.organization ?? "")
+    : [ageStr, typeStr].filter(Boolean).join(" · ");
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
@@ -236,16 +276,80 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
 
           {canEditPhoto && accountExpanded ? (
             <View style={[styles.editor, { borderTopColor: c.border }]}>
-              <Text style={[styles.fieldLabel, { color: c.textMuted }]}>Name</Text>
-              <TextInput
-                value={nameInput}
-                onChangeText={setNameInput}
-                placeholder="Name"
-                placeholderTextColor={c.textMuted}
-                style={[styles.input, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
-                autoCapitalize="words"
-                returnKeyType="next"
-              />
+              {/* Your name (the guardian) — personal to this account, shown as the byline on logs you
+                  add. Always editable, even for a linked co-guardian, so each guardian's own name
+                  credits their own entries instead of everyone showing the child's name. */}
+              {isParentAccount ? (
+                <>
+                  <Text style={[styles.fieldLabel, { color: c.textMuted }]}>Your Name</Text>
+                  <View style={styles.nameRow}>
+                    <TextInput
+                      value={yourNameInput}
+                      onChangeText={setYourNameInput}
+                      placeholder="First"
+                      placeholderTextColor={c.textMuted}
+                      style={[styles.input, styles.nameFirst, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
+                      autoCapitalize="words"
+                      returnKeyType="next"
+                      maxLength={30}
+                    />
+                    <TextInput
+                      value={yourLastNameInput}
+                      onChangeText={setYourLastNameInput}
+                      placeholder="Last"
+                      placeholderTextColor={c.textMuted}
+                      style={[styles.input, styles.nameLast, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
+                      autoCapitalize="words"
+                      returnKeyType="next"
+                      maxLength={30}
+                    />
+                  </View>
+                  <Text style={[styles.hint, { color: c.textMuted }]}>
+                    Shown on the logs you add, so co-guardians can see who logged what.
+                  </Text>
+                </>
+              ) : null}
+              <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: isParentAccount ? 12 : 0 }]}>
+                {isParentAccount ? "Child's Name" : "Name"}
+              </Text>
+              <View style={styles.nameRow}>
+                <TextInput
+                  value={nameInput}
+                  onChangeText={setNameInput}
+                  placeholder="First"
+                  placeholderTextColor={c.textMuted}
+                  style={[styles.input, styles.nameFirst, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
+                  autoCapitalize="words"
+                  returnKeyType="next"
+                />
+                <TextInput
+                  value={lastNameInput}
+                  onChangeText={setLastNameInput}
+                  placeholder="Last"
+                  placeholderTextColor={c.textMuted}
+                  style={[styles.input, styles.nameLast, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
+                  autoCapitalize="words"
+                  returnKeyType="next"
+                  maxLength={30}
+                />
+              </View>
+              {isCaregiverAccount ? (
+                <>
+                  <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 12 }]}>Organization</Text>
+                  <TextInput
+                    value={organizationInput}
+                    onChangeText={setOrganizationInput}
+                    placeholder="School or clinic (optional)"
+                    placeholderTextColor={c.textMuted}
+                    style={[styles.input, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
+                    autoCapitalize="words"
+                    returnKeyType="done"
+                    maxLength={60}
+                    onSubmitEditing={saveAccount}
+                  />
+                </>
+              ) : (
+              <>
               <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 12 }]}>Birthday</Text>
               <View style={styles.dobRow}>
                 <TextInput
@@ -327,6 +431,8 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
                   Birthday and weight are managed by {circleOwnerName || "the circle owner"} for your care circle.
                 </Text>
               ) : null}
+              </>
+              )}
               <View style={styles.editorBtns}>
                 <Pressable
                   style={({ pressed }) => [styles.cancelBtn, { borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}
@@ -405,6 +511,22 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
               })}
             </View>
           ) : null}
+
+          {/* Sign Out — caregiver (nurse) accounts have no dashboard, so it lives here. */}
+          {isCaregiverAccount ? (
+            <Pressable
+              style={[styles.row, { borderTopColor: c.border }]}
+              onPress={handleSignOut}
+              accessibilityRole="button"
+              accessibilityLabel="Sign out"
+            >
+              <View style={[styles.rowIcon, { backgroundColor: withAlpha(T.color.coral, 0.14) }]}>
+                <Feather name="log-out" size={16} color={T.color.coral} />
+              </View>
+              <Text style={[styles.rowLabel, { color: T.color.coral }]}>Sign Out</Text>
+              <Feather name="chevron-right" size={18} color={c.textMuted} />
+            </Pressable>
+          ) : null}
         </Pressable>
         </KeyboardAvoidingView>
       </Pressable>
@@ -461,6 +583,9 @@ const styles = StyleSheet.create({
 
   editor: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, paddingBottom: 6 },
   fieldLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 6 },
+  nameRow: { flexDirection: "row", gap: 8 },
+  nameFirst: { flex: 1 },
+  nameLast: { flex: 1 },
   hint: { fontSize: 12, fontWeight: "500", marginTop: 6, lineHeight: 16 },
   input: {
     borderWidth: 1,

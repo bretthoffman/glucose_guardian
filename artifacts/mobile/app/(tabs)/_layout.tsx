@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { T, withAlpha, type ThemeColors } from "@/constants/theme";
 import AccessLockScreen from "@/components/AccessLockScreen";
+import NurseMenu from "@/components/NurseMenu";
 
 // Derive the tab-bar props type from expo-router's Tabs so we don't import @react-navigation directly
 // (it isn't hoisted in this workspace). VISUAL ONLY — navigation behavior uses the standard pattern.
@@ -32,7 +33,9 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const { scheme, colors: c } = useTheme();
   const styles = useMemo(() => makeStyles(c, scheme === "dark"), [c, scheme]);
-  const { isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions } = useAuth();
+  const { isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions, isCaregiverAccount, isViewingLinkedPatient } = useAuth();
+  // A Caregiver (nurse) account on its menu (not viewing a child) has no tabs — hide the whole bar.
+  if (isCaregiverAccount && !isViewingLinkedPatient) return null;
   // Hide Insulin for a child-view-mode owner account, or for an access-code session (kid / caregiver)
   // whose grants include neither the dose calculator nor logging — nothing to show there.
   const hideInsulinTab =
@@ -102,6 +105,8 @@ export default function TabLayout() {
         <Tabs.Screen name="chat" options={{ title: "Chat" }} />
         <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
       </Tabs>
+      {/* Nurse (Caregiver account) home — full-screen overlay + hidden tab bar until a child is opened. */}
+      <NurseMenu />
       {/* Out-of-schedule / removed-access lock — overlays the tabs for caregiver + viewer sessions. */}
       <AccessLockScreen />
     </>

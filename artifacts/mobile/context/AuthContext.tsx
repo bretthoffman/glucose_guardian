@@ -26,7 +26,7 @@ import {
   scheduleTreatmentProposalNotification,
 } from "@/services/notifications";
 
-export type AccountRole = "parent" | "adult";
+export type AccountRole = "parent" | "adult" | "caregiver";
 
 export interface AccessLogEntry {
   id: string;
@@ -45,8 +45,15 @@ export interface DoctorMessage {
 
 export interface UserProfile {
   childName: string;
+  /** Optional last name (first name stays in `childName`). Displayed only where disambiguation is
+   *  needed, e.g. the nurse's roster of kids. */
+  childLastName?: string;
   parentName?: string;
+  /** Optional guardian last name (first name stays in `parentName`). */
+  parentLastName?: string;
   accountRole?: AccountRole;
+  /** Caregiver (school-nurse) accounts: the organization they're with (e.g. a school). Optional. */
+  organization?: string;
   diabetesType: "type1" | "type2" | "other";
   dateOfBirth: string;
   weightLbs?: number;
@@ -117,6 +124,7 @@ export interface CareMembership {
  */
 export interface CircleSharedProfile {
   childName?: string;
+  childLastName?: string;
   diabetesType?: "type1" | "type2" | "other";
   dateOfBirth?: string;
   weightLbs?: number;
@@ -262,6 +270,17 @@ export interface AuthContextType {
   isViewingLinkedPatient: boolean;
   enterViewingMode: (patientUserId: string) => Promise<boolean>;
   exitViewingMode: () => void;
+  /** True when the signed-in account is a Caregiver (school-nurse) account. */
+  isCaregiverAccount: boolean;
+  /**
+   * Nurse opens a linked child's live view via their access code (like a co-guardian's "View
+   * glucose"). Sets the viewing overlay + the code's permissions; data is sourced from the code, and
+   * the schedule lock engages when the code is out of its window. Returns false only if the code is
+   * no longer valid.
+   */
+  enterKidView: (code: string, patientUserId: string, patientName: string) => Promise<boolean>;
+  /** The access code currently powering a nurse's kid-view (null otherwise). Used to source data. */
+  nurseViewCode: string | null;
   /** Non-null when the active caregiver/co-guardian session is outside its schedule or removed. */
   accessLock: { reason: "outside_window" | "disabled" | "revoked"; nextStartMs?: number } | null;
 }
@@ -305,9 +324,18 @@ function toFoodEntryPayload(e: FoodLogEntry) {
   };
 }
 
-/** Optimistic byline for my own writes — the server re-derives the authoritative name on read. */
+/** Optimistic byline for my own writes — the server re-derives the authoritative name on read.
+ *  Mirrors the server's `guardianDisplayName`: the guardian's own name, never the child's (a parent
+ *  account that hasn't set a name falls back to the email handle, not the shared child name). */
 function deriveOwnAuthorName(profile: UserProfile | null, account: UserAccount | null): string {
-  return profile?.parentName?.trim() || profile?.childName?.trim() || account?.email?.split("@")[0] || "Me";
+  const parent = profile?.parentName?.trim();
+  if (parent) return parent;
+  // Adult + caregiver (nurse) accounts store the person's own name in childName.
+  if (profile?.accountRole === "adult" || profile?.accountRole === "caregiver") {
+    const own = profile.childName?.trim();
+    if (own) return own;
+  }
+  return account?.email?.split("@")[0] || profile?.childName?.trim() || "Me";
 }
 
 function toInsulinEntryPayload(e: InsulinLogEntry) {
@@ -365,6 +393,7 @@ function thresholdsToBackend(prefs: AlertPreferences) {
 /** Profile fields that belong to the CIRCLE (owner's account) while linked; the rest is personal. */
 const SHARED_PROFILE_EDIT_KEYS = [
   "childName",
+  "childLastName",
   "diabetesType",
   "dateOfBirth",
   "weightLbs",
@@ -478,6 +507,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [viewedProfile, setViewedProfile] = useState<UserProfile | null>(null);
   const [viewedFoodLog, setViewedFoodLog] = useState<FoodLogEntry[]>([]);
   const [viewedInsulinLog, setViewedInsulinLog] = useState<InsulinLogEntry[]>([]);
+  /** When a Caregiver (nurse) is viewing a linked child, the access code powering it (null else). */
+  const [nurseViewCode, setNurseViewCode] = useState<string | null>(null);
   /** Set when the current "someone else's data" session falls outside its schedule / is removed. */
   const [accessLock, setAccessLock] = useState<{ reason: "outside_window" | "disabled" | "revoked"; nextStartMs?: number } | null>(null);
   const [doctorMessages, setDoctorMessages] = useState<DoctorMessage[]>([]);
@@ -497,6 +528,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /** Live mirrors for the log-write path (which patient bucket + what byline to use). */
   const viewingPatientIdRef = useRef<string | null>(null);
   useEffect(() => { viewingPatientIdRef.current = viewingPatientId; }, [viewingPatientId]);
+  const nurseViewCodeRef = useRef<string | null>(null);
+  useEffect(() => { nurseViewCodeRef.current = nurseViewCode; }, [nurseViewCode]);
   /** The circle bucket this account's logs/settings target: owner's account when a member, else self. */
   const circleAnchorRef = useRef<string | null>(null);
   useEffect(() => {
@@ -518,6 +551,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ? { code: caregiverCloudCode, canLog: !!accessCodePermissions?.log }
         : null;
   }, [caregiverCodeKind, caregiverCloudCode, accessCodePermissions]);
+  /** A signed-in nurse viewing a child via an access code that grants `log` — writes go via the code
+   *  (shared bucket) but are attributed to the nurse's account. */
+  const nurseWriteRef = useRef<{ code: string; canLog: boolean } | null>(null);
+  useEffect(() => {
+    nurseWriteRef.current = nurseViewCode
+      ? { code: nurseViewCode, canLog: !!accessCodePermissions?.log }
+      : null;
+  }, [nurseViewCode, accessCodePermissions]);
   useEffect(() => { profileRef.current = profile; }, [profile]);
   useEffect(() => { accountRef.current = account; }, [account]);
   useEffect(() => { caregiverCloudCodeRef.current = caregiverCloudCode; }, [caregiverCloudCode]);
@@ -1169,7 +1210,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [isLoading, isSignedIn, account?.convexUserId, account?.passwordHash, hydrateNonce]);
 
-  // ── Viewed patient's shared logs (co-guardian viewing) — fetch + poll every 60s. ──
+  // ── Viewed patient's shared logs — fetch + poll every 60s. A co-guardian sources them through
+  // their account link (careLogs.listLogs); a nurse sources them through the child's access code
+  // (careLogs.listLogsViaCode), which the schedule window gates server-side. ──
   useEffect(() => {
     if (!viewingPatientId || !account?.convexUserId) return;
     const userId = account.convexUserId as Id<"users">;
@@ -1180,11 +1223,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function fetchViewedLogs() {
       try {
         const client = createConvexAuthClient();
-        const remote = await client.query(api.careLogs.listLogs, {
-          userId,
-          passwordHash,
-          patientUserId,
-        });
+        const viaCode = nurseViewCodeRef.current;
+        const remote = viaCode
+          ? await client.query(api.careLogs.listLogsViaCode, { code: viaCode })
+          : await client.query(api.careLogs.listLogs, { userId, passwordHash, patientUserId });
         if (cancelled || !remote) return;
         setViewedFoodLog((prev) => mergeCloudLogs(remote.foodLog as FoodLogEntry[], prev, 200));
         setViewedInsulinLog((prev) => mergeCloudLogs(remote.insulinLog as InsulinLogEntry[], prev, 500));
@@ -1211,8 +1253,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const client = createConvexAuthClient();
         const remote = await client.query(api.careLogs.listLogsViaCode, { code: caregiverCloudCode as string });
         if (cancelled) return;
-        setFoodLog((remote?.foodLog ?? []) as FoodLogEntry[]);
-        setInsulinLog((remote?.insulinLog ?? []) as InsulinLogEntry[]);
+        // No view-logs grant / outside the window → the pool is off for this session, show nothing.
+        if (!remote) {
+          setFoodLog([]);
+          setInsulinLog([]);
+          return;
+        }
+        // Merge (don't replace) so this device's own just-logged entry survives a racing poll until
+        // the server has it — the same protection the account/co-guardian paths use. Otherwise a kid's
+        // or caregiver's fresh log would flash then vanish for up to a poll cycle.
+        setFoodLog((prev) => mergeCloudLogs(remote.foodLog as FoodLogEntry[], prev, 200));
+        setInsulinLog((prev) => mergeCloudLogs(remote.insulinLog as InsulinLogEntry[], prev, 500));
       } catch {
         /* offline — keep prior */
       }
@@ -1234,12 +1285,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAccessLock(null);
       return;
     }
+    const viaCode = nurseViewCode; // a nurse's kid-view is gated by the child's access code
     let cancelled = false;
     async function checkAccess() {
       try {
         const client = createConvexAuthClient();
-        if (inCaregiverAccess) {
-          const resolved = await client.query(api.careCircle.resolveAccessCode, { code: caregiverCloudCode as string });
+        if (inCaregiverAccess || viaCode) {
+          const code = (inCaregiverAccess ? caregiverCloudCode : viaCode) as string;
+          const resolved = await client.query(api.careCircle.resolveAccessCode, { code });
           if (cancelled) return;
           if (!resolved) setAccessLock({ reason: "revoked" });
           else if (resolved.accessState.state !== "ok") {
@@ -1267,7 +1320,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [caregiverCodeKind, caregiverCloudCode, viewingPatientId, account?.convexUserId, account?.passwordHash]);
+  }, [caregiverCodeKind, caregiverCloudCode, viewingPatientId, nurseViewCode, account?.convexUserId, account?.passwordHash]);
 
   const createAccount = useCallback(async (email: string, password: string) => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -1334,31 +1387,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           passwordHash,
           convexUserId: String(result.userId),
         };
-        accountRef.current = acc;
-        setAccount(acc);
-        setIsSignedIn(true);
-        setCaregiverSession(false);
-        setCaregiverCloudCode(null);
-        setDoctorSession(false);
-        setCareMemberships([]);
-        setCircleShared(null);
-        circleSharedRef.current = null;
-        setQuickFoods(DEFAULT_QUICK_FOODS);
-        profileRef.current = null;
-        setProfile(null);
-        await AsyncStorage.multiSet([
-          [ACCOUNT_KEY, JSON.stringify(acc)],
-          [SESSION_KEY, "true"],
-        ]);
-        await AsyncStorage.removeItem(PROFILE_KEY);
-        await AsyncStorage.removeItem(CGM_KEY);
-        await AsyncStorage.removeItem(CAREGIVER_CODE_KEY);
-        await AsyncStorage.removeItem(CARE_MEMBERSHIPS_KEY);
-        await AsyncStorage.removeItem(CIRCLE_SHARED_KEY);
-        await AsyncStorage.removeItem(QUICK_FOODS_STORAGE_KEY);
-        await AsyncStorage.removeItem(GLUCOSE_HISTORY_STORAGE_KEY);
-        await AsyncStorage.removeItem(GLUCOSE_SETTINGS_STORAGE_KEY);
-        setCGMConnectionState({ type: null });
+        // Resolve this account's profile + CGM BEFORE flipping `isSignedIn`. If we set isSignedIn
+        // first (with a null profile) the router briefly sees "signed in but no profile" and routes
+        // to the onboarding "Get started" screen for a frame before the profile arrives — the flash
+        // we're fixing. Fetching first means the very first signed-in render already has the profile,
+        // so `isLoggedIn` is true immediately and routing goes straight to the tabs.
+        let nextProfile: UserProfile | null = null;
+        let appliedAlertPrefs: AlertPreferences | null = null;
+        let nextCgm: CGMConnection | null = null;
         try {
           const remote = await client.query(api.patientProfile.get, {
             userId: acc.convexUserId as Id<"users">,
@@ -1366,29 +1402,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           });
           if (remote) {
             const { alertPreferences: remotePrefs, ...p } = remote as UserProfile & { alertPreferences?: RemoteThresholds };
-            profileRef.current = p as UserProfile;
-            setProfile(p as UserProfile);
-            await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(p));
-            // Thresholds are account-scoped. Adopt this account's saved ranges over a clean default
-            // base so nothing carries over from a previous session; if the account has none yet,
-            // fall back to defaults (migration from a local-only account happens on the next boot,
-            // where the device's stored thresholds are still intact — see the boot-restore path).
-            const next = { ...DEFAULT_ALERT_PREFS, ...(thresholdOverlay(remotePrefs) ?? {}) };
-            setAlertPrefsState(next);
-            await AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(next)).catch(() => {});
+            nextProfile = p as UserProfile;
+            // Thresholds are account-scoped: adopt this account's saved ranges over a clean default
+            // base so nothing carries over from a previous session.
+            appliedAlertPrefs = { ...DEFAULT_ALERT_PREFS, ...(thresholdOverlay(remotePrefs) ?? {}) };
           }
           const remoteCgm = await client.query(api.patientCgm.get, {
             userId: acc.convexUserId as Id<"users">,
             passwordHash: acc.passwordHash,
           });
-          if (remoteCgm) {
-            const cgm = remoteCgm as CGMConnection;
-            setCGMConnectionState(cgm);
-            await AsyncStorage.setItem(CGM_KEY, JSON.stringify(cgm));
-          }
+          if (remoteCgm) nextCgm = remoteCgm as CGMConnection;
         } catch {
-          /* offline — profile / CGM empty until network */
+          /* offline — sign in with an empty profile/CGM; the hydrate poll fills them in later */
         }
+
+        // Commit the whole signed-in state in one batch. `setIsSignedIn(true)` goes last so the
+        // first render that observes it already carries the resolved profile (no onboarding flash).
+        accountRef.current = acc;
+        setAccount(acc);
+        setCaregiverSession(false);
+        setCaregiverCloudCode(null);
+        setDoctorSession(false);
+        setCareMemberships([]);
+        setCircleShared(null);
+        circleSharedRef.current = null;
+        setQuickFoods(DEFAULT_QUICK_FOODS);
+        profileRef.current = nextProfile;
+        setProfile(nextProfile);
+        if (appliedAlertPrefs) setAlertPrefsState(appliedAlertPrefs);
+        setCGMConnectionState(nextCgm ?? { type: null });
+        setIsSignedIn(true);
+
+        // Persist the session + the resolved account data (routing already decided off React state).
+        await AsyncStorage.multiSet([
+          [ACCOUNT_KEY, JSON.stringify(acc)],
+          [SESSION_KEY, "true"],
+        ]);
+        await AsyncStorage.multiRemove([
+          CAREGIVER_CODE_KEY,
+          CARE_MEMBERSHIPS_KEY,
+          CIRCLE_SHARED_KEY,
+          QUICK_FOODS_STORAGE_KEY,
+          GLUCOSE_HISTORY_STORAGE_KEY,
+          GLUCOSE_SETTINGS_STORAGE_KEY,
+        ]);
+        if (nextProfile) await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+        else await AsyncStorage.removeItem(PROFILE_KEY);
+        if (appliedAlertPrefs) await AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(appliedAlertPrefs)).catch(() => {});
+        if (nextCgm?.type) await AsyncStorage.setItem(CGM_KEY, JSON.stringify(nextCgm));
+        else await AsyncStorage.removeItem(CGM_KEY);
         return true;
       }
     } catch {
@@ -1495,6 +1557,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ...(acc?.convexUserId ? { authorUserId: acc.convexUserId } : {}),
       authorName: deriveOwnAuthorName(profileRef.current, acc),
     };
+    // A signed-in nurse viewing a child via the child's access code: write via the code (lands in the
+    // circle's shared bucket) but attributed to the nurse's account so guardians see the nurse's name.
+    const nurseWrite = nurseWriteRef.current;
+    if (nurseWrite && acc?.convexUserId) {
+      if (!nurseWrite.canLog) return;
+      setViewedFoodLog((prev) => [full, ...prev].slice(0, 200));
+      createConvexAuthClient()
+        .mutation(api.careLogs.addFoodLogViaCode, {
+          code: nurseWrite.code,
+          entry: toFoodEntryPayload(full),
+          authorUserId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+        })
+        .catch(() => {});
+      return;
+    }
     // Access-code session (a child, or a caregiver granted `log`) writes via the code, not an account.
     if (codeWrite) {
       if (!codeWrite.canLog) return;
@@ -1555,6 +1633,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ...(acc?.convexUserId ? { authorUserId: acc.convexUserId } : {}),
       authorName: deriveOwnAuthorName(profileRef.current, acc),
     };
+    // Nurse viewing a child via the child's access code — attribute the dose to the nurse's account.
+    const nurseWrite = nurseWriteRef.current;
+    if (nurseWrite && acc?.convexUserId) {
+      if (!nurseWrite.canLog) return;
+      setViewedInsulinLog((prev) => [full, ...prev].slice(0, 500));
+      createConvexAuthClient()
+        .mutation(api.careLogs.addInsulinLogViaCode, {
+          code: nurseWrite.code,
+          entry: toInsulinEntryPayload(full),
+          authorUserId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+        })
+        .catch(() => {});
+      return;
+    }
     if (codeWrite) {
       if (!codeWrite.canLog) return;
       setInsulinLog((prev) => [full, ...prev].slice(0, 500));
@@ -1994,12 +2087,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  /**
+   * A nurse opens a linked child's live view through the child's access code. Mirrors the co-guardian
+   * viewing overlay (viewedProfile + viewingPatientId drive the banner + effective data), but sources
+   * everything from the code — so it enters even when the code is outside its window (the schedule
+   * lock overlay then takes over) and gates the tabs by the code's permissions.
+   */
+  const enterKidView = useCallback(
+    async (code: string, patientUserId: string, patientName: string): Promise<boolean> => {
+      const acc = accountRef.current;
+      if (!acc?.convexUserId) return false;
+      try {
+        const client = createConvexAuthClient();
+        const resolved = await client.query(api.careCircle.resolveAccessCode, { code });
+        if (!resolved) return false; // code retired/removed
+        // Slim profile is null when the code is out of its window — fall back to the name we already
+        // have so the (locked) view still renders a header.
+        let slim: Awaited<ReturnType<typeof client.query>> | null = null;
+        try {
+          slim = await client.query(api.careCircle.profileForAccessCode, { code });
+        } catch {
+          /* keep the fallback profile */
+        }
+        const s = slim as {
+          childName?: string; diabetesType?: "type1" | "type2" | "other"; dateOfBirth?: string;
+          weightLbs?: number; insulinTypes?: string[]; profilePhotoUri?: string;
+          carbRatio?: number; targetGlucose?: number; correctionFactor?: number;
+        } | null;
+        const nextProfile: UserProfile = {
+          childName: s?.childName ?? resolved.patientName ?? patientName,
+          diabetesType: s?.diabetesType ?? "type1",
+          dateOfBirth: s?.dateOfBirth ?? "",
+          weightLbs: s?.weightLbs,
+          insulinTypes: s?.insulinTypes,
+          profilePhotoUri: s?.profilePhotoUri,
+          carbRatio: s?.carbRatio,
+          targetGlucose: s?.targetGlucose,
+          correctionFactor: s?.correctionFactor,
+        };
+        setViewedFoodLog([]);
+        setViewedInsulinLog([]);
+        setViewedProfile(nextProfile);
+        setAccessCodeRole(resolved.kind);
+        setAccessCodePermissions(resolved.permissions);
+        setNurseViewCode(code);
+        nurseViewCodeRef.current = code;
+        setViewingPatientId(patientUserId);
+        client.mutation(api.careCircle.touchAccessCode, { code }).catch(() => {});
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [],
+  );
+
   const exitViewingMode = useCallback(() => {
     setViewingPatientId(null);
     setViewedProfile(null);
     setViewedFoodLog([]);
     setViewedInsulinLog([]);
     setAccessLock(null);
+    // Nurse kid-view teardown: clear the code + its borrowed permissions so the tabs/menu reset.
+    if (nurseViewCodeRef.current) {
+      setNurseViewCode(null);
+      nurseViewCodeRef.current = null;
+      setAccessCodeRole(null);
+      setAccessCodePermissions(null);
+    }
   }, []);
 
   const addDoctorMessage = useCallback((text: string, sender: "doctor" | "guardian") => {
@@ -2169,6 +2324,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // A co-guardian viewing a linked patient is never in child mode — they're the admin, not the kid.
   const isChildMode = !isViewingLinkedPatient && !!(profile?.childModeEnabled || caregiverSession);
+  // Based on the OWN profile (not the viewed kid's) so it stays true while a nurse views a child.
+  const isCaregiverAccount = isSignedIn && profile?.accountRole === "caregiver";
 
   return (
     <AuthContext.Provider
@@ -2231,6 +2388,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isViewingLinkedPatient,
         enterViewingMode,
         exitViewingMode,
+        isCaregiverAccount,
+        enterKidView,
+        nurseViewCode,
         accessLock,
       }}
     >

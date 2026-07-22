@@ -348,6 +348,7 @@ async function snapshotSharedToMember(
   if (ownerProfile) {
     const sharedFields = {
       childName: ownerProfile.childName,
+      childLastName: ownerProfile.childLastName,
       diabetesType: ownerProfile.diabetesType,
       dateOfBirth: ownerProfile.dateOfBirth,
       weightLbs: ownerProfile.weightLbs,
@@ -587,6 +588,7 @@ export const setDependentMode = mutation({
 /** Shared profile fields a co-guardian may edit (writes land on the owner's profile). */
 const sharedProfilePatchPayload = v.object({
   childName: v.optional(v.string()),
+  childLastName: v.optional(v.string()),
   diabetesType: v.optional(v.union(v.literal("type1"), v.literal("type2"), v.literal("other"))),
   dateOfBirth: v.optional(v.string()),
   doctorName: v.optional(v.string()),
@@ -665,6 +667,7 @@ export const circleContext = query({
       if (row) {
         shared = {
           childName: row.childName,
+          childLastName: row.childLastName,
           diabetesType: row.diabetesType,
           dateOfBirth: row.dateOfBirth,
           weightLbs: row.weightLbs,

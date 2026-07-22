@@ -96,7 +96,7 @@ function parseLocalHistory(raw: string | null): GlucoseEntry[] {
 }
 
 export function GlucoseProvider({ children }: { children: React.ReactNode }) {
-  const { account, isSignedIn, isLoading: authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind, viewingPatientId, profile, isCircleMember } = useAuth();
+  const { account, isSignedIn, isLoading: authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind, viewingPatientId, nurseViewCode, profile, isCircleMember } = useAuth();
   const [history, setHistory] = useState<GlucoseEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [carbRatio, setCarbRatioState] = useState(15);
@@ -269,12 +269,16 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     async function fetchViewed() {
       try {
         const client = createConvexAuthClient();
-        const remote = await client.query(api.careCircle.glucoseForLink, {
-          userId: acc!.convexUserId as Id<"users">,
-          passwordHash: acc!.passwordHash,
-          patientUserId: viewingPatientId as Id<"users">,
-          limit: 300,
-        });
+        // A nurse views a child through the child's access code (schedule-gated server-side); a
+        // co-guardian views through their account link.
+        const remote = nurseViewCode
+          ? await client.query(api.careCircle.glucoseForAccessCode, { code: nurseViewCode, limit: 300 })
+          : await client.query(api.careCircle.glucoseForLink, {
+              userId: acc!.convexUserId as Id<"users">,
+              passwordHash: acc!.passwordHash,
+              patientUserId: viewingPatientId as Id<"users">,
+              limit: 300,
+            });
         if (cancelled) return;
         setHistory(remote.map(normalizeRemoteEntry));
       } catch {
@@ -289,7 +293,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [viewingPatientId]);
+  }, [viewingPatientId, nurseViewCode]);
 
   useEffect(() => {
     if (authLoading) return;

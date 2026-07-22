@@ -102,8 +102,14 @@ const patientAccessLogEntry = v.object({
 const patientProfiles = defineTable({
   userId: v.id("users"),
   childName: v.string(),
+  /** Optional last name for the child/adult/nurse (first name stays in `childName`). */
+  childLastName: v.optional(v.string()),
   parentName: v.optional(v.string()),
-  accountRole: v.optional(v.union(v.literal("parent"), v.literal("adult"))),
+  /** Optional last name for the guardian (first name stays in `parentName`). */
+  parentLastName: v.optional(v.string()),
+  accountRole: v.optional(v.union(v.literal("parent"), v.literal("adult"), v.literal("caregiver"))),
+  /** Caregiver (school nurse) accounts: the org they're with, e.g. a school name. Optional. */
+  organization: v.optional(v.string()),
   diabetesType: v.union(v.literal("type1"), v.literal("type2"), v.literal("other")),
   dateOfBirth: v.string(),
   weightLbs: v.optional(v.number()),
@@ -468,6 +474,21 @@ const careSettings = defineTable({
  * writes the same row, so an edit by one appears on all of them. Kept off `patientProfiles`
  * because the mobile app replaces that document wholesale (`patientProfile.replace`).
  */
+/**
+ * Persistent links from a signed-in Caregiver (school-nurse) account to the access codes it manages.
+ * A nurse adds a guardian-issued access code and that child appears on their menu until the code is
+ * retired (the code — not a careLink — remains the credential; schedules still gate live access).
+ * One row per (caregiver, code); `patientUserId` is resolved at add-time for listing convenience.
+ */
+const caregiverLinks = defineTable({
+  caregiverUserId: v.id("users"),
+  code: v.string(),
+  patientUserId: v.id("users"),
+  createdAt: v.number(),
+})
+  .index("by_caregiver", ["caregiverUserId"])
+  .index("by_caregiver_code", ["caregiverUserId", "code"]);
+
 const careShared = defineTable({
   patientUserId: v.id("users"),
   quickFoods: v.optional(v.array(v.string())),
@@ -541,6 +562,7 @@ export default defineSchema({
   careAccessCodes,
   careSettings,
   careShared,
+  caregiverLinks,
   careFoodLogs,
   careInsulinLogs,
   doctorAccounts,
