@@ -38,6 +38,8 @@ import LogHistory from "@/components/LogHistory";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
+import DosePredictionChart from "@/components/DosePredictionChart";
+import { forecastGlucose } from "@/utils/glucoseForecast";
 import InsulinTypePicker from "@/components/InsulinTypePicker";
 import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import {
@@ -97,11 +99,11 @@ function OpCard({
         },
       ]}
     >
-      <View style={[styles.opBadge, { backgroundColor: def.color }]}>
+      <View style={[styles.opBadge, { borderColor: def.color }]}>
         {def.isResult ? (
-          <Feather name="check" size={10} color="#fff" />
+          <Feather name="check" size={10} color={def.color} />
         ) : (
-          <Text style={styles.opBadgeText}>{index + 1}</Text>
+          <Text style={[styles.opBadgeText, { color: def.color }]}>{index + 1}</Text>
         )}
       </View>
       <Text style={[styles.opLabel, { color: def.color }]} numberOfLines={2}>{def.label}</Text>
@@ -138,6 +140,17 @@ export default function InsulinScreen() {
   const [carbInput, setCarbInput] = useState("");
   const [bgInput, setBgInput] = useState("");
   const [bgManual, setBgManual] = useState(false);
+  // ── Deferred input commit ──────────────────────────────────────────────────────────────────
+  // `carbInput` / `bgInput` hold the COMMITTED values — they're what feed `dose`/`doseBg` (and, in
+  // Phase 2, the prediction graph). While a field is being typed in, the keystrokes live in a
+  // separate draft (null = "not editing this field; show the committed value"). The draft is pushed
+  // into the committed value only when the user leaves the field — on blur, when the other field is
+  // focused, when the dose editor opens, or when the page is scrolled — never on each keystroke. A
+  // ref mirrors each draft so the blur/focus handlers always read the latest text.
+  const [carbDraft, setCarbDraft] = useState<string | null>(null);
+  const [bgDraft, setBgDraft] = useState<string | null>(null);
+  const carbDraftRef = useRef<string | null>(null);
+  const bgDraftRef = useRef<string | null>(null);
   const [manualDoseOverride, setManualDoseOverride] = useState<number | null>(null);
   const [doseEditing, setDoseEditing] = useState(false);
   const [doseEditText, setDoseEditText] = useState("");
@@ -220,6 +233,8 @@ export default function InsulinScreen() {
     return () => clearInterval(id);
   }, []);
   const currentTimeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // Stable "now" for the prediction chart — advances on the 30s tick, not on every render.
+  const nowMs = useMemo(() => Date.now(), [clockTick]);
 
   // ── Insulin/carbs-on-board from the logs (see utils/onBoard) — makes the calculator aware of
   // recent doses and meals so it nets them out instead of re-suggesting a full dose. ──
@@ -339,7 +354,7 @@ export default function InsulinScreen() {
       { key: "carb", label: "Carb Dose", color: COLORS.success, value: dose.carbInsulin, icon: "coffee" },
       { key: "activeCarbs", label: "Active Carbs", color: COLORS.warning, value: dose.activeCarbInsulin, icon: "clock" },
       { key: "activeInsulin", label: "Active Insulin", color: CARD_PURPLE, value: -dose.activeInsulinUnits, icon: "droplet" },
-      { key: "dose", label: "Dose", color: COLORS.primary, value: dose.totalDose, icon: "check", isResult: true },
+      { key: "dose", label: "Suggested Dose", color: COLORS.primary, value: dose.totalDose, icon: "check", isResult: true },
     ];
   }, [dose]);
 
@@ -379,6 +394,25 @@ export default function InsulinScreen() {
   const effectiveDose = manualDoseOverride ?? systemRecommendedDose;
   const doseJustLogged = doseLoggedAtTick !== null && doseLoggedAtTick === cgmSyncSuccessTick;
 
+  // ── Prediction chart: where glucose heads over the next 4h IF this dose is taken now (bolus only;
+  // basal titration has no meal projection). Estimate-only — never feeds the calculator. ──
+  const forecast = useMemo(() => {
+    if (isBasalMode || !doseBg) return [];
+    return forecastGlucose({
+      currentBG: doseBg.n,
+      nowMs,
+      insulinLog: insulinLog ?? [],
+      foodLog: foodLog ?? [],
+      newDoseUnits: effectiveDose,
+      newCarbsGrams: parseFloat(carbInput) || 0,
+      correctionFactor,
+      carbRatio,
+      newDoseDiaMin: selectedInsulinOption?.type === "regular" ? 360 : 240,
+    });
+  }, [isBasalMode, doseBg, nowMs, insulinLog, foodLog, effectiveDose, carbInput, correctionFactor, carbRatio, selectedInsulinOption]);
+  // Re-animate only the future line when the user changes carbs or the dose — not on clock ticks.
+  const forecastRedrawKey = `${carbInput}|${roundToQuarterUnits(effectiveDose)}`;
+
   const handleTookDose = useCallback(() => {
     if (doseJustLogged || effectiveDose <= 0) return;
     if (!isBasalMode && !dose) return;
@@ -408,6 +442,44 @@ export default function InsulinScreen() {
     triggerLogPlusOne,
   ]);
 
+  // Push a field's in-progress draft into its committed value. No-op when the field isn't being
+  // edited, so it's safe to call defensively from anywhere.
+  const commitCarb = useCallback(() => {
+    const d = carbDraftRef.current;
+    if (d == null) return;
+    carbDraftRef.current = null;
+    setCarbDraft(null);
+    setCarbInput(d);
+  }, []);
+
+  const commitBg = useCallback(() => {
+    const d = bgDraftRef.current;
+    if (d == null) return;
+    bgDraftRef.current = null;
+    setBgDraft(null);
+    if (d.trim() === "") {
+      setBgManual(false); // cleared the field → fall back to the live CGM value
+    } else {
+      setBgInput(d);
+      setBgManual(true);
+    }
+  }, []);
+
+  // Focusing a field first commits whatever the OTHER field had in progress (so tapping straight
+  // from Carbs to BG folds the carbs in immediately), then seeds this field's draft from its value.
+  const beginCarbEdit = useCallback(() => {
+    commitBg();
+    carbDraftRef.current = carbInput;
+    setCarbDraft(carbInput);
+  }, [commitBg, carbInput]);
+
+  const beginBgEdit = useCallback(() => {
+    commitCarb();
+    const cur = bgManual ? bgInput : doseBg?.label ?? "";
+    bgDraftRef.current = cur;
+    setBgDraft(cur);
+  }, [commitCarb, bgManual, bgInput, doseBg]);
+
   const completeDoseEdit = useCallback(() => {
     if (!doseEditing) return;
     const finalized = finalizeManualDoseInput(doseEditText);
@@ -423,6 +495,10 @@ export default function InsulinScreen() {
   }, [doseEditing, doseEditText, systemRecommendedDose]);
 
   const startDoseEdit = useCallback(() => {
+    // Opening the dose editor commits any pending Carbs/BG edit first, so the suggested dose it
+    // seeds from reflects the numbers the user just typed above.
+    commitCarb();
+    commitBg();
     manualOverrideBeforeEditRef.current = manualDoseOverride;
     const current = manualDoseOverride ?? systemRecommendedDose;
     setDoseEditText(formatDoseAmount(current));
@@ -430,7 +506,7 @@ export default function InsulinScreen() {
     requestAnimationFrame(() => {
       doseInputRef.current?.focus();
     });
-  }, [manualDoseOverride, systemRecommendedDose]);
+  }, [manualDoseOverride, systemRecommendedDose, commitCarb, commitBg]);
 
   function openChat(prompt: string) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -543,9 +619,12 @@ export default function InsulinScreen() {
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPadding + 80 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         {...NO_AUTO_CONTENT_INSETS}
         onScrollBeginDrag={() => {
-          if (doseEditing) doseInputRef.current?.blur();
+          // Scrolling with the keyboard up dismisses it, which blurs the focused field and fires
+          // its onBlur → commit. So a user can edit a value, scroll down, and see the fresh result.
+          Keyboard.dismiss();
         }}
       >
 
@@ -612,8 +691,14 @@ export default function InsulinScreen() {
             <View style={styles.doseValueRow}>
               <TextInput
                 style={[styles.doseBigInput, { color: colors.text }]}
-                value={carbInput}
-                onChangeText={(v) => setCarbInput(v.replace(/[^0-9.]/g, ""))}
+                value={carbDraft ?? carbInput}
+                onFocus={beginCarbEdit}
+                onChangeText={(v) => {
+                  const c = v.replace(/[^0-9.]/g, "");
+                  carbDraftRef.current = c;
+                  setCarbDraft(c);
+                }}
+                onBlur={commitCarb}
                 keyboardType="numeric"
                 placeholder="0"
                 placeholderTextColor={colors.textMuted}
@@ -630,7 +715,7 @@ export default function InsulinScreen() {
             <View style={styles.doseInputHead}>
               <Feather name="droplet" size={14} color={COLORS.primary} />
               <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>CURRENT BG</Text>
-              {latest && !bgManual && (
+              {latest && !bgManual && bgDraft == null && (
                 <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}>
                   <Text style={[styles.liveTagText, { color: COLORS.success }]}>LIVE</Text>
                 </View>
@@ -639,8 +724,14 @@ export default function InsulinScreen() {
             <View style={styles.doseValueRow}>
               <TextInput
                 style={[styles.doseBigInput, { color: bgManual ? COLORS.primary : colors.text }]}
-                value={bgManual ? bgInput : doseBg?.label ?? ""}
-                onChangeText={(v) => { setBgInput(v.replace(/[^0-9]/g, "")); setBgManual(true); }}
+                value={bgDraft ?? (bgManual ? bgInput : doseBg?.label ?? "")}
+                onFocus={beginBgEdit}
+                onChangeText={(v) => {
+                  const c = v.replace(/[^0-9]/g, "");
+                  bgDraftRef.current = c;
+                  setBgDraft(c);
+                }}
+                onBlur={commitBg}
                 keyboardType="numeric"
                 placeholder="—"
                 placeholderTextColor={colors.textMuted}
@@ -648,7 +739,14 @@ export default function InsulinScreen() {
               <Text style={[styles.doseUnit, { color: colors.textMuted }]}>mg/dL</Text>
               {bgManual && latest && (
                 <Pressable
-                  onPress={() => { setBgInput(String(latest.glucose)); setBgManual(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                  onPress={() => {
+                    bgDraftRef.current = null;
+                    setBgDraft(null);
+                    setBgInput(String(latest.glucose));
+                    setBgManual(false);
+                    Keyboard.dismiss();
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
                   style={{ padding: 4 }}
                 >
                   <Feather name="refresh-cw" size={15} color={COLORS.primary} />
@@ -773,6 +871,16 @@ export default function InsulinScreen() {
               </Pressable>
               {tookDoseButton}
             </View>
+
+            <DosePredictionChart
+              readings={history}
+              forecast={forecast}
+              currentBG={doseBg.n}
+              targetGlucose={targetGlucose}
+              nowMs={nowMs}
+              redrawKey={forecastRedrawKey}
+              colors={colors}
+            />
           </>
         )}
 
@@ -974,8 +1082,8 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10 },
 
   // ── Title row + insulin dropdown ──
-  titleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
-  pageTitle: { fontSize: 18, fontWeight: "700" },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 10 },
+  pageTitle: { fontSize: 16, fontWeight: "700" },
   pageSub: { fontSize: 12.5, fontWeight: "500", marginTop: 2 },
   insulinDropdown: {
     flexDirection: "row", alignItems: "center", gap: 6,
@@ -988,9 +1096,11 @@ const styles = StyleSheet.create({
   calcHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
   opCardsRow: { flexDirection: "row", alignItems: "stretch", gap: 2, marginTop: 10 },
   opSymbol: { fontSize: 14, fontWeight: "800", alignSelf: "center", width: 12, textAlign: "center" },
-  opCard: { flex: 1, minWidth: 0, borderWidth: 1.5, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 4, alignItems: "center", gap: 5 },
-  opBadge: { width: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  opBadgeText: { fontSize: 10, fontWeight: "800", color: "#fff" },
+  opCard: { flex: 1, minWidth: 0, borderWidth: 1.5, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 4, alignItems: "center", gap: 5 },
+  // Hollow badge: an outline in the card's accent color with the card background showing through,
+  // and the number/checkmark inside painted the same accent color.
+  opBadge: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, backgroundColor: "transparent", alignItems: "center", justifyContent: "center" },
+  opBadgeText: { fontSize: 10, fontWeight: "800" },
   opLabel: { fontSize: 9.5, fontWeight: "700", textAlign: "center", lineHeight: 12 },
   opValue: { fontSize: 15, fontWeight: "800", textAlign: "center" },
   calcNote: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, borderRadius: 10, marginTop: 10 },

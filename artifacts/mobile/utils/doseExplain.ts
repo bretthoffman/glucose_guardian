@@ -82,9 +82,8 @@ export function doseCardExplanation(key: DoseCardKey, d: DoseExplainInput): Dose
     }
 
     case "carb": {
-      const lines: string[] = [
-        `Carb Dose covers the carbs you plan to eat.`,
-      ];
+      // No intro line for this card (removed by design) — jump straight to the numbers.
+      const lines: string[] = [];
       if (d.carbs > 0) {
         lines.push(
           `You entered ${d.carbs} g of carbs, and with a carb ratio of 1 unit for every ${d.carbRatio} g, your Carb Dose is ${d.carbs} ÷ ${d.carbRatio} = ${u(d.carbInsulin)}.`,

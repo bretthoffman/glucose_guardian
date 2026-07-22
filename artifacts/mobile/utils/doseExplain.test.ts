@@ -32,9 +32,14 @@ describe("doseCardExplanation", () => {
     expect(e.lines.join(" ")).not.toContain("brings you back toward your target");
   });
 
-  it("keeps the intro line on the other cards (only correction dropped it)", () => {
-    expect(doseCardExplanation("carb", base).lines[0]).toContain("Carb Dose covers");
+  it("keeps the intro line on the activity cards", () => {
+    expect(doseCardExplanation("activeCarbs", base).lines[0]).toContain("Active Carbs are");
     expect(doseCardExplanation("activeInsulin", base).lines[0]).toContain("Active Insulin is");
+  });
+
+  it("drops the correction and carb intro lines", () => {
+    expect(doseCardExplanation("correction", base).lines.join(" ")).not.toContain("brings you back toward your target");
+    expect(doseCardExplanation("carb", base).lines.join(" ")).not.toContain("Carb Dose covers");
   });
 
   it("folds a non-zero trend adjustment into Correct High BG", () => {
