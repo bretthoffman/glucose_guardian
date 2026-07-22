@@ -122,7 +122,9 @@ export function forecastGlucose(input: GlucoseForecastInput): ForecastPoint[] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// Hour-locked time window around "now". The span depends on the selected insulin's speed.
+// Time window around "now". Both edges are relative to "now" (the right edge is exactly
+// now + forecastHours), so the visible past/future ranges never drift — only the whole-hour tick
+// labels float within. "now" is captured once when the chart draws, not re-rounded each minute.
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -136,10 +138,10 @@ export interface PredictionWindowConfig {
   tickHideMin: number;
 }
 
-/** Fast insulin (rapid/short/regular): a tight 3h-back / 2h-forward view. */
+/** Fast insulin (rapid/short/regular): a tight 3h-back / 1.5h-forward view. */
 export const BOLUS_PREDICTION_WINDOW: PredictionWindowConfig = {
   historyHours: 3,
-  forecastHours: 2,
+  forecastHours: 1.5,
   tickHideMin: 25,
 };
 
@@ -159,24 +161,14 @@ export interface PredictionWindow {
   nowFrac: number;
 }
 
-/** Nearest whole hour to `nowMs`; exactly :30 rounds DOWN (per the 6:30 vs 6:36 examples). */
-export function anchorHourMs(nowMs: number): number {
-  const d = new Date(nowMs);
-  const minutes = d.getMinutes() + d.getSeconds() / 60;
-  d.setMinutes(0, 0, 0);
-  let ms = d.getTime();
-  if (minutes > 30) ms += HOUR_MS;
-  return ms;
-}
-
-/** Lock the window to whole hours so the axis reads 12pm 1pm 2pm … with "now" floating between. */
+/** Window edges pinned exactly to `now` (left = now − historyHours, right = now + forecastHours),
+ *  so the future range is always exactly forecastHours and never snaps to a whole hour. */
 export function predictionWindow(
   nowMs: number,
   config: PredictionWindowConfig = BOLUS_PREDICTION_WINDOW,
 ): PredictionWindow {
-  const anchor = anchorHourMs(nowMs);
-  const leftMs = anchor - config.historyHours * HOUR_MS;
-  const rightMs = anchor + config.forecastHours * HOUR_MS;
+  const leftMs = nowMs - config.historyHours * HOUR_MS;
+  const rightMs = nowMs + config.forecastHours * HOUR_MS;
   const spanMs = rightMs - leftMs;
   return { leftMs, rightMs, spanMs, nowFrac: (nowMs - leftMs) / spanMs };
 }
@@ -203,8 +195,12 @@ export function predictionHourTicks(
 ): PredictionHourTick[] {
   const { leftMs, rightMs, spanMs } = predictionWindow(nowMs, config);
   const hideMs = config.tickHideMin * 60000;
+  // Start at the first whole (local) hour at or after the left edge, then step hour by hour.
+  const first = new Date(leftMs);
+  first.setMinutes(0, 0, 0);
+  if (first.getTime() < leftMs) first.setHours(first.getHours() + 1);
   const ticks: PredictionHourTick[] = [];
-  for (let ms = leftMs; ms <= rightMs + 1; ms += HOUR_MS) {
+  for (let ms = first.getTime(); ms <= rightMs; ms += HOUR_MS) {
     ticks.push({
       ms,
       xFrac: (ms - leftMs) / spanMs,

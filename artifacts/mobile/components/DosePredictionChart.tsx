@@ -96,6 +96,9 @@ export default function DosePredictionChart({
 }: DosePredictionChartProps) {
   const H = height;
   const [plotW, setPlotW] = useState(0);
+  // "now" is frozen when the chart draws (on focus / mount), so the window + hour ticks don't drift
+  // as real time passes. It is re-captured only when the graph re-animates from the left.
+  const [drawNow, setDrawNow] = useState(nowMs);
 
   const revealX = useRef(new Animated.Value(0)).current;
   const nowBlink = useRef(new Animated.Value(1)).current;
@@ -103,8 +106,8 @@ export default function DosePredictionChart({
   const pendingIntroRef = useRef(false);
   const redrawKeyRef = useRef(redrawKey);
 
-  const win = useMemo(() => predictionWindow(nowMs), [nowMs]);
-  const ticks = useMemo(() => predictionHourTicks(nowMs), [nowMs]);
+  const win = useMemo(() => predictionWindow(drawNow), [drawNow]);
+  const ticks = useMemo(() => predictionHourTicks(drawNow), [drawNow]);
 
   const xOf = useCallback(
     (ms: number) => ((ms - win.leftMs) / win.spanMs) * plotW,
@@ -118,8 +121,8 @@ export default function DosePredictionChart({
   geomRef.current = {
     plotW,
     xNow,
-    xNow30: xOf(nowMs - 30 * 60000),
-    xNow10: xOf(nowMs - 10 * 60000),
+    xNow30: xOf(drawNow - 30 * 60000),
+    xNow10: xOf(drawNow - 10 * 60000),
   };
 
   // ── History line, split into same-color runs (broken across CGM gaps) ──
@@ -127,13 +130,13 @@ export default function DosePredictionChart({
     if (plotW <= 0) return [] as { color: string; points: string }[];
     const pts: HistPt[] = readings
       .map((r) => ({ ms: new Date(r.timestamp).getTime(), glucose: r.glucose }))
-      .filter((r) => r.ms >= win.leftMs && r.ms <= nowMs && r.glucose > 0)
+      .filter((r) => r.ms >= win.leftMs && r.ms <= drawNow && r.glucose > 0)
       .sort((a, b) => a.ms - b.ms)
       .map((r) => ({ x: xOf(r.ms), y: yOf(r.glucose), glucose: r.glucose, ms: r.ms }));
     // Anchor the end of the past line to the Now line at the calculator's current BG, so it meets
     // the purple future line seamlessly.
     if (pts.length > 0) {
-      pts.push({ x: xNow, y: yOf(currentBG), glucose: currentBG, ms: nowMs });
+      pts.push({ x: xNow, y: yOf(currentBG), glucose: currentBG, ms: drawNow });
     }
     if (pts.length < 2) return [];
     const runs: { color: string; points: string }[] = [];
@@ -155,15 +158,15 @@ export default function DosePredictionChart({
     }
     if (cur) runs.push({ color: cur.color, points: cur.pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ") });
     return runs;
-  }, [readings, plotW, win, nowMs, xNow, currentBG, xOf, yOf]);
+  }, [readings, plotW, win, drawNow, xNow, currentBG, xOf, yOf]);
 
   // ── Future (purple) projection line ──
   const futurePoints = useMemo(() => {
     if (plotW <= 0) return "";
     return forecast
-      .map((p) => `${xOf(nowMs + p.tMin * 60000).toFixed(1)},${yOf(p.bg).toFixed(1)}`)
+      .map((p) => `${xOf(drawNow + p.tMin * 60000).toFixed(1)},${yOf(p.bg).toFixed(1)}`)
       .join(" ");
-  }, [forecast, plotW, nowMs, xOf, yOf]);
+  }, [forecast, plotW, drawNow, xOf, yOf]);
 
   // Right-axis labels + their reference lines, built from the user's thresholds exactly like the
   // app's other glucose charts (buildAxisLabelSpecs handles the fixed grid ticks + target clamping).
@@ -223,33 +226,36 @@ export default function DosePredictionChart({
     );
   }, [revealX, nowBlink, blinkNow, drawFuture]);
 
-  const tryRunIntro = useCallback(() => {
-    if (pendingIntroRef.current && geomRef.current.plotW > 0) {
-      pendingIntroRef.current = false;
-      runIntro();
-    }
-  }, [runIntro]);
-
-  // Re-animate whenever the Dose tab regains focus (opened from another screen / toggled back).
+  // Re-animate whenever the Dose tab regains focus (opened from another screen / toggled back):
+  // mark a draw pending, hide the line, and re-capture "now" so the window anchors to draw time.
   useFocusEffect(
     useCallback(() => {
       pendingIntroRef.current = true;
-      tryRunIntro();
+      revealX.setValue(0); // hide immediately so the fresh window doesn't flash fully-drawn
+      nowBlink.setValue(1);
+      setDrawNow(Date.now());
       return () => {
         revealX.stopAnimation();
         nowBlink.stopAnimation();
       };
-    }, [tryRunIntro, revealX, nowBlink]),
+    }, [revealX, nowBlink]),
   );
+
+  // Run the pending intro once BOTH the frozen "now" and the measured width are in place — this
+  // effect fires on the drawNow refresh above and again when onLayout reports the width.
+  useEffect(() => {
+    if (pendingIntroRef.current && plotW > 0) {
+      pendingIntroRef.current = false;
+      runIntro();
+    }
+  }, [drawNow, plotW, runIntro]);
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     // Reserve the right-axis gutter; the plot (and every x-position) uses the remaining width.
     const w = Math.max(0, e.nativeEvent.layout.width - Y_AXIS_W);
     setPlotW(w);
     geomRef.current.plotW = w;
-    // Layout can land after focus fired — run the pending intro now that we can measure.
-    requestAnimationFrame(tryRunIntro);
-  }, [tryRunIntro]);
+  }, []);
 
   // Dose / carbs changed after the intro → blink Now and re-draw only the purple future line.
   // (No-op on mount: redrawKeyRef starts equal to redrawKey, so the intro owns the first draw.)
@@ -368,8 +374,10 @@ export default function DosePredictionChart({
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginTop: 10, gap: 10 },
-  head: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
+  // marginTop = gap above the head (matches the ~20px reference above "SUGGESTED DOSE"); gap 10
+  // spaces the chart→x-axis, and the head's marginBottom brings head→400-line up to the same ~20.
+  wrap: { marginTop: 20, gap: 10 },
+  head: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 },
   chartRow: { flexDirection: "row", alignItems: "flex-start", width: "100%" },
   yAxis: { position: "relative" },
   yLabel: {

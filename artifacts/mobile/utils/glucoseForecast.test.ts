@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  anchorHourMs,
   BASAL_PREDICTION_WINDOW,
   forecastGlucose,
   predictionHourTicks,
@@ -14,62 +13,51 @@ function at(hour: number, minute: number): number {
   return new Date(2026, 6, 22, hour, minute, 0, 0).getTime();
 }
 
+const HOUR = 60 * 60 * 1000;
 const visibleLabels = (ms: number, config?: PredictionWindowConfig) =>
   predictionHourTicks(ms, config).filter((t) => !t.hidden).map((t) => t.label);
 
-// Default (bolus) window: 3h back / 2h forward, hide ticks within 25 min of Now.
-describe("prediction hour axis — bolus window (3h/2h, 25-min hide)", () => {
-  it("6:18pm — drops the 6pm tick (within 25 min before Now)", () => {
-    expect(visibleLabels(at(18, 18))).toEqual(["3pm", "4pm", "5pm", "7pm", "8pm"]);
+// Bolus window: now-relative, 3h back / 1.5h forward, hide whole-hour ticks within 25 min of Now.
+describe("prediction hour axis — bolus window (3h/1.5h, now-relative)", () => {
+  it("ends exactly 1.5h past now and starts 3h before (never snaps to a whole hour)", () => {
+    const now = at(16, 45);
+    const w = predictionWindow(now);
+    expect(w.rightMs).toBe(now + 1.5 * HOUR);
+    expect(w.leftMs).toBe(now - 3 * HOUR);
   });
 
-  it("6:30pm — keeps both 6pm and 7pm (exactly 30 min, outside the 25-min window)", () => {
-    expect(visibleLabels(at(18, 30))).toEqual(["3pm", "4pm", "5pm", "6pm", "7pm", "8pm"]);
+  it("spans exactly 4.5 hours with Now at a fixed 2/3 fraction", () => {
+    const w = predictionWindow(at(16, 45));
+    expect(w.spanMs).toBe(4.5 * HOUR);
+    expect(w.nowFrac).toBeCloseTo(3 / 4.5, 5);
   });
 
-  it("6:36pm — anchor rounds up to 7pm; drops the 7pm tick, window shifts to 4pm–9pm", () => {
-    expect(visibleLabels(at(18, 36))).toEqual(["4pm", "5pm", "6pm", "8pm", "9pm"]);
+  it("5:00pm — whole-hour ticks inside the window, 5pm hidden under Now", () => {
+    expect(visibleLabels(at(17, 0))).toEqual(["2pm", "3pm", "4pm", "6pm"]);
   });
 
-  it("spans exactly 5 hours with Now floating", () => {
-    const w = predictionWindow(at(18, 18));
-    expect(w.spanMs).toBe(5 * 60 * 60 * 1000);
-    expect(w.nowFrac).toBeCloseTo((3 * 60 + 18) / 300, 5); // 3h18m into a 5h span
+  it("4:45pm — 5pm hidden (15 min from Now); window still ends at 6:15 so 6pm shows", () => {
+    expect(visibleLabels(at(16, 45))).toEqual(["2pm", "3pm", "4pm", "6pm"]);
   });
 });
 
-// Long-acting window: 6h back / 4h forward, hide ticks within 35 min of Now.
-describe("prediction hour axis — basal window (6h/4h, 35-min hide)", () => {
+// Long-acting window: now-relative, 6h back / 4h forward, hide ticks within 35 min of Now.
+describe("prediction hour axis — basal window (6h/4h, now-relative)", () => {
   const cfg = BASAL_PREDICTION_WINDOW;
 
-  it("6:24pm — keeps 7pm (36 min away, outside the 35-min window)", () => {
-    expect(visibleLabels(at(18, 24), cfg)).toEqual([
-      "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "7pm", "8pm", "9pm", "10pm",
-    ]);
+  it("spans exactly 10 hours ending 4h past now", () => {
+    const now = at(17, 0);
+    const w = predictionWindow(now, cfg);
+    expect(w.spanMs).toBe(10 * HOUR);
+    expect(w.rightMs).toBe(now + 4 * HOUR);
   });
 
-  it("6:25pm — drops 7pm (exactly 35 min away)", () => {
-    expect(visibleLabels(at(18, 25), cfg)).toEqual([
-      "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "8pm", "9pm", "10pm",
-    ]);
-  });
-
-  it("6:36pm — anchor rounds up to 7pm; 6pm reappears (36 min away), 7pm hidden", () => {
-    expect(visibleLabels(at(18, 36), cfg)).toEqual([
-      "1pm", "2pm", "3pm", "4pm", "5pm", "6pm", "8pm", "9pm", "10pm", "11pm",
-    ]);
-  });
-
-  it("spans exactly 10 hours", () => {
-    expect(predictionWindow(at(18, 18), cfg).spanMs).toBe(10 * 60 * 60 * 1000);
-  });
-});
-
-describe("anchorHourMs", () => {
-  it("anchors to the nearest hour with :30 rounding down", () => {
-    expect(anchorHourMs(at(18, 18))).toBe(at(18, 0));
-    expect(anchorHourMs(at(18, 30))).toBe(at(18, 0));
-    expect(anchorHourMs(at(18, 36))).toBe(at(19, 0));
+  it("5:00pm — hides the 5pm tick within 35 min of Now, keeps the far ends", () => {
+    const vis = visibleLabels(at(17, 0), cfg);
+    expect(vis).not.toContain("5pm");
+    expect(vis).toContain("4pm");
+    expect(vis).toContain("11am");
+    expect(vis).toContain("9pm");
   });
 });
 

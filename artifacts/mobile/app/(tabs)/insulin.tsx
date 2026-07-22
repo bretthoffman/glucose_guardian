@@ -65,7 +65,6 @@ type OpCardDef = {
   color: string;
   value: number;
   icon: React.ComponentProps<typeof Feather>["name"];
-  isResult?: boolean;
 };
 
 /** Signed unit value for a card, e.g. "4.88 u", "0 u", "-2.96 u". */
@@ -91,9 +90,6 @@ function OpCard({
       onPress={onPress}
       style={({ pressed }) => [
         styles.opCard,
-        // The result card's longer "Suggested Dose" label needs more inner width to keep
-        // "Suggested" on one line without breaking mid-word against the border.
-        def.isResult && styles.opCardResult,
         {
           backgroundColor: withAlpha(def.color, selected ? 0.18 : 0.08),
           borderColor: withAlpha(def.color, selected ? 0.95 : 0.35),
@@ -101,7 +97,7 @@ function OpCard({
         },
       ]}
     >
-      <Text style={[styles.opLabel, def.isResult && styles.opLabelResult, { color: def.color }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>{def.label}</Text>
+      <Text style={[styles.opLabel, { color: def.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{def.label}</Text>
       <Text style={[styles.opValue, { color: def.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
         {fmtU(def.value)}
       </Text>
@@ -345,11 +341,10 @@ export default function InsulinScreen() {
   const opCards: OpCardDef[] = useMemo(() => {
     if (!dose) return [];
     return [
-      { key: "correction", label: "Correct High BG", color: CARD_BLUE, value: dose.correctionInsulin + dose.trendAdjustment, icon: "trending-up" },
+      { key: "correction", label: "Correct BG", color: CARD_BLUE, value: dose.correctionInsulin + dose.trendAdjustment, icon: "trending-up" },
       { key: "carb", label: "Carb Dose", color: COLORS.success, value: dose.carbInsulin, icon: "coffee" },
       { key: "activeCarbs", label: "Active Carbs", color: COLORS.warning, value: dose.activeCarbInsulin, icon: "clock" },
       { key: "activeInsulin", label: "Active Insulin", color: CARD_PURPLE, value: -dose.activeInsulinUnits, icon: "droplet" },
-      { key: "dose", label: "Suggested Dose", color: COLORS.primary, value: dose.totalDose, icon: "check", isResult: true },
     ];
   }, [dose]);
 
@@ -374,7 +369,7 @@ export default function InsulinScreen() {
     totalDose: dose?.totalDose ?? 0,
   }), [doseBg, targetGlucose, correctionFactor, carbRatio, carbInput, dose, activeCarbs, activeInsulin]);
 
-  const OP_SYMBOLS = ["+", "+", "−", "="];
+  const OP_SYMBOLS = ["+", "+", "−"];
 
   useEffect(() => {
     if (cgmSyncSuccessTick !== cgmSyncTickRef.current) {
@@ -861,18 +856,23 @@ export default function InsulinScreen() {
               {tookDoseButton}
             </View>
 
-            <DosePredictionChart
-              readings={history}
-              forecast={forecast}
-              currentBG={doseBg.n}
-              targetGlucose={targetGlucose}
-              lowThreshold={alertPrefs.lowThreshold}
-              highThreshold={alertPrefs.highThreshold}
-              urgentHighThreshold={alertPrefs.urgentHighThreshold}
-              nowMs={nowMs}
-              redrawKey={forecastRedrawKey}
-              colors={colors}
-            />
+            {/* Graph only shows once there's an actual dose to project — a 0-unit suggestion hides
+                it; it re-mounts (and re-animates from the left) the moment the dose goes above 0,
+                whether the calculator raised it or the user set it manually. */}
+            {effectiveDose > 0 && (
+              <DosePredictionChart
+                readings={history}
+                forecast={forecast}
+                currentBG={doseBg.n}
+                targetGlucose={targetGlucose}
+                lowThreshold={alertPrefs.lowThreshold}
+                highThreshold={alertPrefs.highThreshold}
+                urgentHighThreshold={alertPrefs.urgentHighThreshold}
+                nowMs={nowMs}
+                redrawKey={forecastRedrawKey}
+                colors={colors}
+              />
+            )}
           </>
         )}
 
@@ -1088,13 +1088,10 @@ const styles = StyleSheet.create({
   // doseCard.marginBottom (above) and opCardsRow.marginTop (below), keeping them symmetric.
   calcHeadRow: { marginTop: 0, marginBottom: 0 },
   calcHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
-  opCardsRow: { flexDirection: "row", alignItems: "stretch", gap: 2, marginTop: 10 },
+  opCardsRow: { flexDirection: "row", alignItems: "stretch", gap: 2, marginTop: 20 },
   opSymbol: { fontSize: 14, fontWeight: "800", alignSelf: "center", width: 12, textAlign: "center" },
   opCard: { flex: 1, minWidth: 0, borderWidth: 1.5, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 4, alignItems: "center", gap: 5 },
-  opCardResult: { paddingHorizontal: 2 },
   opLabel: { fontSize: 9.5, fontWeight: "700", textAlign: "center", lineHeight: 12 },
-  // Result card's label is a touch smaller so the longer "Suggested" fits on one line.
-  opLabelResult: { fontSize: 8, lineHeight: 10 },
   opValue: { fontSize: 15, fontWeight: "800", textAlign: "center" },
   calcNote: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, borderRadius: 10, marginTop: 10 },
   calcNoteText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 17 },
@@ -1108,7 +1105,7 @@ const styles = StyleSheet.create({
   breakdownTitle: { fontSize: 17, fontWeight: "800" },
   breakdownLine: { fontSize: 13.5, fontWeight: "400", lineHeight: 20 },
 
-  disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 14, borderRadius: 12, marginTop: 4 },
+  disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 14, borderRadius: 12, marginTop: 20 },
   disclaimerText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 18 },
 
 
@@ -1117,7 +1114,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: "700" },
   emptySub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20 },
 
-  doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 10, gap: 10 },
+  doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 20, gap: 10 },
   doseInputRow: { flexDirection: "row", gap: 12, paddingVertical: 2 },
   doseInputGroup: { flex: 1, alignItems: "center", gap: 5 },
   doseInputHead: { flexDirection: "row", alignItems: "center", gap: 6 },
