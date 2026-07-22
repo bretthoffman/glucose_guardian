@@ -17,6 +17,8 @@ import {
 import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
+import { withAlpha } from "@/constants/theme";
+import { doseCardExplanation, type DoseCardKey } from "@/utils/doseExplain";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { glucoseColor } from "@/components/CGMChart";
@@ -49,6 +51,66 @@ import { DOSE_INSULIN_TYPE_STORAGE_KEY } from "@/constants/storage-keys";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 type ScreenTab = "predict" | "log";
+
+// Accent hues for the calculator's operation cards. Literal hex (like the app's other accents) so
+// the same hue reads correctly in both light and dark; the card background/border are theme-tinted.
+const CARD_BLUE = "#3B82F6";
+const CARD_PURPLE = "#8B5CF6";
+
+type OpCardDef = {
+  key: DoseCardKey;
+  label: string;
+  color: string;
+  value: number;
+  icon: React.ComponentProps<typeof Feather>["name"];
+  isResult?: boolean;
+};
+
+/** Signed unit value for a card, e.g. "4.88 u", "0 u", "-2.96 u". */
+function fmtU(v: number): string {
+  const r = Math.round(v * 100) / 100;
+  return `${r === 0 ? 0 : r} u`;
+}
+
+/** One tappable colored operation card in the "How your dose is calculated" row. */
+function OpCard({
+  def, index, selected, onPress, colors,
+}: {
+  def: OpCardDef;
+  index: number;
+  selected: boolean;
+  onPress: () => void;
+  colors: (typeof Colors)["light"];
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`${def.label} ${fmtU(def.value)}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.opCard,
+        {
+          backgroundColor: withAlpha(def.color, selected ? 0.18 : 0.08),
+          borderColor: withAlpha(def.color, selected ? 0.95 : 0.35),
+          opacity: pressed ? 0.85 : 1,
+        },
+      ]}
+    >
+      <View style={[styles.opBadge, { backgroundColor: def.color }]}>
+        {def.isResult ? (
+          <Feather name="check" size={10} color="#fff" />
+        ) : (
+          <Text style={styles.opBadgeText}>{index + 1}</Text>
+        )}
+      </View>
+      <Text style={[styles.opLabel, { color: def.color }]} numberOfLines={2}>{def.label}</Text>
+      <Text style={[styles.opValue, { color: def.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+        {fmtU(def.value)}
+      </Text>
+    </Pressable>
+  );
+}
 
 export default function InsulinScreen() {
   const insets = useSafeAreaInsets();
@@ -88,6 +150,8 @@ export default function InsulinScreen() {
   const [insulinTypeReady, setInsulinTypeReady] = useState(false);
   const [insulinModalVisible, setInsulinModalVisible] = useState(false);
   const [pendingInsulinLabel, setPendingInsulinLabel] = useState<string | null>(null);
+  // Which colored operation card is expanded in "Your Dose Breakdown" (null = collapsed by default).
+  const [expandedCard, setExpandedCard] = useState<DoseCardKey | null>(null);
 
   // ── "I just took this dose" — green until the next successful CGM sync ──
   const [doseLoggedAtTick, setDoseLoggedAtTick] = useState<number | null>(null);
@@ -265,6 +329,42 @@ export default function InsulinScreen() {
       activeCarbsGrams: activeCarbs.totalGrams,
     });
   }, [carbInput, doseBg, targetGlucose, carbRatio, correctionFactor, history, latest, selectedInsulinOption, activeInsulin, activeCarbs]);
+
+  // ── The colored "operation" cards for the calculator. The trend adjustment is FOLDED into
+  // "Correct High BG" so the four input cards actually sum to the Dose (see doseExplain). ──
+  const opCards: OpCardDef[] = useMemo(() => {
+    if (!dose) return [];
+    return [
+      { key: "correction", label: "Correct High BG", color: CARD_BLUE, value: dose.correctionInsulin + dose.trendAdjustment, icon: "trending-up" },
+      { key: "carb", label: "Carb Dose", color: COLORS.success, value: dose.carbInsulin, icon: "coffee" },
+      { key: "activeCarbs", label: "Active Carbs", color: COLORS.warning, value: dose.activeCarbInsulin, icon: "clock" },
+      { key: "activeInsulin", label: "Active Insulin", color: CARD_PURPLE, value: -dose.activeInsulinUnits, icon: "droplet" },
+      { key: "dose", label: "Dose", color: COLORS.primary, value: dose.totalDose, icon: "check", isResult: true },
+    ];
+  }, [dose]);
+
+  const explainInput = useMemo(() => ({
+    bg: doseBg?.n ?? 0,
+    target: targetGlucose,
+    correctionFactor,
+    carbRatio,
+    carbs: parseFloat(carbInput) || 0,
+    correctionInsulin: dose?.correctionInsulin ?? 0,
+    trendAdjustment: dose?.trendAdjustment ?? 0,
+    trendLabel: dose?.trendLabel ?? "",
+    correctionSuppressed: dose?.correctionSuppressed ?? false,
+    carbInsulin: dose?.carbInsulin ?? 0,
+    activeCarbGrams: activeCarbs.totalGrams,
+    activeCarbInsulin: dose?.activeCarbInsulin ?? 0,
+    activeCarbAgeMin: activeCarbs.lastEntryAgeMin,
+    activeInsulinUnits: dose?.activeInsulinUnits ?? 0,
+    activeInsulinDoseCount: activeInsulin.doseCount,
+    activeInsulinAgeMin: activeInsulin.lastDoseAgeMin,
+    totalRaw: dose?.totalRaw ?? 0,
+    totalDose: dose?.totalDose ?? 0,
+  }), [doseBg, targetGlucose, correctionFactor, carbRatio, carbInput, dose, activeCarbs, activeInsulin]);
+
+  const OP_SYMBOLS = ["+", "+", "−", "="];
 
   useEffect(() => {
     if (cgmSyncSuccessTick !== cgmSyncTickRef.current) {
@@ -449,9 +549,34 @@ export default function InsulinScreen() {
         }}
       >
 
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>
-        Calculator
-      </Text>
+      {/* ── Title + insulin-type dropdown (top-right) ── */}
+      <View style={styles.titleRow}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[styles.pageTitle, { color: colors.text }]}>Dose Calculator</Text>
+          <Text style={[styles.pageSub, { color: colors.textSecondary }]} numberOfLines={1}>
+            We'll show you how your dose is calculated.
+          </Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Choose insulin type"
+          style={({ pressed }) => [
+            styles.insulinDropdown,
+            { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.8 : 1 },
+          ]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setPendingInsulinLabel(insulinTypeLabel);
+            setInsulinModalVisible(true);
+          }}
+        >
+          <Feather name="droplet" size={13} color={COLORS.primary} />
+          <Text numberOfLines={1} style={[styles.insulinDropdownText, { color: colors.text }]}>
+            {selectedInsulinOption ? `Insulin: ${selectedInsulinOption.name}` : "Select insulin"}
+          </Text>
+          <Feather name="chevron-down" size={15} color={colors.textMuted} />
+        </Pressable>
+      </View>
 
       <View style={[styles.doseCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         {isBasalMode ? (
@@ -526,97 +651,75 @@ export default function InsulinScreen() {
         </View>
         )}
 
-        {/* ── Insulin type — tiny current-type readout + small picker button ── */}
-        <View style={styles.insulinTypeRow}>
-          <Text numberOfLines={1} style={[styles.insulinTypeCurrent, { color: colors.textMuted }]}>
-            {selectedInsulinOption
-              ? insulinDisplayLabel(selectedInsulinOption)
-              : "No insulin type set"}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Choose insulin type"
-            style={({ pressed }) => [
-              styles.insulinTypeBtn,
-              { backgroundColor: COLORS.primary, opacity: pressed ? 0.8 : 1 },
-            ]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setPendingInsulinLabel(insulinTypeLabel);
-              setInsulinModalVisible(true);
-            }}
-          >
-            <Feather name="droplet" size={11} color="#fff" />
-            <Text style={styles.insulinTypeBtnText}>Insulin Type</Text>
-          </Pressable>
-        </View>
-
         {!isBasalMode && dose && doseBg && (
           <>
             <DoseWarningsList warnings={dose.warnings} />
 
-            <View style={[styles.doseBreakdown, { borderTopColor: colors.border }]}>
-              {hasCarbs && (
-                <DoseRow label="Carb Dose" sub={`${parseFloat(carbInput)}g ÷ ${carbRatio}g`} value={dose.carbInsulin} unit="u" colors={colors} />
-              )}
-              <DoseRow
-                label="Correction"
-                sub={dose.correctionSuppressed
-                  ? "BG below target — suppressed"
-                  : `(${doseBg.label} − ${targetGlucose}) ÷ ${correctionFactor}`}
-                value={dose.correctionInsulin}
-                unit="u"
-                colors={colors}
-                dimmed={dose.correctionSuppressed}
-              />
-              <DoseRow
-                label="Trend Adj."
-                sub={dose.trendLabel}
-                value={dose.trendAdjustment}
-                unit="u"
-                colors={colors}
-                signed
-              />
-              {dose.activeCarbInsulin > 0 && (
-                <DoseRow
-                  label="Active Carbs"
-                  sub={`${activeCarbs.totalGrams}g still absorbing · logged ${formatAgeShort(activeCarbs.lastEntryAgeMin)}${activeCarbs.lastEntryAgeMin != null && activeCarbs.lastEntryAgeMin >= 1 ? " ago" : ""}`}
-                  value={dose.activeCarbInsulin}
-                  unit="u"
-                  colors={colors}
-                  signed
-                />
-              )}
-              {dose.activeInsulinUnits > 0 && (
-                <DoseRow
-                  label="Active Insulin"
-                  sub={`${
-                    activeInsulin.doseCount > 1
-                      ? `${activeInsulin.doseCount} recent doses`
-                      : `${formatDoseAmount(activeInsulin.lastDoseUnits ?? 0)}u`
-                  } · taken ${formatAgeShort(activeInsulin.lastDoseAgeMin)}${activeInsulin.lastDoseAgeMin != null && activeInsulin.lastDoseAgeMin >= 1 ? " ago" : ""}`}
-                  value={-dose.activeInsulinUnits}
-                  unit="u"
-                  colors={colors}
-                  signed
-                />
-              )}
+            {/* ── How your dose is calculated: tappable colored operation cards ── */}
+            <View style={[styles.calcHeadRow, { borderTopColor: colors.border }]}>
+              <Text style={[styles.calcHeadLabel, { color: colors.textSecondary }]}>HOW YOUR DOSE IS CALCULATED</Text>
             </View>
+            <View style={styles.opCardsRow}>
+              {opCards.map((c, i) => (
+                <React.Fragment key={c.key}>
+                  {i > 0 && (
+                    <Text style={[styles.opSymbol, { color: colors.textMuted }]}>{OP_SYMBOLS[i - 1]}</Text>
+                  )}
+                  <OpCard
+                    def={c}
+                    index={i}
+                    selected={expandedCard === c.key}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setExpandedCard((prev) => (prev === c.key ? null : c.key));
+                    }}
+                    colors={colors}
+                  />
+                </React.Fragment>
+              ))}
+            </View>
+            {dose.activeInsulinUnits > 0 && (
+              <View style={[styles.calcNote, { backgroundColor: colors.backgroundTertiary }]}>
+                <Feather name="zap" size={12} color={COLORS.primary} />
+                <Text style={[styles.calcNoteText, { color: colors.textSecondary }]}>
+                  We subtract active insulin because it's already working in your body.
+                </Text>
+              </View>
+            )}
+
+            {/* ── Your Dose Breakdown — collapsed until a card is tapped, color-matched to it ── */}
+            {expandedCard != null && (() => {
+              const def = opCards.find((c) => c.key === expandedCard);
+              if (!def) return null;
+              const ex = doseCardExplanation(expandedCard, explainInput);
+              return (
+                <View style={styles.breakdownWrap}>
+                  <Text style={[styles.breakdownHead, { color: colors.textSecondary }]}>YOUR DOSE BREAKDOWN</Text>
+                  <View style={[styles.breakdownCard, { backgroundColor: withAlpha(def.color, 0.08), borderColor: withAlpha(def.color, 0.4) }]}>
+                    <View style={styles.breakdownTitleRow}>
+                      <View style={[styles.breakdownIcon, { borderColor: withAlpha(def.color, 0.5) }]}>
+                        <Feather name={def.icon} size={16} color={def.color} />
+                      </View>
+                      <Text style={[styles.breakdownTitle, { color: def.color }]}>{ex.title}</Text>
+                    </View>
+                    {ex.lines.map((line, li) => (
+                      <Text key={li} style={[styles.breakdownLine, { color: colors.textSecondary }]}>{line}</Text>
+                    ))}
+                  </View>
+                </View>
+              );
+            })()}
 
             <View style={[styles.doseTotalRow, { borderTopColor: colors.border }]}>
               <View style={styles.doseTotalLabelWrap}>
-                <Text style={[styles.doseTotalLabel, { color: colors.textSecondary }]}>
-                  {isMinor
-                    ? "Ask your adult to give:"
-                    : hasCarbs
-                    ? `Insulin to give (with ${carbInput}g carbs)`
-                    : "Insulin to give (no carbs)"}
+                <Text style={[styles.doseTotalLabel, { color: colors.text }]}>
+                  {isMinor ? "Ask your adult to give:" : "Suggested Dose"}
                 </Text>
-                {dose.totalRaw !== dose.totalDose && (
-                  <Text style={[styles.doseRoundNote, { color: colors.textMuted }]}>
-                    Raw {dose.totalRaw}u → rounded to nearest ½
-                  </Text>
-                )}
+                <Text style={[styles.doseRoundNote, { color: colors.textMuted }]}>
+                  {dose.totalRaw !== dose.totalDose
+                    ? `Raw ${dose.totalRaw}u → round as needed`
+                    : "Round as needed"}
+                </Text>
               </View>
               <EditableDoseTotalBadge
                 effectiveDose={effectiveDose}
@@ -856,6 +959,39 @@ const styles = StyleSheet.create({
 
 
   sectionTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10 },
+
+  // ── Title row + insulin dropdown ──
+  titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 14 },
+  pageTitle: { fontSize: 22, fontWeight: "800", letterSpacing: -0.4 },
+  pageSub: { fontSize: 12.5, fontWeight: "500", marginTop: 2 },
+  insulinDropdown: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, maxWidth: 200, flexShrink: 1,
+  },
+  insulinDropdownText: { fontSize: 12.5, fontWeight: "600", flexShrink: 1 },
+
+  // ── "How your dose is calculated" op cards ──
+  calcHeadRow: { borderTopWidth: 1, paddingTop: 14, marginTop: 2 },
+  calcHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
+  opCardsRow: { flexDirection: "row", alignItems: "stretch", gap: 2, marginTop: 10 },
+  opSymbol: { fontSize: 14, fontWeight: "800", alignSelf: "center", width: 12, textAlign: "center" },
+  opCard: { flex: 1, minWidth: 0, borderWidth: 1.5, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 4, alignItems: "center", gap: 5 },
+  opBadge: { width: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  opBadgeText: { fontSize: 10, fontWeight: "800", color: "#fff" },
+  opLabel: { fontSize: 9.5, fontWeight: "700", textAlign: "center", lineHeight: 12 },
+  opValue: { fontSize: 15, fontWeight: "800", textAlign: "center" },
+  calcNote: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, borderRadius: 10, marginTop: 10 },
+  calcNoteText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 17 },
+
+  // ── Collapsible "Your Dose Breakdown" ──
+  breakdownWrap: { marginTop: 16, gap: 8 },
+  breakdownHead: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
+  breakdownCard: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 10 },
+  breakdownTitleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  breakdownIcon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  breakdownTitle: { fontSize: 17, fontWeight: "800" },
+  breakdownLine: { fontSize: 13.5, fontWeight: "400", lineHeight: 20 },
+
   disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 14, borderRadius: 12, marginTop: 4 },
   disclaimerText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 18 },
 
