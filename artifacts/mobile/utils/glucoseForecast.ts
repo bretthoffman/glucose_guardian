@@ -122,20 +122,40 @@ export function forecastGlucose(input: GlucoseForecastInput): ForecastPoint[] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// Fixed 10-hour window (6 h history + 4 h forecast), hour-locked around "now".
+// Hour-locked time window around "now". The span depends on the selected insulin's speed.
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 const HOUR_MS = 60 * 60 * 1000;
-const HISTORY_HOURS = 6;
-const FORECAST_HOURS = 4;
-/** An hour tick within this of "now" is dropped so it can't collide with the Now marker. */
-const NOW_TICK_HIDE_MS = 25 * 60000;
+
+export interface PredictionWindowConfig {
+  /** Hours of real readings shown before "now". */
+  historyHours: number;
+  /** Hours of projection shown after "now". */
+  forecastHours: number;
+  /** An hour tick within this many minutes of "now" is dropped (avoids colliding with the Now marker). */
+  tickHideMin: number;
+}
+
+/** Fast insulin (rapid/short/regular): a tight 3h-back / 2h-forward view. */
+export const BOLUS_PREDICTION_WINDOW: PredictionWindowConfig = {
+  historyHours: 3,
+  forecastHours: 2,
+  tickHideMin: 25,
+};
+
+/** Long-acting insulin: a wider 6h-back / 4h-forward view (kept ready for when the chart is shown
+ *  in the basal view). Its ticks hide within 35 min of Now since the hours sit closer together. */
+export const BASAL_PREDICTION_WINDOW: PredictionWindowConfig = {
+  historyHours: 6,
+  forecastHours: 4,
+  tickHideMin: 35,
+};
 
 export interface PredictionWindow {
   leftMs: number;
   rightMs: number;
   spanMs: number;
-  /** 0..1 x-position of "now" (floats near 0.6 depending on the minute). */
+  /** 0..1 x-position of "now" (floats near the middle depending on the minute). */
   nowFrac: number;
 }
 
@@ -150,10 +170,13 @@ export function anchorHourMs(nowMs: number): number {
 }
 
 /** Lock the window to whole hours so the axis reads 12pm 1pm 2pm … with "now" floating between. */
-export function predictionWindow(nowMs: number): PredictionWindow {
+export function predictionWindow(
+  nowMs: number,
+  config: PredictionWindowConfig = BOLUS_PREDICTION_WINDOW,
+): PredictionWindow {
   const anchor = anchorHourMs(nowMs);
-  const leftMs = anchor - HISTORY_HOURS * HOUR_MS;
-  const rightMs = anchor + FORECAST_HOURS * HOUR_MS;
+  const leftMs = anchor - config.historyHours * HOUR_MS;
+  const rightMs = anchor + config.forecastHours * HOUR_MS;
   const spanMs = rightMs - leftMs;
   return { leftMs, rightMs, spanMs, nowFrac: (nowMs - leftMs) / spanMs };
 }
@@ -162,7 +185,7 @@ export interface PredictionHourTick {
   ms: number;
   xFrac: number;
   label: string;
-  /** Hidden when within 25 min of "now". */
+  /** Hidden when within `config.tickHideMin` of "now". */
   hidden: boolean;
 }
 
@@ -174,15 +197,19 @@ export function formatHourLabel(ms: number): string {
   return `${h12}${ampm}`;
 }
 
-export function predictionHourTicks(nowMs: number): PredictionHourTick[] {
-  const { leftMs, rightMs, spanMs } = predictionWindow(nowMs);
+export function predictionHourTicks(
+  nowMs: number,
+  config: PredictionWindowConfig = BOLUS_PREDICTION_WINDOW,
+): PredictionHourTick[] {
+  const { leftMs, rightMs, spanMs } = predictionWindow(nowMs, config);
+  const hideMs = config.tickHideMin * 60000;
   const ticks: PredictionHourTick[] = [];
   for (let ms = leftMs; ms <= rightMs + 1; ms += HOUR_MS) {
     ticks.push({
       ms,
       xFrac: (ms - leftMs) / spanMs,
       label: formatHourLabel(ms),
-      hidden: Math.abs(ms - nowMs) <= NOW_TICK_HIDE_MS,
+      hidden: Math.abs(ms - nowMs) <= hideMs,
     });
   }
   return ticks;

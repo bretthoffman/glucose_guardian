@@ -496,7 +496,7 @@ function InsulinLogRow({ insulin, colors, myUserId }: { insulin: InsulinLogEntry
 
 const styles = StyleSheet.create({
   /** Bottom padding clears the floating tab bar so a full day of logs can scroll into view. */
-  scroll: { padding: 16, paddingBottom: 140 },
+  scroll: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 140 },
 
   dayNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   navBtn: { padding: 8 },

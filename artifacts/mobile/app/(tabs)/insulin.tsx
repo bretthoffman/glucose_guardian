@@ -92,6 +92,9 @@ function OpCard({
       onPress={onPress}
       style={({ pressed }) => [
         styles.opCard,
+        // The result card's longer "Suggested Dose" label needs more inner width to keep
+        // "Suggested" on one line without breaking mid-word against the border.
+        def.isResult && styles.opCardResult,
         {
           backgroundColor: withAlpha(def.color, selected ? 0.18 : 0.08),
           borderColor: withAlpha(def.color, selected ? 0.95 : 0.35),
@@ -106,7 +109,7 @@ function OpCard({
           <Text style={[styles.opBadgeText, { color: def.color }]}>{index + 1}</Text>
         )}
       </View>
-      <Text style={[styles.opLabel, { color: def.color }]} numberOfLines={2}>{def.label}</Text>
+      <Text style={[styles.opLabel, { color: def.color }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>{def.label}</Text>
       <Text style={[styles.opValue, { color: def.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
         {fmtU(def.value)}
       </Text>
@@ -824,7 +827,7 @@ export default function InsulinScreen() {
 
             <View style={[styles.doseTotalRow, { borderTopColor: colors.border }]}>
               <View style={styles.doseTotalLabelWrap}>
-                <Text style={[styles.doseTotalLabel, { color: colors.text }]}>
+                <Text style={[styles.doseTotalHeadLabel, { color: colors.textSecondary }]}>
                   {isMinor ? "Ask your adult to give:" : "Suggested Dose"}
                 </Text>
                 <Text style={[styles.doseRoundNote, { color: colors.textMuted }]}>
@@ -877,6 +880,9 @@ export default function InsulinScreen() {
               forecast={forecast}
               currentBG={doseBg.n}
               targetGlucose={targetGlucose}
+              lowThreshold={alertPrefs.lowThreshold}
+              highThreshold={alertPrefs.highThreshold}
+              urgentHighThreshold={alertPrefs.urgentHighThreshold}
               nowMs={nowMs}
               redrawKey={forecastRedrawKey}
               colors={colors}
@@ -1055,7 +1061,7 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingHorizontal: 20, paddingTop: 10 },
 
-  screenHeader: { paddingBottom: 12, borderBottomWidth: 1 },
+  screenHeader: { paddingBottom: 10, borderBottomWidth: 1 },
   screenToggle: {
     flexDirection: "row",
     flexShrink: 1,
@@ -1092,17 +1098,20 @@ const styles = StyleSheet.create({
   insulinDropdownText: { fontSize: 12.5, fontWeight: "600", flexShrink: 1 },
 
   // ── "How your dose is calculated" op cards ──
-  calcHeadRow: { marginTop: 4, marginBottom: 2 },
+  // Vertical margins zeroed here: the 10px reference gaps above/below this label come from
+  // doseCard.marginBottom (above) and opCardsRow.marginTop (below), keeping them symmetric.
+  calcHeadRow: { marginTop: 0, marginBottom: 0 },
   calcHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
   opCardsRow: { flexDirection: "row", alignItems: "stretch", gap: 2, marginTop: 10 },
   opSymbol: { fontSize: 14, fontWeight: "800", alignSelf: "center", width: 12, textAlign: "center" },
   opCard: { flex: 1, minWidth: 0, borderWidth: 1.5, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 4, alignItems: "center", gap: 5 },
+  opCardResult: { paddingHorizontal: 2 },
   // Hollow badge: an outline in the card's accent color with the card background showing through,
   // and the number/checkmark inside painted the same accent color.
   opBadge: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, backgroundColor: "transparent", alignItems: "center", justifyContent: "center" },
   opBadgeText: { fontSize: 10, fontWeight: "800" },
   opLabel: { fontSize: 9.5, fontWeight: "700", textAlign: "center", lineHeight: 12 },
-  opValue: { fontSize: 15, fontWeight: "800", textAlign: "center" },
+  opValue: { fontSize: 9.5, fontWeight: "800", textAlign: "center" },
   calcNote: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, borderRadius: 10, marginTop: 10 },
   calcNoteText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 17 },
 
@@ -1124,7 +1133,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: "700" },
   emptySub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20 },
 
-  doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 8, gap: 10 },
+  doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 10, gap: 10 },
   doseInputRow: { flexDirection: "row", gap: 12, paddingVertical: 2 },
   doseInputGroup: { flex: 1, alignItems: "center", gap: 5 },
   doseInputHead: { flexDirection: "row", alignItems: "center", gap: 6 },
@@ -1142,11 +1151,15 @@ const styles = StyleSheet.create({
 
   doseBreakdown: { borderTopWidth: 1, paddingTop: 12, gap: 10 },
 
-  doseTotalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, paddingTop: 16, marginTop: 16, gap: 10 },
+  doseTotalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, paddingTop: 10, marginTop: 10, gap: 10 },
   /** Lets long labels wrap instead of shoving the units badge off-screen. */
   doseTotalLabelWrap: { flex: 1, minWidth: 0 },
   doseTotalLabel: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
-  doseRoundNote: { fontSize: 11, fontWeight: "400" },
+  // "SUGGESTED DOSE" — matches the "HOW YOUR DOSE IS CALCULATED" head (calcHeadLabel) exactly.
+  doseTotalHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 3 },
+  // "Round as needed" — same font weight/letter-spacing as the head, but NO textTransform so it
+  // stays title case; its size/color/opacity are unchanged.
+  doseRoundNote: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6 },
 
   explainBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 11 },
   explainBtnText: { fontSize: 13, fontWeight: "600" },
@@ -1180,7 +1193,7 @@ const styles = StyleSheet.create({
   },
   insulinTypeBtnText: { fontSize: 11, fontWeight: "700", color: "#fff" },
 
-  doseActionsRow: { flexDirection: "row", gap: 8, marginTop: 14 },
+  doseActionsRow: { flexDirection: "row", gap: 8, marginTop: 10 },
   tookDoseBtn: {
     flex: 1,
     flexDirection: "row",

@@ -27,7 +27,12 @@ import { useFocusEffect } from "expo-router";
 import Colors, { COLORS } from "@/constants/colors";
 import { withAlpha } from "@/constants/theme";
 import { glucoseTone } from "@/constants/theme";
-import { chartValueToY } from "@/utils/cgmChartAxis";
+import {
+  buildAxisLabelSpecs,
+  chartValueToY,
+  formatGlucoseAxisLabel,
+  resolveAxisLabelPositions,
+} from "@/utils/cgmChartAxis";
 import {
   predictionHourTicks,
   predictionWindow,
@@ -36,6 +41,9 @@ import {
 
 const AnimatedRect = Animated.createAnimatedComponent(Rect);
 const AnimatedLine = Animated.createAnimatedComponent(Line);
+
+/** Right-hand y-axis gutter (label width + a little breathing room), matching the app's charts. */
+const Y_AXIS_W = 36;
 
 // Draw-in cadence (ms). A: bulk left→30m-before-Now (fast). B: 30m→10m (slower). C: 10m→Now
 // (slowest). PAUSE at Now (with the blink). D: Now→right, the purple future line.
@@ -62,6 +70,10 @@ interface DosePredictionChartProps {
   forecast: ForecastPoint[];
   currentBG: number;
   targetGlucose: number;
+  /** User's alert thresholds — drive the reference lines + right-axis labels, like the other charts. */
+  lowThreshold: number;
+  highThreshold: number;
+  urgentHighThreshold: number;
   nowMs: number;
   /** Changes when the committed carbs or the effective dose changes → re-draw the future line. */
   redrawKey: string;
@@ -74,6 +86,9 @@ export default function DosePredictionChart({
   forecast,
   currentBG,
   targetGlucose,
+  lowThreshold,
+  highThreshold,
+  urgentHighThreshold,
   nowMs,
   redrawKey,
   colors,
@@ -150,9 +165,22 @@ export default function DosePredictionChart({
       .join(" ");
   }, [forecast, plotW, nowMs, xOf, yOf]);
 
-  const targetY = yOf(targetGlucose);
-  const lowY = yOf(70);
-  const highY = yOf(180);
+  // Right-axis labels + their reference lines, built from the user's thresholds exactly like the
+  // app's other glucose charts (buildAxisLabelSpecs handles the fixed grid ticks + target clamping).
+  const axisLabels = useMemo(
+    () =>
+      resolveAxisLabelPositions(
+        buildAxisLabelSpecs({
+          urgentHighThreshold,
+          highThreshold,
+          targetGlucose,
+          lowThreshold,
+          axisNeutralColor: colors.textMuted,
+        }),
+        H,
+      ),
+    [urgentHighThreshold, highThreshold, targetGlucose, lowThreshold, colors.textMuted, H],
+  );
 
   // ── Animation orchestration ──
   const blinkNow = useCallback(() => {
@@ -215,7 +243,8 @@ export default function DosePredictionChart({
   );
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
-    const w = e.nativeEvent.layout.width;
+    // Reserve the right-axis gutter; the plot (and every x-position) uses the remaining width.
+    const w = Math.max(0, e.nativeEvent.layout.width - Y_AXIS_W);
     setPlotW(w);
     geomRef.current.plotW = w;
     // Layout can land after focus fired — run the pending intro now that we can measure.
@@ -241,49 +270,77 @@ export default function DosePredictionChart({
   return (
     <View style={styles.wrap}>
       <Text style={[styles.head, { color: colors.textSecondary }]}>PROJECTED GLUCOSE IF DOSED NOW</Text>
-      <View style={[styles.plot, { height: H }]} onLayout={onLayout}>
-        {plotW > 0 && (
-          <Svg width={plotW} height={H}>
-            {/* Glucose lines — the ONLY animated layer (revealed by the cover below). */}
-            {histRuns.map((r, i) => (
-              <Polyline
-                key={`h-${i}`}
-                points={r.points}
-                fill="none"
-                stroke={r.color}
-                strokeWidth={2.5}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            ))}
-            {futurePoints.length > 0 && (
-              <Polyline
-                points={futurePoints}
-                fill="none"
-                stroke={COLORS.primary}
-                strokeWidth={2.75}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            )}
+      <View style={styles.chartRow} onLayout={onLayout}>
+        <View style={{ width: plotW, height: H }}>
+          {plotW > 0 && (
+            <Svg width={plotW} height={H}>
+              {/* Glucose lines — the ONLY animated layer (revealed by the cover below). */}
+              {histRuns.map((r, i) => (
+                <Polyline
+                  key={`h-${i}`}
+                  points={r.points}
+                  fill="none"
+                  stroke={r.color}
+                  strokeWidth={2.5}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+              ))}
+              {futurePoints.length > 0 && (
+                <Polyline
+                  points={futurePoints}
+                  fill="none"
+                  stroke={COLORS.primary}
+                  strokeWidth={2.75}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+              )}
 
-            {/* Background-colored cover slides left→right to reveal the reading line. Must match the
-                page background the chart sits on, so the un-drawn area is invisible. */}
-            <AnimatedRect x={revealX} y={0} width={plotW} height={H} fill={colors.background} />
+              {/* Background-colored cover slides left→right to reveal the reading line. Must match the
+                  page background the chart sits on, so the un-drawn area is invisible. */}
+              <AnimatedRect x={revealX} y={0} width={plotW} height={H} fill={colors.background} />
 
-            {/* Static frame drawn ON TOP of the cover so it never animates. */}
-            <Line x1={0} y1={lowY} x2={plotW} y2={lowY} stroke={gridColor} strokeWidth={1} strokeDasharray="4 7" />
-            <Line x1={0} y1={highY} x2={plotW} y2={highY} stroke={gridColor} strokeWidth={1} strokeDasharray="4 7" />
-            <Line
-              x1={0} y1={targetY} x2={plotW} y2={targetY}
-              stroke={COLORS.primary} strokeWidth={1.5} strokeDasharray="5 6" opacity={0.55}
-            />
-            <AnimatedLine
-              x1={xNow} y1={0} x2={xNow} y2={H}
-              stroke={COLORS.primary} strokeWidth={2} opacity={nowBlink}
-            />
-          </Svg>
-        )}
+              {/* Reference lines (neutral grid + threshold colors + target), drawn ON TOP of the cover
+                  so they never animate — one line per right-axis label. */}
+              {axisLabels.map((label) => {
+                const y = yOf(label.value);
+                if (y < -0.5 || y > H + 0.5) return null;
+                const neutral = label.kind === "neutral_grid";
+                const isTarget = label.kind === "target";
+                return (
+                  <Line
+                    key={`gl-${label.kind}-${label.value}`}
+                    x1={0} y1={y} x2={plotW} y2={y}
+                    stroke={neutral ? gridColor : label.color}
+                    strokeWidth={isTarget ? 1.5 : 1}
+                    strokeDasharray={neutral || isTarget ? undefined : "5 6"}
+                    opacity={neutral ? 1 : isTarget ? 0.85 : 0.5}
+                  />
+                );
+              })}
+              <AnimatedLine
+                x1={xNow} y1={0} x2={xNow} y2={H}
+                stroke={COLORS.primary} strokeWidth={2} opacity={nowBlink}
+              />
+            </Svg>
+          )}
+        </View>
+
+        {/* Right y-axis — scale numbers colored by threshold kind, same as the app's other charts. */}
+        <View style={[styles.yAxis, { width: Y_AXIS_W, height: H }]}>
+          {plotW > 0 && axisLabels.map((label) => {
+            if (label.top < -8 || label.top > H - 6) return null;
+            return (
+              <Text
+                key={`${label.kind}-${label.value}`}
+                style={[styles.yLabel, { top: label.top, color: label.color }]}
+              >
+                {formatGlucoseAxisLabel(label.value)}
+              </Text>
+            );
+          })}
+        </View>
       </View>
 
       {/* Hour axis — non-hidden ticks + the purple Now label at its true position. */}
@@ -311,9 +368,18 @@ export default function DosePredictionChart({
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginTop: 18, gap: 10 },
+  wrap: { marginTop: 10, gap: 10 },
   head: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
-  plot: { width: "100%" },
+  chartRow: { flexDirection: "row", alignItems: "flex-start", width: "100%" },
+  yAxis: { position: "relative" },
+  yLabel: {
+    position: "absolute",
+    right: 0,
+    width: 30,
+    textAlign: "right",
+    fontSize: 9.5,
+    fontWeight: "500",
+  },
   axis: { position: "relative", height: 15, marginTop: 2 },
   axisLabel: {
     position: "absolute",

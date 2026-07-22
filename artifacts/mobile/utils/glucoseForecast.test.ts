@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   anchorHourMs,
+  BASAL_PREDICTION_WINDOW,
   forecastGlucose,
   predictionHourTicks,
   predictionWindow,
   type GlucoseForecastInput,
+  type PredictionWindowConfig,
 } from "./glucoseForecast";
 
 /** Local-time millis for a given hour/minute today (the axis math is all local-tz). */
@@ -12,38 +14,62 @@ function at(hour: number, minute: number): number {
   return new Date(2026, 6, 22, hour, minute, 0, 0).getTime();
 }
 
-const visibleLabels = (ms: number) =>
-  predictionHourTicks(ms).filter((t) => !t.hidden).map((t) => t.label);
+const visibleLabels = (ms: number, config?: PredictionWindowConfig) =>
+  predictionHourTicks(ms, config).filter((t) => !t.hidden).map((t) => t.label);
 
-describe("prediction hour axis (25-min rounding rule)", () => {
+// Default (bolus) window: 3h back / 2h forward, hide ticks within 25 min of Now.
+describe("prediction hour axis — bolus window (3h/2h, 25-min hide)", () => {
   it("6:18pm — drops the 6pm tick (within 25 min before Now)", () => {
-    expect(visibleLabels(at(18, 18))).toEqual([
+    expect(visibleLabels(at(18, 18))).toEqual(["3pm", "4pm", "5pm", "7pm", "8pm"]);
+  });
+
+  it("6:30pm — keeps both 6pm and 7pm (exactly 30 min, outside the 25-min window)", () => {
+    expect(visibleLabels(at(18, 30))).toEqual(["3pm", "4pm", "5pm", "6pm", "7pm", "8pm"]);
+  });
+
+  it("6:36pm — anchor rounds up to 7pm; drops the 7pm tick, window shifts to 4pm–9pm", () => {
+    expect(visibleLabels(at(18, 36))).toEqual(["4pm", "5pm", "6pm", "8pm", "9pm"]);
+  });
+
+  it("spans exactly 5 hours with Now floating", () => {
+    const w = predictionWindow(at(18, 18));
+    expect(w.spanMs).toBe(5 * 60 * 60 * 1000);
+    expect(w.nowFrac).toBeCloseTo((3 * 60 + 18) / 300, 5); // 3h18m into a 5h span
+  });
+});
+
+// Long-acting window: 6h back / 4h forward, hide ticks within 35 min of Now.
+describe("prediction hour axis — basal window (6h/4h, 35-min hide)", () => {
+  const cfg = BASAL_PREDICTION_WINDOW;
+
+  it("6:24pm — keeps 7pm (36 min away, outside the 35-min window)", () => {
+    expect(visibleLabels(at(18, 24), cfg)).toEqual([
       "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "7pm", "8pm", "9pm", "10pm",
     ]);
   });
 
-  it("6:30pm — keeps both 6pm and 7pm (exactly 30 min, outside the 25-min window)", () => {
-    expect(visibleLabels(at(18, 30))).toEqual([
-      "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "6pm", "7pm", "8pm", "9pm", "10pm",
+  it("6:25pm — drops 7pm (exactly 35 min away)", () => {
+    expect(visibleLabels(at(18, 25), cfg)).toEqual([
+      "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "8pm", "9pm", "10pm",
     ]);
   });
 
-  it("6:36pm — anchor rounds up to 7pm; drops the 7pm tick, window shifts to 1pm–11pm", () => {
-    expect(visibleLabels(at(18, 36))).toEqual([
+  it("6:36pm — anchor rounds up to 7pm; 6pm reappears (36 min away), 7pm hidden", () => {
+    expect(visibleLabels(at(18, 36), cfg)).toEqual([
       "1pm", "2pm", "3pm", "4pm", "5pm", "6pm", "8pm", "9pm", "10pm", "11pm",
     ]);
   });
 
+  it("spans exactly 10 hours", () => {
+    expect(predictionWindow(at(18, 18), cfg).spanMs).toBe(10 * 60 * 60 * 1000);
+  });
+});
+
+describe("anchorHourMs", () => {
   it("anchors to the nearest hour with :30 rounding down", () => {
     expect(anchorHourMs(at(18, 18))).toBe(at(18, 0));
     expect(anchorHourMs(at(18, 30))).toBe(at(18, 0));
     expect(anchorHourMs(at(18, 36))).toBe(at(19, 0));
-  });
-
-  it("puts Now near 60% and spans exactly 10 hours", () => {
-    const w = predictionWindow(at(18, 18));
-    expect(w.spanMs).toBe(10 * 60 * 60 * 1000);
-    expect(w.nowFrac).toBeCloseTo((6 * 60 + 18) / 600, 5); // 6h18m into a 10h span
   });
 });
 
