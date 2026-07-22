@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
@@ -551,12 +551,7 @@ export default function InsulinScreen() {
 
       {/* ── Title + insulin-type dropdown (top-right) ── */}
       <View style={styles.titleRow}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[styles.pageTitle, { color: colors.text }]}>Dose Calculator</Text>
-          <Text style={[styles.pageSub, { color: colors.textSecondary }]} numberOfLines={1}>
-            We'll show you how your dose is calculated.
-          </Text>
-        </View>
+        <Text style={[styles.pageTitle, { color: colors.text, flex: 1 }]} numberOfLines={1}>Dose Calculator</Text>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Choose insulin type"
@@ -608,36 +603,49 @@ export default function InsulinScreen() {
           </View>
         ) : (
         <View style={styles.doseInputRow}>
+          {/* Carbs — big tappable number */}
           <View style={styles.doseInputGroup}>
-            <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>Carbs (g)</Text>
-            <TextInput
-              style={[styles.doseInput, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border }]}
-              value={carbInput}
-              onChangeText={(v) => setCarbInput(v.replace(/[^0-9.]/g, ""))}
-              keyboardType="numeric"
-              placeholder="0"
-              placeholderTextColor={colors.textMuted}
-            />
+            <View style={styles.doseInputHead}>
+              <MaterialCommunityIcons name="silverware-fork-knife" size={15} color={COLORS.success} />
+              <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>CARBS</Text>
+            </View>
+            <View style={styles.doseValueRow}>
+              <TextInput
+                style={[styles.doseBigInput, { color: colors.text }]}
+                value={carbInput}
+                onChangeText={(v) => setCarbInput(v.replace(/[^0-9.]/g, ""))}
+                keyboardType="numeric"
+                placeholder="0"
+                placeholderTextColor={colors.textMuted}
+              />
+              <Text style={[styles.doseUnit, { color: colors.textMuted }]}>g</Text>
+            </View>
+            <Text style={[styles.doseHint, { color: colors.textMuted }]}>Tap to edit</Text>
           </View>
+
           <View style={styles.doseInputDivider} />
+
+          {/* Current BG — big tappable number + target */}
           <View style={styles.doseInputGroup}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>Current BG</Text>
+            <View style={styles.doseInputHead}>
+              <Feather name="droplet" size={14} color={COLORS.primary} />
+              <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>CURRENT BG</Text>
               {latest && !bgManual && (
                 <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}>
                   <Text style={[styles.liveTagText, { color: COLORS.success }]}>LIVE</Text>
                 </View>
               )}
             </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={styles.doseValueRow}>
               <TextInput
-                style={[styles.doseInput, { flex: 1, backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: bgManual ? COLORS.primary : colors.border }]}
+                style={[styles.doseBigInput, { color: bgManual ? COLORS.primary : colors.text }]}
                 value={bgManual ? bgInput : doseBg?.label ?? ""}
                 onChangeText={(v) => { setBgInput(v.replace(/[^0-9]/g, "")); setBgManual(true); }}
                 keyboardType="numeric"
-                placeholder="mg/dL"
+                placeholder="—"
                 placeholderTextColor={colors.textMuted}
               />
+              <Text style={[styles.doseUnit, { color: colors.textMuted }]}>mg/dL</Text>
               {bgManual && latest && (
                 <Pressable
                   onPress={() => { setBgInput(String(latest.glucose)); setBgManual(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
@@ -647,14 +655,20 @@ export default function InsulinScreen() {
                 </Pressable>
               )}
             </View>
+            <View style={[styles.targetPill, { backgroundColor: colors.backgroundTertiary }]}>
+              <Text style={[styles.targetPillText, { color: colors.textSecondary }]}>Target: {targetGlucose} mg/dL</Text>
+            </View>
           </View>
         </View>
         )}
 
-        {!isBasalMode && dose && doseBg && (
-          <>
-            <DoseWarningsList warnings={dose.warnings} />
+        {!isBasalMode && dose && (
+          <DoseWarningsList warnings={dose.warnings} />
+        )}
+      </View>
 
+      {!isBasalMode && dose && doseBg && (
+        <>
             {/* ── How your dose is calculated: tappable colored operation cards ── */}
             <View style={[styles.calcHeadRow, { borderTopColor: colors.border }]}>
               <Text style={[styles.calcHeadLabel, { color: colors.textSecondary }]}>HOW YOUR DOSE IS CALCULATED</Text>
@@ -861,7 +875,6 @@ export default function InsulinScreen() {
             </View>
           </>
         )}
-      </View>
 
       {history.length === 0 && (
         <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -961,7 +974,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10 },
 
   // ── Title row + insulin dropdown ──
-  titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 14 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
   pageTitle: { fontSize: 22, fontWeight: "800", letterSpacing: -0.4 },
   pageSub: { fontSize: 12.5, fontWeight: "500", marginTop: 2 },
   insulinDropdown: {
@@ -971,7 +984,7 @@ const styles = StyleSheet.create({
   insulinDropdownText: { fontSize: 12.5, fontWeight: "600", flexShrink: 1 },
 
   // ── "How your dose is calculated" op cards ──
-  calcHeadRow: { borderTopWidth: 1, paddingTop: 14, marginTop: 2 },
+  calcHeadRow: { marginTop: 4, marginBottom: 2 },
   calcHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
   opCardsRow: { flexDirection: "row", alignItems: "stretch", gap: 2, marginTop: 10 },
   opSymbol: { fontSize: 14, fontWeight: "800", alignSelf: "center", width: 12, textAlign: "center" },
@@ -1001,18 +1014,25 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: "700" },
   emptySub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20 },
 
-  doseCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 20, gap: 14 },
-  doseInputRow: { flexDirection: "row", gap: 12 },
-  doseInputGroup: { flex: 1, gap: 6 },
-  doseInputLabel: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 },
+  doseCard: { borderRadius: 16, borderWidth: 1, padding: 18, marginBottom: 8, gap: 12 },
+  doseInputRow: { flexDirection: "row", gap: 12, paddingVertical: 4 },
+  doseInputGroup: { flex: 1, alignItems: "center", gap: 6 },
+  doseInputHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  doseInputLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
+  doseValueRow: { flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 4 },
+  doseBigInput: { fontSize: 40, fontWeight: "800", textAlign: "center", minWidth: 40, padding: 0 },
+  doseUnit: { fontSize: 15, fontWeight: "600" },
+  doseHint: { fontSize: 12, fontWeight: "500", marginTop: 2 },
+  targetPill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10, marginTop: 6 },
+  targetPillText: { fontSize: 12, fontWeight: "600" },
   doseInput: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontWeight: "700", textAlign: "center" },
-  doseInputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.15)", marginVertical: 4 },
+  doseInputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.18)", marginVertical: 2 },
   liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   liveTagText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.8 },
 
   doseBreakdown: { borderTopWidth: 1, paddingTop: 12, gap: 10 },
 
-  doseTotalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, paddingTop: 14, gap: 10 },
+  doseTotalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, paddingTop: 16, marginTop: 16, gap: 10 },
   /** Lets long labels wrap instead of shoving the units badge off-screen. */
   doseTotalLabelWrap: { flex: 1, minWidth: 0 },
   doseTotalLabel: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
@@ -1050,7 +1070,7 @@ const styles = StyleSheet.create({
   },
   insulinTypeBtnText: { fontSize: 11, fontWeight: "700", color: "#fff" },
 
-  doseActionsRow: { flexDirection: "row", gap: 8 },
+  doseActionsRow: { flexDirection: "row", gap: 8, marginTop: 14 },
   tookDoseBtn: {
     flex: 1,
     flexDirection: "row",
