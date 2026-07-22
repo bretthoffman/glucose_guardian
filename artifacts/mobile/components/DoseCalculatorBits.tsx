@@ -150,10 +150,10 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.65)",
     marginBottom: 4,
   },
-  doseTotalBadge: { flexDirection: "row", alignItems: "baseline", gap: 4, backgroundColor: COLORS.primary, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, minWidth: 88, justifyContent: "center" },
-  doseTotalValue: { fontSize: 30, fontWeight: "700", color: "#fff" },
+  doseTotalBadge: { flexDirection: "row", alignItems: "baseline", gap: 4, backgroundColor: COLORS.primary, paddingHorizontal: 18, paddingVertical: 5, borderRadius: 14, minWidth: 88, justifyContent: "center" },
+  doseTotalValue: { fontSize: 22, fontWeight: "700", color: "#fff" },
   doseTotalInput: {
-    fontSize: 30,
+    fontSize: 22,
     fontWeight: "700",
     color: "#fff",
     minWidth: 52,

@@ -712,7 +712,7 @@ export default function InsulinScreen() {
                   <View style={[styles.breakdownCard, { backgroundColor: withAlpha(def.color, 0.08), borderColor: withAlpha(def.color, 0.4) }]}>
                     <View style={styles.breakdownTitleRow}>
                       <View style={[styles.breakdownIcon, { borderColor: withAlpha(def.color, 0.5) }]}>
-                        <Feather name={def.icon} size={16} color={def.color} />
+                        <Feather name={def.icon} size={13} color={def.color} />
                       </View>
                       <Text style={[styles.breakdownTitle, { color: def.color }]}>{ex.title}</Text>
                     </View>
@@ -975,7 +975,7 @@ const styles = StyleSheet.create({
 
   // ── Title row + insulin dropdown ──
   titleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
-  pageTitle: { fontSize: 22, fontWeight: "800", letterSpacing: -0.4 },
+  pageTitle: { fontSize: 18, fontWeight: "700" },
   pageSub: { fontSize: 12.5, fontWeight: "500", marginTop: 2 },
   insulinDropdown: {
     flexDirection: "row", alignItems: "center", gap: 6,
@@ -999,9 +999,9 @@ const styles = StyleSheet.create({
   // ── Collapsible "Your Dose Breakdown" ──
   breakdownWrap: { marginTop: 16, gap: 8 },
   breakdownHead: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
-  breakdownCard: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 10 },
-  breakdownTitleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  breakdownIcon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  breakdownCard: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 13, gap: 7 },
+  breakdownTitleRow: { flexDirection: "row", alignItems: "center", gap: 9 },
+  breakdownIcon: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   breakdownTitle: { fontSize: 17, fontWeight: "800" },
   breakdownLine: { fontSize: 13.5, fontWeight: "400", lineHeight: 20 },
 
@@ -1014,16 +1014,16 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: "700" },
   emptySub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20 },
 
-  doseCard: { borderRadius: 16, borderWidth: 1, padding: 18, marginBottom: 8, gap: 12 },
-  doseInputRow: { flexDirection: "row", gap: 12, paddingVertical: 4 },
-  doseInputGroup: { flex: 1, alignItems: "center", gap: 6 },
+  doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 8, gap: 10 },
+  doseInputRow: { flexDirection: "row", gap: 12, paddingVertical: 2 },
+  doseInputGroup: { flex: 1, alignItems: "center", gap: 5 },
   doseInputHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   doseInputLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-  doseValueRow: { flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 4 },
-  doseBigInput: { fontSize: 40, fontWeight: "800", textAlign: "center", minWidth: 40, padding: 0 },
-  doseUnit: { fontSize: 15, fontWeight: "600" },
-  doseHint: { fontSize: 12, fontWeight: "500", marginTop: 2 },
-  targetPill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10, marginTop: 6 },
+  doseValueRow: { flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 2 },
+  doseBigInput: { fontSize: 20, fontWeight: "700", textAlign: "center", minWidth: 30, padding: 0 },
+  doseUnit: { fontSize: 12, fontWeight: "500" },
+  doseHint: { fontSize: 12, fontWeight: "500", marginTop: 1 },
+  targetPill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10, marginTop: 4 },
   targetPillText: { fontSize: 12, fontWeight: "600" },
   doseInput: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontWeight: "700", textAlign: "center" },
   doseInputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.18)", marginVertical: 2 },

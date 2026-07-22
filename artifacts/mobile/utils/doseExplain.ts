@@ -61,15 +61,14 @@ export function doseCardExplanation(key: DoseCardKey, d: DoseExplainInput): Dose
   switch (key) {
     case "correction": {
       const foldedTrend = d.trendAdjustment;
+      // No intro line for this first card (removed by design) — jump straight to the numbers.
       const lines: string[] = [];
       if (d.correctionSuppressed) {
         lines.push(
-          `Correct High BG brings you back toward your target when you're running high.`,
           `Your reading of ${d.bg} mg/dL is at or below your target of ${d.target} mg/dL, so no correction is added right now.`,
         );
       } else {
         lines.push(
-          `Correct High BG brings you back toward your target when you're running high.`,
           `Your reading is ${d.bg} mg/dL and your target is ${d.target} mg/dL. With a correction factor of 1 unit per ${d.correctionFactor} mg/dL, that's (${d.bg} − ${d.target}) ÷ ${d.correctionFactor} = ${u(d.correctionInsulin)}.`,
         );
       }

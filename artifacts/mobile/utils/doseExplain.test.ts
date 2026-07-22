@@ -28,6 +28,13 @@ describe("doseCardExplanation", () => {
     expect(e.title).toBe("Correct High BG");
     expect(e.lines.join(" ")).toContain("(364 − 120) ÷ 50");
     expect(e.lines.join(" ")).toContain("4.88u");
+    // The generic intro line was removed for this first card only — it leads with the numbers.
+    expect(e.lines.join(" ")).not.toContain("brings you back toward your target");
+  });
+
+  it("keeps the intro line on the other cards (only correction dropped it)", () => {
+    expect(doseCardExplanation("carb", base).lines[0]).toContain("Carb Dose covers");
+    expect(doseCardExplanation("activeInsulin", base).lines[0]).toContain("Active Insulin is");
   });
 
   it("folds a non-zero trend adjustment into Correct High BG", () => {
