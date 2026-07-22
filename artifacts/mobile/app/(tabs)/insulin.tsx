@@ -830,11 +830,6 @@ export default function InsulinScreen() {
                 <Text style={[styles.doseTotalHeadLabel, { color: colors.textSecondary }]}>
                   {isMinor ? "Ask your adult to give:" : "Suggested Dose"}
                 </Text>
-                <Text style={[styles.doseRoundNote, { color: colors.textMuted }]}>
-                  {dose.totalRaw !== dose.totalDose
-                    ? `Raw ${dose.totalRaw}u → round as needed`
-                    : "Round as needed"}
-                </Text>
               </View>
               <EditableDoseTotalBadge
                 effectiveDose={effectiveDose}
@@ -1156,10 +1151,7 @@ const styles = StyleSheet.create({
   doseTotalLabelWrap: { flex: 1, minWidth: 0 },
   doseTotalLabel: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
   // "SUGGESTED DOSE" — matches the "HOW YOUR DOSE IS CALCULATED" head (calcHeadLabel) exactly.
-  doseTotalHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 3 },
-  // "Round as needed" — same font weight/letter-spacing as the head, but NO textTransform so it
-  // stays title case; its size/color/opacity are unchanged.
-  doseRoundNote: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6 },
+  doseTotalHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
 
   explainBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 11 },
   explainBtnText: { fontSize: 13, fontWeight: "600" },
