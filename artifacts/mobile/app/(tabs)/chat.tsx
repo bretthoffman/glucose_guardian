@@ -480,7 +480,9 @@ export default function ChatScreen() {
     </>
   );
 
-  const renderThreadView = (thread: ActiveThread) => (
+  // `inline` = the thread is the whole Chat screen (chat off), so the input must clear the floating
+  // tab bar; in the modal (chat on) the tab bar is covered, so only the safe area is reserved.
+  const renderThreadView = (thread: ActiveThread, inline: boolean) => (
     <>
       <View style={[styles.modalTopBar, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <Pressable style={styles.modalCloseBtn} onPress={() => setActiveThread(null)} accessibilityLabel="Back to messages">
@@ -494,7 +496,13 @@ export default function ChatScreen() {
       {thread.kind === "doctor" ? (
         <DoctorMessaging colors={colors} isDoctor={false} />
       ) : (
-        <CareThreadMessaging colors={colors} threadKey={thread.threadKey} title={thread.name} />
+        <CareThreadMessaging
+          colors={colors}
+          threadKey={thread.threadKey}
+          title={thread.name}
+          bottomSpace={inline ? bottomPadding + 84 : insets.bottom + 12}
+          keyboardOffset={0}
+        />
       )}
     </>
   );
@@ -550,14 +558,14 @@ export default function ChatScreen() {
         onRequestClose={() => setShowMessages(false)}
       >
         <View style={[styles.root, { backgroundColor: colors.background }]}>
-          {activeThread === null ? renderThreadList(() => setShowMessages(false)) : renderThreadView(activeThread)}
+          {activeThread === null ? renderThreadList(() => setShowMessages(false)) : renderThreadView(activeThread, false)}
         </View>
       </Modal>
 
       {chatLocked ? (
         // AI chat is off for this access code — the Chat page becomes the Messages page directly.
         <View style={{ flex: 1 }}>
-          {activeThread === null ? renderThreadList() : renderThreadView(activeThread)}
+          {activeThread === null ? renderThreadList() : renderThreadView(activeThread, true)}
         </View>
       ) : (
        <KeyboardAvoidingView

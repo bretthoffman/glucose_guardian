@@ -1954,7 +1954,7 @@ const styles = StyleSheet.create({
   dlCheckbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   doctorInfo: { fontSize: 14, fontWeight: "400" },
 
-  foodLogCount: { fontSize: 13, fontWeight: "400", marginTop: -8 },
+  foodLogCount: { fontSize: 13, fontWeight: "400", marginTop: 2 },
   foodLogRow: { paddingVertical: 10, borderBottomWidth: 1, gap: 2 },
   foodLogName: { fontSize: 14, fontWeight: "500" },
   foodLogMeta: { fontSize: 12, fontWeight: "400" },

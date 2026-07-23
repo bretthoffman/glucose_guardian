@@ -11,7 +11,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useMessages, type CareMessage } from "@/context/MessagesContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
@@ -52,12 +51,14 @@ interface Props {
   threadKey: string;
   /** The other participant's name (for empty-state + reply placeholder copy). */
   title: string;
+  /** Bottom padding under the input bar so it clears the floating tab bar (inline) or safe area (modal). */
+  bottomSpace: number;
+  /** KeyboardAvoidingView vertical offset for this rendering context. */
+  keyboardOffset: number;
 }
 
 /** One cross-account conversation (guardian↔code / code↔code), backed by MessagesContext. */
-export default function CareThreadMessaging({ colors, threadKey, title }: Props) {
-  const insets = useSafeAreaInsets();
-  const tabBarHeight = 49 + insets.bottom;
+export default function CareThreadMessaging({ colors, threadKey, title, bottomSpace, keyboardOffset }: Props) {
   const { openThread, sendMessage, markRead } = useMessages();
   const [messages, setMessages] = useState<CareMessage[]>([]);
   const [input, setInput] = useState("");
@@ -101,7 +102,7 @@ export default function CareThreadMessaging({ colors, threadKey, title }: Props)
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={tabBarHeight}
+      keyboardVerticalOffset={keyboardOffset}
     >
       <FlatList
         ref={flatListRef}
@@ -163,7 +164,7 @@ export default function CareThreadMessaging({ colors, threadKey, title }: Props)
         )}
       />
 
-      <View style={[styles.inputBar, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: tabBarHeight }]}>
+      <View style={[styles.inputBar, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: bottomSpace }]}>
         <TextInput
           style={[styles.input, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, color: colors.text }]}
           placeholder={`Message ${title}…`}
