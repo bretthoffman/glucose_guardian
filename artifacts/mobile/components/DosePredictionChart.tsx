@@ -280,6 +280,16 @@ export default function DosePredictionChart({
         <View style={{ width: plotW, height: H }}>
           {plotW > 0 && (
             <Svg width={plotW} height={H}>
+              {/* Target line drawn FIRST (underneath) so the glucose reading line always renders in
+                  front of it. */}
+              {(() => {
+                const t = axisLabels.find((l) => l.kind === "target");
+                if (!t) return null;
+                const y = yOf(t.value);
+                if (y < -0.5 || y > H + 0.5) return null;
+                return <Line x1={0} y1={y} x2={plotW} y2={y} stroke={t.color} strokeWidth={1.5} opacity={0.85} />;
+              })()}
+
               {/* Glucose lines — the ONLY animated layer (revealed by the cover below). */}
               {histRuns.map((r, i) => (
                 <Polyline
@@ -307,21 +317,22 @@ export default function DosePredictionChart({
                   card surface the chart sits on, so the un-drawn area is invisible. */}
               <AnimatedRect x={revealX} y={0} width={plotW} height={H} fill={colors.card} />
 
-              {/* Reference lines (neutral grid + threshold colors + target), drawn ON TOP of the cover
-                  so they never animate — one line per right-axis label. */}
+              {/* Reference lines (neutral grid + threshold colors), drawn ON TOP of the cover so they
+                  never animate — one line per right-axis label. The target is excluded here; it's
+                  drawn underneath the glucose line above. */}
               {axisLabels.map((label) => {
+                if (label.kind === "target") return null;
                 const y = yOf(label.value);
                 if (y < -0.5 || y > H + 0.5) return null;
                 const neutral = label.kind === "neutral_grid";
-                const isTarget = label.kind === "target";
                 return (
                   <Line
                     key={`gl-${label.kind}-${label.value}`}
                     x1={0} y1={y} x2={plotW} y2={y}
                     stroke={neutral ? gridColor : label.color}
-                    strokeWidth={isTarget ? 1.5 : 1}
-                    strokeDasharray={neutral || isTarget ? undefined : "5 6"}
-                    opacity={neutral ? 1 : isTarget ? 0.85 : 0.5}
+                    strokeWidth={1}
+                    strokeDasharray={neutral ? undefined : "5 6"}
+                    opacity={neutral ? 1 : 0.5}
                   />
                 );
               })}

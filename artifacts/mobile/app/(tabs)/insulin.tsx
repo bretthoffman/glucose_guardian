@@ -169,8 +169,7 @@ export default function InsulinScreen() {
   const [pendingInsulinLabel, setPendingInsulinLabel] = useState<string | null>(null);
   // Which colored operation card is expanded in "Your Dose Breakdown" (null = collapsed by default).
   const [expandedCard, setExpandedCard] = useState<DoseCardKey | null>(null);
-  // Suggested-dose window toggles: reveal the calculation cards / the prediction graph on demand.
-  const [showCalc, setShowCalc] = useState(false);
+  // Prediction graph is revealed on demand by the "See Prediction" toggle.
   const [showPrediction, setShowPrediction] = useState(false);
 
   // ── "I just took this dose" — green until the next successful CGM sync ──
@@ -779,12 +778,70 @@ export default function InsulinScreen() {
 
       {!isBasalMode && dose && doseBg && (
         <>
-          {/* Divider above the suggested-dose window (the window sits below it). */}
-          <View style={[styles.sectionDivider, { borderTopColor: colors.border }]} />
+          {/* ── How your dose is calculated — ALWAYS on, floating between the two windows. Only the
+              colored cards + the explanation window carry the card surface; the label/operators
+              float on the page. ── */}
+          <View key="calc-head" style={styles.calcHeadRow}>
+            <Text style={[styles.calcHeadLabel, { color: colors.textSecondary }]}>HOW YOUR DOSE IS CALCULATED</Text>
+          </View>
+          <View key="op-cards" style={styles.opCardsRow}>
+            {opCards.map((c, i) => (
+              <React.Fragment key={c.key}>
+                {i > 0 && (
+                  <Text style={[styles.opSymbol, { color: colors.textMuted }]}>{OP_SYMBOLS[i - 1]}</Text>
+                )}
+                <OpCard
+                  def={c}
+                  selected={expandedCard === c.key}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    // The breakdown opens within the always-visible calc section (no scroll needed).
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setExpandedCard((prev) => (prev === c.key ? null : c.key));
+                  }}
+                  colors={colors}
+                />
+              </React.Fragment>
+            ))}
+          </View>
+          {dose.activeInsulinUnits > 0 && (
+            <View key="calc-note" style={[styles.calcNote, { backgroundColor: colors.backgroundTertiary }]}>
+              <Feather name="zap" size={12} color={COLORS.primary} />
+              <Text style={[styles.calcNoteText, { color: colors.textSecondary }]}>
+                We subtract active insulin because it's already working in your body.
+              </Text>
+            </View>
+          )}
 
-          <View style={[styles.suggestCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {/* Your Dose Breakdown — white interior, colored outline only, default text. */}
+          {expandedCard != null && (() => {
+            const def = opCards.find((c) => c.key === expandedCard);
+            if (!def) return null;
+            const ex = doseCardExplanation(expandedCard, explainInput);
+            return (
+              <View key="breakdown" style={styles.breakdownWrap}>
+                <Text style={[styles.breakdownHead, { color: colors.textSecondary }]}>YOUR DOSE BREAKDOWN</Text>
+                <View style={[styles.breakdownCard, { backgroundColor: colors.card, borderColor: def.color }]}>
+                  <View style={styles.breakdownTitleRow}>
+                    <View style={[styles.breakdownIcon, { borderColor: def.color }]}>
+                      <Feather name={def.icon} size={13} color={def.color} />
+                    </View>
+                    <Text style={[styles.breakdownTitle, { color: colors.text }]}>{ex.title}</Text>
+                  </View>
+                  {ex.lines.map((line, li) => (
+                    <Text key={li} style={[styles.breakdownLine, { color: colors.textSecondary }]}>{line}</Text>
+                  ))}
+                </View>
+              </View>
+            );
+          })()}
+
+          {/* Divider above the suggested-dose window (the window sits below it). */}
+          <View key="divider" style={[styles.sectionDivider, { borderTopColor: colors.border }]} />
+
+          <View key="suggest" style={[styles.suggestCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {/* Suggested Dose + editable badge */}
-            <View key="total" style={styles.suggestTotalRow}>
+            <View style={styles.suggestTotalRow}>
               <View style={styles.doseTotalLabelWrap}>
                 <Text style={[styles.doseTotalHeadLabel, { color: colors.textSecondary }]}>
                   {isMinor ? "Ask your adult to give:" : "Suggested Dose"}
@@ -804,109 +861,19 @@ export default function InsulinScreen() {
               />
             </View>
 
-            {/* Actions: See Calculation (toggle) + I Just Took This Dose */}
-            <View key="actions" style={[styles.doseActionsRow, { marginTop: 0 }]}>
+            {/* Actions: See Prediction (toggle) + I Just Took This Dose. See Prediction is disabled
+                exactly like Took Dose when there's no dose (faded, not clickable). */}
+            <View style={[styles.doseActionsRow, { marginTop: 0 }]}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityState={{ expanded: showCalc }}
-                accessibilityLabel="See calculation"
-                style={({ pressed }) => [
-                  styles.explainBtn,
-                  {
-                    flex: 1,
-                    backgroundColor: showCalc ? COLORS.primary + "2E" : COLORS.primary + "18",
-                    borderColor: showCalc ? COLORS.primary : "transparent",
-                    opacity: pressed ? 0.7 : 1,
-                  },
-                ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  if (!showCalc) pendingScrollRef.current = true; // scroll only when opening
-                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                  setShowCalc((v) => !v);
-                }}
-              >
-                <Feather name="bar-chart-2" size={13} color={COLORS.primary} />
-                <Text style={[styles.explainBtnText, { color: COLORS.primary }]}>See Calculation</Text>
-              </Pressable>
-              {tookDoseButton}
-            </View>
-
-            {/* ── How your dose is calculated — revealed by "See Calculation" ── */}
-            {showCalc && (
-              <View key="calc" style={styles.calcReveal}>
-                <View style={styles.calcHeadRow}>
-                  <Text style={[styles.calcHeadLabel, { color: colors.textSecondary }]}>HOW YOUR DOSE IS CALCULATED</Text>
-                </View>
-                <View style={styles.opCardsRow}>
-                  {opCards.map((c, i) => (
-                    <React.Fragment key={c.key}>
-                      {i > 0 && (
-                        <Text style={[styles.opSymbol, { color: colors.textMuted }]}>{OP_SYMBOLS[i - 1]}</Text>
-                      )}
-                      <OpCard
-                        def={c}
-                        selected={expandedCard === c.key}
-                        onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          const opening = expandedCard !== c.key; // opening a card's explanation
-                          if (opening) pendingScrollRef.current = true;
-                          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                          setExpandedCard((prev) => (prev === c.key ? null : c.key));
-                        }}
-                        colors={colors}
-                      />
-                    </React.Fragment>
-                  ))}
-                </View>
-                {dose.activeInsulinUnits > 0 && (
-                  <View style={[styles.calcNote, { backgroundColor: colors.backgroundTertiary }]}>
-                    <Feather name="zap" size={12} color={COLORS.primary} />
-                    <Text style={[styles.calcNoteText, { color: colors.textSecondary }]}>
-                      We subtract active insulin because it's already working in your body.
-                    </Text>
-                  </View>
-                )}
-
-                {/* Your Dose Breakdown — white interior, colored outline only, default text. */}
-                {expandedCard != null && (() => {
-                  const def = opCards.find((c) => c.key === expandedCard);
-                  if (!def) return null;
-                  const ex = doseCardExplanation(expandedCard, explainInput);
-                  return (
-                    <View style={styles.breakdownWrap}>
-                      <Text style={[styles.breakdownHead, { color: colors.textSecondary }]}>YOUR DOSE BREAKDOWN</Text>
-                      <View style={[styles.breakdownCard, { backgroundColor: colors.card, borderColor: def.color }]}>
-                        <View style={styles.breakdownTitleRow}>
-                          <View style={[styles.breakdownIcon, { borderColor: def.color }]}>
-                            <Feather name={def.icon} size={13} color={def.color} />
-                          </View>
-                          <Text style={[styles.breakdownTitle, { color: colors.text }]}>{ex.title}</Text>
-                        </View>
-                        {ex.lines.map((line, li) => (
-                          <Text key={li} style={[styles.breakdownLine, { color: colors.textSecondary }]}>{line}</Text>
-                        ))}
-                      </View>
-                    </View>
-                  );
-                })()}
-              </View>
-            )}
-
-            {/* ── See Prediction (toggle) — only offered when there's an actual dose to project,
-                the same rule that gates the graph itself. ── */}
-            {effectiveDose > 0 && (
-              <Pressable
-                key="predict-btn"
-                accessibilityRole="button"
-                accessibilityState={{ expanded: showPrediction }}
+                accessibilityState={{ expanded: showPrediction, disabled: effectiveDose <= 0 }}
                 accessibilityLabel="See prediction"
+                disabled={effectiveDose <= 0}
                 style={({ pressed }) => [
-                  styles.explainBtn,
+                  styles.tookDoseBtn,
                   {
-                    backgroundColor: showPrediction ? COLORS.primary + "2E" : COLORS.primary + "18",
-                    borderColor: showPrediction ? COLORS.primary : "transparent",
-                    opacity: pressed ? 0.7 : 1,
+                    backgroundColor: COLORS.primary,
+                    opacity: pressed ? 0.8 : effectiveDose <= 0 ? 0.5 : 1,
                   },
                 ]}
                 onPress={() => {
@@ -916,10 +883,11 @@ export default function InsulinScreen() {
                   setShowPrediction((v) => !v);
                 }}
               >
-                <Feather name="trending-up" size={13} color={COLORS.primary} />
-                <Text style={[styles.explainBtnText, { color: COLORS.primary }]}>See Prediction</Text>
+                <Feather name="trending-up" size={13} color="#fff" />
+                <Text style={styles.tookDoseBtnText}>See Prediction</Text>
               </Pressable>
-            )}
+              {tookDoseButton}
+            </View>
 
             {/* Graph — revealed by "See Prediction"; the window grows to wrap it. It re-mounts (and
                 re-animates from the left) on each open, and only when there's a dose to project. */}
@@ -1211,12 +1179,11 @@ const styles = StyleSheet.create({
 
   // ── Suggested-dose window (wraps the dose result, the See Calculation / See Prediction toggles,
   //    and whatever they reveal). Same surface as the carbs/BG card. ──
-  sectionDivider: { borderTopWidth: 1, marginBottom: 18 },
+  sectionDivider: { borderTopWidth: 1, marginTop: 20, marginBottom: 18 },
   suggestCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 20, gap: 14 },
   // baseline so "SUGGESTED DOSE" stays in line with the dose value in the pill, regardless of the
   // "Tap to edit" / recommended-dose line that sits below the pill.
   suggestTotalRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 10 },
-  calcReveal: {},
   explainBtnText: { fontSize: 13, fontWeight: "600" },
   dosePrompt: { fontSize: 13, fontWeight: "400", lineHeight: 20, textAlign: "center", paddingVertical: 8 },
   lockedCard: { margin: 20, borderRadius: 16, borderWidth: 1, padding: 28, alignItems: "center", gap: 10 },

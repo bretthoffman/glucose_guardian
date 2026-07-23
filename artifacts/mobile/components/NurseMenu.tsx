@@ -186,7 +186,7 @@ export default function NurseMenu() {
       {/* Header */}
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.title, { color: colors.text }]}>Nurse Menu</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Caregiver Menu</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Select a child to view details</Text>
         </View>
         <Pressable
