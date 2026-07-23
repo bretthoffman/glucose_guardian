@@ -1187,7 +1187,7 @@ const styles = StyleSheet.create({
   doseTotalLabelWrap: { flex: 1, minWidth: 0 },
   doseTotalLabel: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
   // "SUGGESTED DOSE" — matches the "HOW YOUR DOSE IS CALCULATED" head (calcHeadLabel) exactly.
-  doseTotalHeadLabel: { fontSize: 16, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
+  doseTotalHeadLabel: { fontSize: 12, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
 
   explainBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 11, borderWidth: 1, borderColor: "transparent" },
 

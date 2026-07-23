@@ -91,7 +91,7 @@ export function EditableDoseTotalBadge({
   return (
     <View style={styles.doseTotalBadgeWrap}>
       {manualOverrideActive && !editing ? (
-        <Text style={styles.manualDoseTag}>Manual</Text>
+        <Text style={[styles.manualDoseTag, { color: COLORS.primary }]}>Manual</Text>
       ) : null}
       <Pressable
         onPress={onStartEdit}
@@ -111,15 +111,18 @@ export function EditableDoseTotalBadge({
               keyboardType="decimal-pad"
               returnKeyType="done"
               selectTextOnFocus
-              style={styles.doseTotalInput}
+              style={[styles.doseTotalInput, { color: colors.text }]}
               maxLength={8}
             />
-            <Text style={styles.doseTotalUnit}>units</Text>
+            <Text style={[styles.doseTotalUnit, { color: colors.textMuted }]}>units</Text>
           </>
         ) : (
           <>
-            <Text style={styles.doseTotalValue}>{formatDoseAmount(effectiveDose)}</Text>
-            <Text style={styles.doseTotalUnit}>units</Text>
+            {/* Dark & solid once there's a dose; muted/transparent at 0, like the "0 g" carb field. */}
+            <Text style={[styles.doseTotalValue, { color: effectiveDose > 0 ? colors.text : colors.textMuted }]}>
+              {formatDoseAmount(effectiveDose)}
+            </Text>
+            <Text style={[styles.doseTotalUnit, { color: colors.textMuted }]}>units</Text>
           </>
         )}
       </Pressable>
@@ -127,6 +130,10 @@ export function EditableDoseTotalBadge({
         <Text style={[styles.suggestedDoseLine, { color: colors.textMuted }]}>
           {formatSuggestedDoseLine(systemRecommendedDose)}
         </Text>
+      ) : !editing ? (
+        // "Tap to edit" stays put whether the dose is 0 or calculated; it's replaced by the
+        // recommended-dose note above only once the value is manually changed off the suggestion.
+        <Text style={[styles.doseTapHint, { color: colors.textMuted }]}>Tap to edit</Text>
       ) : null}
     </View>
   );
@@ -150,17 +157,18 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.65)",
     marginBottom: 4,
   },
-  doseTotalBadge: { flexDirection: "row", alignItems: "baseline", gap: 4, backgroundColor: COLORS.primary, paddingHorizontal: 18, paddingVertical: 5, borderRadius: 14, minWidth: 88, justifyContent: "center" },
-  doseTotalValue: { fontSize: 22, fontWeight: "700", color: "#fff" },
+  // Purple outline instead of a solid fill; the value/units inside carry their own color inline.
+  doseTotalBadge: { flexDirection: "row", alignItems: "baseline", gap: 4, borderWidth: 2, borderColor: COLORS.primary, paddingHorizontal: 18, paddingVertical: 5, borderRadius: 14, minWidth: 88, justifyContent: "center" },
+  doseTotalValue: { fontSize: 22, fontWeight: "700" },
   doseTotalInput: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#fff",
     minWidth: 52,
     textAlign: "center",
     padding: 0,
     margin: 0,
   },
-  doseTotalUnit: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.8)" },
+  doseTotalUnit: { fontSize: 13, fontWeight: "600" },
   suggestedDoseLine: { fontSize: 11, fontWeight: "400", marginTop: 4, textAlign: "center" },
+  doseTapHint: { fontSize: 12, fontWeight: "500", marginTop: 3, textAlign: "center" },
 });
