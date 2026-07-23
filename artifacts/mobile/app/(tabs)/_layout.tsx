@@ -5,6 +5,7 @@ import React, { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
+import { useMessages } from "@/context/MessagesContext";
 import { useTheme } from "@/context/ThemeContext";
 import { T, withAlpha, type ThemeColors } from "@/constants/theme";
 import AccessLockScreen from "@/components/AccessLockScreen";
@@ -33,7 +34,13 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const { scheme, colors: c } = useTheme();
   const styles = useMemo(() => makeStyles(c, scheme === "dark"), [c, scheme]);
-  const { isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions, isCaregiverAccount, isViewingLinkedPatient } = useAuth();
+  const { isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions, isCaregiverAccount, isViewingLinkedPatient, doctorMessages } = useAuth();
+  const { unreadCount: careUnread } = useMessages();
+  // Red "!" on the Chat tab for any unread message: the guardian's doctor thread (guardian-only) or
+  // any cross-account thread (applies to guardians AND access-code / nurse sessions).
+  const hasUnreadDoctorChat =
+    (!doctorSession && !caregiverSession && doctorMessages.some((m) => m.sender === "doctor" && !m.read)) ||
+    careUnread > 0;
   // A Caregiver (nurse) account on its menu (not viewing a child) has no tabs — hide the whole bar.
   if (isCaregiverAccount && !isViewingLinkedPatient) return null;
   // Hide Insulin for a child-view-mode owner account, or for an access-code session (kid / caregiver)
@@ -78,6 +85,11 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
             >
               <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
                 <MaterialCommunityIcons name={meta.icon} size={22} color={color} />
+                {route.name === "chat" && hasUnreadDoctorChat && (
+                  <View style={styles.chatAlertBadge}>
+                    <Text style={styles.chatAlertBadgeText}>!</Text>
+                  </View>
+                )}
               </View>
               <Text style={[styles.label, { color }]} numberOfLines={1}>
                 {meta.label}
@@ -150,5 +162,20 @@ const makeStyles = (c: ThemeColors, isDark: boolean) => StyleSheet.create({
   iconWrapActive: {
     backgroundColor: withAlpha(T.color.violet, 0.16),
   },
+  chatAlertBadge: {
+    position: "absolute",
+    top: -2,
+    right: 2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#EF4444",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: c.card,
+  },
+  chatAlertBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800", lineHeight: 12 },
   label: { fontSize: 10.5, fontWeight: T.font.medium, letterSpacing: 0.1 },
 });

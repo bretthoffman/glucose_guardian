@@ -16,6 +16,7 @@ import { CGMChart } from "@/components/CGMChart";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import InsulinTypePicker from "@/components/InsulinTypePicker";
 import LogFoodModal from "@/components/LogFoodModal";
+import LogDetailModal, { type SelectedLog } from "@/components/LogDetailModal";
 import type { ChartEventMarker } from "@/utils/chartEventMarkers";
 import {
   INSULIN_TYPE_LABEL,
@@ -329,6 +330,7 @@ function DayView({
 }) {
   const isToday = dayOffset === 0;
   const label = isToday ? "Today" : dayOffset === 1 ? "Yesterday" : fmtDateFull(day);
+  const [selectedLog, setSelectedLog] = useState<SelectedLog | null>(null);
 
   const { readings, status, bounds, retry } = useDayGlucoseReadings({
     enabled: true,
@@ -407,7 +409,7 @@ function DayView({
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No food logged for this day.</Text>
       ) : (
         dayFood.map((food) => (
-          <FoodLogRow key={food.id} food={food} colors={colors} myUserId={myUserId} />
+          <FoodLogRow key={food.id} food={food} colors={colors} myUserId={myUserId} onPress={() => setSelectedLog({ kind: "food", data: food })} />
         ))
       )}
 
@@ -419,8 +421,18 @@ function DayView({
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No insulin logged for this day.</Text>
       ) : (
         dayInsulin.map((insulin) => (
-          <InsulinLogRow key={insulin.id} insulin={insulin} colors={colors} myUserId={myUserId} />
+          <InsulinLogRow key={insulin.id} insulin={insulin} colors={colors} myUserId={myUserId} onPress={() => setSelectedLog({ kind: "insulin", data: insulin })} />
         ))
+      )}
+
+      {selectedLog && (
+        <LogDetailModal
+          key={selectedLog.data.id}
+          entry={selectedLog}
+          colors={colors}
+          canEdit
+          onClose={() => setSelectedLog(null)}
+        />
       )}
     </View>
   );
@@ -436,25 +448,31 @@ function authorByline(
   return ` · by ${entry.authorName}`;
 }
 
-function FoodLogRow({ food, colors, myUserId }: { food: FoodLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null }) {
+function FoodLogRow({ food, colors, myUserId, onPress }: { food: FoodLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null; onPress: () => void }) {
   return (
-    <View style={[styles.entryRow, { backgroundColor: colors.card, borderColor: COLORS.accent + "40" }]}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.entryRow, { backgroundColor: colors.card, borderColor: COLORS.accent + "40", opacity: pressed ? 0.7 : 1 }]}
+    >
       <View style={[styles.entryIcon, { backgroundColor: COLORS.accent + "18" }]}>
         <Text style={{ fontSize: 16 }}>🍽️</Text>
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.entryTitle, { color: colors.text }]} numberOfLines={1}>
-          {food.foodName}
-        </Text>
+        <View style={styles.entryTitleRow}>
+          <Text style={[styles.entryTitle, { color: colors.text }]} numberOfLines={1}>{food.foodName}</Text>
+          <Text style={[styles.entryTimeInline, { color: colors.textSecondary }]}>{fmtTime(food.timestamp)}</Text>
+          {food.edited && <Text style={[styles.entryEdited, { color: colors.textMuted }]}>Edited</Text>}
+        </View>
         <Text style={[styles.entrySub, { color: colors.textSecondary }]} numberOfLines={1}>
-          {food.estimatedCarbs}g carbs · {food.insulinUnits}u · {fmtTime(food.timestamp)}{authorByline(food, myUserId)}
+          {food.estimatedCarbs}g carbs · {food.insulinUnits}u{authorByline(food, myUserId)}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
-function InsulinLogRow({ insulin, colors, myUserId }: { insulin: InsulinLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null }) {
+function InsulinLogRow({ insulin, colors, myUserId, onPress }: { insulin: InsulinLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null; onPress: () => void }) {
   const opt = insulin.insulinType ? findInsulinByChipLabel(insulin.insulinType) : undefined;
   const insulinName = opt?.name ?? insulin.insulinType?.split(" · ")[0];
   const doseAdjusted =
@@ -463,15 +481,18 @@ function InsulinLogRow({ insulin, colors, myUserId }: { insulin: InsulinLogEntry
   const subParts: string[] = [];
   if (opt) subParts.push(INSULIN_TYPE_LABEL[opt.type]);
   if (insulin.recommendedUnits != null) {
-    subParts.push(`Recommended ${formatDoseAmount(insulin.recommendedUnits)}u`);
+    subParts.push(`Rec ${formatDoseAmount(insulin.recommendedUnits)}u`);
   }
   if (insulin.note) subParts.push(insulin.note);
-  subParts.push(fmtTime(insulin.timestamp));
   const byline = authorByline(insulin, myUserId).replace(/^ · /, "");
   if (byline) subParts.push(byline);
 
   return (
-    <View style={[styles.entryRow, { backgroundColor: colors.card, borderColor: COLORS.primary + "40" }]}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.entryRow, { backgroundColor: colors.card, borderColor: COLORS.primary + "40", opacity: pressed ? 0.7 : 1 }]}
+    >
       <View style={[styles.entryIcon, { backgroundColor: COLORS.primary + "18" }]}>
         <Text style={{ fontSize: 16 }}>💉</Text>
       </View>
@@ -485,12 +506,14 @@ function InsulinLogRow({ insulin, colors, myUserId }: { insulin: InsulinLogEntry
               <Text style={[styles.adjustedTagText, { color: COLORS.warning }]}>ADJUSTED</Text>
             </View>
           )}
+          <Text style={[styles.entryTimeInline, { color: colors.textSecondary }]}>{fmtTime(insulin.timestamp)}</Text>
+          {insulin.edited && <Text style={[styles.entryEdited, { color: colors.textMuted }]}>Edited</Text>}
         </View>
         <Text style={[styles.entrySub, { color: colors.textSecondary }]} numberOfLines={1}>
           {subParts.join(" · ")}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -540,8 +563,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   entryIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  entryTitle: { fontSize: 14, fontWeight: "600" },
+  entryTitle: { fontSize: 14, fontWeight: "600", flexShrink: 1 },
   entryTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  // Time on the top row — same smaller/faded look it used to have on the bottom sub-line.
+  entryTimeInline: { fontSize: 12, fontWeight: "400", flexShrink: 0 },
+  entryEdited: { fontSize: 12, fontWeight: "400", fontStyle: "italic", flexShrink: 0 },
   entrySub: { fontSize: 12, fontWeight: "400", marginTop: 1 },
   emptySub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20 },
   adjustedTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },

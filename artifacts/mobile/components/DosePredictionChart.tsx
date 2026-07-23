@@ -22,7 +22,7 @@ import {
   Text,
   View,
 } from "react-native";
-import Svg, { Line, Polyline, Rect } from "react-native-svg";
+import Svg, { ClipPath, Defs, G, Line, Polyline, Rect } from "react-native-svg";
 import { useFocusEffect } from "expo-router";
 import Colors, { COLORS } from "@/constants/colors";
 import { withAlpha } from "@/constants/theme";
@@ -54,6 +54,9 @@ const PAUSE = 500;
 const DUR_D = 1500;
 const BLINK_DOWN = 110;
 const BLINK_UP = 150;
+// The purple target line zooms across on its own fast clip (no slowdowns/pauses) so it lands behind
+// the reading line quickly while the reading line still draws in slowly.
+const TARGET_DUR = 400;
 
 /** Skip a history line segment when its two readings are more than this far apart (CGM gap). */
 const GAP_MS = 25 * 60000;
@@ -101,6 +104,7 @@ export default function DosePredictionChart({
   const [drawNow, setDrawNow] = useState(nowMs);
 
   const revealX = useRef(new Animated.Value(0)).current;
+  const targetRevealX = useRef(new Animated.Value(0)).current;
   const nowBlink = useRef(new Animated.Value(1)).current;
   const geomRef = useRef({ plotW: 0, xNow: 0, xNow30: 0, xNow10: 0 });
   const pendingIntroRef = useRef(false);
@@ -206,6 +210,22 @@ export default function DosePredictionChart({
     ]).start();
   }, [revealX]);
 
+  // Zoom the target line's clip from `from` → full width at a constant fast pace (same px/ms every
+  // time), so it always finishes well ahead of the reading line.
+  const runTargetReveal = useCallback((from: number) => {
+    const g = geomRef.current;
+    if (g.plotW <= 0) return;
+    targetRevealX.stopAnimation();
+    targetRevealX.setValue(from);
+    const dist = Math.max(0, g.plotW - from);
+    Animated.timing(targetRevealX, {
+      toValue: g.plotW,
+      duration: Math.max(60, (dist / g.plotW) * TARGET_DUR),
+      easing: Easing.linear,
+      useNativeDriver: false,
+    }).start();
+  }, [targetRevealX]);
+
   const runIntro = useCallback(() => {
     const g = geomRef.current;
     if (g.plotW <= 0) return;
@@ -213,6 +233,7 @@ export default function DosePredictionChart({
     nowBlink.stopAnimation();
     nowBlink.setValue(1);
     revealX.setValue(0);
+    runTargetReveal(0); // target zooms across immediately, in parallel with the slow reading draw
     const leg = (to: number, duration: number, then: () => void) =>
       Animated.timing(revealX, { toValue: to, duration, easing: Easing.linear, useNativeDriver: false })
         .start(({ finished }) => { if (finished) then(); });
@@ -224,7 +245,7 @@ export default function DosePredictionChart({
         }),
       ),
     );
-  }, [revealX, nowBlink, blinkNow, drawFuture]);
+  }, [revealX, nowBlink, blinkNow, drawFuture, runTargetReveal]);
 
   // Re-animate whenever the Dose tab regains focus (opened from another screen / toggled back):
   // mark a draw pending, hide the line, and re-capture "now" so the window anchors to draw time.
@@ -232,13 +253,15 @@ export default function DosePredictionChart({
     useCallback(() => {
       pendingIntroRef.current = true;
       revealX.setValue(0); // hide immediately so the fresh window doesn't flash fully-drawn
+      targetRevealX.setValue(0);
       nowBlink.setValue(1);
       setDrawNow(Date.now());
       return () => {
         revealX.stopAnimation();
+        targetRevealX.stopAnimation();
         nowBlink.stopAnimation();
       };
-    }, [revealX, nowBlink]),
+    }, [revealX, targetRevealX, nowBlink]),
   );
 
   // Run the pending intro once BOTH the frozen "now" and the measured width are in place — this
@@ -267,9 +290,10 @@ export default function DosePredictionChart({
         revealX.setValue(geomRef.current.xNow); // keep the past, hide the future
         blinkNow();
         drawFuture();
+        runTargetReveal(geomRef.current.xNow); // target restarts from Now and zooms ahead again
       });
     }
-  }, [redrawKey, revealX, blinkNow, drawFuture]);
+  }, [redrawKey, revealX, blinkNow, drawFuture, runTargetReveal]);
 
   const gridColor = withAlpha(colors.textMuted, 0.22);
 
@@ -280,46 +304,51 @@ export default function DosePredictionChart({
         <View style={{ width: plotW, height: H }}>
           {plotW > 0 && (
             <Svg width={plotW} height={H}>
-              {/* Target line drawn FIRST (underneath) so the glucose reading line always renders in
-                  front of it. */}
-              {(() => {
-                const t = axisLabels.find((l) => l.kind === "target");
-                if (!t) return null;
-                const y = yOf(t.value);
-                if (y < -0.5 || y > H + 0.5) return null;
-                return <Line x1={0} y1={y} x2={plotW} y2={y} stroke={t.color} strokeWidth={1.5} opacity={0.85} />;
-              })()}
+              <Defs>
+                {/* Each layer gets its OWN reveal clip, so the target can zoom ahead of the reading
+                    line while staying behind it. Rect width grows 0 → plotW to reveal left→right. */}
+                <ClipPath id="revealTarget"><AnimatedRect x={0} y={0} width={targetRevealX} height={H} /></ClipPath>
+                <ClipPath id="revealGlucose"><AnimatedRect x={0} y={0} width={revealX} height={H} /></ClipPath>
+              </Defs>
 
-              {/* Glucose lines — the ONLY animated layer (revealed by the cover below). */}
-              {histRuns.map((r, i) => (
-                <Polyline
-                  key={`h-${i}`}
-                  points={r.points}
-                  fill="none"
-                  stroke={r.color}
-                  strokeWidth={2.5}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              ))}
-              {futurePoints.length > 0 && (
-                <Polyline
-                  points={futurePoints}
-                  fill="none"
-                  stroke={COLORS.primary}
-                  strokeWidth={2.75}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              )}
+              {/* Target line — underneath the reading line; revealed FAST by its own clip. */}
+              <G clipPath="url(#revealTarget)">
+                {(() => {
+                  const t = axisLabels.find((l) => l.kind === "target");
+                  if (!t) return null;
+                  const y = yOf(t.value);
+                  if (y < -0.5 || y > H + 0.5) return null;
+                  return <Line x1={0} y1={y} x2={plotW} y2={y} stroke={t.color} strokeWidth={1.5} opacity={0.85} />;
+                })()}
+              </G>
 
-              {/* Background-colored cover slides left→right to reveal the reading line. Must match the
-                  card surface the chart sits on, so the un-drawn area is invisible. */}
-              <AnimatedRect x={revealX} y={0} width={plotW} height={H} fill={colors.card} />
+              {/* Glucose lines — IN FRONT of the target; revealed slowly (slowdowns + pause). */}
+              <G clipPath="url(#revealGlucose)">
+                {histRuns.map((r, i) => (
+                  <Polyline
+                    key={`h-${i}`}
+                    points={r.points}
+                    fill="none"
+                    stroke={r.color}
+                    strokeWidth={2.5}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                ))}
+                {futurePoints.length > 0 && (
+                  <Polyline
+                    points={futurePoints}
+                    fill="none"
+                    stroke={COLORS.primary}
+                    strokeWidth={2.75}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                )}
+              </G>
 
-              {/* Reference lines (neutral grid + threshold colors), drawn ON TOP of the cover so they
-                  never animate — one line per right-axis label. The target is excluded here; it's
-                  drawn underneath the glucose line above. */}
+              {/* Static reference lines (neutral grid + threshold colors) — always visible, on top.
+                  The target is excluded here; it's the fast-revealed line above. */}
               {axisLabels.map((label) => {
                 if (label.kind === "target") return null;
                 const y = yOf(label.value);

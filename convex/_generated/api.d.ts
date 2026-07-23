@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as careCircle from "../careCircle.js";
 import type * as careLogs from "../careLogs.js";
+import type * as careMessages from "../careMessages.js";
 import type * as careSchedule from "../careSchedule.js";
 import type * as caregiverAccounts from "../caregiverAccounts.js";
 import type * as cgm_config from "../cgm/config.js";
@@ -46,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   careCircle: typeof careCircle;
   careLogs: typeof careLogs;
+  careMessages: typeof careMessages;
   careSchedule: typeof careSchedule;
   caregiverAccounts: typeof caregiverAccounts;
   "cgm/config": typeof cgm_config;

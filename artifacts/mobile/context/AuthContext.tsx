@@ -43,6 +43,17 @@ export interface DoctorMessage {
   read: boolean;
 }
 
+/**
+ * Who "I" am for cross-account (careMessages) messaging. A code session — an accountless access
+ * code, or a nurse account viewing a child via that code — messages AS the code; an owner or
+ * co-guardian messages as their account within their circle; every other session (doctor, nurse on
+ * their menu, signed-out) has no messaging identity.
+ */
+export type MessagingIdentity =
+  | { kind: "guardian"; userId: string; passwordHash: string; patientUserId: string }
+  | { kind: "code"; code: string }
+  | null;
+
 export interface UserProfile {
   childName: string;
   /** Optional last name (first name stays in `childName`). Displayed only where disambiguation is
@@ -91,6 +102,14 @@ export interface InsulinLogEntry {
   /** Care Circle shared bucket: who logged this. Absent on legacy device-local entries. */
   authorUserId?: string;
   authorName?: string;
+  /** True once this entry has been edited in place (shown as "Edited" on the log). */
+  edited?: boolean;
+}
+
+export interface InsulinLogPatch {
+  units?: number;
+  note?: string;
+  timestamp?: string;
 }
 
 export interface UserAccount {
@@ -173,6 +192,15 @@ export interface FoodLogEntry {
   /** Care Circle shared bucket: who logged this. Absent on legacy device-local entries. */
   authorUserId?: string;
   authorName?: string;
+  /** True once this entry has been edited in place (shown as "Edited" on the log). */
+  edited?: boolean;
+}
+
+export interface FoodLogPatch {
+  foodName?: string;
+  estimatedCarbs?: number;
+  insulinUnits?: number;
+  timestamp?: string;
 }
 
 export interface EmergencyContact {
@@ -214,6 +242,10 @@ export interface AuthContextType {
   clearFoodLog: () => void;
   logInsulinDose: (entry: Omit<InsulinLogEntry, "id">) => void;
   clearInsulinLog: () => void;
+  deleteFoodLogEntry: (id: string) => void;
+  deleteInsulinLogEntry: (id: string) => void;
+  editFoodLogEntry: (id: string, patch: FoodLogPatch) => void;
+  editInsulinLogEntry: (id: string, patch: InsulinLogPatch) => void;
   logout: () => Promise<void>;
   signOut: () => Promise<void>;
   createAccount: (email: string, password: string) => Promise<void>;
@@ -283,6 +315,8 @@ export interface AuthContextType {
   enterKidView: (code: string, patientUserId: string, patientName: string) => Promise<boolean>;
   /** The access code currently powering a nurse's kid-view (null otherwise). Used to source data. */
   nurseViewCode: string | null;
+  /** Identity for cross-account messaging (careMessages); null when this session can't message. */
+  messagingIdentity: MessagingIdentity;
   /** Non-null when the active caregiver/co-guardian session is outside its schedule or removed. */
   accessLock: { reason: "outside_window" | "disabled" | "revoked"; nextStartMs?: number } | null;
 }
@@ -1701,6 +1735,122 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // ── Per-entry edit / delete. Routes to the same shared bucket as add (via access code for a
+  //    nurse/kid/teacher session, else the account mutation) so a change propagates to every circle
+  //    member + access-code viewer and drops out of / updates the shared dose math. Optimistic. ──
+  const mutateFoodEntry = useCallback((
+    localUpdate: (prev: FoodLogEntry[]) => FoodLogEntry[],
+    viaCode: (client: ReturnType<typeof createConvexAuthClient>, code: string) => Promise<unknown>,
+    viaAccount: (client: ReturnType<typeof createConvexAuthClient>, userId: Id<"users">, passwordHash: string, patientUserId: Id<"users">) => Promise<unknown>,
+  ) => {
+    const acc = accountRef.current;
+    const nurseWrite = nurseWriteRef.current;
+    const codeWrite = codeWriteRef.current;
+    if (nurseWrite && acc?.convexUserId) {
+      if (!nurseWrite.canLog) return;
+      setViewedFoodLog(localUpdate);
+      viaCode(createConvexAuthClient(), nurseWrite.code).catch(() => {});
+      return;
+    }
+    if (codeWrite) {
+      if (!codeWrite.canLog) return;
+      setFoodLog(localUpdate);
+      viaCode(createConvexAuthClient(), codeWrite.code).catch(() => {});
+      return;
+    }
+    const targetPatientId = viewingPatientIdRef.current ?? circleAnchorRef.current ?? acc?.convexUserId ?? null;
+    if (viewingPatientIdRef.current) {
+      setViewedFoodLog(localUpdate);
+    } else {
+      setFoodLog((prev) => {
+        const next = localUpdate(prev);
+        AsyncStorage.setItem(FOOD_LOG_KEY, JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+    }
+    if (acc?.convexUserId && targetPatientId) {
+      viaAccount(createConvexAuthClient(), acc.convexUserId as Id<"users">, acc.passwordHash, targetPatientId as Id<"users">).catch(() => {});
+    }
+  }, []);
+
+  const mutateInsulinEntry = useCallback((
+    localUpdate: (prev: InsulinLogEntry[]) => InsulinLogEntry[],
+    viaCode: (client: ReturnType<typeof createConvexAuthClient>, code: string) => Promise<unknown>,
+    viaAccount: (client: ReturnType<typeof createConvexAuthClient>, userId: Id<"users">, passwordHash: string, patientUserId: Id<"users">) => Promise<unknown>,
+  ) => {
+    const acc = accountRef.current;
+    const nurseWrite = nurseWriteRef.current;
+    const codeWrite = codeWriteRef.current;
+    if (nurseWrite && acc?.convexUserId) {
+      if (!nurseWrite.canLog) return;
+      setViewedInsulinLog(localUpdate);
+      viaCode(createConvexAuthClient(), nurseWrite.code).catch(() => {});
+      return;
+    }
+    if (codeWrite) {
+      if (!codeWrite.canLog) return;
+      setInsulinLog(localUpdate);
+      viaCode(createConvexAuthClient(), codeWrite.code).catch(() => {});
+      return;
+    }
+    const targetPatientId = viewingPatientIdRef.current ?? circleAnchorRef.current ?? acc?.convexUserId ?? null;
+    if (viewingPatientIdRef.current) {
+      setViewedInsulinLog(localUpdate);
+    } else {
+      setInsulinLog((prev) => {
+        const next = localUpdate(prev);
+        AsyncStorage.setItem(INSULIN_LOG_KEY, JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+    }
+    if (acc?.convexUserId && targetPatientId) {
+      viaAccount(createConvexAuthClient(), acc.convexUserId as Id<"users">, acc.passwordHash, targetPatientId as Id<"users">).catch(() => {});
+    }
+  }, []);
+
+  const deleteFoodLogEntry = useCallback((id: string) => {
+    mutateFoodEntry(
+      (prev) => prev.filter((f) => f.id !== id),
+      (client, code) => client.mutation(api.careLogs.deleteFoodLogViaCode, { code, clientId: id }),
+      (client, userId, passwordHash, patientUserId) => client.mutation(api.careLogs.deleteFoodLog, { userId, passwordHash, patientUserId, clientId: id }),
+    );
+  }, [mutateFoodEntry]);
+
+  const deleteInsulinLogEntry = useCallback((id: string) => {
+    mutateInsulinEntry(
+      (prev) => prev.filter((i) => i.id !== id),
+      (client, code) => client.mutation(api.careLogs.deleteInsulinLogViaCode, { code, clientId: id }),
+      (client, userId, passwordHash, patientUserId) => client.mutation(api.careLogs.deleteInsulinLog, { userId, passwordHash, patientUserId, clientId: id }),
+    );
+  }, [mutateInsulinEntry]);
+
+  const editFoodLogEntry = useCallback((id: string, patch: FoodLogPatch) => {
+    const clean: FoodLogPatch = {
+      ...(patch.foodName !== undefined ? { foodName: patch.foodName } : {}),
+      ...(patch.estimatedCarbs !== undefined ? { estimatedCarbs: patch.estimatedCarbs } : {}),
+      ...(patch.insulinUnits !== undefined ? { insulinUnits: patch.insulinUnits } : {}),
+      ...(patch.timestamp !== undefined ? { timestamp: patch.timestamp } : {}),
+    };
+    mutateFoodEntry(
+      (prev) => prev.map((f) => (f.id === id ? { ...f, ...clean, edited: true } : f)),
+      (client, code) => client.mutation(api.careLogs.updateFoodLogViaCode, { code, clientId: id, patch: clean }),
+      (client, userId, passwordHash, patientUserId) => client.mutation(api.careLogs.updateFoodLog, { userId, passwordHash, patientUserId, clientId: id, patch: clean }),
+    );
+  }, [mutateFoodEntry]);
+
+  const editInsulinLogEntry = useCallback((id: string, patch: InsulinLogPatch) => {
+    const clean: InsulinLogPatch = {
+      ...(patch.units !== undefined ? { units: patch.units } : {}),
+      ...(patch.note !== undefined ? { note: patch.note } : {}),
+      ...(patch.timestamp !== undefined ? { timestamp: patch.timestamp } : {}),
+    };
+    mutateInsulinEntry(
+      (prev) => prev.map((i) => (i.id === id ? { ...i, ...clean, edited: true } : i)),
+      (client, code) => client.mutation(api.careLogs.updateInsulinLogViaCode, { code, clientId: id, patch: clean }),
+      (client, userId, passwordHash, patientUserId) => client.mutation(api.careLogs.updateInsulinLog, { userId, passwordHash, patientUserId, clientId: id, patch: clean }),
+    );
+  }, [mutateInsulinEntry]);
+
   const logout = useCallback(async () => {
     profileRef.current = null;
     accountRef.current = null;
@@ -2361,6 +2511,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // While a nurse views a child, the emergency list is the child's shared pool (inherited read-only).
   const effectiveEmergencyContacts = isCaregiverViewingChild ? viewedEmergencyContacts : emergencyContacts;
 
+  const messagingIdentity: MessagingIdentity = useMemo(() => {
+    // A code session (accountless access code, or a nurse viewing via a code) messages AS the code.
+    if (caregiverCodeKind === "access" && caregiverCloudCode) return { kind: "code", code: caregiverCloudCode };
+    if (nurseViewCode) return { kind: "code", code: nurseViewCode };
+    // An owner or co-guardian messages as their account, scoped to their circle (anchor = owner id).
+    if (isSignedIn && account?.convexUserId && !isCaregiverAccount) {
+      return {
+        kind: "guardian",
+        userId: account.convexUserId,
+        passwordHash: account.passwordHash,
+        patientUserId: careMemberships[0]?.patientUserId ?? account.convexUserId,
+      };
+    }
+    return null;
+  }, [
+    caregiverCodeKind, caregiverCloudCode, nurseViewCode, isSignedIn,
+    account?.convexUserId, account?.passwordHash, isCaregiverAccount, careMemberships,
+  ]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -2390,6 +2559,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearFoodLog,
         logInsulinDose,
         clearInsulinLog,
+        deleteFoodLogEntry,
+        deleteInsulinLogEntry,
+        editFoodLogEntry,
+        editInsulinLogEntry,
         logout,
         signOut,
         createAccount,
@@ -2423,6 +2596,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         enterViewingMode,
         exitViewingMode,
         isCaregiverAccount,
+        messagingIdentity,
         isCaregiverViewingChild,
         enterKidView,
         nurseViewCode,

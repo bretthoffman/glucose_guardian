@@ -7,8 +7,10 @@ import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  FlatList,
   Image,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -16,6 +18,7 @@ import {
   Switch,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useTheme } from "@/context/ThemeContext";
@@ -34,7 +37,7 @@ import {
 } from "@/utils/dashboardSections";
 import { useProfilePhotoPicker } from "@/hooks/useProfilePhotoPicker";
 import Colors, { COLORS } from "@/constants/colors";
-import { TYPE } from "@/constants/theme";
+import { TYPE, withAlpha } from "@/constants/theme";
 import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constants/insulin";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
@@ -57,14 +60,24 @@ const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Fea
   careCircle: "share-2",
 };
 
+// Activity Log shows only the most recent few; the full history lives behind "Manage Logs", loaded
+// a page at a time as you scroll (nothing is kept after the popup closes).
+const RECENT_LOG_COUNT = 6;
+const LOG_PAGE_SIZE = 20;
+
+/** Day label used to group activity-log entries (e.g. "Monday, Jul 21"). */
+function logDayLabel(timestamp: string): string {
+  return new Date(timestamp).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+}
+
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const {
     history,
-    clearHistory,
     resetGlucoseData,
     carbRatio,
     targetGlucose,
@@ -136,6 +149,10 @@ export default function DashboardScreen() {
 
   // Settings popup (opened from the profile/avatar control) + shared profile-photo picker.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Manage Logs popup: paginated view of the full activity log. logsVisibleCount resets on open so
+  // nothing loaded stays around after close.
+  const [manageLogsOpen, setManageLogsOpen] = useState(false);
+  const [logsVisibleCount, setLogsVisibleCount] = useState(LOG_PAGE_SIZE);
   // Opening a section popup closes the Settings popup (and vice versa) — never both at once.
   const openSectionPopup = (key: DashboardSectionKey) => {
     setSettingsOpen(false);
@@ -272,13 +289,6 @@ export default function DashboardScreen() {
     );
   }
 
-  function promptClearHistory() {
-    Alert.alert("Clear Readings", "Remove all glucose readings permanently?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Clear", style: "destructive", onPress: () => { clearHistory(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } },
-    ]);
-  }
-
   function promptClearFood() {
     Alert.alert("Clear Food Diary", "Remove all food entries permanently?", [
       { text: "Cancel", style: "cancel" },
@@ -302,13 +312,56 @@ export default function DashboardScreen() {
     ...insulinLog.map((i) => ({ kind: "insulin" as const, id: i.id, timestamp: i.timestamp, units: i.units, type: i.type, note: i.note })),
   ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  const groupedByDay = combinedEntries.reduce<Record<string, CombinedEntry[]>>((acc, entry) => {
-    const day = new Date(entry.timestamp).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  // The Activity Log card shows only the most recent entries (still grouped by day).
+  const recentEntries = combinedEntries.slice(0, RECENT_LOG_COUNT);
+  const recentGroupedByDay = recentEntries.reduce<Record<string, CombinedEntry[]>>((acc, entry) => {
+    const day = logDayLabel(entry.timestamp);
     if (!acc[day]) acc[day] = [];
     acc[day].push(entry);
     return acc;
   }, {});
-  const dayKeys = Object.keys(groupedByDay);
+  const recentDayKeys = Object.keys(recentGroupedByDay);
+
+  /** Single activity-log row, shared by the Activity Log card and the Manage Logs popup. */
+  const renderLogEntry = (entry: CombinedEntry) => (
+    <View key={entry.id} style={[styles.logEntryRow, { borderBottomColor: colors.separator }]}>
+      <View style={[styles.logEntryIcon, {
+        backgroundColor: entry.kind === "food" ? COLORS.primary + "15" : COLORS.accent + "15",
+      }]}>
+        <Feather
+          name={entry.kind === "food" ? "coffee" : "droplet"}
+          size={13}
+          color={entry.kind === "food" ? COLORS.primary : COLORS.accent}
+        />
+      </View>
+      <View style={{ flex: 1 }}>
+        {entry.kind === "food" ? (
+          <>
+            <Text style={[styles.logEntryName, { color: colors.text }]}>{entry.foodName}</Text>
+            <Text style={[styles.logEntryMeta, { color: colors.textMuted }]}>
+              {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {entry.estimatedCarbs}g carbs · {entry.insulinUnits}u{entry.fromPhoto ? " · AI Photo" : ""}
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text style={[styles.logEntryName, { color: colors.text }]}>
+              {entry.units}u {entry.type.charAt(0).toUpperCase() + entry.type.slice(1)} Insulin
+            </Text>
+            <Text style={[styles.logEntryMeta, { color: colors.textMuted }]}>
+              {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{entry.note ? ` · ${entry.note}` : ""}
+            </Text>
+          </>
+        )}
+      </View>
+    </View>
+  );
+
+  const openManageLogs = () => {
+    setLogsVisibleCount(LOG_PAGE_SIZE); // fresh start every open — nothing kept from last time
+    setManageLogsOpen(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+  const canClearLogs = !caregiverSession && !isCaregiverViewingChild;
 
   function confirmRemoveContact(contact: EmergencyContact) {
     Alert.alert(`Remove ${contact.name}?`, "They will no longer receive emergency alerts.", [
@@ -1479,74 +1532,32 @@ export default function DashboardScreen() {
 
         {combinedEntries.length > 0 && !(isChildMode && !caregiverSession) && (
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.cardTitle, { color: colors.text }]}>Activity Log</Text>
-            <Text style={[styles.foodLogCount, { color: colors.textSecondary }]}>
-              {foodLog.length} meal{foodLog.length !== 1 ? "s" : ""}
-              {insulinLog.length > 0 ? ` · ${insulinLog.length} insulin dose${insulinLog.length !== 1 ? "s" : ""}` : ""}
-            </Text>
-            {dayKeys.slice(0, 3).map((day) => (
+            <View style={styles.activityLogHeader}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.cardTitle, { color: colors.text }]}>Activity Log</Text>
+                <Text style={[styles.foodLogCount, { color: colors.textSecondary }]}>
+                  {foodLog.length} meal{foodLog.length !== 1 ? "s" : ""}
+                  {insulinLog.length > 0 ? ` · ${insulinLog.length} insulin dose${insulinLog.length !== 1 ? "s" : ""}` : ""}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Manage logs"
+                style={({ pressed }) => [styles.manageLogsBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                onPress={openManageLogs}
+              >
+                <Feather name="list" size={13} color={COLORS.primary} />
+                <Text style={[styles.manageLogsBtnText, { color: COLORS.primary }]}>Manage Logs</Text>
+              </Pressable>
+            </View>
+
+            {/* Only the most recent entries (still grouped by day); the rest live in Manage Logs. */}
+            {recentDayKeys.map((day) => (
               <View key={day} style={{ gap: 6 }}>
                 <Text style={[styles.logDayHeader, { color: colors.textMuted, borderBottomColor: colors.separator }]}>{day}</Text>
-                {groupedByDay[day].map((entry) => (
-                  <View key={entry.id} style={[styles.logEntryRow, { borderBottomColor: colors.separator }]}>
-                    <View style={[styles.logEntryIcon, {
-                      backgroundColor: entry.kind === "food" ? COLORS.primary + "15" : COLORS.accent + "15",
-                    }]}>
-                      <Feather
-                        name={entry.kind === "food" ? "coffee" : "droplet"}
-                        size={13}
-                        color={entry.kind === "food" ? COLORS.primary : COLORS.accent}
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      {entry.kind === "food" ? (
-                        <>
-                          <Text style={[styles.logEntryName, { color: colors.text }]}>{entry.foodName}</Text>
-                          <Text style={[styles.logEntryMeta, { color: colors.textMuted }]}>
-                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {entry.estimatedCarbs}g carbs · {entry.insulinUnits}u{entry.fromPhoto ? " · AI Photo" : ""}
-                          </Text>
-                        </>
-                      ) : (
-                        <>
-                          <Text style={[styles.logEntryName, { color: colors.text }]}>
-                            {entry.units}u {entry.type.charAt(0).toUpperCase() + entry.type.slice(1)} Insulin
-                          </Text>
-                          <Text style={[styles.logEntryMeta, { color: colors.textMuted }]}>
-                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{entry.note ? ` · ${entry.note}` : ""}
-                          </Text>
-                        </>
-                      )}
-                    </View>
-                  </View>
-                ))}
+                {recentGroupedByDay[day].map((entry) => renderLogEntry(entry))}
               </View>
             ))}
-            {dayKeys.length > 3 && (
-              <Text style={[styles.foodLogMore, { color: colors.textMuted }]}>+{dayKeys.length - 3} earlier days in report</Text>
-            )}
-            {/* A nurse viewing a child can't clear the child's meals/insulin. */}
-            {!caregiverSession && !isCaregiverViewingChild ? (
-              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                {foodLog.length > 0 && (
-                  <Pressable
-                    style={({ pressed }) => [styles.dangerBtnSmall, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
-                    onPress={promptClearFood}
-                  >
-                    <Feather name="trash-2" size={13} color={COLORS.danger} />
-                    <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear Meals</Text>
-                  </Pressable>
-                )}
-                {insulinLog.length > 0 && (
-                  <Pressable
-                    style={({ pressed }) => [styles.dangerBtnSmall, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
-                    onPress={promptClearInsulin}
-                  >
-                    <Feather name="trash-2" size={13} color={COLORS.danger} />
-                    <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear Insulin</Text>
-                  </Pressable>
-                )}
-              </View>
-            ) : null}
           </View>
         )}
 
@@ -1616,21 +1627,92 @@ export default function DashboardScreen() {
             This app provides estimates only and does not replace medical advice. Always follow your doctor's instructions.
           </Text>
         </View>
-
-        {/* Clear All Readings — its own window, last on the page. Hidden entirely for account types
-            that can't clear (e.g. a caregiver email account viewing a child through an access code). */}
-        {history.length > 0 && !isCaregiverViewingChild && (
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Pressable
-              style={({ pressed }) => [styles.dangerBtn, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 }]}
-              onPress={promptClearHistory}
-            >
-              <Feather name="trash-2" size={14} color={COLORS.danger} />
-              <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear All Readings</Text>
-            </Pressable>
-          </View>
-        )}
       </ScrollView>
+
+      {/* ── Manage Logs popup — a window wrapping a paginated, scrollable list of the full activity
+          log, with Clear Meals / Clear Insulin pinned at the bottom of the window. ── */}
+      <Modal
+        visible={manageLogsOpen}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setManageLogsOpen(false)}
+      >
+        <View
+          style={[
+            styles.manageBackdrop,
+            {
+              backgroundColor: scheme === "dark" ? "rgba(0,0,0,0.62)" : "rgba(15,25,45,0.38)",
+              paddingTop: insets.top + 12,
+              paddingBottom: insets.bottom + 96,
+            },
+          ]}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setManageLogsOpen(false)} accessibilityLabel="Close manage logs" />
+          <View style={[styles.manageCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.manageCardHeader}>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>Manage Logs</Text>
+              <Pressable
+                onPress={() => setManageLogsOpen(false)}
+                hitSlop={12}
+                style={[styles.manageCloseBtn, { backgroundColor: withAlpha(colors.textMuted, 0.2) }]}
+                accessibilityRole="button"
+                accessibilityLabel="Close manage logs"
+              >
+                <Feather name="x" size={16} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            <FlatList
+              data={combinedEntries.slice(0, logsVisibleCount)}
+              keyExtractor={(entry) => entry.id}
+              style={{ maxHeight: windowHeight * 0.62 }}
+              contentContainerStyle={{ paddingBottom: 8 }}
+              showsVerticalScrollIndicator
+              onEndReachedThreshold={0.4}
+              onEndReached={() => {
+                // Only pull the next page once you actually hit the bottom of what's loaded.
+                setLogsVisibleCount((c) => (c < combinedEntries.length ? c + LOG_PAGE_SIZE : c));
+              }}
+              renderItem={({ item, index }) => {
+                // data is a prefix of combinedEntries, so the previous item is combinedEntries[index-1].
+                const showDay = index === 0 || logDayLabel(item.timestamp) !== logDayLabel(combinedEntries[index - 1].timestamp);
+                return (
+                  <View>
+                    {showDay && (
+                      <Text style={[styles.logDayHeader, { color: colors.textMuted, borderBottomColor: colors.separator }]}>
+                        {logDayLabel(item.timestamp)}
+                      </Text>
+                    )}
+                    {renderLogEntry(item)}
+                  </View>
+                );
+              }}
+            />
+
+            {canClearLogs && (
+              <View style={styles.manageFooter}>
+                <Pressable
+                  disabled={foodLog.length === 0}
+                  style={({ pressed }) => [styles.dangerBtnSmall, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : foodLog.length === 0 ? 0.4 : 1 }]}
+                  onPress={promptClearFood}
+                >
+                  <Feather name="trash-2" size={13} color={COLORS.danger} />
+                  <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear Meals</Text>
+                </Pressable>
+                <Pressable
+                  disabled={insulinLog.length === 0}
+                  style={({ pressed }) => [styles.dangerBtnSmall, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : insulinLog.length === 0 ? 0.4 : 1 }]}
+                  onPress={promptClearInsulin}
+                >
+                  <Feather name="trash-2" size={13} color={COLORS.danger} />
+                  <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear Insulin</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       <SettingsModal
         visible={settingsOpen}
@@ -1861,7 +1943,6 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: 13, fontWeight: "500" },
   smallInput: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontWeight: "400" },
 
-  dangerBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, alignSelf: "flex-start" },
   dangerBtnText: { fontSize: 13, fontWeight: "600" },
   outlineBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, alignSelf: "flex-start" },
   outlineBtnText: { fontSize: 13, fontWeight: "500" },
@@ -1877,7 +1958,6 @@ const styles = StyleSheet.create({
   foodLogRow: { paddingVertical: 10, borderBottomWidth: 1, gap: 2 },
   foodLogName: { fontSize: 14, fontWeight: "500" },
   foodLogMeta: { fontSize: 12, fontWeight: "400" },
-  foodLogMore: { fontSize: 13, fontWeight: "400", marginTop: 4 },
 
   logDayHeader: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5, paddingBottom: 6, borderBottomWidth: 1, marginTop: 4, marginBottom: 4 },
   logEntryRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: 1 },
@@ -1885,6 +1965,16 @@ const styles = StyleSheet.create({
   logEntryName: { fontSize: 13, fontWeight: "600", marginBottom: 1 },
   logEntryMeta: { fontSize: 11, fontWeight: "400" },
   dangerBtnSmall: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1 },
+
+  // ── Activity Log header + Manage Logs popup ──
+  activityLogHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  manageLogsBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, flexShrink: 0 },
+  manageLogsBtnText: { fontSize: 12.5, fontWeight: "600" },
+  manageBackdrop: { flex: 1, justifyContent: "center", paddingHorizontal: 14 },
+  manageCard: { width: "100%", maxWidth: 540, alignSelf: "center", borderRadius: 16, borderWidth: 1, padding: 16, gap: 12, shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 18, shadowOffset: { width: 0, height: 12 } },
+  manageCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  manageCloseBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  manageFooter: { flexDirection: "row", justifyContent: "space-between", gap: 10 },
 
   insulinTypesSection: { borderTopWidth: 1, paddingTop: 14, gap: 12 },
   insulinGroup: { gap: 6 },

@@ -525,6 +525,7 @@ const careFoodLogs = defineTable({
   fromPhoto: v.boolean(),
   photoUri: v.optional(v.string()),
   createdAt: v.number(),
+  edited: v.optional(v.boolean()), // true once a viewer has edited this entry in place
 })
   .index("by_patient_time", ["patientUserId", "timestamp"])
   .index("by_patient_client", ["patientUserId", "clientId"]);
@@ -543,9 +544,33 @@ const careInsulinLogs = defineTable({
   recommendedUnits: v.optional(v.number()),
   manualOverride: v.optional(v.boolean()),
   createdAt: v.number(),
+  edited: v.optional(v.boolean()),
 })
   .index("by_patient_time", ["patientUserId", "timestamp"])
   .index("by_patient_client", ["patientUserId", "clientId"]);
+
+// ─── Care Circle direct messaging (guardians ↔ access codes) ─────────────────────────────────
+// In-app messaging between any two participants of one patient's circle: a guardian (owner or
+// co-guardian) and an access code (kid/caregiver), or two access codes. NOT guardian↔guardian.
+// A participant is an "endpoint": `user:<userId>` for a guardian, `code:<CODE>` for an access code
+// (a nurse account viewing via a code messages AS that code). A thread is the two endpoint keys
+// sorted + joined by "|" — DERIVED from the circle roster, so a fresh code's threads exist before
+// the code is ever used. `senderKey` is the author's endpoint; `read` = the recipient (the other
+// endpoint) has seen it. Messaging is always-on (ignores the `chat` grant); code endpoints stay
+// gated by the schedule window (`careAccessAllowed`). Circles are tiny, so reads scan by_patient.
+const careMessages = defineTable({
+  patientUserId: v.id("users"),
+  threadKey: v.string(),
+  senderKey: v.string(),
+  /** Snapshot of the sender's display name at send time (byline in the thread). */
+  senderName: v.string(),
+  text: v.string(),
+  /** True once the recipient endpoint has opened the thread. */
+  read: v.boolean(),
+  createdAt: v.number(),
+})
+  .index("by_thread", ["patientUserId", "threadKey", "createdAt"])
+  .index("by_patient", ["patientUserId"]);
 
 /** One row per doctor access code: optional full patient payload (after sync), always carries messages thread. */
 export default defineSchema({
@@ -565,6 +590,7 @@ export default defineSchema({
   caregiverLinks,
   careFoodLogs,
   careInsulinLogs,
+  careMessages,
   doctorAccounts,
   doctorSessions,
   doctorAlerts,

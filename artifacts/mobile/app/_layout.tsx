@@ -21,6 +21,7 @@ import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { GlucoseProvider } from "@/context/GlucoseContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { MessagesProvider } from "@/context/MessagesContext";
 import {
   registerNotificationCategories,
   handleNotificationResponse,
@@ -174,11 +175,13 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <GlucoseProvider>
-              <GestureHandlerRootView>
-                <KeyboardProvider>
-                  <RootLayoutNav />
-                </KeyboardProvider>
-              </GestureHandlerRootView>
+              <MessagesProvider>
+                <GestureHandlerRootView>
+                  <KeyboardProvider>
+                    <RootLayoutNav />
+                  </KeyboardProvider>
+                </GestureHandlerRootView>
+              </MessagesProvider>
             </GlucoseProvider>
           </AuthProvider>
         </QueryClientProvider>

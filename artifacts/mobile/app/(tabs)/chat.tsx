@@ -9,6 +9,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -21,6 +22,8 @@ import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { getEffectiveTrend } from "@/utils/trend";
 import DoctorMessaging from "@/components/DoctorMessaging";
+import CareThreadMessaging from "@/components/CareThreadMessaging";
+import { useMessages } from "@/context/MessagesContext";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
 import { apiUrl } from "@/utils/api-base-url";
 import { downsampleReadingsForContext, formatReadingTimeLabel } from "@/utils/glucoseHistoryContext";
@@ -32,6 +35,9 @@ interface Message {
   text: string;
   timestamp: Date;
 }
+
+/** Which conversation the Messages page has open (null = the thread list). */
+type ActiveThread = { kind: "doctor" } | { kind: "care"; threadKey: string; name: string };
 
 function buildParentSuggestions(
   glucose: number | null,
@@ -208,7 +214,11 @@ export default function ChatScreen() {
     { id: "0", role: "assistant", text: buildGreeting(speakingToParent), timestamp: new Date() },
   ]);
 
-  const [showDoctorInbox, setShowDoctorInbox] = useState(false);
+  // Messages page (branch off chat): the thread list, and which thread is open (null = list view).
+  const { threads: careThreads, unreadCount: careUnread, markRead: markCareRead } = useMessages();
+  const [showMessages, setShowMessages] = useState(false);
+  const [activeThread, setActiveThread] = useState<ActiveThread | null>(null);
+  const [headerH, setHeaderH] = useState(0);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -367,85 +377,194 @@ export default function ChatScreen() {
     );
   }
 
-  if (chatLocked) {
-    return (
-      <View style={[styles.root, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center", padding: 32, gap: 10 }]}>
-        <Feather name="lock" size={28} color={colors.textMuted} />
-        <Text style={{ fontSize: 17, fontWeight: "700", color: colors.text }}>Chat is off</Text>
-        <Text style={{ fontSize: 13, color: colors.textSecondary, textAlign: "center", lineHeight: 19 }}>
-          The AI chat isn't turned on for you. Ask a parent to enable it.
-        </Text>
-      </View>
-    );
-  }
-
+  // Doctor thread is guardian-only (a doctor session is handled above; code sessions never see it).
   const unreadDoctorCount = doctorMessages.filter((m) => m.sender === "doctor" && !m.read).length;
+  const lastDoctorMsg = doctorMessages.length > 0 ? doctorMessages[doctorMessages.length - 1] : null;
+  const hasDoctorThread = doctorMessages.length > 0 && !caregiverSession;
+  const fmtThreadTime = (ms: number) => {
+    const d = new Date(ms);
+    return d.toDateString() === new Date().toDateString()
+      ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : d.toLocaleDateString([], { month: "numeric", day: "numeric" });
+  };
 
-  return (
-    <KeyboardAvoidingView
-      style={[styles.root, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={0}
-    >
-      <TabGlucoseHeaderShell
-        borderBottomColor={colors.border}
-        style={[styles.header, { backgroundColor: colors.background }]}
-      >
-        <TabGlucoseHeaderRow
-          left={
-            <View style={styles.headerLeft}>
-              <View style={[styles.avatarSmall, { backgroundColor: COLORS.primary + "20" }]}>
-                <Image source={require("../../assets/images/logo.png")} style={styles.avatarLogo} resizeMode="contain" />
+  // One unified thread list: the Doctor thread (if any) + every cross-account thread, unread-first.
+  const threadRows: {
+    key: string;
+    name: string;
+    preview: string;
+    time: number | null;
+    unread: boolean;
+    icon: React.ComponentProps<typeof Feather>["name"];
+    open: () => void;
+  }[] = [];
+  if (hasDoctorThread) {
+    threadRows.push({
+      key: "doctor",
+      name: "Doctor",
+      preview: lastDoctorMsg
+        ? `${lastDoctorMsg.sender === "guardian" ? "You: " : ""}${lastDoctorMsg.text}`
+        : "No messages yet",
+      time: lastDoctorMsg ? Date.parse(lastDoctorMsg.timestamp) : null,
+      unread: unreadDoctorCount > 0,
+      icon: "activity",
+      open: () => { markDoctorMessagesRead(); setActiveThread({ kind: "doctor" }); },
+    });
+  }
+  for (const th of careThreads) {
+    threadRows.push({
+      key: th.threadKey,
+      name: th.otherName,
+      preview: th.lastText ? `${th.lastFromMe ? "You: " : ""}${th.lastText}` : "No messages yet",
+      time: th.lastAt,
+      unread: th.unread > 0,
+      icon: th.otherKind === "guardian" ? "user" : th.otherKind === "child" ? "smile" : "briefcase",
+      open: () => { void markCareRead(th.threadKey); setActiveThread({ kind: "care", threadKey: th.threadKey, name: th.otherName }); },
+    });
+  }
+  threadRows.sort((a, b) => Number(b.unread) - Number(a.unread) || (b.time ?? 0) - (a.time ?? 0));
+  // With the AI chat off, the whole Chat page IS the messages page — so hide the floating button
+  // (redundant) and render the thread list inline instead of the chat composer.
+  const showMessagesBtn = threadRows.length > 0 && !chatLocked;
+  const totalUnread = unreadDoctorCount + careUnread;
+
+  // The Messages page body, reused in the modal (chat on) and inline as the whole screen (chat off).
+  const renderThreadList = (onClose?: () => void) => (
+    <>
+      <View style={[styles.modalTopBar, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+        <View style={{ width: 44 }} />
+        <Text style={[styles.modalTitle, { color: colors.text }]}>Messages</Text>
+        {onClose ? (
+          <Pressable style={styles.modalCloseBtn} onPress={onClose}>
+            <Feather name="x" size={20} color={colors.textSecondary} />
+          </Pressable>
+        ) : (
+          <View style={{ width: 44 }} />
+        )}
+      </View>
+      <ScrollView contentContainerStyle={{ paddingVertical: 6 }} {...NO_AUTO_CONTENT_INSETS}>
+        {threadRows.length === 0 ? (
+          <View style={{ alignItems: "center", paddingTop: 64, paddingHorizontal: 32, gap: 8 }}>
+            <Text style={{ fontSize: 34 }}>💬</Text>
+            <Text style={{ fontSize: 14, color: colors.textSecondary, textAlign: "center" }}>No conversations yet.</Text>
+          </View>
+        ) : (
+          threadRows.map((row) => (
+            <Pressable
+              key={row.key}
+              style={({ pressed }) => [styles.threadRow, { borderBottomColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+              onPress={row.open}
+            >
+              <View style={[styles.threadAvatar, { backgroundColor: COLORS.primary + "20" }]}>
+                <Feather name={row.icon} size={20} color={COLORS.primary} />
               </View>
-              <View style={styles.headerText}>
-                <Text style={[styles.headerTitle, { color: colors.text }]}>Glucose Guardian</Text>
-                <Text style={[styles.headerSub, { color: COLORS.success }]}>
-                  {speakingToParent ? `Managing ${name}'s care` : "Your AI diabetes companion"}
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.threadName, { color: colors.text }, row.unread && styles.threadUnread]} numberOfLines={1}>
+                  {row.name}
+                </Text>
+                <Text
+                  style={[styles.threadPreview, { color: row.unread ? colors.text : colors.textMuted }, row.unread && styles.threadUnread]}
+                  numberOfLines={1}
+                >
+                  {row.preview}
                 </Text>
               </View>
-            </View>
-          }
-        />
-      </TabGlucoseHeaderShell>
+              <View style={styles.threadMeta}>
+                {row.time != null && <Text style={[styles.threadTime, { color: colors.textMuted }]}>{fmtThreadTime(row.time)}</Text>}
+                {row.unread && <View style={styles.threadDot} />}
+              </View>
+            </Pressable>
+          ))
+        )}
+      </ScrollView>
+    </>
+  );
 
-      {/* Doctor inbox banner — hidden for any access-code session (kid / caregiver) */}
-      {doctorMessages.length > 0 && !doctorSession && !caregiverSession && (
-        <Pressable
-          style={[styles.doctorBanner, { backgroundColor: "#6366F1" + "12", borderColor: "#6366F1" + "30" }]}
-          onPress={() => { setShowDoctorInbox(true); markDoctorMessagesRead(); }}
+  const renderThreadView = (thread: ActiveThread) => (
+    <>
+      <View style={[styles.modalTopBar, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+        <Pressable style={styles.modalCloseBtn} onPress={() => setActiveThread(null)} accessibilityLabel="Back to messages">
+          <Feather name="chevron-left" size={22} color={colors.textSecondary} />
+        </Pressable>
+        <Text style={[styles.modalTitle, { color: colors.text }]}>
+          {thread.kind === "doctor" ? "Doctor" : thread.name}
+        </Text>
+        <View style={{ width: 44 }} />
+      </View>
+      {thread.kind === "doctor" ? (
+        <DoctorMessaging colors={colors} isDoctor={false} />
+      ) : (
+        <CareThreadMessaging colors={colors} threadKey={thread.threadKey} title={thread.name} />
+      )}
+    </>
+  );
+
+  return (
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <View onLayout={(e) => setHeaderH(e.nativeEvent.layout.height)}>
+        <TabGlucoseHeaderShell
+          borderBottomColor={colors.border}
+          style={[styles.header, { backgroundColor: colors.background }]}
         >
-          <Feather name="message-circle" size={14} color="#6366F1" />
-          <Text style={[styles.doctorBannerText, { color: "#6366F1" }]}>
-            {unreadDoctorCount > 0 ? `${unreadDoctorCount} new message${unreadDoctorCount > 1 ? "s" : ""} from your doctor` : "Messages from your doctor"}
-          </Text>
-          {unreadDoctorCount > 0 && (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadBadgeText}>{unreadDoctorCount}</Text>
+          <TabGlucoseHeaderRow
+            left={
+              <View style={styles.headerLeft}>
+                <View style={[styles.avatarSmall, { backgroundColor: COLORS.primary + "20" }]}>
+                  <Image source={require("../../assets/images/logo.png")} style={styles.avatarLogo} resizeMode="contain" />
+                </View>
+                <View style={styles.headerText}>
+                  <Text style={[styles.headerTitle, { color: colors.text }]}>Glucose Guardian</Text>
+                  <Text style={[styles.headerSub, { color: COLORS.success }]}>
+                    {speakingToParent ? `Managing ${name}'s care` : "Your AI diabetes companion"}
+                  </Text>
+                </View>
+              </View>
+            }
+          />
+        </TabGlucoseHeaderShell>
+      </View>
+
+      {/* Floating "Messages" bar (top-right), with a total-unread count badge on its left. */}
+      {showMessagesBtn && headerH > 0 && (
+        <Pressable
+          style={[styles.messagesFab, { top: headerH + 8, backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={() => { setActiveThread(null); setShowMessages(true); }}
+          accessibilityRole="button"
+          accessibilityLabel="Messages"
+        >
+          {totalUnread > 0 && (
+            <View style={styles.messagesFabBadge}>
+              <Text style={styles.messagesFabBadgeText}>{totalUnread}</Text>
             </View>
           )}
-          <Feather name="chevron-right" size={14} color="#6366F1" />
+          <Feather name="mail" size={14} color={COLORS.primary} />
+          <Text style={[styles.messagesFabText, { color: colors.text }]}>Messages</Text>
         </Pressable>
       )}
 
-      {/* Doctor inbox modal */}
+      {/* ── Messages page: thread list ↔ an open thread ── */}
       <Modal
-        visible={showDoctorInbox}
+        visible={showMessages}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setShowDoctorInbox(false)}
+        onRequestClose={() => setShowMessages(false)}
       >
         <View style={[styles.root, { backgroundColor: colors.background }]}>
-          <View style={[styles.modalTopBar, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-            <View style={{ width: 44 }} />
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Doctor Messages</Text>
-            <Pressable style={styles.modalCloseBtn} onPress={() => setShowDoctorInbox(false)}>
-              <Feather name="x" size={20} color={colors.textSecondary} />
-            </Pressable>
-          </View>
-          <DoctorMessaging colors={colors} isDoctor={false} />
+          {activeThread === null ? renderThreadList(() => setShowMessages(false)) : renderThreadView(activeThread)}
         </View>
       </Modal>
 
+      {chatLocked ? (
+        // AI chat is off for this access code — the Chat page becomes the Messages page directly.
+        <View style={{ flex: 1 }}>
+          {activeThread === null ? renderThreadList() : renderThreadView(activeThread)}
+        </View>
+      ) : (
+       <KeyboardAvoidingView
+         style={{ flex: 1 }}
+         behavior={Platform.OS === "ios" ? "padding" : "height"}
+         keyboardVerticalOffset={0}
+       >
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -520,7 +639,9 @@ export default function ChatScreen() {
           <Feather name="send" size={18} color={input.trim() && !isThinking ? "#fff" : colors.textMuted} />
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+      )}
+    </View>
   );
 }
 
@@ -653,25 +774,59 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  doctorBanner: {
+  // Floating "Messages" bar (top-right of the chat page).
+  messagesFab: {
+    position: "absolute",
+    right: 12,
+    zIndex: 20,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
+    gap: 6,
+    paddingLeft: 10,
+    paddingRight: 12,
+    paddingVertical: 7,
+    borderRadius: 18,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
-  doctorBannerText: { flex: 1, fontSize: 13, fontWeight: "500" },
-  unreadBadge: {
-    backgroundColor: "#6366F1",
-    borderRadius: 10,
+  messagesFabText: { fontSize: 13, fontWeight: "600" },
+  messagesFabBadge: {
+    backgroundColor: "#EF4444",
+    borderRadius: 9,
     minWidth: 18,
     height: 18,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 4,
   },
-  unreadBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
+  messagesFabBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
+
+  // Messages thread list rows.
+  threadRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  threadAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  threadName: { fontSize: 15, fontWeight: "500", marginBottom: 2 },
+  threadPreview: { fontSize: 13 },
+  threadUnread: { fontWeight: "700" },
+  threadMeta: { alignItems: "flex-end", gap: 6 },
+  threadTime: { fontSize: 11 },
+  threadDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#EF4444" },
 
   modalTopBar: {
     flexDirection: "row",

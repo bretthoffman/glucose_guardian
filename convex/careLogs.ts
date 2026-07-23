@@ -461,7 +461,7 @@ function mapFood(
   row: {
     clientId: string; timestamp: string; foodName: string; estimatedCarbs: number;
     insulinUnits: number; confidence: "high" | "medium" | "low"; fromPhoto: boolean;
-    photoUri?: string; authorUserId?: string; authorName: string;
+    photoUri?: string; authorUserId?: string; authorName: string; edited?: boolean;
   },
   liveNames: Map<string, string>,
 ) {
@@ -476,6 +476,7 @@ function mapFood(
     photoUri: row.photoUri,
     authorUserId: row.authorUserId,
     authorName: bylineFor(row, liveNames),
+    edited: row.edited,
   };
 }
 
@@ -484,7 +485,7 @@ function mapInsulin(
     clientId: string; timestamp: string; units: number;
     type: "bolus" | "correction" | "manual" | "basal"; note?: string; foodLogId?: string;
     insulinType?: string; recommendedUnits?: number; manualOverride?: boolean;
-    authorUserId?: string; authorName: string;
+    authorUserId?: string; authorName: string; edited?: boolean;
   },
   liveNames: Map<string, string>,
 ) {
@@ -500,6 +501,7 @@ function mapInsulin(
     manualOverride: row.manualOverride,
     authorUserId: row.authorUserId,
     authorName: bylineFor(row, liveNames),
+    edited: row.edited,
   };
 }
 
@@ -607,5 +609,144 @@ export const listLogsViaCode = query({
     if (!row || !row.permissions.viewLogs) return null;
     if (!careAccessAllowed(row.access as CareAccess, Date.now())) return null;
     return await readLogs(ctx, row.patientUserId);
+  },
+});
+
+// ─── per-entry delete + edit (patient / co-guardian, or via an access code with the log grant) ──
+// Editing/deleting a single shared row propagates to everyone in the circle and to every access-code
+// viewer, and (since the calculator reads the same pool) removes/updates it from all future dose math.
+// An edit stamps `edited: true` so viewers can see the entry was changed.
+
+const foodEditPatch = v.object({
+  foodName: v.optional(v.string()),
+  estimatedCarbs: v.optional(v.number()),
+  insulinUnits: v.optional(v.number()),
+  timestamp: v.optional(v.string()),
+});
+
+const insulinEditPatch = v.object({
+  units: v.optional(v.number()),
+  note: v.optional(v.string()),
+  timestamp: v.optional(v.string()),
+});
+
+async function findFoodRow(ctx: MutationCtx, patientUserId: Id<"users">, clientId: string) {
+  return await ctx.db
+    .query("careFoodLogs")
+    .withIndex("by_patient_client", (q) => q.eq("patientUserId", patientUserId).eq("clientId", clientId))
+    .first();
+}
+
+async function findInsulinRow(ctx: MutationCtx, patientUserId: Id<"users">, clientId: string) {
+  return await ctx.db
+    .query("careInsulinLogs")
+    .withIndex("by_patient_client", (q) => q.eq("patientUserId", patientUserId).eq("clientId", clientId))
+    .first();
+}
+
+async function patchFoodRow(ctx: MutationCtx, row: NonNullable<Awaited<ReturnType<typeof findFoodRow>>>, patch: typeof foodEditPatch.type) {
+  await ctx.db.patch(row._id, {
+    ...(patch.foodName !== undefined ? { foodName: patch.foodName } : {}),
+    ...(patch.estimatedCarbs !== undefined ? { estimatedCarbs: patch.estimatedCarbs } : {}),
+    ...(patch.insulinUnits !== undefined ? { insulinUnits: patch.insulinUnits } : {}),
+    ...(patch.timestamp !== undefined ? { timestamp: patch.timestamp } : {}),
+    edited: true,
+  });
+}
+
+async function patchInsulinRow(ctx: MutationCtx, row: NonNullable<Awaited<ReturnType<typeof findInsulinRow>>>, patch: typeof insulinEditPatch.type) {
+  await ctx.db.patch(row._id, {
+    ...(patch.units !== undefined ? { units: patch.units } : {}),
+    ...(patch.note !== undefined ? { note: patch.note } : {}),
+    ...(patch.timestamp !== undefined ? { timestamp: patch.timestamp } : {}),
+    edited: true,
+  });
+}
+
+/** Resolve the circle bucket + write auth for an account-authorized per-entry edit/delete. */
+async function accountEntryAuth(ctx: MutationCtx, userId: Id<"users">, passwordHash: string, patientUserIdArg: Id<"users">): Promise<Id<"users">> {
+  if (!(await assertPatientAuth(ctx, userId, passwordHash))) throw new Error("Unauthorized");
+  const patientUserId = patientUserIdArg === userId ? await circleBucketFor(ctx, userId) : patientUserIdArg;
+  if (!(await resolveAccountWriteAuth(ctx, userId, patientUserId))) throw new Error("Not allowed to edit this log");
+  return patientUserId;
+}
+
+/** Resolve the patient bucket for an access-code per-entry edit/delete (requires the log grant). */
+async function codeEntryAuth(ctx: MutationCtx, code: string): Promise<Id<"users">> {
+  const row = await resolveActiveAccessCode(ctx, code);
+  if (!row || !row.permissions.log) throw new Error("This code cannot edit logs");
+  if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new Error("Outside this code's schedule");
+  return row.patientUserId;
+}
+
+export const deleteFoodLog = mutation({
+  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users"), clientId: v.string() },
+  handler: async (ctx, args) => {
+    const patientUserId = await accountEntryAuth(ctx, args.userId, args.passwordHash, args.patientUserId);
+    const row = await findFoodRow(ctx, patientUserId, args.clientId);
+    if (row) await ctx.db.delete(row._id);
+  },
+});
+
+export const deleteInsulinLog = mutation({
+  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users"), clientId: v.string() },
+  handler: async (ctx, args) => {
+    const patientUserId = await accountEntryAuth(ctx, args.userId, args.passwordHash, args.patientUserId);
+    const row = await findInsulinRow(ctx, patientUserId, args.clientId);
+    if (row) await ctx.db.delete(row._id);
+  },
+});
+
+export const updateFoodLog = mutation({
+  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users"), clientId: v.string(), patch: foodEditPatch },
+  handler: async (ctx, args) => {
+    const patientUserId = await accountEntryAuth(ctx, args.userId, args.passwordHash, args.patientUserId);
+    const row = await findFoodRow(ctx, patientUserId, args.clientId);
+    if (row) await patchFoodRow(ctx, row, args.patch);
+  },
+});
+
+export const updateInsulinLog = mutation({
+  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users"), clientId: v.string(), patch: insulinEditPatch },
+  handler: async (ctx, args) => {
+    const patientUserId = await accountEntryAuth(ctx, args.userId, args.passwordHash, args.patientUserId);
+    const row = await findInsulinRow(ctx, patientUserId, args.clientId);
+    if (row) await patchInsulinRow(ctx, row, args.patch);
+  },
+});
+
+export const deleteFoodLogViaCode = mutation({
+  args: { code: v.string(), clientId: v.string() },
+  handler: async (ctx, args) => {
+    const patientUserId = await codeEntryAuth(ctx, args.code);
+    const row = await findFoodRow(ctx, patientUserId, args.clientId);
+    if (row) await ctx.db.delete(row._id);
+  },
+});
+
+export const deleteInsulinLogViaCode = mutation({
+  args: { code: v.string(), clientId: v.string() },
+  handler: async (ctx, args) => {
+    const patientUserId = await codeEntryAuth(ctx, args.code);
+    const row = await findInsulinRow(ctx, patientUserId, args.clientId);
+    if (row) await ctx.db.delete(row._id);
+  },
+});
+
+export const updateFoodLogViaCode = mutation({
+  args: { code: v.string(), clientId: v.string(), patch: foodEditPatch },
+  handler: async (ctx, args) => {
+    const patientUserId = await codeEntryAuth(ctx, args.code);
+    const row = await findFoodRow(ctx, patientUserId, args.clientId);
+    if (row) await patchFoodRow(ctx, row, args.patch);
+  },
+});
+
+export const updateInsulinLogViaCode = mutation({
+  args: { code: v.string(), clientId: v.string(), patch: insulinEditPatch },
+  handler: async (ctx, args) => {
+    const patientUserId = await codeEntryAuth(ctx, args.code);
+    const row = await findInsulinRow(ctx, patientUserId, args.clientId);
+    if (row) await patchInsulinRow(ctx, row, args.patch);
   },
 });
