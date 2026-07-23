@@ -158,6 +158,9 @@ export default function InsulinScreen() {
   const manualOverrideBeforeEditRef = useRef<number | null>(null);
   const doseInputRef = useRef<TextInput>(null);
   const cgmSyncTickRef = useRef(cgmSyncSuccessTick);
+  // Scroll to the page bottom after a toggle/card reveals content downward, so it comes into view.
+  const scrollRef = useRef<ScrollView>(null);
+  const pendingScrollRef = useRef(false);
 
   // ── Insulin type selection (persisted; validated against the profile's configured insulins) ──
   const [insulinTypeLabel, setInsulinTypeLabel] = useState<string | null>(null);
@@ -616,12 +619,20 @@ export default function InsulinScreen() {
         />
       ) : (
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPadding + 80 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         {...NO_AUTO_CONTENT_INSETS}
+        onContentSizeChange={() => {
+          // A toggle/card just grew the page — pull the user to the bottom so the reveal is in view.
+          if (pendingScrollRef.current) {
+            pendingScrollRef.current = false;
+            scrollRef.current?.scrollToEnd({ animated: true });
+          }
+        }}
         onScrollBeginDrag={() => {
           // Scrolling with the keyboard up dismisses it, which blurs the focused field and fires
           // its onBlur → commit. So a user can edit a value, scroll down, and see the fresh result.
@@ -773,7 +784,7 @@ export default function InsulinScreen() {
 
           <View style={[styles.suggestCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {/* Suggested Dose + editable badge */}
-            <View style={styles.suggestTotalRow}>
+            <View key="total" style={styles.suggestTotalRow}>
               <View style={styles.doseTotalLabelWrap}>
                 <Text style={[styles.doseTotalHeadLabel, { color: colors.textSecondary }]}>
                   {isMinor ? "Ask your adult to give:" : "Suggested Dose"}
@@ -794,7 +805,7 @@ export default function InsulinScreen() {
             </View>
 
             {/* Actions: See Calculation (toggle) + I Just Took This Dose */}
-            <View style={[styles.doseActionsRow, { marginTop: 0 }]}>
+            <View key="actions" style={[styles.doseActionsRow, { marginTop: 0 }]}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ expanded: showCalc }}
@@ -810,6 +821,7 @@ export default function InsulinScreen() {
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (!showCalc) pendingScrollRef.current = true; // scroll only when opening
                   LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                   setShowCalc((v) => !v);
                 }}
@@ -822,7 +834,7 @@ export default function InsulinScreen() {
 
             {/* ── How your dose is calculated — revealed by "See Calculation" ── */}
             {showCalc && (
-              <View style={styles.calcReveal}>
+              <View key="calc" style={styles.calcReveal}>
                 <View style={styles.calcHeadRow}>
                   <Text style={[styles.calcHeadLabel, { color: colors.textSecondary }]}>HOW YOUR DOSE IS CALCULATED</Text>
                 </View>
@@ -837,6 +849,9 @@ export default function InsulinScreen() {
                         selected={expandedCard === c.key}
                         onPress={() => {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          const opening = expandedCard !== c.key; // opening a card's explanation
+                          if (opening) pendingScrollRef.current = true;
+                          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                           setExpandedCard((prev) => (prev === c.key ? null : c.key));
                         }}
                         colors={colors}
@@ -882,6 +897,7 @@ export default function InsulinScreen() {
                 the same rule that gates the graph itself. ── */}
             {effectiveDose > 0 && (
               <Pressable
+                key="predict-btn"
                 accessibilityRole="button"
                 accessibilityState={{ expanded: showPrediction }}
                 accessibilityLabel="See prediction"
@@ -895,6 +911,7 @@ export default function InsulinScreen() {
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (!showPrediction) pendingScrollRef.current = true; // scroll only when opening
                   LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                   setShowPrediction((v) => !v);
                 }}
@@ -908,6 +925,7 @@ export default function InsulinScreen() {
                 re-animates from the left) on each open, and only when there's a dose to project. */}
             {showPrediction && effectiveDose > 0 && (
               <DosePredictionChart
+                key="graph"
                 readings={history}
                 forecast={forecast}
                 currentBG={doseBg.n}
@@ -1187,7 +1205,7 @@ const styles = StyleSheet.create({
   doseTotalLabelWrap: { flex: 1, minWidth: 0 },
   doseTotalLabel: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
   // "SUGGESTED DOSE" — matches the "HOW YOUR DOSE IS CALCULATED" head (calcHeadLabel) exactly.
-  doseTotalHeadLabel: { fontSize: 12, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
+  doseTotalHeadLabel: { fontSize: 14, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
 
   explainBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 11, borderWidth: 1, borderColor: "transparent" },
 
@@ -1195,7 +1213,9 @@ const styles = StyleSheet.create({
   //    and whatever they reveal). Same surface as the carbs/BG card. ──
   sectionDivider: { borderTopWidth: 1, marginBottom: 18 },
   suggestCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 20, gap: 14 },
-  suggestTotalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  // baseline so "SUGGESTED DOSE" stays in line with the dose value in the pill, regardless of the
+  // "Tap to edit" / recommended-dose line that sits below the pill.
+  suggestTotalRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 10 },
   calcReveal: {},
   explainBtnText: { fontSize: 13, fontWeight: "600" },
   dosePrompt: { fontSize: 13, fontWeight: "400", lineHeight: 20, textAlign: "center", paddingVertical: 8 },
