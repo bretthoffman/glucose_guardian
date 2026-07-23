@@ -16,21 +16,21 @@ import {
 export function DoseWarningsList({ warnings }: { warnings: DoseWarning[] }) {
   return (
     <>
-      {warnings.map((w, i) => (
-        <View key={i} style={[styles.doseWarning, {
-          backgroundColor: w.level === "danger" ? "#EF444418" : w.level === "warning" ? "#F59E0B18" : COLORS.primary + "14",
-          borderColor: w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary,
-        }]}>
-          <Feather
-            name={w.level === "danger" ? "alert-circle" : w.level === "warning" ? "alert-triangle" : "info"}
-            size={13}
-            color={w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary}
-          />
-          <Text style={[styles.doseWarningText, {
-            color: w.level === "danger" ? "#EF4444" : w.level === "warning" ? "#F59E0B" : COLORS.primary,
-          }]}>{w.message}</Text>
-        </View>
-      ))}
+      {warnings.map((w, i) => {
+        // Cautions (warning/danger) render amber with a ⚠ triangle; neutral FYIs (info) stay
+        // purple with an ⓘ circle. No message is red anymore.
+        const isInfo = w.level === "info";
+        const color = isInfo ? COLORS.primary : "#F59E0B";
+        return (
+          <View
+            key={i}
+            style={[styles.doseWarning, { backgroundColor: color + (isInfo ? "14" : "18"), borderColor: color }]}
+          >
+            <Feather name={isInfo ? "info" : "alert-triangle"} size={13} color={color} />
+            <Text style={[styles.doseWarningText, { color }]}>{w.message}</Text>
+          </View>
+        );
+      })}
     </>
   );
 }

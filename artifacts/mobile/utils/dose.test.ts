@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeDose } from "./dose";
+import { buildDoseWarning, computeDose, type DoseWarningContext } from "./dose";
 
 const BASE = {
   carbs: 30,
@@ -40,10 +40,12 @@ describe("computeDose insulinKind", () => {
     expect(dose.warnings.some((w) => w.message.includes("Trend adjustment applied"))).toBe(false);
   });
 
-  it("keeps the low-BG safety warning even for basal insulin", () => {
+  it("keeps the low-BG safety note even for basal insulin (folded into the basal message)", () => {
     const dose = computeDose({ ...BASE, currentBG: 80, insulinKind: "long" });
     expect(dose.isLowBG).toBe(true);
-    expect(dose.warnings.some((w) => w.level === "danger")).toBe(true);
+    expect(dose.warnings).toHaveLength(1);
+    expect(dose.warnings[0].message.toLowerCase()).toContain("low");
+    expect(dose.warnings[0].message).toContain("basal");
   });
 
   it("regular keeps the dose math but adds a pre-meal timing note", () => {
@@ -57,6 +59,82 @@ describe("computeDose insulinKind", () => {
     const dose = computeDose({ ...BASE, insulinKind: "premixed" });
     expect(dose.totalDose).toBe(computeDose(BASE).totalDose);
     expect(dose.warnings.some((w) => w.level === "info" && w.message.includes("Pre-mixed"))).toBe(true);
+  });
+});
+
+describe("computeDose blended warnings — only ever one, merged", () => {
+  it("blends low + falling into a single amber caution and says 'instead of'", () => {
+    const dose = computeDose({ ...BASE, currentBG: 70, trend: "falling" });
+    expect(dose.warnings).toHaveLength(1);
+    const [w] = dose.warnings;
+    expect(w.level).toBe("warning");
+    expect(w.message).toContain("low and falling");
+    expect(w.message).toContain("instead of giving insulin");
+    expect(w.message).not.toContain("before giving insulin");
+  });
+
+  it("shows low without the 'and falling' when the trend is not falling", () => {
+    const dose = computeDose({ ...BASE, currentBG: 70, trend: "stable" });
+    expect(dose.warnings).toHaveLength(1);
+    expect(dose.warnings[0].message).toContain("Glucose is low.");
+    expect(dose.warnings[0].message).not.toContain("falling");
+  });
+
+  it("keeps below-target as a neutral purple info note when steady", () => {
+    const dose = computeDose({ ...BASE, currentBG: 96, trend: "stable" });
+    expect(dose.warnings).toHaveLength(1);
+    expect(dose.warnings[0].level).toBe("info");
+    expect(dose.warnings[0].message).toContain("below target");
+  });
+
+  it("escalates below-target + falling to an amber caution", () => {
+    const dose = computeDose({ ...BASE, currentBG: 96, trend: "falling" });
+    expect(dose.warnings).toHaveLength(1);
+    expect(dose.warnings[0].level).toBe("warning");
+    expect(dose.warnings[0].message).toContain("below your target and falling");
+  });
+});
+
+describe("buildDoseWarning priority + blending", () => {
+  const CTX: DoseWarningContext = {
+    basalSuppressed: false,
+    isLowBG: false,
+    isBelowTarget: false,
+    isHighBG: false,
+    isSpike: false,
+    isFalling: false,
+    iobCovers: false,
+    iobUnits: 0,
+    targetBG: 120,
+    currentBG: 150,
+  };
+
+  it("returns null when nothing applies", () => {
+    expect(buildDoseWarning(CTX)).toBeNull();
+  });
+
+  it("high + spike merges the spike reading into the high caution", () => {
+    const w = buildDoseWarning({ ...CTX, isHighBG: true, isSpike: true, previousBG: 120, currentBG: 260 })!;
+    expect(w.level).toBe("warning");
+    expect(w.message).toContain("high after a sharp rise");
+    expect(w.message).toContain("120 → 260");
+  });
+
+  it("high + falling reads 'high but already falling'", () => {
+    const w = buildDoseWarning({ ...CTX, isHighBG: true, isFalling: true, currentBG: 300 })!;
+    expect(w.message).toContain("high but already falling");
+  });
+
+  it("low outranks a lower-priority IOB note", () => {
+    const w = buildDoseWarning({ ...CTX, isLowBG: true, iobCovers: true, iobUnits: 3, currentBG: 70 })!;
+    expect(w.message).toContain("Glucose is low");
+    expect(w.message).not.toContain("on board");
+  });
+
+  it("surfaces the IOB note only when no glucose situation applies", () => {
+    const w = buildDoseWarning({ ...CTX, iobCovers: true, iobUnits: 2.5 })!;
+    expect(w.level).toBe("info");
+    expect(w.message).toContain("2.5u on board");
   });
 });
 

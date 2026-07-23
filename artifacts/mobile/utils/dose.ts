@@ -44,6 +44,125 @@ const TREND_LABELS: Record<string, string> = {
   rapidly_falling: "Falling fast ↓",
 };
 
+export interface DoseWarningContext {
+  basalSuppressed: boolean;
+  insulinKind?: InsulinKind;
+  isLowBG: boolean;
+  isBelowTarget: boolean;
+  isHighBG: boolean;
+  isSpike: boolean;
+  isFalling: boolean;
+  iobCovers: boolean;
+  iobUnits: number;
+  targetBG: number;
+  previousBG?: number;
+  currentBG: number;
+}
+
+const mkWarn = (level: "warning" | "info", message: string): DoseWarning => ({ level, message });
+
+/**
+ * The SINGLE dose warning to show (or null). Situations that used to stack — e.g. "low" + "falling"
+ * — are blended into one message here, dropping redundant advice, and a higher-priority safety
+ * situation wins over lower-priority informational notes. Cautionary states use level "warning"
+ * (rendered amber, ⚠); neutral / FYI states use "info" (rendered purple, ⓘ).
+ */
+export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
+  const { isFalling } = ctx;
+
+  // Basal insulin: the meal/correction premise doesn't apply — fold in any acute glucose caution.
+  if (ctx.basalSuppressed) {
+    const lead = ctx.isLowBG
+      ? "Glucose is low — treat it first. "
+      : ctx.isHighBG
+      ? "Glucose is high — verify with a finger stick. "
+      : "";
+    return mkWarn(
+      "warning",
+      `${lead}Long-acting (basal) insulin isn't dosed from carbs or corrections — enter your prescribed amount manually. This calculator's math is for mealtime insulin.`,
+    );
+  }
+
+  // Low glucose — treat the low; don't give insulin.
+  if (ctx.isLowBG) {
+    return mkWarn(
+      "warning",
+      `Glucose is low${isFalling ? " and falling" : ""}. Consider fast-acting carbs (juice or glucose tabs) instead of giving insulin.`,
+    );
+  }
+
+  // High glucose, optionally after a sharp spike or while already falling.
+  if (ctx.isHighBG) {
+    if (ctx.isSpike) {
+      return mkWarn(
+        "warning",
+        `Glucose is high after a sharp rise (${ctx.previousBG} → ${ctx.currentBG} mg/dL). Verify with a finger stick before dosing, then monitor closely.`,
+      );
+    }
+    if (isFalling) {
+      return mkWarn(
+        "warning",
+        "Glucose is high but already falling. Verify with a finger stick and monitor closely after dosing.",
+      );
+    }
+    return mkWarn("warning", "Glucose is high. Verify with a finger stick if possible and monitor closely.");
+  }
+
+  // A sharp rise that hasn't crossed the high threshold yet.
+  if (ctx.isSpike) {
+    return mkWarn(
+      "warning",
+      `Unusual spike detected (${ctx.previousBG} → ${ctx.currentBG} mg/dL). Verify with a finger stick before dosing.`,
+    );
+  }
+
+  // Below target (not low): correction is suppressed. Neutral info — unless it's also falling.
+  if (ctx.isBelowTarget) {
+    if (isFalling) {
+      return mkWarn(
+        "warning",
+        "Glucose is below your target and falling. No correction is added — have a small snack instead of insulin and monitor closely.",
+      );
+    }
+    return mkWarn(
+      "info",
+      `BG is below target (${ctx.targetBG} mg/dL). No correction added — consider a small snack instead.`,
+    );
+  }
+
+  // In range but trending down.
+  if (isFalling) {
+    return mkWarn(
+      "warning",
+      "Glucose is falling, so a trend adjustment is applied — monitor closely after dosing.",
+    );
+  }
+
+  // Recent insulin already covers the calculated dose (neutral FYI).
+  if (ctx.iobCovers) {
+    return mkWarn(
+      "info",
+      `Recent insulin is still active (${Math.round(ctx.iobUnits * 100) / 100}u on board) and already covers this — no additional dose suggested.`,
+    );
+  }
+
+  // Insulin-type timing reminders (only when nothing more pressing applies).
+  if (ctx.insulinKind === "regular") {
+    return mkWarn(
+      "info",
+      "Regular (short-acting) insulin starts and peaks slower than rapid-acting — inject about 30 minutes before eating.",
+    );
+  }
+  if (ctx.insulinKind === "premixed") {
+    return mkWarn(
+      "info",
+      "Pre-mixed insulin combines fixed rapid and intermediate portions. Confirm mealtime coverage for this dose with your care team.",
+    );
+  }
+
+  return null;
+}
+
 export function computeDose(params: {
   carbs: number;
   currentBG: number;
@@ -64,7 +183,6 @@ export function computeDose(params: {
     activeInsulinUnits: activeInsulinParam, activeCarbsGrams,
   } = params;
 
-  const warnings: DoseWarning[] = [];
   const basalSuppressed = insulinKind != null && BASAL_KINDS.includes(insulinKind);
 
   const carbInsulin = !basalSuppressed && carbRatio > 0 ? carbs / carbRatio : 0;
@@ -93,71 +211,26 @@ export function computeDose(params: {
   const totalRaw = Math.max(0, preIobTotal - iobUnits);
   const totalDose = Math.round(totalRaw * 2) / 2;
 
-  if (iobUnits > 0 && preIobTotal > 0 && totalRaw === 0) {
-    warnings.push({
-      level: "info",
-      message: `Recent insulin is still active (${Math.round(iobUnits * 100) / 100}u on board) and already covers this — no additional dose suggested.`,
-    });
-  }
-
-  if (basalSuppressed) {
-    warnings.push({
-      level: "warning",
-      message:
-        "Long-acting (basal) insulin isn't dosed from carbs or corrections. Enter your prescribed basal amount manually — this calculator's math applies to mealtime insulin.",
-    });
-  } else if (insulinKind === "regular") {
-    warnings.push({
-      level: "info",
-      message:
-        "Regular (short-acting) insulin starts and peaks slower than rapid-acting — inject about 30 minutes before eating.",
-    });
-  } else if (insulinKind === "premixed") {
-    warnings.push({
-      level: "info",
-      message:
-        "Pre-mixed insulin combines fixed rapid and intermediate portions. Confirm mealtime coverage for this dose with your care team.",
-    });
-  }
-
   const isLowBG = currentBG < 90;
   const isHighBG = currentBG > 250;
   const isSpikeDetected = !!(previousBG && previousBG < 140 && currentBG > 200);
 
-  if (isLowBG) {
-    warnings.push({
-      level: "danger",
-      message: "Glucose is low. Consider fast-acting carbs (juice or glucose tabs) before giving insulin.",
-    });
-  }
-
-  if (correctionSuppressed && !isLowBG) {
-    warnings.push({
-      level: "info",
-      message: `BG is below target (${targetBG} mg/dL). No correction added — consider a small snack instead.`,
-    });
-  }
-
-  if (isHighBG) {
-    warnings.push({
-      level: "warning",
-      message: "Glucose is high. Monitor closely and verify with a finger stick if possible.",
-    });
-  }
-
-  if (isSpikeDetected) {
-    warnings.push({
-      level: "warning",
-      message: `Unusual spike detected (${previousBG} → ${currentBG} mg/dL). Consider verifying with a finger stick.`,
-    });
-  }
-
-  if (!basalSuppressed && (trend === "rapidly_falling" || trend === "falling")) {
-    warnings.push({
-      level: "warning",
-      message: "Glucose is falling. Trend adjustment applied. Monitor closely after dosing.",
-    });
-  }
+  // A single, blended warning (see buildDoseWarning) — never a stack of separate messages.
+  const warning = buildDoseWarning({
+    basalSuppressed,
+    insulinKind,
+    isLowBG,
+    isBelowTarget: correctionSuppressed && !isLowBG,
+    isHighBG,
+    isSpike: isSpikeDetected,
+    isFalling: !basalSuppressed && (trend === "rapidly_falling" || trend === "falling"),
+    iobCovers: iobUnits > 0 && preIobTotal > 0 && totalRaw === 0,
+    iobUnits,
+    targetBG,
+    previousBG,
+    currentBG,
+  });
+  const warnings: DoseWarning[] = warning ? [warning] : [];
 
   return {
     carbInsulin: Math.round(carbInsulin * 100) / 100,

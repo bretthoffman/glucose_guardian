@@ -304,8 +304,8 @@ export default function DosePredictionChart({
               )}
 
               {/* Background-colored cover slides left→right to reveal the reading line. Must match the
-                  page background the chart sits on, so the un-drawn area is invisible. */}
-              <AnimatedRect x={revealX} y={0} width={plotW} height={H} fill={colors.background} />
+                  card surface the chart sits on, so the un-drawn area is invisible. */}
+              <AnimatedRect x={revealX} y={0} width={plotW} height={H} fill={colors.card} />
 
               {/* Reference lines (neutral grid + threshold colors + target), drawn ON TOP of the cover
                   so they never animate — one line per right-axis label. */}
@@ -374,9 +374,9 @@ export default function DosePredictionChart({
 }
 
 const styles = StyleSheet.create({
-  // marginTop = gap above the head (matches the ~20px reference above "SUGGESTED DOSE"); gap 10
-  // spaces the chart→x-axis, and the head's marginBottom brings head→400-line up to the same ~20.
-  wrap: { marginTop: 20, gap: 10 },
+  // The chart lives inside the suggested-dose card now, so the card's own gap spaces it above; gap
+  // 10 spaces the chart→x-axis, and the head's marginBottom sets head→400-line.
+  wrap: { gap: 10 },
   head: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 },
   chartRow: { flexDirection: "row", alignItems: "flex-start", width: "100%" },
   yAxis: { position: "relative" },
