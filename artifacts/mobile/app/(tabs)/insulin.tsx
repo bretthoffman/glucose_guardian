@@ -878,28 +878,31 @@ export default function InsulinScreen() {
               </View>
             )}
 
-            {/* ── See Prediction (toggle) ── */}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ expanded: showPrediction }}
-              accessibilityLabel="See prediction"
-              style={({ pressed }) => [
-                styles.explainBtn,
-                {
-                  backgroundColor: showPrediction ? COLORS.primary + "2E" : COLORS.primary + "18",
-                  borderColor: showPrediction ? COLORS.primary : "transparent",
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                setShowPrediction((v) => !v);
-              }}
-            >
-              <Feather name="trending-up" size={13} color={COLORS.primary} />
-              <Text style={[styles.explainBtnText, { color: COLORS.primary }]}>See Prediction</Text>
-            </Pressable>
+            {/* ── See Prediction (toggle) — only offered when there's an actual dose to project,
+                the same rule that gates the graph itself. ── */}
+            {effectiveDose > 0 && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: showPrediction }}
+                accessibilityLabel="See prediction"
+                style={({ pressed }) => [
+                  styles.explainBtn,
+                  {
+                    backgroundColor: showPrediction ? COLORS.primary + "2E" : COLORS.primary + "18",
+                    borderColor: showPrediction ? COLORS.primary : "transparent",
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  setShowPrediction((v) => !v);
+                }}
+              >
+                <Feather name="trending-up" size={13} color={COLORS.primary} />
+                <Text style={[styles.explainBtnText, { color: COLORS.primary }]}>See Prediction</Text>
+              </Pressable>
+            )}
 
             {/* Graph — revealed by "See Prediction"; the window grows to wrap it. It re-mounts (and
                 re-animates from the left) on each open, and only when there's a dose to project. */}
@@ -1184,7 +1187,7 @@ const styles = StyleSheet.create({
   doseTotalLabelWrap: { flex: 1, minWidth: 0 },
   doseTotalLabel: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
   // "SUGGESTED DOSE" — matches the "HOW YOUR DOSE IS CALCULATED" head (calcHeadLabel) exactly.
-  doseTotalHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
+  doseTotalHeadLabel: { fontSize: 16, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
 
   explainBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 11, borderWidth: 1, borderColor: "transparent" },
 
