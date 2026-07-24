@@ -4,6 +4,7 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
   Keyboard,
   LayoutAnimation,
@@ -41,7 +42,7 @@ import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGluc
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
 import DosePredictionChart from "@/components/DosePredictionChart";
-import { forecastGlucose } from "@/utils/glucoseForecast";
+import { runPrediction, type PredictionResult, type StrengthLabel } from "@/utils/predictionClient";
 import InsulinTypePicker from "@/components/InsulinTypePicker";
 import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import {
@@ -121,7 +122,7 @@ export default function InsulinScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { targetGlucose, carbRatio, correctionFactor, history, cgmSyncSuccessTick } = useGlucose();
-  const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions } = useAuth();
+  const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions, messagingIdentity } = useAuth();
   // A child/caregiver access-code session only sees the tabs its grants allow (dose calculator /
   // logging). Everyone else — owner, co-guardian, doctor, legacy caregiver code — sees both.
   const isAccessCodeSession = accessCodeRole != null;
@@ -397,24 +398,61 @@ export default function InsulinScreen() {
   const effectiveDose = manualDoseOverride ?? systemRecommendedDose;
   const doseJustLogged = doseLoggedAtTick !== null && doseLoggedAtTick === cgmSyncSuccessTick;
 
-  // ── Prediction chart: where glucose heads over the next 4h IF this dose is taken now (bolus only;
-  // basal titration has no meal projection). Estimate-only — never feeds the calculator. ──
-  const forecast = useMemo(() => {
-    if (isBasalMode || !doseBg) return [];
-    return forecastGlucose({
+  // ── Prediction chart: an AI projection of the next 90 min IF this dose is taken now (bolus only).
+  // Estimate-only — never feeds the calculator. Runs ONLY on an explicit Predict tap and holds that
+  // result until Predict is tapped again, even if the calculator inputs change. ──
+  const [predicting, setPredicting] = useState(false);
+  const [drawing, setDrawing] = useState(false); // graph is still animating in
+  const [prediction, setPrediction] = useState<PredictionResult | null>(null);
+  const [predictedInputs, setPredictedInputs] = useState<{ bg: number; carbs: string; dose: number } | null>(null);
+  const predictRunRef = useRef(0);
+
+  const runPredict = useCallback(async () => {
+    if (isBasalMode || !doseBg || effectiveDose <= 0) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const runId = ++predictRunRef.current;
+    setPredicting(true);
+    if (!showPrediction) {
+      pendingScrollRef.current = true;
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setShowPrediction(true);
+    }
+    const submitted = { bg: doseBg.n, carbs: carbInput, dose: roundToQuarterUnits(effectiveDose) };
+    const result = await runPrediction({
+      identity: messagingIdentity,
       currentBG: doseBg.n,
-      nowMs,
+      doseUnits: effectiveDose,
+      carbsGrams: parseFloat(carbInput) || 0,
+      nowMs: Date.now(),
+      history,
       insulinLog: insulinLog ?? [],
       foodLog: foodLog ?? [],
-      newDoseUnits: effectiveDose,
-      newCarbsGrams: parseFloat(carbInput) || 0,
       correctionFactor,
       carbRatio,
       newDoseDiaMin: selectedInsulinOption?.type === "regular" ? 360 : 240,
     });
-  }, [isBasalMode, doseBg, nowMs, insulinLog, foodLog, effectiveDose, carbInput, correctionFactor, carbRatio, selectedInsulinOption]);
-  // Re-animate only the future line when the user changes carbs or the dose — not on clock ticks.
-  const forecastRedrawKey = `${carbInput}|${roundToQuarterUnits(effectiveDose)}`;
+    if (predictRunRef.current !== runId) return; // a newer run superseded this one
+    setPrediction(result);
+    setPredictedInputs(submitted);
+    setPredicting(false);
+    setDrawing(true); // hold the button until the graph finishes drawing (onDrawComplete)
+    // Safety net in case the draw is interrupted (navigation) and the completion never fires.
+    setTimeout(() => {
+      if (predictRunRef.current === runId) setDrawing(false);
+    }, 6000);
+  }, [isBasalMode, doseBg, effectiveDose, showPrediction, messagingIdentity, carbInput, history, insulinLog, foodLog, correctionFactor, carbRatio, selectedInsulinOption]);
+
+  // The snapshot is stale once the data being submitted (BG, carbs, or dose) no longer exactly
+  // matches what was last predicted — the only condition under which Predict may run again.
+  const predictionStale =
+    prediction != null &&
+    predictedInputs != null &&
+    (predictedInputs.bg !== (doseBg?.n ?? null) ||
+      predictedInputs.carbs !== carbInput ||
+      predictedInputs.dose !== roundToQuarterUnits(effectiveDose));
+  // Predict is blocked while computing, while drawing, and while an identical prediction is on screen.
+  const predictDisabled =
+    effectiveDose <= 0 || predicting || drawing || (prediction != null && !predictionStale);
 
   const handleTookDose = useCallback(() => {
     if (doseJustLogged || effectiveDose <= 0) return;
@@ -861,50 +899,71 @@ export default function InsulinScreen() {
               />
             </View>
 
-            {/* Actions: See Prediction (toggle) + I Just Took This Dose. See Prediction is disabled
-                exactly like Took Dose when there's no dose (faded, not clickable). */}
+            {/* Actions: Predict (runs an AI prediction on an EXPLICIT tap only) + I Just Took This
+                Dose. Disabled exactly like Took Dose when there's no dose (faded, not clickable). */}
             <View style={[styles.doseActionsRow, { marginTop: 0 }]}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityState={{ expanded: showPrediction, disabled: effectiveDose <= 0 }}
-                accessibilityLabel="See prediction"
-                disabled={effectiveDose <= 0}
+                accessibilityState={{ disabled: predictDisabled, busy: predicting || drawing }}
+                accessibilityLabel="Predict"
+                disabled={predictDisabled}
                 style={({ pressed }) => [
                   styles.tookDoseBtn,
                   {
                     backgroundColor: COLORS.primary,
-                    opacity: pressed ? 0.8 : effectiveDose <= 0 ? 0.5 : 1,
+                    opacity: pressed ? 0.8 : predictDisabled ? 0.5 : 1,
                   },
                 ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  if (!showPrediction) pendingScrollRef.current = true; // scroll only when opening
-                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                  setShowPrediction((v) => !v);
-                }}
+                onPress={runPredict}
               >
-                <Feather name="trending-up" size={13} color="#fff" />
-                <Text style={styles.tookDoseBtnText}>See Prediction</Text>
+                {predicting || drawing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Feather name="trending-up" size={13} color="#fff" />
+                )}
+                <Text style={styles.tookDoseBtnText}>
+                  {predicting || drawing ? "Predicting…" : prediction ? "Predict Again" : "Predict"}
+                </Text>
               </Pressable>
               {tookDoseButton}
             </View>
 
-            {/* Graph — revealed by "See Prediction"; the window grows to wrap it. It re-mounts (and
-                re-animates from the left) on each open, and only when there's a dose to project. */}
-            {showPrediction && effectiveDose > 0 && (
-              <DosePredictionChart
-                key="graph"
-                readings={history}
-                forecast={forecast}
-                currentBG={doseBg.n}
-                targetGlucose={targetGlucose}
-                lowThreshold={alertPrefs.lowThreshold}
-                highThreshold={alertPrefs.highThreshold}
-                urgentHighThreshold={alertPrefs.urgentHighThreshold}
-                nowMs={nowMs}
-                redrawKey={forecastRedrawKey}
-                colors={colors}
-              />
+            {/* Graph — appears only after a Predict tap. While the model works we show a "building"
+                placeholder; the result holds until Predict is tapped again (never auto-updates). */}
+            {showPrediction && (
+              <View key="graph-area">
+                {predicting && !prediction ? (
+                  <View style={[styles.predictBuilding, { borderColor: colors.border }]}>
+                    <ActivityIndicator color={COLORS.primary} />
+                    <Text style={[styles.predictBuildingText, { color: colors.textSecondary }]}>
+                      Building your prediction…
+                    </Text>
+                  </View>
+                ) : prediction ? (
+                  <>
+                    <DosePredictionChart
+                      key={`graph-${predictRunRef.current}`}
+                      readings={history}
+                      forecast={prediction.forecast}
+                      currentBG={doseBg?.n ?? prediction.forecast[0]?.bg ?? 0}
+                      targetGlucose={targetGlucose}
+                      lowThreshold={alertPrefs.lowThreshold}
+                      highThreshold={alertPrefs.highThreshold}
+                      urgentHighThreshold={alertPrefs.urgentHighThreshold}
+                      nowMs={nowMs}
+                      redrawKey={`run-${predictRunRef.current}`}
+                      colors={colors}
+                      onDrawComplete={() => setDrawing(false)}
+                    />
+                    <PredictionStrength result={prediction} colors={colors} />
+                    {predictionStale && (
+                      <Text style={[styles.predictStaleHint, { color: colors.textMuted }]}>
+                        Inputs changed — tap Predict to update.
+                      </Text>
+                    )}
+                  </>
+                ) : null}
+              </View>
             )}
           </View>
         </>
@@ -1077,6 +1136,47 @@ export default function InsulinScreen() {
   );
 }
 
+const STRENGTH_META: Record<StrengthLabel, { text: string; color: string }> = {
+  strong: { text: "Strong match", color: COLORS.success },
+  good: { text: "Good match", color: COLORS.primary },
+  rough: { text: "Rough estimate", color: "#F59E0B" },
+  building: { text: "Building — log more to sharpen predictions", color: "#8190A4" },
+};
+
+/** The reference-strength readout under the prediction chart (combines the chosen matches' confidence). */
+function PredictionStrength({
+  result,
+  colors,
+}: {
+  result: PredictionResult;
+  colors: (typeof Colors)["light"];
+}) {
+  if (result.source === "local") {
+    return (
+      <View style={styles.strengthPill}>
+        <Feather name="wifi-off" size={11} color={colors.textMuted} />
+        <Text style={[styles.strengthText, { color: colors.textMuted }]}>
+          Offline estimate — based on dose physiology only
+        </Text>
+      </View>
+    );
+  }
+  const meta = STRENGTH_META[result.strengthLabel];
+  const suffix =
+    result.referenceCount > 0
+      ? ` · ${result.referenceCount} past ${result.referenceCount === 1 ? "match" : "matches"}`
+      : "";
+  return (
+    <View style={styles.strengthPill}>
+      <View style={[styles.strengthDot, { backgroundColor: meta.color }]} />
+      <Text style={[styles.strengthText, { color: colors.textSecondary }]}>
+        Prediction strength: <Text style={{ color: meta.color, fontWeight: "700" }}>{meta.text}</Text>
+        {suffix}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingHorizontal: 20, paddingTop: 10 },
@@ -1227,6 +1327,20 @@ const styles = StyleSheet.create({
     borderRadius: 11,
   },
   tookDoseBtnText: { fontSize: 12, fontWeight: "700", color: "#fff", textAlign: "center" },
+  predictBuilding: {
+    marginTop: 12,
+    height: 156,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  predictBuildingText: { fontSize: 13, fontWeight: "500" },
+  strengthPill: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 10, paddingHorizontal: 2 },
+  strengthDot: { width: 9, height: 9, borderRadius: 4.5 },
+  strengthText: { fontSize: 12, fontWeight: "500", flex: 1 },
+  predictStaleHint: { fontSize: 12, fontWeight: "500", fontStyle: "italic", marginTop: 6, paddingHorizontal: 2 },
 
   plusOneBadge: {
     position: "absolute",

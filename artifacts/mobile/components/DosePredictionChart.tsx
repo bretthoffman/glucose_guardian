@@ -82,6 +82,8 @@ interface DosePredictionChartProps {
   redrawKey: string;
   colors: (typeof Colors)["light"];
   height?: number;
+  /** Fired when the future line finishes drawing in (so callers can re-enable a Predict button). */
+  onDrawComplete?: () => void;
 }
 
 export default function DosePredictionChart({
@@ -96,7 +98,12 @@ export default function DosePredictionChart({
   redrawKey,
   colors,
   height = 156,
+  onDrawComplete,
 }: DosePredictionChartProps) {
+  const onDrawCompleteRef = useRef(onDrawComplete);
+  useEffect(() => {
+    onDrawCompleteRef.current = onDrawComplete;
+  }, [onDrawComplete]);
   const H = height;
   const [plotW, setPlotW] = useState(0);
   // "now" is frozen when the chart draws (on focus / mount), so the window + hour ticks don't drift
@@ -207,7 +214,9 @@ export default function DosePredictionChart({
         easing: Easing.linear,
         useNativeDriver: false,
       }),
-    ]).start();
+    ]).start(({ finished }) => {
+      if (finished) onDrawCompleteRef.current?.();
+    });
   }, [revealX]);
 
   // Zoom the target line's clip from `from` → full width at a constant fast pace (same px/ms every
