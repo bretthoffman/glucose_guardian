@@ -23,7 +23,6 @@ import {
   View,
 } from "react-native";
 import Svg, { ClipPath, Defs, G, Line, Polyline, Rect } from "react-native-svg";
-import { useFocusEffect } from "expo-router";
 import Colors, { COLORS } from "@/constants/colors";
 import { withAlpha } from "@/constants/theme";
 import { glucoseTone } from "@/constants/theme";
@@ -256,22 +255,21 @@ export default function DosePredictionChart({
     );
   }, [revealX, nowBlink, blinkNow, drawFuture, runTargetReveal]);
 
-  // Re-animate whenever the Dose tab regains focus (opened from another screen / toggled back):
-  // mark a draw pending, hide the line, and re-capture "now" so the window anchors to draw time.
-  useFocusEffect(
-    useCallback(() => {
-      pendingIntroRef.current = true;
-      revealX.setValue(0); // hide immediately so the fresh window doesn't flash fully-drawn
-      targetRevealX.setValue(0);
-      nowBlink.setValue(1);
-      setDrawNow(Date.now());
-      return () => {
-        revealX.stopAnimation();
-        targetRevealX.stopAnimation();
-        nowBlink.stopAnimation();
-      };
-    }, [revealX, targetRevealX, nowBlink]),
-  );
+  // Animate the draw-in exactly ONCE, when the chart mounts (a new prediction remounts it via its
+  // key). Deliberately NOT tied to screen focus, so flipping between tabs never replays the animation.
+  useEffect(() => {
+    pendingIntroRef.current = true;
+    revealX.setValue(0); // hide immediately so the fresh window doesn't flash fully-drawn
+    targetRevealX.setValue(0);
+    nowBlink.setValue(1);
+    setDrawNow(Date.now());
+    return () => {
+      revealX.stopAnimation();
+      targetRevealX.stopAnimation();
+      nowBlink.stopAnimation();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Run the pending intro once BOTH the frozen "now" and the measured width are in place — this
   // effect fires on the drawNow refresh above and again when onLayout reports the width.

@@ -411,6 +411,10 @@ export default function InsulinScreen() {
     if (isBasalMode || !doseBg || effectiveDose <= 0) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const runId = ++predictRunRef.current;
+    // Clear the old graph immediately so "Predict Again" drops to the loading state (the stale curve
+    // must not linger while the new prediction is en route).
+    setPrediction(null);
+    setDrawing(false);
     setPredicting(true);
     if (!showPrediction) {
       pendingScrollRef.current = true;
@@ -425,34 +429,35 @@ export default function InsulinScreen() {
       carbsGrams: parseFloat(carbInput) || 0,
       nowMs: Date.now(),
       history,
-      insulinLog: insulinLog ?? [],
-      foodLog: foodLog ?? [],
       correctionFactor,
       carbRatio,
       newDoseDiaMin: selectedInsulinOption?.type === "regular" ? 360 : 240,
     });
     if (predictRunRef.current !== runId) return; // a newer run superseded this one
     setPrediction(result);
-    setPredictedInputs(submitted);
     setPredicting(false);
-    setDrawing(true); // hold the button until the graph finishes drawing (onDrawComplete)
-    // Safety net in case the draw is interrupted (navigation) and the completion never fires.
-    setTimeout(() => {
-      if (predictRunRef.current === runId) setDrawing(false);
-    }, 6000);
-  }, [isBasalMode, doseBg, effectiveDose, showPrediction, messagingIdentity, carbInput, history, insulinLog, foodLog, correctionFactor, carbRatio, selectedInsulinOption]);
+    if (result.ok) {
+      setPredictedInputs(submitted);
+      setDrawing(true); // hold the button until the graph finishes drawing (onDrawComplete)
+      // Safety net in case the draw is interrupted (navigation) and the completion never fires.
+      setTimeout(() => {
+        if (predictRunRef.current === runId) setDrawing(false);
+      }, 6000);
+    }
+  }, [isBasalMode, doseBg, effectiveDose, showPrediction, messagingIdentity, carbInput, history, correctionFactor, carbRatio, selectedInsulinOption]);
 
   // The snapshot is stale once the data being submitted (BG, carbs, or dose) no longer exactly
   // matches what was last predicted — the only condition under which Predict may run again.
   const predictionStale =
-    prediction != null &&
+    !!prediction?.ok &&
     predictedInputs != null &&
     (predictedInputs.bg !== (doseBg?.n ?? null) ||
       predictedInputs.carbs !== carbInput ||
       predictedInputs.dose !== roundToQuarterUnits(effectiveDose));
-  // Predict is blocked while computing, while drawing, and while an identical prediction is on screen.
+  // Predict is blocked while computing, while drawing, and while an IDENTICAL prediction is on screen.
+  // An unavailable result leaves it enabled so it can be retried.
   const predictDisabled =
-    effectiveDose <= 0 || predicting || drawing || (prediction != null && !predictionStale);
+    effectiveDose <= 0 || predicting || drawing || (prediction?.ok === true && !predictionStale);
 
   const handleTookDose = useCallback(() => {
     if (doseJustLogged || effectiveDose <= 0) return;
@@ -922,24 +927,25 @@ export default function InsulinScreen() {
                   <Feather name="trending-up" size={13} color="#fff" />
                 )}
                 <Text style={styles.tookDoseBtnText}>
-                  {predicting || drawing ? "Predicting…" : prediction ? "Predict Again" : "Predict"}
+                  {predicting || drawing ? "Predicting…" : prediction?.ok ? "Predict Again" : "Predict"}
                 </Text>
               </Pressable>
               {tookDoseButton}
             </View>
 
             {/* Graph — appears only after a Predict tap. While the model works we show a "building"
-                placeholder; the result holds until Predict is tapped again (never auto-updates). */}
+                placeholder; the result holds until Predict is tapped again (never auto-updates). If
+                the AI prediction can't be produced we say so — there is no local-math fallback. */}
             {showPrediction && (
               <View key="graph-area">
-                {predicting && !prediction ? (
+                {predicting ? (
                   <View style={[styles.predictBuilding, { borderColor: colors.border }]}>
                     <ActivityIndicator color={COLORS.primary} />
                     <Text style={[styles.predictBuildingText, { color: colors.textSecondary }]}>
                       Building your prediction…
                     </Text>
                   </View>
-                ) : prediction ? (
+                ) : prediction?.ok ? (
                   <>
                     <DosePredictionChart
                       key={`graph-${predictRunRef.current}`}
@@ -962,6 +968,16 @@ export default function InsulinScreen() {
                       </Text>
                     )}
                   </>
+                ) : prediction && !prediction.ok ? (
+                  <View style={[styles.predictBuilding, { borderColor: colors.border }]}>
+                    <Feather name="cloud-off" size={22} color={colors.textMuted} />
+                    <Text style={[styles.predictBuildingText, { color: colors.text, fontWeight: "700" }]}>
+                      Prediction unavailable
+                    </Text>
+                    <Text style={[styles.predictUnavailableSub, { color: colors.textSecondary }]}>
+                      Couldn&apos;t reach the prediction service. Check your connection and tap Predict to try again.
+                    </Text>
+                  </View>
                 ) : null}
               </View>
             )}
@@ -1148,19 +1164,9 @@ function PredictionStrength({
   result,
   colors,
 }: {
-  result: PredictionResult;
+  result: Extract<PredictionResult, { ok: true }>;
   colors: (typeof Colors)["light"];
 }) {
-  if (result.source === "local") {
-    return (
-      <View style={styles.strengthPill}>
-        <Feather name="wifi-off" size={11} color={colors.textMuted} />
-        <Text style={[styles.strengthText, { color: colors.textMuted }]}>
-          Offline estimate — based on dose physiology only
-        </Text>
-      </View>
-    );
-  }
   const meta = STRENGTH_META[result.strengthLabel];
   const suffix =
     result.referenceCount > 0
@@ -1337,6 +1343,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   predictBuildingText: { fontSize: 13, fontWeight: "500" },
+  predictUnavailableSub: { fontSize: 12, fontWeight: "400", textAlign: "center", lineHeight: 17, paddingHorizontal: 24 },
   strengthPill: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 10, paddingHorizontal: 2 },
   strengthDot: { width: 9, height: 9, borderRadius: 4.5 },
   strengthText: { fontSize: 12, fontWeight: "500", flex: 1 },

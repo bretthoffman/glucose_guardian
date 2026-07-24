@@ -3,24 +3,22 @@
  *   1. ask Convex (`predictionReferences.getReferences`) for the top-3 historical analogies + strength,
  *   2. POST the current situation + references to the api-server `/api/predict` model gateway,
  *   3. turn the 18 returned values into `ForecastPoint[]` for the chart.
- * Any failure (offline, route not deployed, unparseable) falls back to the local linear
- * `forecastGlucose` model so the chart is never empty. Only ever called on an explicit Predict tap.
+ * There is NO local-math fallback — the AI prediction is the only prediction. If it can't be produced
+ * (offline, route not deployed, unparseable, timed out), we return `{ ok: false }` and the UI says the
+ * prediction is unavailable rather than silently showing a lesser estimate. Called only on an explicit
+ * Predict tap.
  */
 import type { Id } from "../../../convex/_generated/dataModel";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import { apiUrl } from "@/utils/api-base-url";
-import { forecastGlucose, type ForecastPoint } from "@/utils/glucoseForecast";
-import type { FoodLogEntry, InsulinLogEntry, MessagingIdentity } from "@/context/AuthContext";
+import type { ForecastPoint } from "@/utils/glucoseForecast";
+import type { MessagingIdentity } from "@/context/AuthContext";
 
 export type StrengthLabel = "building" | "rough" | "good" | "strong";
 
-export interface PredictionResult {
-  forecast: ForecastPoint[];
-  source: "ai" | "local";
-  strengthLabel: StrengthLabel;
-  strength: number;
-  referenceCount: number;
-}
+export type PredictionResult =
+  | { ok: true; forecast: ForecastPoint[]; strengthLabel: StrengthLabel; strength: number; referenceCount: number }
+  | { ok: false };
 
 export interface PredictionParams {
   identity: MessagingIdentity;
@@ -29,16 +27,16 @@ export interface PredictionParams {
   carbsGrams: number;
   nowMs: number;
   history: { glucose: number; timestamp: string }[];
-  insulinLog: InsulinLogEntry[];
-  foodLog: FoodLogEntry[];
   correctionFactor: number;
   carbRatio: number;
   newDoseDiaMin: number;
 }
 
+const UNAVAILABLE: PredictionResult = { ok: false };
 const HORIZON_MIN = 90;
 const STEP_MIN = 5;
 const N_POINTS = HORIZON_MIN / STEP_MIN;
+const TIMEOUT_MS = 25000;
 
 function identityArgs(identity: MessagingIdentity) {
   if (!identity) return null;
@@ -46,37 +44,17 @@ function identityArgs(identity: MessagingIdentity) {
   return { userId: identity.userId as Id<"users">, passwordHash: identity.passwordHash } as const;
 }
 
-/** The local linear projection — the graceful degrade path, also used verbatim as the old behavior. */
-function localFallback(p: PredictionParams): PredictionResult {
-  const forecast = forecastGlucose({
-    currentBG: p.currentBG,
-    nowMs: p.nowMs,
-    insulinLog: p.insulinLog,
-    foodLog: p.foodLog,
-    newDoseUnits: p.doseUnits,
-    newCarbsGrams: p.carbsGrams,
-    correctionFactor: p.correctionFactor,
-    carbRatio: p.carbRatio,
-    newDoseDiaMin: p.newDoseDiaMin,
-    horizonMin: HORIZON_MIN,
-    stepMin: STEP_MIN,
-  });
-  return { forecast, source: "local", strengthLabel: "building", strength: 0, referenceCount: 0 };
-}
-
-const TIMEOUT_MS = 25000;
-
-/** Never leave the caller hanging: whichever settles first — the real run or a fallback timeout. */
+/** Never leave the caller hanging: whichever settles first — the real run or an unavailable timeout. */
 export async function runPrediction(p: PredictionParams): Promise<PredictionResult> {
   return Promise.race([
     doRun(p),
-    new Promise<PredictionResult>((resolve) => setTimeout(() => resolve(localFallback(p)), TIMEOUT_MS)),
+    new Promise<PredictionResult>((resolve) => setTimeout(() => resolve(UNAVAILABLE), TIMEOUT_MS)),
   ]);
 }
 
 async function doRun(p: PredictionParams): Promise<PredictionResult> {
   const idArgs = identityArgs(p.identity);
-  if (!idArgs) return localFallback(p);
+  if (!idArgs) return UNAVAILABLE;
 
   const cutoff = p.nowMs - 3 * 60 * 60 * 1000;
   const recent = p.history
@@ -86,7 +64,7 @@ async function doRun(p: PredictionParams): Promise<PredictionResult> {
 
   try {
     // References are best-effort — a null (unauthorized/offline) still lets the model predict from
-    // the recent trajectory + physiology.
+    // the recent trajectory + physiology; only a failed model call marks the prediction unavailable.
     let refs: Awaited<ReturnType<typeof fetchRefs>> = null;
     try {
       refs = await fetchRefs(idArgs, p, recent);
@@ -112,27 +90,27 @@ async function doRun(p: PredictionParams): Promise<PredictionResult> {
         references: refs?.references ?? [],
       }),
     });
-    if (!res.ok) return localFallback(p);
+    if (!res.ok) return UNAVAILABLE;
     const data = await res.json();
     const preds: unknown = data?.predictions;
-    if (!Array.isArray(preds) || preds.length < 2) return localFallback(p);
+    if (!Array.isArray(preds) || preds.length < 2) return UNAVAILABLE;
 
     const forecast: ForecastPoint[] = [{ tMin: 0, bg: Math.round(p.currentBG) }];
     preds.slice(0, N_POINTS).forEach((v, i) => {
       const bg = Number(v);
       if (Number.isFinite(bg)) forecast.push({ tMin: (i + 1) * STEP_MIN, bg: Math.round(bg) });
     });
-    if (forecast.length < 2) return localFallback(p);
+    if (forecast.length < 2) return UNAVAILABLE;
 
     return {
+      ok: true,
       forecast,
-      source: "ai",
       strengthLabel: (refs?.strengthLabel ?? "building") as StrengthLabel,
       strength: refs?.strength ?? 0,
       referenceCount: refs?.references.length ?? 0,
     };
   } catch {
-    return localFallback(p);
+    return UNAVAILABLE;
   }
 }
 
