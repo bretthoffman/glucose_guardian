@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
+import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 
 import { getEffectiveTrend } from "@/utils/trend";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
@@ -82,6 +83,7 @@ export default function FoodScreen() {
   const colors = isDark ? Colors.dark : Colors.light;
   const { carbRatio, targetGlucose, correctionFactor, latestReading, history, cgmSyncSuccessTick } = useGlucose();
   const { addFoodLogEntry, isMinor, quickFoods, saveQuickFood } = useAuth();
+  const confirmLog = useCareLogConfirm();
 
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<FoodResult | null>(null);
@@ -295,17 +297,20 @@ export default function FoodScreen() {
   function logMeal() {
     if (!result) return;
     const carbs = parseFloat(editedCarbs) || result.estimatedCarbs;
-    addFoodLogEntry({
-      timestamp: new Date().toISOString(),
-      foodName: result.foodName,
-      estimatedCarbs: carbs,
-      insulinUnits: result.insulinUnits ?? 0,
-      confidence: result.confidence,
-      fromPhoto: !!result.fromPhoto,
-      photoUri: photoUri ?? undefined,
+    // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
+    confirmLog(() => {
+      addFoodLogEntry({
+        timestamp: new Date().toISOString(),
+        foodName: result.foodName,
+        estimatedCarbs: carbs,
+        insulinUnits: result.insulinUnits ?? 0,
+        confidence: result.confidence,
+        fromPhoto: !!result.fromPhoto,
+        photoUri: photoUri ?? undefined,
+      });
+      setLogged(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
-    setLogged(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }
 
   function handleCarbsBlur() {

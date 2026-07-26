@@ -20,6 +20,7 @@ import {
   type InsulinOption,
 } from "@/constants/insulin";
 import { useAuth } from "@/context/AuthContext";
+import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import { useGlucose } from "@/context/GlucoseContext";
 import { computeDose } from "@/utils/dose";
 import type { DoseBreakdown } from "@/utils/dose";
@@ -55,6 +56,7 @@ export default function FoodInsulinModal({
 }: Props) {
   const { targetGlucose, carbRatio, correctionFactor, history } = useGlucose();
   const { profile, insulinLog, foodLog, logInsulinDose, isMinor } = useAuth();
+  const confirmLog = useCareLogConfirm();
 
   const [carbInput, setCarbInput] = useState("");
   const [bgInput, setBgInput] = useState("");
@@ -157,15 +159,18 @@ export default function FoodInsulinModal({
     if (!dose || effectiveDose <= 0) return;
     const wasManual =
       manualDoseOverride != null && !doseAmountsEqual(effectiveDose, systemRecommendedDose);
-    logInsulinDose({
-      timestamp: new Date().toISOString(),
-      units: roundToQuarterUnits(effectiveDose),
-      type: "bolus",
-      ...(lockedInsulin ? { insulinType: insulinChipLabel(lockedInsulin) } : {}),
-      recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
-      manualOverride: wasManual,
+    // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
+    confirmLog(() => {
+      logInsulinDose({
+        timestamp: new Date().toISOString(),
+        units: roundToQuarterUnits(effectiveDose),
+        type: "bolus",
+        ...(lockedInsulin ? { insulinType: insulinChipLabel(lockedInsulin) } : {}),
+        recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
+        manualOverride: wasManual,
+      });
+      onLogged();
     });
-    onLogged();
   };
 
   return (

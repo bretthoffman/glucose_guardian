@@ -66,6 +66,20 @@ describe("doseCardExplanation", () => {
     expect(e.lines.join(" ").toLowerCase()).toContain("subtract");
   });
 
+  it("Active Insulin explains a PARTIAL reduction in plain language (before → after)", () => {
+    // base is the partial case: 4.88u calculated, 2.96u on board → lands at 1.5u.
+    const e = doseCardExplanation("activeInsulin", base).lines.join(" ");
+    expect(e).toContain("about 4.9u"); // what it would otherwise call for
+    expect(e).toContain("1.5u"); // where the suggestion lands after subtracting IOB
+  });
+
+  it("Active Insulin explains FULL coverage when IOB covers the whole calculated dose", () => {
+    const e = doseCardExplanation("activeInsulin", { ...base, activeInsulinUnits: 6, totalRaw: 0, totalDose: 0 }).lines
+      .join(" ")
+      .toLowerCase();
+    expect(e).toContain("no additional insulin is suggested");
+  });
+
   it("Active Carbs cites grams still absorbing and the carb ratio", () => {
     const e = doseCardExplanation("activeCarbs", { ...base, activeCarbGrams: 12, activeCarbInsulin: 0.8, activeCarbAgeMin: 45 });
     expect(e.lines.join(" ")).toContain("12 g");

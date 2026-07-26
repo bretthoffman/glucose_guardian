@@ -7,9 +7,10 @@
  *                      is indistinguishable from an accountless code holder.
  *
  * A THREAD is the two endpoint keys sorted and joined with "|". Threads are DERIVED from the circle
- * roster (guardians × codes, and code × code) — never stored — so a freshly created code's threads
- * exist and are usable before the code is ever signed into. There are deliberately NO
- * guardian↔guardian threads (co-guardians already share the circle).
+ * roster — EVERY pair of participants gets one (guardian↔code, code↔code, and guardian↔guardian for
+ * co-guardians) — and are never stored, so a thread exists and is usable the moment the participant
+ * does: creating an access code, or accepting a co-guardian invite, immediately gives every other
+ * member a thread with them (and them a thread with each member), before either side ever opens it.
  *
  * Authorization mirrors careLogs.ts: a caller is either an authenticated guardian (owner or active
  * co-guardian of `patientUserId`) or an access code. Messaging is ALWAYS on — it ignores the `chat`
@@ -182,15 +183,16 @@ async function resolveViewer(
   return null;
 }
 
-/** The endpoint keys a viewer may converse with (excludes themselves + guardian↔guardian). */
+/**
+ * The endpoint keys a viewer may converse with: everyone else in the circle. Every participant pair
+ * gets a thread — guardian↔code, code↔code, and guardian↔guardian (co-guardians) — so linking two
+ * accounts immediately creates a thread between them, exactly like creating an access code does.
+ * Only the viewer themselves is excluded.
+ */
 function counterpartsFor(viewer: Viewer, guardianIds: Id<"users">[], codes: AccessCodeRow[]): string[] {
-  if (isGuardianKey(viewer.key)) {
-    // Guardians only message access codes.
-    return codes.map((c) => codeKey(c.code));
-  }
-  const myCode = keyValue(viewer.key);
+  const myCode = isGuardianKey(viewer.key) ? null : keyValue(viewer.key);
   return [
-    ...guardianIds.map((g) => guardianKey(g)),
+    ...guardianIds.map((g) => guardianKey(g)).filter((k) => k !== viewer.key),
     ...codes.filter((c) => c.code !== myCode).map((c) => codeKey(c.code)),
   ];
 }
@@ -279,7 +281,6 @@ export const sendMessage = mutation({
     if (eps.length !== 2 || !eps.includes(viewer.key)) throw new Error("Not your conversation");
     const other = eps[0] === viewer.key ? eps[1] : eps[0];
     if (other === viewer.key) throw new Error("Invalid conversation");
-    if (isGuardianKey(viewer.key) && isGuardianKey(other)) throw new Error("Not allowed");
 
     // The other endpoint must still be a current member of this circle.
     const codes = await activeCircleCodes(ctx, viewer.patientUserId);

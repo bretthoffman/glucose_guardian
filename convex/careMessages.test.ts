@@ -107,18 +107,93 @@ describe("careMessages: co-guardians get individual threads", () => {
     const names = codeThreads.threads.map((th) => th.otherName).sort();
     expect(names).toEqual(["Dad", "Mom"]);
 
-    // Each guardian sees their own single thread to the code.
+    // Each guardian sees their own thread to the code (plus one to their co-guardian).
     const momThreads = await t.query(api.careMessages.listThreads, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
     const dadThreads = await t.query(api.careMessages.listThreads, { userId: member, passwordHash: HASH_B, patientUserId: patient });
-    expect(momThreads.threads).toHaveLength(1);
-    expect(dadThreads.threads).toHaveLength(1);
-    expect(momThreads.threads[0].threadKey).not.toBe(dadThreads.threads[0].threadKey);
+    const momToCode = momThreads.threads.find((th) => th.otherName === "Bella")!;
+    const dadToCode = dadThreads.threads.find((th) => th.otherName === "Bella")!;
+    expect(momToCode).toBeTruthy();
+    expect(dadToCode).toBeTruthy();
+    expect(momToCode.threadKey).not.toBe(dadToCode.threadKey);
 
     // Kid messages Mom only → Mom has an unread, Dad has nothing.
     const momThreadKey = codeThreads.threads.find((th) => th.otherName === "Mom")!.threadKey;
     await t.mutation(api.careMessages.sendMessage, { code, threadKey: momThreadKey, text: "hi mom" });
     expect((await t.query(api.careMessages.listThreads, { userId: patient, passwordHash: HASH_A, patientUserId: patient })).unreadTotal).toBe(1);
     expect((await t.query(api.careMessages.listThreads, { userId: member, passwordHash: HASH_B, patientUserId: patient })).unreadTotal).toBe(0);
+  });
+});
+
+describe("careMessages: co-guardian ↔ co-guardian", () => {
+  it("creates a thread between two guardians the moment they link, named for the other side", async () => {
+    const { t, patient, member } = await setup();
+    // Before linking, neither has any thread (no codes, no co-guardians).
+    expect((await t.query(api.careMessages.listThreads, { userId: patient, passwordHash: HASH_A, patientUserId: patient })).threads)
+      .toHaveLength(0);
+
+    await linkCoGuardian(t, patient, member);
+
+    // Accepting the invite alone creates the thread on BOTH sides — no message needed.
+    const momThreads = await t.query(api.careMessages.listThreads, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
+    const dadThreads = await t.query(api.careMessages.listThreads, { userId: member, passwordHash: HASH_B, patientUserId: patient });
+    expect(momThreads.threads).toHaveLength(1);
+    expect(dadThreads.threads).toHaveLength(1);
+    expect(momThreads.threads[0].otherName).toBe("Dad"); // each sees the OTHER guardian's name
+    expect(dadThreads.threads[0].otherName).toBe("Mom");
+    expect(momThreads.threads[0].otherKind).toBe("guardian");
+    // Same canonical thread from both ends.
+    expect(momThreads.threads[0].threadKey).toBe(dadThreads.threads[0].threadKey);
+  });
+
+  it("delivers messages between co-guardians with unread tracking", async () => {
+    const { t, patient, member } = await setup();
+    await linkCoGuardian(t, patient, member);
+    const { threads } = await t.query(api.careMessages.listThreads, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
+    const threadKey = threads[0].threadKey;
+
+    await t.mutation(api.careMessages.sendMessage, {
+      userId: patient, passwordHash: HASH_A, patientUserId: patient, threadKey, text: "Can you pick up her strips?",
+    });
+
+    const dad = await t.query(api.careMessages.listThreads, { userId: member, passwordHash: HASH_B, patientUserId: patient });
+    expect(dad.unreadTotal).toBe(1);
+    expect(dad.threads[0].lastText).toBe("Can you pick up her strips?");
+    expect(dad.threads[0].lastFromMe).toBe(false);
+
+    const msgs = await t.query(api.careMessages.listMessages, { userId: member, passwordHash: HASH_B, patientUserId: patient, threadKey });
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].senderName).toBe("Mom");
+
+    // Dad reads + replies → the unread flips to Mom.
+    await t.mutation(api.careMessages.markThreadRead, { userId: member, passwordHash: HASH_B, patientUserId: patient, threadKey });
+    expect((await t.query(api.careMessages.listThreads, { userId: member, passwordHash: HASH_B, patientUserId: patient })).unreadTotal).toBe(0);
+    await t.mutation(api.careMessages.sendMessage, {
+      userId: member, passwordHash: HASH_B, patientUserId: patient, threadKey, text: "On it",
+    });
+    expect((await t.query(api.careMessages.listThreads, { userId: patient, passwordHash: HASH_A, patientUserId: patient })).unreadTotal).toBe(1);
+  });
+
+  it("fans out to every member when a third guardian joins", async () => {
+    const { t, patient, member } = await setup();
+    const third = await t.mutation(api.auth.register, { email: "gran@example.com", passwordHash: "hash-c" });
+    await t.mutation(api.patientProfile.replace, {
+      userId: third, passwordHash: "hash-c",
+      profile: { childName: "Gran", parentName: "Gran", diabetesType: "type1", dateOfBirth: "1960-01-01" },
+    });
+    await linkCoGuardian(t, patient, member);
+
+    // Third guardian redeems an invite to the SAME circle.
+    const inv = await t.mutation(api.careCircle.createInvite, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
+    await t.mutation(api.careCircle.redeemInvite, { userId: third, passwordHash: "hash-c", code: inv.code });
+
+    // Every guardian now has a thread with each of the other two.
+    const names = async (userId: string, hash: string) =>
+      (await t.query(api.careMessages.listThreads, { userId, passwordHash: hash, patientUserId: patient })).threads
+        .map((th) => th.otherName)
+        .sort();
+    expect(await names(patient, HASH_A)).toEqual(["Dad", "Gran"]);
+    expect(await names(member, HASH_B)).toEqual(["Gran", "Mom"]);
+    expect(await names(third, "hash-c")).toEqual(["Dad", "Mom"]);
   });
 });
 

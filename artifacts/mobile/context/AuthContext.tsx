@@ -13,6 +13,7 @@ import type { CarePermissions } from "../../../convex/careSchedule";
 import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY, QUICK_FOODS_STORAGE_KEY } from "@/constants/storage-keys";
 import { apiUrl } from "@/utils/api-base-url";
 import { mergeCloudLogs } from "@/utils/careLogsMerge";
+import { resolveLogConfirmName } from "@/utils/careLogConfirm";
 import { DEFAULT_QUICK_FOODS, insertQuickFood, parseStoredQuickFoods } from "@/utils/quickFoods";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import {
@@ -306,6 +307,8 @@ export interface AuthContextType {
   isCaregiverAccount: boolean;
   /** True while a caregiver (nurse) account is viewing a child — settings are inherited read-only. */
   isCaregiverViewingChild: boolean;
+  /** Non-null when logs must be confirmed before writing (caregiver sessions) — the profile owner's name. */
+  logConfirmPatientName: string | null;
   /**
    * Nurse opens a linked child's live view via their access code (like a co-guardian's "View
    * glucose"). Sets the viewing overlay + the code's permissions; data is sourced from the code, and
@@ -2511,6 +2514,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // While a nurse views a child, the emergency list is the child's shared pool (inherited read-only).
   const effectiveEmergencyContacts = isCaregiverViewingChild ? viewedEmergencyContacts : emergencyContacts;
 
+  /**
+   * Non-null when this session writes logs into SOMEONE ELSE'S profile via an access code, and so
+   * must confirm before committing one — the value is that person's name for the prompt. Covers the
+   * two caregiver entry points: an accountless caregiver access-code session, and a Caregiver
+   * (nurse) account viewing a linked kid through their code. Deliberately excludes child/kid code
+   * sessions (they log into their own profile) and co-guardians (the circle is theirs too).
+   */
+  const logConfirmPatientName = useMemo(
+    () =>
+      // `effectiveProfile` is the viewed kid's profile for a nurse, and the code owner's for an
+      // accountless code — either way it names the person whose profile receives the log.
+      resolveLogConfirmName({
+        caregiverSession,
+        accessCodeRole,
+        isCaregiverViewingChild,
+        patientName: effectiveProfile?.childName,
+        fallbackName: viewingPatientName,
+      }),
+    [caregiverSession, accessCodeRole, isCaregiverViewingChild, effectiveProfile, viewingPatientName],
+  );
+
   const messagingIdentity: MessagingIdentity = useMemo(() => {
     // A code session (accountless access code, or a nurse viewing via a code) messages AS the code.
     if (caregiverCodeKind === "access" && caregiverCloudCode) return { kind: "code", code: caregiverCloudCode };
@@ -2598,6 +2622,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isCaregiverAccount,
         messagingIdentity,
         isCaregiverViewingChild,
+        logConfirmPatientName,
         enterKidView,
         nurseViewCode,
         accessLock,

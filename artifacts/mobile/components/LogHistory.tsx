@@ -28,6 +28,7 @@ import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 import { useDayGlucoseReadings } from "@/hooks/useDayGlucoseReadings";
+import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import {
   doseAmountsEqual,
   filterDoseInputText,
@@ -70,6 +71,7 @@ export default function LogHistory({
 
   const { targetGlucose, cgmSyncSuccessTick } = useGlucose();
   const { foodLog, insulinLog, logInsulinDose, alertPrefs, account } = useAuth();
+  const confirmLog = useCareLogConfirm();
   const myUserId = account?.convexUserId ?? null;
 
   const today = useMemo(() => startOfLocalDay(new Date()), []);
@@ -123,16 +125,19 @@ export default function LogHistory({
 
   const handleLogInsulin = () => {
     if (parsedLogUnits == null || parsedLogUnits <= 0 || parsedLogTime == null) return;
-    logInsulinDose({
-      timestamp: combineDayAndTime(selectedDay, parsedLogTime.hours, parsedLogTime.minutes).toISOString(),
-      units: parsedLogUnits,
-      type: "manual",
-      ...(logPendingLabel ? { insulinType: logPendingLabel } : {}),
+    // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
+    confirmLog(() => {
+      logInsulinDose({
+        timestamp: combineDayAndTime(selectedDay, parsedLogTime.hours, parsedLogTime.minutes).toISOString(),
+        units: parsedLogUnits,
+        type: "manual",
+        ...(logPendingLabel ? { insulinType: logPendingLabel } : {}),
+      });
+      setLogModalVisible(false);
+      setLogLoggedAtTick(cgmSyncSuccessTick);
+      onLogAdded?.();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
-    setLogModalVisible(false);
-    setLogLoggedAtTick(cgmSyncSuccessTick);
-    onLogAdded?.();
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   return (

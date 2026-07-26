@@ -549,13 +549,13 @@ const careInsulinLogs = defineTable({
   .index("by_patient_time", ["patientUserId", "timestamp"])
   .index("by_patient_client", ["patientUserId", "clientId"]);
 
-// ─── Care Circle direct messaging (guardians ↔ access codes) ─────────────────────────────────
-// In-app messaging between any two participants of one patient's circle: a guardian (owner or
-// co-guardian) and an access code (kid/caregiver), or two access codes. NOT guardian↔guardian.
+// ─── Care Circle direct messaging ────────────────────────────────────────────────────────────
+// In-app messaging between ANY two participants of one patient's circle: guardian (owner or
+// co-guardian) ↔ access code (kid/caregiver), code ↔ code, and guardian ↔ guardian (co-guardians).
 // A participant is an "endpoint": `user:<userId>` for a guardian, `code:<CODE>` for an access code
 // (a nurse account viewing via a code messages AS that code). A thread is the two endpoint keys
-// sorted + joined by "|" — DERIVED from the circle roster, so a fresh code's threads exist before
-// the code is ever used. `senderKey` is the author's endpoint; `read` = the recipient (the other
+// sorted + joined by "|" — DERIVED from the circle roster, so the threads for a new code (or a
+// newly linked co-guardian) exist for everyone the moment it's created, before it's ever used. `senderKey` is the author's endpoint; `read` = the recipient (the other
 // endpoint) has seen it. Messaging is always-on (ignores the `chat` grant); code endpoints stay
 // gated by the schedule window (`careAccessAllowed`). Circles are tiny, so reads scan by_patient.
 const careMessages = defineTable({

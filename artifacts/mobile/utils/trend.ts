@@ -29,13 +29,18 @@ const DEXCOM_STRING_MAP: Record<string, number> = {
 
 export function mapDexcomTrend(trend: number | string): TrendInfo {
   const n = typeof trend === "string" ? (DEXCOM_STRING_MAP[trend] ?? 4) : trend;
+  // The app groups Dexcom's 7 states into 5 (`glucoseTrend`), and SingleUp/SingleDown (2–3 mg/dL/min)
+  // are grouped with DoubleUp/DoubleDown as `rapidly_*` — the "fast" states that drive the trend
+  // warning + the dose trend-adjustment. So they must PRESENT as fast too: a double arrow + a "fast"
+  // label. Keeping SingleDown as a single arrow (its native Dexcom glyph) is what made the top gauge
+  // show one arrow while the "Dropping Fast ↓↓" warning fired — the inconsistency this fixes.
   switch (n) {
     case 1: return { glucoseTrend: "rapidly_rising", arrow: "↑↑", label: "Rising fast" };
-    case 2: return { glucoseTrend: "rapidly_rising", arrow: "↑",  label: "Rising" };
+    case 2: return { glucoseTrend: "rapidly_rising", arrow: "↑↑", label: "Rising fast" };
     case 3: return { glucoseTrend: "rising",          arrow: "↗", label: "Rising slowly" };
     case 4: return { glucoseTrend: "stable",           arrow: "→", label: "Stable" };
     case 5: return { glucoseTrend: "falling",          arrow: "↘", label: "Falling slowly" };
-    case 6: return { glucoseTrend: "rapidly_falling",  arrow: "↓", label: "Falling" };
+    case 6: return { glucoseTrend: "rapidly_falling",  arrow: "↓↓", label: "Falling fast" };
     case 7: return { glucoseTrend: "rapidly_falling",  arrow: "↓↓", label: "Falling fast" };
     default: return { glucoseTrend: "stable",          arrow: "→", label: "Stable" };
   }
@@ -62,18 +67,22 @@ export function getEffectiveTrend(
  * Used only when no Dexcom trend field is available (manual entries, LibreLink).
  */
 export function trendFromDiff(diff: number): TrendInfo {
-  if (diff > 30) return { glucoseTrend: "rapidly_rising", arrow: "↑↑", label: "Rising fast" };
-  if (diff > 15) return { glucoseTrend: "rapidly_rising", arrow: "↑",  label: "Rising" };
+  // Same grouping as mapDexcomTrend: everything `rapidly_*` presents as a double arrow + "fast" label
+  // so the gauge arrows always match the trend warning, on every account type / data source.
+  if (diff > 15) return { glucoseTrend: "rapidly_rising", arrow: "↑↑", label: "Rising fast" };
   if (diff > 8)  return { glucoseTrend: "rising",          arrow: "↗", label: "Rising slowly" };
-  if (diff < -30) return { glucoseTrend: "rapidly_falling", arrow: "↓↓", label: "Falling fast" };
-  if (diff < -15) return { glucoseTrend: "rapidly_falling", arrow: "↓",  label: "Falling" };
+  if (diff < -15) return { glucoseTrend: "rapidly_falling", arrow: "↓↓", label: "Falling fast" };
   if (diff < -8)  return { glucoseTrend: "falling",          arrow: "↘", label: "Falling slowly" };
   return { glucoseTrend: "stable", arrow: "→", label: "Stable" };
 }
 
-/** True when the canonical trend arrow indicates fast movement (↑↑ or ↓↓). */
+/**
+ * True for the "fast" trend states. Derived from the `glucoseTrend` CATEGORY — the same field the
+ * trend warning and the dose trend-adjustment key off — so the two-arrow gauge, the "Rising/Dropping
+ * Fast" warning, and the dose math can never disagree about what counts as fast.
+ */
 export function isFastTrend(info: TrendInfo): boolean {
-  return info.arrow === "↑↑" || info.arrow === "↓↓";
+  return info.glucoseTrend === "rapidly_rising" || info.glucoseTrend === "rapidly_falling";
 }
 
 /** Compact summary-card label (title case; fast fall reads "Dropping Fast"). */

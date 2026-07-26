@@ -43,6 +43,7 @@ import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
 import DosePredictionChart from "@/components/DosePredictionChart";
 import { runPrediction, type PredictionResult, type StrengthLabel } from "@/utils/predictionClient";
+import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import InsulinTypePicker from "@/components/InsulinTypePicker";
 import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import {
@@ -123,6 +124,7 @@ export default function InsulinScreen() {
   const colors = isDark ? Colors.dark : Colors.light;
   const { targetGlucose, carbRatio, correctionFactor, history, cgmSyncSuccessTick } = useGlucose();
   const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions, messagingIdentity } = useAuth();
+  const confirmLog = useCareLogConfirm();
   // A child/caregiver access-code session only sees the tabs its grants allow (dose calculator /
   // logging). Everyone else — owner, co-guardian, doctor, legacy caregiver code — sees both.
   const isAccessCodeSession = accessCodeRole != null;
@@ -464,17 +466,20 @@ export default function InsulinScreen() {
     if (!isBasalMode && !dose) return;
     const wasManual =
       manualDoseOverride != null && !doseAmountsEqual(effectiveDose, systemRecommendedDose);
-    logInsulinDose({
-      timestamp: new Date().toISOString(),
-      units: roundToQuarterUnits(effectiveDose),
-      type: isBasalMode ? "basal" : "bolus",
-      ...(insulinTypeLabel ? { insulinType: insulinTypeLabel } : {}),
-      recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
-      manualOverride: wasManual,
+    // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
+    confirmLog(() => {
+      logInsulinDose({
+        timestamp: new Date().toISOString(),
+        units: roundToQuarterUnits(effectiveDose),
+        type: isBasalMode ? "basal" : "bolus",
+        ...(insulinTypeLabel ? { insulinType: insulinTypeLabel } : {}),
+        recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
+        manualOverride: wasManual,
+      });
+      setDoseLoggedAtTick(cgmSyncSuccessTick);
+      triggerLogPlusOne();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
-    setDoseLoggedAtTick(cgmSyncSuccessTick);
-    triggerLogPlusOne();
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [
     dose,
     isBasalMode,
@@ -486,6 +491,7 @@ export default function InsulinScreen() {
     logInsulinDose,
     cgmSyncSuccessTick,
     triggerLogPlusOne,
+    confirmLog,
   ]);
 
   // Push a field's in-progress draft into its committed value. No-op when the field isn't being

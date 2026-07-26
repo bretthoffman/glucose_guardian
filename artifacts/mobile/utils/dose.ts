@@ -37,11 +37,11 @@ const TREND_ADJ: Record<string, number> = {
 };
 
 const TREND_LABELS: Record<string, string> = {
-  rapidly_rising: "Rising fast ↑",
+  rapidly_rising: "Rising fast ↑↑",
   rising: "Rising ↗",
   stable: "Stable →",
   falling: "Falling ↘",
-  rapidly_falling: "Falling fast ↓",
+  rapidly_falling: "Falling fast ↓↓",
 };
 
 export interface DoseWarningContext {

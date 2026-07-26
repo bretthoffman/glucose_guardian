@@ -116,9 +116,26 @@ export function doseCardExplanation(key: DoseCardKey, d: DoseExplainInput): Dose
           d.activeInsulinDoseCount > 1
             ? `${d.activeInsulinDoseCount} recent doses`
             : `a dose taken ${ago(d.activeInsulinAgeMin)}`;
-        lines.push(
-          `You still have ${u(d.activeInsulinUnits)} on board from ${src}. We subtract it so you don't stack insulin on top of what's already lowering your glucose.`,
-        );
+        // The dose the pieces above would call for before any insulin-on-board is taken off.
+        const beforeIob = Math.max(0, d.correctionInsulin + d.trendAdjustment + d.carbInsulin + d.activeCarbInsulin);
+        const aboutBefore = `about ${Math.round(beforeIob * 10) / 10}u`;
+        const onBoard = `You still have ${u(d.activeInsulinUnits)} on board from ${src}`;
+        if (beforeIob <= 0.05) {
+          // Nothing was being suggested anyway — the IOB is just context, not a reduction.
+          lines.push(
+            `${onBoard}. Nothing extra is calculated right now, so subtracting it doesn't change the suggestion — it just means recent insulin is still working.`,
+          );
+        } else if (d.totalRaw <= 0.001) {
+          // IOB fully covers the calculated need — this is the "why nothing more?" case.
+          lines.push(
+            `${onBoard} — enough to cover the ${aboutBefore} the pieces above would otherwise call for. After we subtract it, no additional insulin is suggested right now; what's already working will keep bringing your glucose down.`,
+          );
+        } else {
+          // IOB partially covers it — this is the plain-language "why only a small dose?" answer.
+          lines.push(
+            `${onBoard}. That covers part of the ${aboutBefore} the pieces above would otherwise call for, so we subtract it to avoid stacking insulin — which is why the suggestion lands at ${u(d.totalDose)} instead.`,
+          );
+        }
       } else {
         lines.push(`You have no insulin on board right now, so nothing is subtracted.`);
       }

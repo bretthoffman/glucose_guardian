@@ -21,6 +21,7 @@ import Colors, { COLORS } from "@/constants/colors";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { QUICK_FOODS_STORAGE_KEY } from "@/constants/storage-keys";
 import { useAuth } from "@/context/AuthContext";
+import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import { useGlucose } from "@/context/GlucoseContext";
 import { apiUrl } from "@/utils/api-base-url";
 import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
@@ -56,6 +57,7 @@ export default function LogFoodModal({
   colors: (typeof Colors)["light"];
 }) {
   const { addFoodLogEntry } = useAuth();
+  const confirmLog = useCareLogConfirm();
   const { carbRatio } = useGlucose();
 
   const [query, setQuery] = useState("");
@@ -122,15 +124,18 @@ export default function LogFoodModal({
 
   function handleLog() {
     if (!result || !canLog || parsedTime == null) return;
-    addFoodLogEntry({
-      timestamp: combineDayAndTime(selectedDay, parsedTime.hours, parsedTime.minutes).toISOString(),
-      foodName: result.foodName,
-      estimatedCarbs: carbs,
-      insulinUnits: carbRatio > 0 ? Math.round((carbs / carbRatio) * 10) / 10 : 0,
-      confidence: result.confidence ?? "medium",
-      fromPhoto: false,
+    // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
+    confirmLog(() => {
+      addFoodLogEntry({
+        timestamp: combineDayAndTime(selectedDay, parsedTime.hours, parsedTime.minutes).toISOString(),
+        foodName: result.foodName,
+        estimatedCarbs: carbs,
+        insulinUnits: carbRatio > 0 ? Math.round((carbs / carbRatio) * 10) / 10 : 0,
+        confidence: result.confidence ?? "medium",
+        fromPhoto: false,
+      });
+      onLogged();
     });
-    onLogged();
   }
 
   return (
