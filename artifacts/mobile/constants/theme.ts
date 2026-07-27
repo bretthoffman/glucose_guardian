@@ -53,6 +53,13 @@ export const T = {
   radius: { card: 28, control: 16, pill: 14, nav: 30, sm: 10 },
 
   /**
+   * Max width for page content on large screens (iPad). Phone widths are far below this, so it's a
+   * no-op there; on a 13" iPad it keeps content readable and centered instead of stretched edge to
+   * edge. Pair with `alignSelf: "center"` (or a centering parent) wherever it's applied.
+   */
+  layout: { contentMaxWidth: 700 },
+
+  /**
    * Weight tokens — used as `fontWeight` (NOT `fontFamily`). Omitting fontFamily renders the
    * platform system font (SF Pro Display/Text on iOS, Roboto on Android).
    */

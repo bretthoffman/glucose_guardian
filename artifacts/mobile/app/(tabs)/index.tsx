@@ -15,6 +15,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
   type ScrollView,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -28,7 +29,9 @@ import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import InsightsRecommendations from "@/components/InsightsRecommendations";
 import { ReadingCard } from "@/components/ReadingCard";
 import { Surface } from "@/components/Surface";
-import { analyzeReadings } from "@/utils/insights";
+import { analyzeReadings, type Suggestion } from "@/utils/insights";
+import { computePatternTuning, tuningSuggestions } from "@/utils/doseTuning";
+import { COLORS } from "@/constants/colors";
 import { T, withAlpha } from "@/constants/theme";
 import { useThemeColors } from "@/context/ThemeContext";
 import { useGlucose } from "@/context/GlucoseContext";
@@ -158,6 +161,13 @@ function syncResultLabel(
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  // ── iPad PORTRAIT only: the phone-sized gauge/chart cover barely half the tall screen, so both
+  // cards and their contents scale up together. Landscape iPad and iPhone keep their exact current
+  // sizing (scale 1); useWindowDimensions re-evaluates live on rotation. ──
+  const { width: winW, height: winH } = useWindowDimensions();
+  const isPadPortrait =
+    Platform.OS === "ios" && (Platform as unknown as { isPad?: boolean }).isPad === true && winH > winW;
+  const padScale = isPadPortrait ? 1.4 : 1;
   const c = useThemeColors();
   const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose, notifyCgmSyncSuccess } = useGlucose();
   const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession, isMinor, foodLog, insulinLog, isViewingLinkedPatient, viewingPatientName, exitViewingMode, accessCodeRole } = useAuth();
@@ -218,7 +228,7 @@ export default function HomeScreen() {
   // This catches connect-time backup failures, an app killed mid-connect, and pre-existing
   // connections; the banner nudges a one-tap reconnect (the password isn't recoverable client-side).
   useEffect(() => {
-    if (!isConnected || !account?.convexUserId || !account.passwordHash) {
+    if (!isConnected || !account?.convexUserId) {
       setBackupMissing(false);
       return;
     }
@@ -252,7 +262,7 @@ export default function HomeScreen() {
 
   // Sanitized CGM sync/diagnostic state from Convex (no credentials or raw errors).
   useEffect(() => {
-    if (!isConnected || !account?.convexUserId || !account.passwordHash) {
+    if (!isConnected || !account?.convexUserId) {
       setSyncStatus(null);
       return;
     }
@@ -305,7 +315,22 @@ export default function HomeScreen() {
   const insightSuggestions = useMemo(() => {
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     const recent = history.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
-    return analyzeReadings(recent, targetGlucose, isMinor, foodLog ?? [], insulinLog ?? []);
+    const base = analyzeReadings(recent, targetGlucose, isMinor, foodLog ?? [], insulinLog ?? []);
+    // Dose-tuning cards: when 2 weeks of logged doses consistently run above/below the calculator's
+    // recommendations in a meal window, suggest a care-team settings review. The calculator already
+    // shows the live "Pattern adjustment" for these — this card explains the WHY and the fix.
+    const tuningCards: Suggestion[] = tuningSuggestions(
+      computePatternTuning(insulinLog ?? [], Date.now()),
+    ).map((t) => ({
+      icon: "sliders",
+      title: t.title,
+      body: t.body,
+      color: COLORS.primary,
+      priority: 3,
+      chatPrompt: `My logged insulin doses at ${t.bucket} have been running consistently different from the calculator's recommendations (${t.title.toLowerCase()}). What would you review with a care team — carb ratio or correction factor — and what questions should I ask?`,
+      tag: "Dose settings",
+    }));
+    return [...base, ...tuningCards].sort((a, b) => a.priority - b.priority);
   }, [history, targetGlucose, isMinor, foodLog, insulinLog]);
 
   const effectiveTrend: TrendInfo | undefined = (() => {
@@ -345,8 +370,13 @@ export default function HomeScreen() {
     }
     return name;
   })();
+  // Guardian devices label freshness from their own sync state; caregiver/viewing sessions never
+  // run a sync, so they fall back to the newest reading's age — same wording, updates as readings
+  // stream in, and gives caregivers the "when did data last arrive" line guardians already have.
   const updatedLabel = (lastSyncResult || lastSyncTime)
     ? `Updated ${formatLastSync(lastSyncResult?.at ?? lastSyncTime).toLowerCase()}`
+    : latestReading
+    ? `Updated ${formatLastSync(new Date(latestReading.timestamp)).toLowerCase()}`
     : undefined;
 
   const performSync = useCallback(async (silent: boolean): Promise<PerformSyncOutcome> => {
@@ -354,7 +384,7 @@ export default function HomeScreen() {
     // Convex is the single ingestion + cursor authority. The app requests an expedited canonical
     // sync and renders the canonical history Convex returns; it no longer calls Dexcom/Libre
     // directly, computes a backfill count, or refreshes provider sessions itself.
-    if (!account?.convexUserId || !account.passwordHash) {
+    if (!account?.convexUserId) {
       if (!silent) {
         return {
           ok: false,
@@ -1022,10 +1052,11 @@ export default function HomeScreen() {
 
         {/* Glucose summary */}
         {latestReading ? (
-          <Surface style={styles.section} padding={T.space.xl}>
+          <Surface style={styles.section} padding={Math.round(T.space.xl * padScale)}>
             <GlucoseGauge
               value={displayGlucose}
-              size={172}
+              size={Math.round(172 * padScale)}
+              contentScale={padScale}
               trend={glucoseTrend}
               trendInfo={effectiveTrend}
               lowThreshold={alertPrefs.lowThreshold}
@@ -1069,7 +1100,10 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {latestReading && alertPrefs.emergencyAlertsEnabled && emergencyContacts.length > 0 &&
+        {/* One-tap SMS banner: MAIN accounts only (never code sessions or borrowed views), and only
+            once the account has turned the one-tap text feature on in Emergency settings. */}
+        {latestReading && alertPrefs.emergencyAlertsEnabled && alertPrefs.oneTapTextEnabled === true &&
+          !caregiverSession && !isViewingLinkedPatient && emergencyContacts.length > 0 &&
           (latestReading.glucose < alertPrefs.lowThreshold || latestReading.glucose > alertPrefs.highThreshold) && (
             <View style={[styles.section, styles.emergencyBanner, { backgroundColor: withAlpha(T.color.coral, 0.1), borderColor: withAlpha(T.color.coral, 0.4) }]}>
               <View style={styles.emergencyTop}>
@@ -1080,7 +1114,12 @@ export default function HomeScreen() {
                 Glucose is {latestReading.glucose < alertPrefs.lowThreshold ? "critically low" : "critically high"} — tap to alert your emergency contact{emergencyContacts.length > 1 ? "s" : ""}.
               </Text>
               <View style={styles.emergencyList}>
-                {emergencyContacts.map((c) => (
+                {/* One-tap target chosen in Emergency Contacts → show ONLY that contact's button;
+                    with none chosen, every contact keeps a button (legacy behavior). */}
+                {(emergencyContacts.some((c) => c.primary)
+                  ? emergencyContacts.filter((c) => c.primary)
+                  : emergencyContacts
+                ).map((c) => (
                   <Pressable
                     key={c.id}
                     style={({ pressed }) => [styles.emergencyBtn, { backgroundColor: T.color.coral, opacity: pressed ? 0.85 : 1 }]}
@@ -1106,11 +1145,11 @@ export default function HomeScreen() {
 
         {/* Trend chart */}
         {history.length > 1 && (
-          <Surface style={styles.section} padding={T.space.lg}>
+          <Surface style={styles.section} padding={Math.round(T.space.lg * padScale)}>
             <CGMChart
               readings={history}
               targetGlucose={targetGlucose}
-              chartHeight={264}
+              chartHeight={Math.round(264 * padScale)}
               paddingHorizontal={34}
               urgentLowThreshold={alertPrefs.urgentLowThreshold}
               lowThreshold={alertPrefs.lowThreshold}
@@ -1186,7 +1225,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 10,
   },
-  scroll: { paddingHorizontal: T.space.xl },
+  // iPad: cap + center the content column so it doesn't stretch across a 13" screen. No-op on phones.
+  scroll: { paddingHorizontal: T.space.xl, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: T.space.xs },
   headerText: { flex: 1 },
   /** Centered pull-to-sync helper row above the glucose summary card (page-centered, own row). */

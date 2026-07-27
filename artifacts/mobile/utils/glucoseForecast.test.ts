@@ -99,11 +99,11 @@ describe("forecastGlucose", () => {
   it("nets the still-to-act portion of already-active insulin into the projection", () => {
     const pts = forecastGlucose({
       ...base,
-      // A 1u rapid dose (50 mg/dL total) taken 2h ago is halfway through its 4h linear action, so
-      // only the remaining half (25 mg/dL) is still to be delivered over the forecast window.
+      // A 1u rapid dose (50 mg/dL total) taken 2h ago: under the curvilinear activity curve
+      // R(120m of 240m) ≈ 0.357, so ~17.9 mg/dL is still to be delivered over the window.
       insulinLog: [{ id: "x", units: 1, timestamp: new Date(at(10, 0)).toISOString(), type: "bolus" } as never],
     });
     const last = pts[pts.length - 1];
-    expect(last.bg).toBe(155); // 180 − 25
+    expect(last.bg).toBe(162); // 180 − 17.9, rounded
   });
 });

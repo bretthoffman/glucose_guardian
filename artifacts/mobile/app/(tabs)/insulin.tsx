@@ -20,12 +20,14 @@ import {
 import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
-import { withAlpha } from "@/constants/theme";
+import { T, withAlpha } from "@/constants/theme";
 import { doseCardExplanation, type DoseCardKey } from "@/utils/doseExplain";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { glucoseColor } from "@/components/CGMChart";
 import { computeDose } from "@/utils/dose";
+import { effectiveDoseSettings } from "@/utils/doseSettings";
+import { computePatternTuning, patternFactorForNow } from "@/utils/doseTuning";
 import type { DoseBreakdown } from "@/utils/dose";
 import { computeBasalDose } from "@/utils/basalDose";
 import type { BasalDoseBreakdown } from "@/utils/basalDose";
@@ -73,6 +75,8 @@ type OpCardDef = {
   label: string;
   color: string;
   value: number;
+  /** Third row: the live input feeding this piece, e.g. "241 mg/dL", "20 g", "2.1 u". */
+  sub: string;
   icon: React.ComponentProps<typeof Feather>["name"];
 };
 
@@ -100,18 +104,22 @@ function OpCard({
       style={({ pressed }) => [
         styles.opCard,
         {
-          // Interior matches the surrounding window (white in light mode); only the outline carries
-          // the card's color, brightening + thickening when the card is selected.
-          backgroundColor: colors.card,
-          borderColor: withAlpha(def.color, selected ? 1 : 0.55),
-          borderWidth: selected ? 2 : 1.5,
+          // The unified window (calcUnified) carries the single purple outline; each piece is
+          // borderless and identified by its color through the tinted label/value text. Selection
+          // shows as a soft pill tint of the piece's own color.
+          backgroundColor: selected ? withAlpha(def.color, 0.14) : "transparent",
           opacity: pressed ? 0.85 : 1,
         },
       ]}
     >
-      <Text style={[styles.opLabel, { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{def.label}</Text>
-      <Text style={[styles.opValue, { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+      {/* Title in the same muted grey as the section header; only the VALUE carries the piece's
+          color. The third row shows the live input feeding this piece. */}
+      <Text style={[styles.opLabel, { color: colors.textSecondary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{def.label}</Text>
+      <Text style={[styles.opValue, { color: def.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
         {fmtU(def.value)}
+      </Text>
+      <Text style={[styles.opSub, { color: colors.textSecondary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+        {def.sub}
       </Text>
     </Pressable>
   );
@@ -122,7 +130,7 @@ export default function InsulinScreen() {
   const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { targetGlucose, carbRatio, correctionFactor, history, cgmSyncSuccessTick } = useGlucose();
+  const { targetGlucose, carbRatio, correctionFactor, doseSettingsByTime, history, cgmSyncSuccessTick } = useGlucose();
   const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions, messagingIdentity } = useAuth();
   const confirmLog = useCareLogConfirm();
   // A child/caregiver access-code session only sees the tabs its grants allow (dose calculator /
@@ -173,7 +181,6 @@ export default function InsulinScreen() {
   // Which colored operation card is expanded in "Your Dose Breakdown" (null = collapsed by default).
   const [expandedCard, setExpandedCard] = useState<DoseCardKey | null>(null);
   // Prediction graph is revealed on demand by the "See Prediction" toggle.
-  const [showPrediction, setShowPrediction] = useState(false);
 
   // ── "I just took this dose" — green until the next successful CGM sync ──
   const [doseLoggedAtTick, setDoseLoggedAtTick] = useState<number | null>(null);
@@ -316,6 +323,35 @@ export default function InsulinScreen() {
 
   const latest = history[history.length - 1];
 
+  // ── Time-of-day effective settings: a per-meal override (when the family set one) wins over the
+  // base carb ratio / ISF. Keyed on the latest reading so the bucket rolls over as readings land. ──
+  const effSettings = useMemo(
+    () => effectiveDoseSettings(carbRatio, correctionFactor, doseSettingsByTime, new Date()),
+    [carbRatio, correctionFactor, doseSettingsByTime, latest?.timestamp],
+  );
+
+  // ── Glucose movement over the last ~45 min — the IOB-effectiveness input: high + not falling
+  // despite active insulin means that insulin is provably not landing. ──
+  const bgDelta45Min = useMemo(() => {
+    if (!latest) return undefined;
+    const nowT = new Date(latest.timestamp).getTime();
+    let best: { deltaFromTarget: number; glucose: number } | null = null;
+    for (const r of history) {
+      const age = (nowT - new Date(r.timestamp).getTime()) / 60_000;
+      if (age < 35 || age > 60) continue;
+      const d = Math.abs(age - 45);
+      if (best == null || d < best.deltaFromTarget) best = { deltaFromTarget: d, glucose: r.glucose };
+    }
+    return best ? latest.glucose - best.glucose : undefined;
+  }, [history, latest]);
+
+  // ── Pattern tuning: bounded, visible multiplier from two weeks of given-vs-recommended doses in
+  // this time-of-day bucket. Settings are never changed by this. ──
+  const bucketTuning = useMemo(() => {
+    const tuning = computePatternTuning(insulinLog ?? [], Date.now());
+    return patternFactorForNow(tuning, new Date());
+  }, [insulinLog, latest?.timestamp]);
+
   /** Live CGM value when not in manual entry mode — avoids stale `bgInput` one frame behind `history`. */
   const doseBg = useMemo(() => {
     if (bgManual) {
@@ -342,48 +378,67 @@ export default function InsulinScreen() {
       carbs,
       currentBG: bg,
       targetBG: targetGlucose,
-      carbRatio,
-      correctionFactor,
+      carbRatio: effSettings.carbRatio,
+      correctionFactor: effSettings.correctionFactor,
       trend,
       previousBG: prev,
       insulinKind: selectedInsulinOption?.type,
       activeInsulinUnits: activeInsulin.totalUnits,
       activeCarbsGrams: activeCarbs.totalGrams,
+      bgDelta45Min,
+      weightLbs: profile?.weightLbs,
+      patternFactor: bucketTuning.factor,
     });
-  }, [carbInput, doseBg, targetGlucose, carbRatio, correctionFactor, history, latest, selectedInsulinOption, activeInsulin, activeCarbs]);
+  }, [carbInput, doseBg, targetGlucose, effSettings, history, latest, selectedInsulinOption, activeInsulin, activeCarbs, bgDelta45Min, profile?.weightLbs, bucketTuning]);
 
-  // ── The colored "operation" cards for the calculator. The trend adjustment is FOLDED into
-  // "Correct High BG" so the four input cards actually sum to the Dose (see doseExplain). ──
+  // ── The colored "operation" cards for the calculator. Correct BG shows the full correction
+  // (base + resistance + trend) BEFORE the active-insulin credit; Active Insulin shows the credit
+  // actually subtracted; Active Carbs shows the UNCOVERED portion added — so the four cards sum
+  // exactly to the subtotal the Dose card explains (see doseExplain). ──
   const opCards: OpCardDef[] = useMemo(() => {
     if (!dose) return [];
+    const carbsNum = parseFloat(carbInput) || 0;
     return [
-      { key: "correction", label: "Correct BG", color: CARD_BLUE, value: dose.correctionInsulin + dose.trendAdjustment, icon: "trending-up" },
-      { key: "carb", label: "Carb Dose", color: COLORS.success, value: dose.carbInsulin, icon: "coffee" },
-      { key: "activeCarbs", label: "Active Carbs", color: COLORS.warning, value: dose.activeCarbInsulin, icon: "clock" },
-      { key: "activeInsulin", label: "Active Insulin", color: CARD_PURPLE, value: -dose.activeInsulinUnits, icon: "droplet" },
+      { key: "correction", label: "Correct BG", color: CARD_BLUE, value: dose.correctionInsulin + dose.resistanceBump + dose.trendAdjustment, sub: doseBg ? `${doseBg.label} mg/dL` : "—", icon: "trending-up" },
+      { key: "carb", label: "Carb Dose", color: COLORS.success, value: dose.carbInsulin, sub: `${carbsNum} g`, icon: "coffee" },
+      { key: "activeCarbs", label: "Active Carbs", color: COLORS.warning, value: dose.uncoveredCarbInsulin, sub: `${activeCarbs.totalGrams} g`, icon: "clock" },
+      { key: "activeInsulin", label: "Active Insulin", color: CARD_PURPLE, value: -dose.iobCredit, sub: fmtU(dose.activeInsulinUnits), icon: "droplet" },
     ];
-  }, [dose]);
+  }, [dose, doseBg, carbInput, activeCarbs]);
 
   const explainInput = useMemo(() => ({
     bg: doseBg?.n ?? 0,
     target: targetGlucose,
-    correctionFactor,
-    carbRatio,
+    correctionFactor: effSettings.correctionFactor,
+    carbRatio: effSettings.carbRatio,
     carbs: parseFloat(carbInput) || 0,
     correctionInsulin: dose?.correctionInsulin ?? 0,
+    resistanceBump: dose?.resistanceBump ?? 0,
     trendAdjustment: dose?.trendAdjustment ?? 0,
     trendLabel: dose?.trendLabel ?? "",
+    hyperTrendZeroed: dose?.hyperTrendZeroed ?? false,
     correctionSuppressed: dose?.correctionSuppressed ?? false,
     carbInsulin: dose?.carbInsulin ?? 0,
+    settingsBucket: effSettings.bucket,
+    settingsFromOverride: effSettings.usedOverride,
     activeCarbGrams: activeCarbs.totalGrams,
     activeCarbInsulin: dose?.activeCarbInsulin ?? 0,
     activeCarbAgeMin: activeCarbs.lastEntryAgeMin,
+    uncoveredCarbInsulin: dose?.uncoveredCarbInsulin ?? 0,
     activeInsulinUnits: dose?.activeInsulinUnits ?? 0,
     activeInsulinDoseCount: activeInsulin.doseCount,
     activeInsulinAgeMin: activeInsulin.lastDoseAgeMin,
+    iobCredit: dose?.iobCredit ?? 0,
+    iobDiscounted: dose?.iobDiscounted ?? false,
+    correctionApplied: dose?.correctionApplied ?? 0,
+    subTotal: dose?.subTotal ?? 0,
+    patternFactor: dose?.patternFactor ?? 1,
+    patternDelta: dose?.patternDelta ?? 0,
+    maxDoseCap: dose?.maxDoseCap ?? 10,
+    cappedAtMax: dose?.cappedAtMax ?? false,
     totalRaw: dose?.totalRaw ?? 0,
     totalDose: dose?.totalDose ?? 0,
-  }), [doseBg, targetGlucose, correctionFactor, carbRatio, carbInput, dose, activeCarbs, activeInsulin]);
+  }), [doseBg, targetGlucose, effSettings, carbInput, dose, activeCarbs, activeInsulin]);
 
   const OP_SYMBOLS = ["+", "+", "−"];
 
@@ -400,29 +455,27 @@ export default function InsulinScreen() {
   const effectiveDose = manualDoseOverride ?? systemRecommendedDose;
   const doseJustLogged = doseLoggedAtTick !== null && doseLoggedAtTick === cgmSyncSuccessTick;
 
-  // ── Prediction chart: an AI projection of the next 90 min IF this dose is taken now (bolus only).
-  // Estimate-only — never feeds the calculator. Runs ONLY on an explicit Predict tap and holds that
-  // result until Predict is tapped again, even if the calculator inputs change. ──
+  // ── Prediction chart (bolus only): the top-3 REAL past episodes matching this situation, drawn
+  // directly — no AI call. Always on: it runs by itself on open, whenever a committed input changes
+  // (typed edits lock in on done/tap-off), and whenever a fresh reading shifts the calculator.
+  // Estimate-only — never feeds the calculator. ──
   const [predicting, setPredicting] = useState(false);
   const [drawing, setDrawing] = useState(false); // graph is still animating in
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [predictedInputs, setPredictedInputs] = useState<{ bg: number; carbs: string; dose: number } | null>(null);
   const predictRunRef = useRef(0);
+  // The run whose intro animation has COMPLETED — a tab flip remounts the chart for the same run,
+  // which must render fully drawn instead of replaying the animation.
+  const introDoneRunRef = useRef(0);
 
   const runPredict = useCallback(async () => {
     if (isBasalMode || !doseBg || effectiveDose <= 0) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const runId = ++predictRunRef.current;
-    // Clear the old graph immediately so "Predict Again" drops to the loading state (the stale curve
-    // must not linger while the new prediction is en route).
+    // Clear the old graph immediately so the "Building your prediction" state shows while the
+    // matcher works (the stale curve must not linger while fresh matches are en route).
     setPrediction(null);
     setDrawing(false);
     setPredicting(true);
-    if (!showPrediction) {
-      pendingScrollRef.current = true;
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setShowPrediction(true);
-    }
     const submitted = { bg: doseBg.n, carbs: carbInput, dose: roundToQuarterUnits(effectiveDose) };
     const result = await runPrediction({
       identity: messagingIdentity,
@@ -431,68 +484,52 @@ export default function InsulinScreen() {
       carbsGrams: parseFloat(carbInput) || 0,
       nowMs: Date.now(),
       history,
-      correctionFactor,
-      carbRatio,
-      newDoseDiaMin: selectedInsulinOption?.type === "regular" ? 360 : 240,
     });
     if (predictRunRef.current !== runId) return; // a newer run superseded this one
     setPrediction(result);
     setPredicting(false);
     if (result.ok) {
       setPredictedInputs(submitted);
-      setDrawing(true); // hold the button until the graph finishes drawing (onDrawComplete)
+      setDrawing(true); // spinner on the button until the graph finishes drawing (onDrawComplete)
       // Safety net in case the draw is interrupted (navigation) and the completion never fires.
       setTimeout(() => {
         if (predictRunRef.current === runId) setDrawing(false);
       }, 6000);
     }
-  }, [isBasalMode, doseBg, effectiveDose, showPrediction, messagingIdentity, carbInput, history, correctionFactor, carbRatio, selectedInsulinOption]);
+  }, [isBasalMode, doseBg, effectiveDose, messagingIdentity, carbInput, history]);
 
-  // The snapshot is stale once the data being submitted (BG, carbs, or dose) no longer exactly
-  // matches what was last predicted — the only condition under which Predict may run again.
+  // The result is stale once the submitted tuple (BG, carbs, or dose) no longer matches what was
+  // last matched against — committed manual edits and self-updating readings both land here. Only
+  // an OK result can be stale: after a failed fetch we wait for Predict Again (no retry loop).
   const predictionStale =
-    !!prediction?.ok &&
+    prediction?.ok === true &&
     predictedInputs != null &&
     (predictedInputs.bg !== (doseBg?.n ?? null) ||
       predictedInputs.carbs !== carbInput ||
       predictedInputs.dose !== roundToQuarterUnits(effectiveDose));
-  // Predict is blocked while computing, while drawing, and while an IDENTICAL prediction is on screen.
-  // An unavailable result leaves it enabled so it can be retried.
-  const predictDisabled =
-    effectiveDose <= 0 || predicting || drawing || (prediction?.ok === true && !predictionStale);
 
-  const handleTookDose = useCallback(() => {
-    if (doseJustLogged || effectiveDose <= 0) return;
-    if (!isBasalMode && !dose) return;
-    const wasManual =
-      manualDoseOverride != null && !doseAmountsEqual(effectiveDose, systemRecommendedDose);
-    // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
-    confirmLog(() => {
-      logInsulinDose({
-        timestamp: new Date().toISOString(),
-        units: roundToQuarterUnits(effectiveDose),
-        type: isBasalMode ? "basal" : "bolus",
-        ...(insulinTypeLabel ? { insulinType: insulinTypeLabel } : {}),
-        recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
-        manualOverride: wasManual,
-      });
-      setDoseLoggedAtTick(cgmSyncSuccessTick);
-      triggerLogPlusOne();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    });
-  }, [
-    dose,
-    isBasalMode,
-    doseJustLogged,
-    effectiveDose,
-    manualDoseOverride,
-    systemRecommendedDose,
-    insulinTypeLabel,
-    logInsulinDose,
-    cgmSyncSuccessTick,
-    triggerLogPlusOne,
-    confirmLog,
-  ]);
+  // ── Auto-predict: first run when the calculator becomes ready, then a debounced re-run whenever
+  // the inputs actually change. The debounce coalesces cascades (a new reading shifts BG, dose, and
+  // IOB in one burst) into a single rebuild. ──
+  const runPredictRef = useRef(runPredict);
+  useEffect(() => {
+    runPredictRef.current = runPredict;
+  }, [runPredict]);
+  const canPredict = !isBasalMode && !!doseBg && effectiveDose > 0;
+  useEffect(() => {
+    if (!canPredict) return;
+    if (prediction === null && !predicting) {
+      const id = setTimeout(() => runPredictRef.current(), 150);
+      return () => clearTimeout(id);
+    }
+    if (predictionStale && !predicting) {
+      const id = setTimeout(() => runPredictRef.current(), 400);
+      return () => clearTimeout(id);
+    }
+  }, [canPredict, prediction, predicting, predictionStale]);
+
+  // Manual "Predict Again": always available (except mid-fetch) — pulls fresh matches on demand.
+  const predictDisabled = effectiveDose <= 0 || predicting;
 
   // Push a field's in-progress draft into its committed value. No-op when the field isn't being
   // edited, so it's safe to call defensively from anywhere.
@@ -560,6 +597,55 @@ export default function InsulinScreen() {
     });
   }, [manualDoseOverride, systemRecommendedDose, commitCarb, commitBg]);
 
+  // Live mirror of everything the log handler needs — the flush-then-log tick below must read the
+  // values RECOMPUTED from a just-committed edit, not the ones captured when the tap started.
+  const logStateRef = useRef({ dose, effectiveDose, systemRecommendedDose, manualDoseOverride, doseJustLogged });
+  useEffect(() => {
+    logStateRef.current = { dose, effectiveDose, systemRecommendedDose, manualDoseOverride, doseJustLogged };
+  });
+
+  const handleTookDose = useCallback(() => {
+    // Lock in any in-progress edit FIRST (carb/BG drafts + an open dose editor): tapping this
+    // button straight from the keyboard must log the number on screen, not the last committed one.
+    // The commits land with this event's state batch; the zero-delay timeout then runs after the
+    // re-render, reading the freshly recomputed values off the render-updated ref.
+    commitCarb();
+    commitBg();
+    completeDoseEdit();
+    setTimeout(() => {
+      const { dose, effectiveDose, systemRecommendedDose, manualDoseOverride, doseJustLogged } =
+        logStateRef.current;
+      if (doseJustLogged || effectiveDose <= 0) return;
+      if (!isBasalMode && !dose) return;
+      const wasManual =
+        manualDoseOverride != null && !doseAmountsEqual(effectiveDose, systemRecommendedDose);
+      // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
+      confirmLog(() => {
+        logInsulinDose({
+          timestamp: new Date().toISOString(),
+          units: roundToQuarterUnits(effectiveDose),
+          type: isBasalMode ? "basal" : "bolus",
+          ...(insulinTypeLabel ? { insulinType: insulinTypeLabel } : {}),
+          recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
+          manualOverride: wasManual,
+        });
+        setDoseLoggedAtTick(cgmSyncSuccessTick);
+        triggerLogPlusOne();
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      });
+    }, 0);
+  }, [
+    commitCarb,
+    commitBg,
+    completeDoseEdit,
+    isBasalMode,
+    insulinTypeLabel,
+    logInsulinDose,
+    cgmSyncSuccessTick,
+    triggerLogPlusOne,
+    confirmLog,
+  ]);
+
   function openChat(prompt: string) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push({ pathname: "/(tabs)/chat", params: { prompt } });
@@ -568,11 +654,14 @@ export default function InsulinScreen() {
   /** Shared by the bolus and basal action rows — identical logging behavior in both modes. */
   // Hidden when the access-code grant excludes logging: pressing it would be a no-op (logging is
   // gated server-side by the `log` grant), so don't show it rather than have a dead button.
+  // The disabled gate honors an in-progress dose edit: a value typed but not yet committed must
+  // keep the button tappable (handleTookDose locks the edit in before logging).
+  const pendingEditedDose = doseEditing ? finalizeManualDoseInput(doseEditText) : null;
   const tookDoseButton = canLog ? (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="I just took this dose"
-      disabled={doseJustLogged || effectiveDose <= 0}
+      disabled={doseJustLogged || (pendingEditedDose ?? effectiveDose) <= 0}
       style={({ pressed }) => [
         styles.tookDoseBtn,
         {
@@ -833,57 +922,80 @@ export default function InsulinScreen() {
           <View key="calc-head" style={styles.calcHeadRow}>
             <Text style={[styles.calcHeadLabel, { color: colors.textSecondary }]}>HOW YOUR DOSE IS CALCULATED</Text>
           </View>
-          <View key="op-cards" style={styles.opCardsRow}>
-            {opCards.map((c, i) => (
-              <React.Fragment key={c.key}>
-                {i > 0 && (
-                  <Text style={[styles.opSymbol, { color: colors.textMuted }]}>{OP_SYMBOLS[i - 1]}</Text>
-                )}
-                <OpCard
-                  def={c}
-                  selected={expandedCard === c.key}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    // The breakdown opens within the always-visible calc section (no scroll needed).
-                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                    setExpandedCard((prev) => (prev === c.key ? null : c.key));
-                  }}
-                  colors={colors}
-                />
-              </React.Fragment>
-            ))}
-          </View>
-          {dose.activeInsulinUnits > 0 && (
-            <View key="calc-note" style={[styles.calcNote, { backgroundColor: colors.backgroundTertiary }]}>
-              <Feather name="zap" size={12} color={COLORS.primary} />
-              <Text style={[styles.calcNoteText, { color: colors.textSecondary }]}>
-                We subtract active insulin because it's already working in your body.
-              </Text>
+          {/* ── One unified window, purple-outlined (the old Active Insulin card border): the four
+              tappable pieces live inside it, and when one is open the SAME window extends down to
+              wrap the explanation. Each piece stays individually tappable and works as before. ── */}
+          <View
+            key="calc-window"
+            style={[styles.calcUnified, { backgroundColor: colors.card, borderColor: withAlpha(CARD_PURPLE, 0.55) }]}
+          >
+            <View style={styles.opCardsRow}>
+              {opCards.map((c, i) => (
+                <React.Fragment key={c.key}>
+                  {i > 0 && (
+                    <Text style={[styles.opSymbol, { color: colors.textMuted }]}>{OP_SYMBOLS[i - 1]}</Text>
+                  )}
+                  <OpCard
+                    def={c}
+                    selected={expandedCard === c.key}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      // The breakdown opens within the always-visible calc section (no scroll needed).
+                      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                      setExpandedCard((prev) => (prev === c.key ? null : c.key));
+                    }}
+                    colors={colors}
+                  />
+                </React.Fragment>
+              ))}
             </View>
-          )}
 
-          {/* Your Dose Breakdown — white interior, colored outline only, default text. */}
-          {expandedCard != null && (() => {
-            const def = opCards.find((c) => c.key === expandedCard);
-            if (!def) return null;
-            const ex = doseCardExplanation(expandedCard, explainInput);
-            return (
-              <View key="breakdown" style={styles.breakdownWrap}>
-                <Text style={[styles.breakdownHead, { color: colors.textSecondary }]}>YOUR DOSE BREAKDOWN</Text>
-                <View style={[styles.breakdownCard, { backgroundColor: colors.card, borderColor: def.color }]}>
+            {/* The explanation, inside the same purple window: icon keeps its color; the title now
+                matches it. */}
+            {expandedCard != null && (() => {
+              const def = opCards.find((c) => c.key === expandedCard);
+              if (!def) return null;
+              const ex = doseCardExplanation(expandedCard, explainInput);
+              return (
+                <View key="breakdown" style={[styles.breakdownWrap, { borderTopColor: colors.separator }]}>
+                  <Text style={[styles.breakdownHead, { color: colors.textSecondary }]}>YOUR DOSE BREAKDOWN</Text>
                   <View style={styles.breakdownTitleRow}>
                     <View style={[styles.breakdownIcon, { borderColor: def.color }]}>
                       <Feather name={def.icon} size={13} color={def.color} />
                     </View>
-                    <Text style={[styles.breakdownTitle, { color: colors.text }]}>{ex.title}</Text>
+                    <Text style={[styles.breakdownTitle, { color: def.color }]}>{ex.title}</Text>
                   </View>
                   {ex.lines.map((line, li) => (
                     <Text key={li} style={[styles.breakdownLine, { color: colors.textSecondary }]}>{line}</Text>
                   ))}
                 </View>
-              </View>
-            );
-          })()}
+              );
+            })()}
+          </View>
+          {dose.iobCredit > 0 && (
+            <View key="calc-note" style={[styles.calcNote, { backgroundColor: colors.backgroundTertiary }]}>
+              <Feather name="zap" size={12} color={COLORS.primary} />
+              <Text style={[styles.calcNoteText, { color: colors.textSecondary }]}>
+                Active insulin reduces only the correction — your carbs are always covered in full.
+              </Text>
+            </View>
+          )}
+          {Math.abs(dose.patternDelta) >= 0.005 && (
+            <View key="pattern-note" style={[styles.calcNote, { backgroundColor: colors.backgroundTertiary }]}>
+              <Feather name="bar-chart-2" size={12} color={COLORS.primary} />
+              <Text style={[styles.calcNoteText, { color: colors.textSecondary }]}>
+                Pattern adjustment: {dose.patternDelta > 0 ? "+" : "−"}{Math.abs(dose.patternDelta).toFixed(2)}u ({Math.round(Math.abs(dose.patternFactor - 1) * 100)}%) because doses given at this time of day have consistently run {dose.patternDelta > 0 ? "above" : "below"} the suggestions over the last two weeks. Your saved settings are unchanged — consider reviewing them with your care team.
+              </Text>
+            </View>
+          )}
+          {dose.cappedAtMax && (
+            <View key="cap-note" style={[styles.calcNote, { backgroundColor: colors.backgroundTertiary }]}>
+              <Feather name="shield" size={12} color={COLORS.warning} />
+              <Text style={[styles.calcNoteText, { color: colors.textSecondary }]}>
+                Capped at the {dose.maxDoseCap}u single-dose safety limit.
+              </Text>
+            </View>
+          )}
 
           {/* Divider above the suggested-dose window (the window sits below it). */}
           <View key="divider" style={[styles.sectionDivider, { borderTopColor: colors.border }]} />
@@ -910,13 +1022,13 @@ export default function InsulinScreen() {
               />
             </View>
 
-            {/* Actions: Predict (runs an AI prediction on an EXPLICIT tap only) + I Just Took This
-                Dose. Disabled exactly like Took Dose when there's no dose (faded, not clickable). */}
+            {/* Actions: Predict Again (re-pulls fresh matches on demand — the graph also refreshes
+                itself on input/reading changes) + I Just Took This Dose. */}
             <View style={[styles.doseActionsRow, { marginTop: 0 }]}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ disabled: predictDisabled, busy: predicting || drawing }}
-                accessibilityLabel="Predict"
+                accessibilityLabel="Predict again"
                 disabled={predictDisabled}
                 style={({ pressed }) => [
                   styles.tookDoseBtn,
@@ -925,7 +1037,10 @@ export default function InsulinScreen() {
                     opacity: pressed ? 0.8 : predictDisabled ? 0.5 : 1,
                   },
                 ]}
-                onPress={runPredict}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  void runPredict();
+                }}
               >
                 {predicting || drawing ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -933,18 +1048,18 @@ export default function InsulinScreen() {
                   <Feather name="trending-up" size={13} color="#fff" />
                 )}
                 <Text style={styles.tookDoseBtnText}>
-                  {predicting || drawing ? "Predicting…" : prediction?.ok ? "Predict Again" : "Predict"}
+                  {predicting || drawing ? "Predicting…" : "Predict Again"}
                 </Text>
               </Pressable>
               {tookDoseButton}
             </View>
 
-            {/* Graph — appears only after a Predict tap. While the model works we show a "building"
-                placeholder; the result holds until Predict is tapped again (never auto-updates). If
-                the AI prediction can't be produced we say so — there is no local-math fallback. */}
-            {showPrediction && (
+            {/* Graph — ALWAYS open. While the matcher works we show the "building" placeholder;
+                results refresh automatically when committed inputs or readings change. The dotted
+                lines after Now are the top matches' REAL past outcomes — no AI synthesis. */}
+            {(
               <View key="graph-area">
-                {predicting ? (
+                {predicting || (prediction === null && canPredict) ? (
                   <View style={[styles.predictBuilding, { borderColor: colors.border }]}>
                     <ActivityIndicator color={COLORS.primary} />
                     <Text style={[styles.predictBuildingText, { color: colors.textSecondary }]}>
@@ -956,8 +1071,12 @@ export default function InsulinScreen() {
                     <DosePredictionChart
                       key={`graph-${predictRunRef.current}`}
                       readings={history}
-                      forecast={prediction.forecast}
-                      currentBG={doseBg?.n ?? prediction.forecast[0]?.bg ?? 0}
+                      // Rank opacities: #1 solid, #2 and #3 each fading by the same proportion.
+                      forecastLines={prediction.matches.map((m, i) => ({
+                        points: m.points,
+                        opacity: [1, 0.68, 0.46][i] ?? 0.46,
+                      }))}
+                      currentBG={doseBg?.n ?? 0}
                       targetGlucose={targetGlucose}
                       lowThreshold={alertPrefs.lowThreshold}
                       highThreshold={alertPrefs.highThreshold}
@@ -965,12 +1084,16 @@ export default function InsulinScreen() {
                       nowMs={nowMs}
                       redrawKey={`run-${predictRunRef.current}`}
                       colors={colors}
-                      onDrawComplete={() => setDrawing(false)}
+                      skipIntro={introDoneRunRef.current === predictRunRef.current}
+                      onDrawComplete={() => {
+                        introDoneRunRef.current = predictRunRef.current;
+                        setDrawing(false);
+                      }}
                     />
                     <PredictionStrength result={prediction} colors={colors} />
-                    {predictionStale && (
+                    {prediction.matches.length === 0 && (
                       <Text style={[styles.predictStaleHint, { color: colors.textMuted }]}>
-                        Inputs changed — tap Predict to update.
+                        No similar past situations yet — prediction lines appear as more doses build history.
                       </Text>
                     )}
                   </>
@@ -981,7 +1104,15 @@ export default function InsulinScreen() {
                       Prediction unavailable
                     </Text>
                     <Text style={[styles.predictUnavailableSub, { color: colors.textSecondary }]}>
-                      Couldn&apos;t reach the prediction service. Check your connection and tap Predict to try again.
+                      Couldn&apos;t load your history matches. Check your connection and tap Predict Again.
+                    </Text>
+                  </View>
+                ) : !canPredict ? (
+                  <View style={[styles.predictBuilding, { borderColor: colors.border }]}>
+                    <Feather name="trending-up" size={22} color={colors.textMuted} />
+                    <Text style={[styles.predictUnavailableSub, { color: colors.textSecondary }]}>
+                      The prediction draws once there&apos;s a dose to model — add carbs or wait for a
+                      correction-worthy reading.
                     </Text>
                   </View>
                 ) : null}
@@ -1191,7 +1322,8 @@ function PredictionStrength({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scroll: { paddingHorizontal: 20, paddingTop: 10 },
+  // iPad: cap + center the content column so it doesn't stretch across a 13" screen. No-op on phones.
+  scroll: { paddingHorizontal: 20, paddingTop: 10, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
 
   screenHeader: { paddingBottom: 10, borderBottomWidth: 1 },
   screenToggle: {
@@ -1234,20 +1366,24 @@ const styles = StyleSheet.create({
   // doseCard.marginBottom (above) and opCardsRow.marginTop (below), keeping them symmetric.
   calcHeadRow: { marginTop: 0, marginBottom: 0 },
   calcHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
-  opCardsRow: { flexDirection: "row", alignItems: "flex-start", gap: 2, marginTop: 20 },
+  /** The single purple-outlined window housing the four pieces + the opened explanation. */
+  calcUnified: { marginTop: 20, borderWidth: 1.5, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 8 },
+  opCardsRow: { flexDirection: "row", alignItems: "flex-start", gap: 2 },
   opSymbol: { fontSize: 14, fontWeight: "800", alignSelf: "center", width: 12, textAlign: "center" },
   // aspectRatio 1 makes each card a square (height follows the flex-computed width); content is
   // centered vertically now that the card is taller.
-  opCard: { flex: 1, minWidth: 0, aspectRatio: 1, borderWidth: 1.5, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", gap: 5 },
+  opCard: { flex: 1, minWidth: 0, aspectRatio: 1, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", gap: 5 },
   opLabel: { fontSize: 9.5, fontWeight: "700", textAlign: "center", lineHeight: 12 },
   opValue: { fontSize: 15, fontWeight: "800", textAlign: "center" },
+  /** Third row inside each piece: the live input value, title-grey and smaller than the value. */
+  opSub: { fontSize: 9.5, fontWeight: "600", textAlign: "center", lineHeight: 12 },
   calcNote: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, borderRadius: 10, marginTop: 10 },
   calcNoteText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 17 },
 
   // ── Collapsible "Your Dose Breakdown" ──
-  breakdownWrap: { marginTop: 16, gap: 8 },
+  /** Lives INSIDE calcUnified — a soft top rule separates it from the pieces row above. */
+  breakdownWrap: { marginTop: 10, paddingTop: 12, paddingHorizontal: 8, paddingBottom: 5, borderTopWidth: 1, gap: 7 },
   breakdownHead: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
-  breakdownCard: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 13, gap: 7 },
   breakdownTitleRow: { flexDirection: "row", alignItems: "center", gap: 9 },
   breakdownIcon: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   breakdownTitle: { fontSize: 17, fontWeight: "800" },

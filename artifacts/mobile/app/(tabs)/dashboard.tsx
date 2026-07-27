@@ -37,10 +37,12 @@ import {
 } from "@/utils/dashboardSections";
 import { useProfilePhotoPicker } from "@/hooks/useProfilePhotoPicker";
 import Colors, { COLORS } from "@/constants/colors";
-import { TYPE, withAlpha } from "@/constants/theme";
+import { T, TYPE, withAlpha } from "@/constants/theme";
 import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constants/insulin";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
+import { ALERT_SOUND_OPTIONS, usePush } from "@/context/PushContext";
+import { playAlertSoundPreview, stopAlertSoundPreview } from "@/utils/alertSoundPreview";
 import type { EmergencyContact } from "@/context/AuthContext";
 import {
   getNotificationPermissionStatus,
@@ -48,6 +50,14 @@ import {
   type NotificationPermissionStatus,
 } from "@/services/notifications";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import {
+  MEAL_BUCKETS,
+  MEAL_BUCKET_HOURS,
+  MEAL_BUCKET_LABELS,
+  normalizeDoseSettingsByTime,
+  type DoseSettingsByTime,
+  type MealBucket,
+} from "@/utils/doseSettings";
 
 // Icon shown on each compact section card (presentation only; section availability lives in the pure
 // `utils/dashboardSections` helper). One entry per DashboardSectionKey.
@@ -60,9 +70,8 @@ const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Fea
   careCircle: "share-2",
 };
 
-// Activity Log shows only the most recent few; the full history lives behind "Manage Logs", loaded
-// a page at a time as you scroll (nothing is kept after the popup closes).
-const RECENT_LOG_COUNT = 6;
+// The Activity Log card is header-only (title + all-time totals + Manage Logs); the full history
+// lives behind "Manage Logs", loaded a page at a time as you scroll (nothing kept after close).
 const LOG_PAGE_SIZE = 20;
 
 /** Day label used to group activity-log entries (e.g. "Monday, Jul 21"). */
@@ -82,6 +91,8 @@ export default function DashboardScreen() {
     carbRatio,
     targetGlucose,
     correctionFactor,
+    doseSettingsByTime,
+    setDoseSettingsByTime,
     saveFormula,
   } = useGlucose();
   const {
@@ -97,6 +108,7 @@ export default function DashboardScreen() {
     emergencyContacts,
     alertPrefs,
     addEmergencyContact,
+    setPrimaryEmergencyContact,
     removeEmergencyContact,
     updateAlertPrefs,
     isSignedIn,
@@ -114,6 +126,11 @@ export default function DashboardScreen() {
     circleOwnerName,
     isCaregiverViewingChild,
   } = useAuth();
+  const { prefs: pushPrefs, registered: pushRegistered, messagesLocked, updatePrefs: updatePushPrefs, sounds: alertSounds, updateSounds: updateAlertSounds } = usePush();
+  /** Which alert group the Choose Sound picker is open for (null = closed). */
+  const [soundPickerFor, setSoundPickerFor] = useState<null | "glucose" | "urgent" | "messages">(null);
+  const soundLabelFor = (file: string | undefined) =>
+    ALERT_SOUND_OPTIONS.find((o) => o.file === file)?.label ?? "Default";
   // A nurse viewing a child inherits settings read-only — treat edit gating like a co-guardian member.
   const settingsReadOnly = isCircleMember || isCaregiverViewingChild;
 
@@ -135,7 +152,7 @@ export default function DashboardScreen() {
   // Which Dashboard management sections are available for the current role (pure helper, shared with
   // the section-card grid so cards and the inline guards/popups can never drift apart). These booleans
   // gate BOTH the inline content (analytics/trend + the section popups) and the matching grid cards.
-  const { showPatientSections, showDoctorCareTeam, showAccessManagement } = dashboardSectionVisibility({
+  const { showPatientSections, showNotifications, showDoctorCareTeam, showAccessManagement } = dashboardSectionVisibility({
     isChildMode,
     caregiverSession,
     doctorSession,
@@ -172,6 +189,13 @@ export default function DashboardScreen() {
   const [editCarbGrams, setEditCarbGrams] = useState(String(carbRatio));
   const [editTarget, setEditTarget] = useState(String(targetGlucose));
   const [editISF, setEditISF] = useState(String(correctionFactor));
+  /** Per-meal-window override drafts (empty string = "use base"). */
+  const [editByTime, setEditByTime] = useState<Record<MealBucket, { cr: string; cf: string }>>({
+    breakfast: { cr: "", cf: "" },
+    lunch: { cr: "", cf: "" },
+    dinner: { cr: "", cf: "" },
+    night: { cr: "", cf: "" },
+  });
   const [editingProfile, setEditingProfile] = useState(false);
   const [editDoctorName, setEditDoctorName] = useState(profile?.doctorName ?? "");
   const [editDoctorEmail, setEditDoctorEmail] = useState(profile?.doctorEmail ?? "");
@@ -195,6 +219,16 @@ export default function DashboardScreen() {
   const [editUrgentHigh, setEditUrgentHigh] = useState(String(alertPrefs.urgentHighThreshold));
 
   const [notifPerm, setNotifPerm] = useState<NotificationPermissionStatus | null>(null);
+
+  // ── Emergency-alert sub-settings popup (one-tap text; adults also get the wait window) ──
+  const [emergencySettingsOpen, setEmergencySettingsOpen] = useState(false);
+  const [waitMinutesText, setWaitMinutesText] = useState(String(alertPrefs.waitWindowMinutes ?? 5));
+  const commitWaitMinutes = () => {
+    const n = parseInt(waitMinutesText, 10);
+    const clamped = isNaN(n) ? 5 : Math.min(15, Math.max(1, n));
+    setWaitMinutesText(String(clamped));
+    updateAlertPrefs({ waitWindowMinutes: clamped });
+  };
 
   useEffect(() => {
     getNotificationPermissionStatus().then(setNotifPerm);
@@ -242,10 +276,35 @@ export default function DashboardScreen() {
       Alert.alert("Invalid Values", "Please enter valid positive numbers.");
       return;
     }
+    // Per-meal-window overrides: blank = use base; anything entered must be a positive number.
+    const byTime: DoseSettingsByTime = {};
+    for (const bucket of MEAL_BUCKETS) {
+      const draft = editByTime[bucket];
+      const o: { carbRatio?: number; correctionFactor?: number } = {};
+      if (draft.cr.trim() !== "") {
+        const n = parseFloat(draft.cr);
+        if (isNaN(n) || n <= 0) {
+          Alert.alert("Invalid Values", `${MEAL_BUCKET_LABELS[bucket]} carb-ratio override must be a positive number (or blank).`);
+          return;
+        }
+        o.carbRatio = n;
+      }
+      if (draft.cf.trim() !== "") {
+        const n = parseFloat(draft.cf);
+        if (isNaN(n) || n <= 0) {
+          Alert.alert("Invalid Values", `${MEAL_BUCKET_LABELS[bucket]} correction-factor override must be a positive number (or blank).`);
+          return;
+        }
+        o.correctionFactor = n;
+      }
+      if (Object.keys(o).length > 0) byTime[bucket] = o;
+    }
+    const normalizedByTime = normalizeDoseSettingsByTime(byTime);
     saveFormula(cr, tg, isf);
+    setDoseSettingsByTime(normalizedByTime);
     // Mirror to the backend profile — this is the copy co-guardians inherit and the doctor portal
     // reads, so the account's live dose math and the shared/synced one can never drift apart.
-    updateProfile({ carbRatio: cr, targetGlucose: tg, correctionFactor: isf });
+    updateProfile({ carbRatio: cr, targetGlucose: tg, correctionFactor: isf, doseSettingsByTime: normalizedByTime });
     if (doctorSession) {
       addAccessLogEntry(`Doctor updated dosing: CR=${cr}g/u, Target=${tg}, ISF=${isf}`, "doctor");
       Alert.alert("Dosing Updated", "New parameters saved and applied immediately. The account holder has been notified in their access log.", [{ text: "OK" }]);
@@ -312,17 +371,7 @@ export default function DashboardScreen() {
     ...insulinLog.map((i) => ({ kind: "insulin" as const, id: i.id, timestamp: i.timestamp, units: i.units, type: i.type, note: i.note })),
   ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  // The Activity Log card shows only the most recent entries (still grouped by day).
-  const recentEntries = combinedEntries.slice(0, RECENT_LOG_COUNT);
-  const recentGroupedByDay = recentEntries.reduce<Record<string, CombinedEntry[]>>((acc, entry) => {
-    const day = logDayLabel(entry.timestamp);
-    if (!acc[day]) acc[day] = [];
-    acc[day].push(entry);
-    return acc;
-  }, {});
-  const recentDayKeys = Object.keys(recentGroupedByDay);
-
-  /** Single activity-log row, shared by the Activity Log card and the Manage Logs popup. */
+  /** Single activity-log row — rendered inside the Manage Logs popup (the card shows no preview). */
   const renderLogEntry = (entry: CombinedEntry) => (
     <View key={entry.id} style={[styles.logEntryRow, { borderBottomColor: colors.separator }]}>
       <View style={[styles.logEntryIcon, {
@@ -797,7 +846,9 @@ export default function DashboardScreen() {
           );
         })()}
 
-        {showPatientSections && (<>
+        {/* Notifications is available to kid/caregiver code sessions too — each device owns its
+            alert preferences; only Emergency Text Alerts renders locked to the owner's setting. */}
+        {showNotifications && (
         <DashboardSectionModal
           visible={openSection === "notifications"}
           onClose={() => setOpenSection(null)}
@@ -835,13 +886,139 @@ export default function DashboardScreen() {
             }}
             colors={colors}
           />
-          <ToggleRow
-            label="Emergency Text Alerts"
-            description="Auto-open SMS to emergency contacts for critical readings"
-            value={alertPrefs.emergencyAlertsEnabled}
-            onToggle={(v) => updateAlertPrefs({ emergencyAlertsEnabled: v })}
-            colors={colors}
-          />
+          {/* Kid/caregiver sessions (codes AND nurse email accounts) mirror the OWNER's emergency
+              setting, locked — every other toggle on this page stays the device's own choice. */}
+          {(() => {
+            const emergencyLocked =
+              caregiverSession || isCaregiverViewingChild || profile?.accountRole === "caregiver";
+            return (
+              <>
+                <ToggleRow
+                  label="Emergency Text Alerts"
+                  description={
+                    emergencyLocked
+                      ? "Set by the guardian account — follows their on/off setting"
+                      : "Critical readings show a one-tap banner that opens a pre-written text to your emergency contacts"
+                  }
+                  value={alertPrefs.emergencyAlertsEnabled}
+                  onToggle={(v) => {
+                    if (emergencyLocked) return;
+                    updateAlertPrefs({ emergencyAlertsEnabled: v });
+                  }}
+                  disabled={emergencyLocked}
+                  colors={colors}
+                />
+                {/* Main accounts only: the emergency-alert sub-settings popup (one-tap text; and
+                    for ADULT accounts, the caregiver-alert wait window). */}
+                {!emergencyLocked && (
+                  <View style={styles.emergencySettingsBtnRow}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Emergency alert settings"
+                      style={({ pressed }) => [styles.emergencySettingsBtn, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEmergencySettingsOpen(true); }}
+                    >
+                      <Feather name="settings" size={11} color={colors.textSecondary} />
+                      <Text style={[styles.emergencySettingsBtnText, { color: colors.textSecondary }]}>Settings</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </>
+            );
+          })()}
+
+          {/* Per-type push switches. These are stored SERVER-side (per device) because the backend is
+              what decides whether to send — see PREBUILD_PLAN_01 §2.2a. Only shown once the device is
+              registered for push, so we never present toggles that wouldn't stick. */}
+          {pushRegistered && (
+            <>
+              <View style={[styles.pushPrefsHeader, { borderTopColor: colors.border }]}>
+                <Text style={[styles.pushPrefsTitle, { color: colors.text }]}>Alerts sent to this device</Text>
+                <Text style={[styles.pushPrefsSub, { color: colors.textSecondary }]}>
+                  These arrive even when the app is closed. Settings apply to this device.
+                </Text>
+              </View>
+              <ToggleRow
+                label="Urgent glucose"
+                description="Severe lows and highs. These can alert even on silent."
+                value={pushPrefs.glucoseUrgent}
+                onToggle={(v) => void updatePushPrefs({ glucoseUrgent: v })}
+                colors={colors}
+              />
+              <ToggleRow
+                label="High and low glucose"
+                description="Non-urgent readings outside your target range"
+                value={pushPrefs.glucoseHighLow}
+                onToggle={(v) => void updatePushPrefs({ glucoseHighLow: v })}
+                colors={colors}
+              />
+              <ToggleRow
+                label="Care activity"
+                description="When someone logs insulin or a meal for your child"
+                value={pushPrefs.careLog}
+                onToggle={(v) => void updatePushPrefs({ careLog: v })}
+                colors={colors}
+              />
+              <ToggleRow
+                label="Message Alerts"
+                description={
+                  messagesLocked
+                    ? "Always on for caregiver and kid access — you'll never miss a guardian's message"
+                    : "New messages from anyone — co-guardians, caregivers, and kids"
+                }
+                value={pushPrefs.messages}
+                onToggle={(v) => {
+                  if (messagesLocked) return;
+                  void updatePushPrefs({ messages: v });
+                }}
+                disabled={messagesLocked}
+                colors={colors}
+              />
+              <ToggleRow
+                label="Care team"
+                description="Messages and treatment proposals from your doctor"
+                value={pushPrefs.doctor}
+                onToggle={(v) => void updatePushPrefs({ doctor: v })}
+                colors={colors}
+              />
+
+              {/* ── Per-alert-type sounds, chosen per DEVICE. iOS offers no API to use the phone's
+                  ringtone bank (and no Settings page to deep-link to), so these are the app's own
+                  bundled sounds — the same pattern messaging apps use. ── */}
+              <View style={[styles.pushPrefsHeader, { borderTopColor: colors.border }]}>
+                <Text style={[styles.pushPrefsTitle, { color: colors.text }]}>Alert sounds</Text>
+                <Text style={[styles.pushPrefsSub, { color: colors.textSecondary }]}>
+                  Pick the sound each alert plays on this device. iPhones don&apos;t let apps use the
+                  phone&apos;s ringtone bank, so these are Glucose Guardian&apos;s built-in sounds.
+                </Text>
+              </View>
+              {(
+                [
+                  ["glucose", "Glucose alerts", "High and low readings"],
+                  ["urgent", "Emergency alerts", "Severe lows and highs"],
+                  ["messages", "Messages", "Care circle and care team"],
+                ] as const
+              ).map(([key, label, desc]) => (
+                <View key={key} style={[styles.toggleRow, { borderBottomWidth: 1, borderBottomColor: colors.separator }]}>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={[styles.toggleLabel, { color: colors.text }]}>{label}</Text>
+                    <Text style={[styles.toggleDesc, { color: colors.textMuted }]}>
+                      {desc} · {soundLabelFor(alertSounds[key])}
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Choose sound for ${label}`}
+                    style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor(key); }}
+                  >
+                    <Feather name="music" size={12} color={COLORS.primary} />
+                    <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Choose Sound</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </>
+          )}
 
           {notifPerm && (
             <View style={[styles.notifPermRow, { borderTopColor: colors.border }]}>
@@ -923,8 +1100,110 @@ export default function DashboardScreen() {
             </View>
           )}
         </View>
-        </DashboardSectionModal>
 
+        {/* ── Choose Sound picker — layered on top of the Notifications popup. Tapping an option
+            PLAYS it and selects it (picker stays open to audition others); selection is stored
+            server-side against THIS device's push token, so every account/session picks its own. ── */}
+        <Modal
+          visible={soundPickerFor != null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => { stopAlertSoundPreview(); setSoundPickerFor(null); }}
+        >
+          <Pressable style={styles.emergencySettingsBackdrop} onPress={() => { stopAlertSoundPreview(); setSoundPickerFor(null); }}>
+            <Pressable style={[styles.emergencySettingsCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => {}}>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>
+                {soundPickerFor === "glucose" ? "Glucose Alert Sound" : soundPickerFor === "urgent" ? "Emergency Alert Sound" : "Message Sound"}
+              </Text>
+              {ALERT_SOUND_OPTIONS.map((opt) => {
+                const selected = soundPickerFor != null && alertSounds[soundPickerFor] === opt.file;
+                return (
+                  <Pressable
+                    key={opt.label}
+                    style={({ pressed }) => [styles.soundOptionRow, { borderBottomColor: colors.separator, opacity: pressed ? 0.7 : 1 }]}
+                    onPress={() => {
+                      if (soundPickerFor == null) return;
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      playAlertSoundPreview(opt.file);
+                      void updateAlertSounds({ [soundPickerFor]: opt.file } as Parameters<typeof updateAlertSounds>[0]);
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      {opt.file != null && <Feather name="volume-2" size={13} color={selected ? COLORS.primary : colors.textMuted} />}
+                      <Text style={[styles.soundOptionText, { color: selected ? COLORS.primary : colors.text }]}>{opt.label}</Text>
+                    </View>
+                    {selected && <Feather name="check" size={16} color={COLORS.primary} />}
+                  </Pressable>
+                );
+              })}
+              <Text style={[styles.pushPrefsSub, { color: colors.textMuted, marginTop: 8 }]}>
+                Tap a sound to hear it — your tap also selects it. Sound files ship with the app; iOS
+                doesn&apos;t allow using the phone&apos;s own ringtones.
+              </Text>
+              <Pressable
+                style={({ pressed }) => [styles.emergencySettingsDone, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
+                onPress={() => { stopAlertSoundPreview(); setSoundPickerFor(null); }}
+              >
+                <Text style={styles.emergencySettingsDoneText}>Done</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* ── Emergency Alert Settings — a smaller popup layered ON TOP of the Notifications popup.
+            One-tap text (all main accounts, default off); Wait Window (ADULT main accounts only). ── */}
+        <Modal visible={emergencySettingsOpen} transparent animationType="fade" onRequestClose={() => setEmergencySettingsOpen(false)}>
+          <Pressable style={styles.emergencySettingsBackdrop} onPress={() => { commitWaitMinutes(); setEmergencySettingsOpen(false); }}>
+            <Pressable style={[styles.emergencySettingsCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => {}}>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>Emergency Alert Settings</Text>
+              <ToggleRow
+                label="One-Tap Text"
+                description="Builds the emergency text for you: critical readings show a banner that opens a pre-written message to your one-tap contact"
+                value={alertPrefs.oneTapTextEnabled === true}
+                onToggle={(v) => updateAlertPrefs({ oneTapTextEnabled: v })}
+                colors={colors}
+                last={profile?.accountRole !== "adult"}
+              />
+              {profile?.accountRole === "adult" && (
+                <>
+                  <ToggleRow
+                    label="Wait Window"
+                    description="Hold the caregiver emergency alert while you confirm you're okay — below 30 or above 350 mg/dL it always sends immediately"
+                    value={alertPrefs.waitWindowEnabled === true}
+                    onToggle={(v) => updateAlertPrefs({ waitWindowEnabled: v })}
+                    colors={colors}
+                    last={alertPrefs.waitWindowEnabled !== true}
+                  />
+                  {alertPrefs.waitWindowEnabled === true && (
+                    <View style={styles.waitMinutesRow}>
+                      <Text style={[styles.settingLabel, { color: colors.text }]}>Wait time</Text>
+                      <TextInput
+                        style={[styles.settingInput, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border, textAlign: "center", minWidth: 54 }]}
+                        value={waitMinutesText}
+                        onChangeText={(t) => setWaitMinutesText(t.replace(/[^0-9]/g, "").slice(0, 2))}
+                        onBlur={commitWaitMinutes}
+                        keyboardType="number-pad"
+                        returnKeyType="done"
+                        onSubmitEditing={commitWaitMinutes}
+                      />
+                      <Text style={[styles.settingDesc, { color: colors.textMuted }]}>minutes (1–15)</Text>
+                    </View>
+                  )}
+                </>
+              )}
+              <Pressable
+                style={({ pressed }) => [styles.emergencySettingsDone, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
+                onPress={() => { commitWaitMinutes(); setEmergencySettingsOpen(false); }}
+              >
+                <Text style={styles.emergencySettingsDoneText}>Done</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+        </DashboardSectionModal>
+        )}
+
+        {showPatientSections && (<>
         <DashboardSectionModal
           visible={openSection === "thresholds"}
           onClose={() => setOpenSection(null)}
@@ -1072,6 +1351,16 @@ export default function DashboardScreen() {
               canRemove={!isCaregiverViewingChild}
               onRemove={() => confirmRemoveContact(contact)}
               onSendAlert={() => sendTestAlert(contact)}
+              // Radio behavior lives in the context/backend: toggling this contact ON clears every
+              // other; toggling the current one OFF leaves none selected.
+              onTogglePrimary={
+                isCaregiverViewingChild
+                  ? undefined
+                  : () => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      void setPrimaryEmergencyContact(contact.primary ? null : contact.id);
+                    }
+              }
             />
           ))}
 
@@ -1155,6 +1444,12 @@ export default function DashboardScreen() {
                     setEditCarbGrams(String(carbRatio));
                     setEditTarget(String(targetGlucose));
                     setEditISF(String(correctionFactor));
+                    setEditByTime({
+                      breakfast: { cr: doseSettingsByTime?.breakfast?.carbRatio != null ? String(doseSettingsByTime.breakfast.carbRatio) : "", cf: doseSettingsByTime?.breakfast?.correctionFactor != null ? String(doseSettingsByTime.breakfast.correctionFactor) : "" },
+                      lunch: { cr: doseSettingsByTime?.lunch?.carbRatio != null ? String(doseSettingsByTime.lunch.carbRatio) : "", cf: doseSettingsByTime?.lunch?.correctionFactor != null ? String(doseSettingsByTime.lunch.correctionFactor) : "" },
+                      dinner: { cr: doseSettingsByTime?.dinner?.carbRatio != null ? String(doseSettingsByTime.dinner.carbRatio) : "", cf: doseSettingsByTime?.dinner?.correctionFactor != null ? String(doseSettingsByTime.dinner.correctionFactor) : "" },
+                      night: { cr: doseSettingsByTime?.night?.carbRatio != null ? String(doseSettingsByTime.night.carbRatio) : "", cf: doseSettingsByTime?.night?.correctionFactor != null ? String(doseSettingsByTime.night.correctionFactor) : "" },
+                    });
                     setEditing(true);
                   }
                 }}
@@ -1226,6 +1521,67 @@ export default function DashboardScreen() {
           </View>
           <SettingRow label="Target Glucose" description="desired blood glucose level" displayValue={`${targetGlucose} mg/dL`} editing={editing} value={editTarget} onChange={setEditTarget} colors={colors} />
           <SettingRow label="Correction Factor (ISF)" description="points glucose drops per unit" displayValue={`1:${correctionFactor}`} editing={editing} value={editISF} onChange={setEditISF} colors={colors} last />
+
+          {/* ── Time-of-day overrides: optional per-meal-window carb ratio / ISF. Blank = use the
+              base values above. Insulin need commonly runs higher at breakfast — this is where a
+              care team's "1:15 at breakfast, 1:25 rest of day" style plan gets entered. ── */}
+          <View style={[styles.insulinTypesSection, { borderTopColor: colors.separator }]}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Time-of-Day Overrides</Text>
+            {editing ? (
+              <>
+                <Text style={[styles.settingDesc, { color: colors.textMuted, marginBottom: 8 }]}>
+                  Optional. Leave blank to use the base carb ratio / ISF above for that window.
+                </Text>
+                {MEAL_BUCKETS.map((bucket) => (
+                  <View key={bucket} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <View style={{ width: 86 }}>
+                      <Text style={[styles.settingLabel, { color: colors.text, fontSize: 13 }]}>{MEAL_BUCKET_LABELS[bucket]}</Text>
+                      <Text style={[styles.settingDesc, { color: colors.textMuted, fontSize: 10 }]}>{MEAL_BUCKET_HOURS[bucket]}</Text>
+                    </View>
+                    <Text style={[styles.settingDesc, { color: colors.textMuted }]}>1u per</Text>
+                    <TextInput
+                      style={[styles.settingInput, { flex: 1, backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border, textAlign: "center" }]}
+                      value={editByTime[bucket].cr}
+                      onChangeText={(v) => setEditByTime((prev) => ({ ...prev, [bucket]: { ...prev[bucket], cr: v.replace(/[^0-9.]/g, "") } }))}
+                      keyboardType="numeric"
+                      placeholder={String(carbRatio)}
+                      placeholderTextColor={colors.textMuted}
+                    />
+                    <Text style={[styles.settingDesc, { color: colors.textMuted }]}>g · ISF</Text>
+                    <TextInput
+                      style={[styles.settingInput, { flex: 1, backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border, textAlign: "center" }]}
+                      value={editByTime[bucket].cf}
+                      onChangeText={(v) => setEditByTime((prev) => ({ ...prev, [bucket]: { ...prev[bucket], cf: v.replace(/[^0-9.]/g, "") } }))}
+                      keyboardType="numeric"
+                      placeholder={String(correctionFactor)}
+                      placeholderTextColor={colors.textMuted}
+                    />
+                  </View>
+                ))}
+              </>
+            ) : doseSettingsByTime && Object.keys(doseSettingsByTime).length > 0 ? (
+              MEAL_BUCKETS.filter((b) => doseSettingsByTime[b]).map((bucket) => {
+                const o = doseSettingsByTime[bucket]!;
+                const parts = [
+                  ...(o.carbRatio != null ? [`1:${o.carbRatio} g/u`] : []),
+                  ...(o.correctionFactor != null ? [`ISF 1:${o.correctionFactor}`] : []),
+                ];
+                return (
+                  <View key={bucket} style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={[styles.settingDesc, { color: colors.text }]}>
+                      {MEAL_BUCKET_LABELS[bucket]}
+                      <Text style={{ color: colors.textMuted }}> ({MEAL_BUCKET_HOURS[bucket]})</Text>
+                    </Text>
+                    <Text style={[styles.settingValue, { color: COLORS.primary, fontSize: 13 }]}>{parts.join(" · ")}</Text>
+                  </View>
+                );
+              })
+            ) : (
+              <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
+                None set — the base values apply all day. Tap Edit to set different ratios for breakfast, lunch, dinner, or night.
+              </Text>
+            )}
+          </View>
 
           <View style={[styles.insulinTypesSection, { borderTopColor: colors.separator }]}>
             <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Insulin Used</Text>
@@ -1550,14 +1906,8 @@ export default function DashboardScreen() {
                 <Text style={[styles.manageLogsBtnText, { color: COLORS.primary }]}>Manage Logs</Text>
               </Pressable>
             </View>
-
-            {/* Only the most recent entries (still grouped by day); the rest live in Manage Logs. */}
-            {recentDayKeys.map((day) => (
-              <View key={day} style={{ gap: 6 }}>
-                <Text style={[styles.logDayHeader, { color: colors.textMuted, borderBottomColor: colors.separator }]}>{day}</Text>
-                {recentGroupedByDay[day].map((entry) => renderLogEntry(entry))}
-              </View>
-            ))}
+            {/* No inline preview — the header (title + all-time totals) + Manage Logs is the whole
+                card; every entry lives behind the Manage Logs popup. */}
           </View>
         )}
 
@@ -1726,10 +2076,12 @@ export default function DashboardScreen() {
 }
 
 function ToggleRow({
-  label, description, value, onToggle, colors, last,
+  label, description, value, onToggle, colors, last, disabled,
 }: {
   label: string; description: string; value: boolean;
   onToggle: (v: boolean) => void; colors: (typeof Colors)["light"]; last?: boolean;
+  /** Renders the switch non-interactive (mirrored/locked settings). */
+  disabled?: boolean;
 }) {
   return (
     <View style={[styles.toggleRow, !last && { borderBottomWidth: 1, borderBottomColor: colors.separator }]}>
@@ -1740,19 +2092,23 @@ function ToggleRow({
       <Switch
         value={value}
         onValueChange={onToggle}
+        disabled={disabled}
         trackColor={{ false: colors.backgroundTertiary, true: COLORS.primary + "80" }}
         thumbColor={value ? COLORS.primary : colors.textMuted}
         ios_backgroundColor={colors.backgroundTertiary}
+        style={disabled ? { opacity: 0.55 } : undefined}
       />
     </View>
   );
 }
 
 function ContactRow({
-  contact, colors, onRemove, onSendAlert, canRemove = true,
+  contact, colors, onRemove, onSendAlert, canRemove = true, onTogglePrimary,
 }: {
   contact: EmergencyContact; colors: (typeof Colors)["light"];
   onRemove: () => void; onSendAlert: () => void; canRemove?: boolean;
+  /** Radio toggle: make this contact THE one-tap emergency text target (absent = read-only view). */
+  onTogglePrimary?: () => void;
 }) {
   return (
     <View style={[styles.contactRow, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
@@ -1764,7 +2120,23 @@ function ContactRow({
       <View style={{ flex: 1 }}>
         <Text style={[styles.contactName, { color: colors.text }]}>{contact.name}</Text>
         <Text style={[styles.contactPhone, { color: colors.textMuted }]}>{contact.phone} · {contact.relation}</Text>
+        {contact.primary && (
+          <Text style={[styles.contactPrimaryTag, { color: COLORS.danger }]}>One-tap alert contact</Text>
+        )}
       </View>
+      {onTogglePrimary && (
+        <View style={styles.contactPrimaryToggle}>
+          <Switch
+            value={!!contact.primary}
+            onValueChange={onTogglePrimary}
+            trackColor={{ false: colors.card, true: COLORS.danger + "70" }}
+            thumbColor={contact.primary ? COLORS.danger : colors.textMuted}
+            ios_backgroundColor={colors.card}
+            style={{ transform: [{ scale: 0.72 }] }}
+          />
+          <Text style={[styles.contactPrimaryLabel, { color: colors.textMuted }]}>One-tap</Text>
+        </View>
+      )}
       <Pressable
         style={({ pressed }) => [styles.contactAlertBtn, { backgroundColor: COLORS.danger + "18", opacity: pressed ? 0.7 : 1 }]}
         onPress={onSendAlert}
@@ -1833,7 +2205,8 @@ function SettingRow({ label, description, value, onChange, editing, displayValue
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scroll: { paddingHorizontal: 20 },
+  // iPad: cap + center the content column so it doesn't stretch across a 13" screen. No-op on phones.
+  scroll: { paddingHorizontal: 20, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
   pageHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
   pageTitleWrap: { flex: 1, minWidth: 0, marginRight: 12 },
   profileChipWrap: { flexShrink: 0 },
@@ -1885,6 +2258,21 @@ const styles = StyleSheet.create({
   contactAlertBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   contactAlertBtnText: { fontSize: 12, fontWeight: "600" },
   contactRemoveBtn: { padding: 4 },
+  emergencySettingsBtnRow: { flexDirection: "row", justifyContent: "flex-end", marginTop: 6 },
+  chooseSoundBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  chooseSoundBtnText: { fontSize: 11.5, fontWeight: "700" },
+  soundOptionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 11, borderBottomWidth: 1 },
+  soundOptionText: { fontSize: 14, fontWeight: "600" },
+  emergencySettingsBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1 },
+  emergencySettingsBtnText: { fontSize: 11, fontWeight: "700" },
+  emergencySettingsBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", paddingHorizontal: 28 },
+  emergencySettingsCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 4 },
+  waitMinutesRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
+  emergencySettingsDone: { marginTop: 10, borderRadius: 10, paddingVertical: 10, alignItems: "center" },
+  emergencySettingsDoneText: { color: "#fff", fontSize: 13.5, fontWeight: "700" },
+  contactPrimaryToggle: { alignItems: "center", marginRight: 2 },
+  contactPrimaryLabel: { fontSize: 8.5, fontWeight: "600", marginTop: -2 },
+  contactPrimaryTag: { fontSize: 10.5, fontWeight: "700", marginTop: 1 },
 
   addContactForm: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 8, marginTop: 8 },
   formActions: { flexDirection: "row", gap: 8, marginTop: 4 },
@@ -1909,10 +2297,12 @@ const styles = StyleSheet.create({
   threshLegend: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, marginTop: 12 },
   threshLegendText: { flex: 1, fontSize: 11, fontWeight: "400", lineHeight: 16 },
 
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 },
+  // Same row recipe as sectionGridRow (gap 10 + flex-1 cards) so these two cards start/stop at the
+  // exact edges of the settings cards above — on any device width.
+  statsGrid: { flexDirection: "row", gap: 10, marginBottom: 20 },
   sectionGrid: { gap: 10, marginBottom: 20 },
   sectionGridRow: { flexDirection: "row", gap: 10 },
-  statCard: { width: "48%", borderRadius: 14, borderWidth: 1, padding: 14, gap: 4 },
+  statCard: { flex: 1, borderRadius: 14, borderWidth: 1, padding: 14, gap: 4 },
   statIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center", marginBottom: 6 },
   statValue: { fontSize: 24, fontWeight: "700", lineHeight: 28 },
   statUnit: { fontSize: 12, fontWeight: "500" },
@@ -2015,6 +2405,9 @@ const styles = StyleSheet.create({
   accessLogActorText: { fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
 
   notifPermRow: { borderTopWidth: 1, paddingTop: 14, gap: 8 },
+  pushPrefsHeader: { borderTopWidth: 1, paddingTop: 14, marginTop: 2, gap: 3 },
+  pushPrefsTitle: { fontSize: 14, fontWeight: "700" },
+  pushPrefsSub: { fontSize: 12, fontWeight: "400", lineHeight: 16 },
   notifPermStatus: { flexDirection: "row", alignItems: "center", gap: 8 },
   notifPermDot: { width: 9, height: 9, borderRadius: 5 },
   notifPermLabel: { fontSize: 13, fontWeight: "600" },

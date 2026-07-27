@@ -2,6 +2,8 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { legacyAuthArgs, requireUserCompat, userCompat } from "./identity";
+import { doseSettingsByTime } from "./schema";
 
 const accessLogEntry = v.object({
   id: v.string(),
@@ -10,12 +12,17 @@ const accessLogEntry = v.object({
   actor: v.union(v.literal("owner"), v.literal("caregiver"), v.literal("doctor")),
 });
 
-/** The four glucose alert thresholds — account-scoped so they travel with an access code. */
+/** Account-scoped alert prefs that travel with an access code: the four glucose thresholds plus
+ *  the owner's Emergency Text Alerts toggle (mirrored LOCKED on kid/caregiver sessions). */
 const alertPreferencesPayload = v.object({
   lowThreshold: v.optional(v.number()),
   highThreshold: v.optional(v.number()),
   urgentLowThreshold: v.optional(v.number()),
   urgentHighThreshold: v.optional(v.number()),
+  emergencyAlertsEnabled: v.optional(v.boolean()),
+  oneTapTextEnabled: v.optional(v.boolean()),
+  waitWindowEnabled: v.optional(v.boolean()),
+  waitWindowMinutes: v.optional(v.number()),
 });
 
 /** Matches mobile `UserProfile` (required + optional fields). */
@@ -44,16 +51,8 @@ export const patientProfilePayload = v.object({
   carbRatio: v.optional(v.number()),
   targetGlucose: v.optional(v.number()),
   correctionFactor: v.optional(v.number()),
+  doseSettingsByTime: v.optional(doseSettingsByTime),
 });
-
-async function assertPatientAuth(
-  ctx: QueryCtx | MutationCtx,
-  userId: Id<"users">,
-  passwordHash: string,
-): Promise<boolean> {
-  const user = await ctx.db.get(userId);
-  return user !== null && user.passwordHash === passwordHash;
-}
 
 function normalizeCaregiverCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
@@ -94,21 +93,21 @@ export const getByCaregiverCode = query({
       carbRatio: row.carbRatio,
       targetGlucose: row.targetGlucose,
       correctionFactor: row.correctionFactor,
+      doseSettingsByTime: row.doseSettingsByTime,
     };
   },
 });
 
 export const get = query({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
-    if (!ok) return null;
+    const user = await userCompat(ctx, args);
+    if (!user) return null;
     const row = await ctx.db
       .query("patientProfiles")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .unique();
     if (!row) return null;
     return {
@@ -136,6 +135,7 @@ export const get = query({
       carbRatio: row.carbRatio,
       targetGlucose: row.targetGlucose,
       correctionFactor: row.correctionFactor,
+      doseSettingsByTime: row.doseSettingsByTime,
       alertPreferences: row.alertPreferences,
     };
   },
@@ -143,20 +143,18 @@ export const get = query({
 
 export const replace = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     profile: patientProfilePayload,
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
-    if (!ok) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const existing = await ctx.db
       .query("patientProfiles")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .unique();
     const now = Date.now();
     const doc = {
-      userId: args.userId,
+      userId: user._id,
       ...args.profile,
       // `replace` overwrites the whole doc and the profile payload carries no thresholds — carry the
       // account's existing alert thresholds forward so a profile save never wipes them.
@@ -174,16 +172,14 @@ export const replace = mutation({
 /** Persist this account's glucose alert thresholds (account-scoped; travels with access codes). */
 export const setAlertPreferences = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     alertPreferences: alertPreferencesPayload,
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
-    if (!ok) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const existing = await ctx.db
       .query("patientProfiles")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .unique();
     // Thresholds live on the profile row; if the profile hasn't been created yet there's nothing to
     // attach them to (onboarding writes the profile first), so silently no-op.

@@ -2,6 +2,7 @@ import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
+import { legacyAuthArgs, userCompat } from "./identity";
 import {
   diagnosticMessageKey,
   failureCategoryToDiagnostic,
@@ -9,15 +10,6 @@ import {
   type ProviderDiagnosticCategory,
 } from "./cgm/diagnostics";
 import type { FailureCategory } from "./cgm/core";
-
-async function assertPatientAuth(
-  ctx: QueryCtx,
-  userId: Id<"users">,
-  passwordHash: string,
-): Promise<boolean> {
-  const user = await ctx.db.get(userId);
-  return user !== null && user.passwordHash === passwordHash;
-}
 
 function resolveDiagnostic(
   row: {
@@ -77,16 +69,16 @@ function resolveDiagnostic(
  */
 export const getSyncStatus = query({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
+    const user = await userCompat(ctx, args);
+    const ok = user !== null;
     if (!ok) return null;
 
     const conn = await ctx.db
       .query("patientCgmConnections")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user!._id))
       .unique();
     if (!conn) {
       return { connected: false as const };
@@ -94,16 +86,16 @@ export const getSyncStatus = query({
 
     const syncRow = await ctx.db
       .query("cgmSyncState")
-      .withIndex("by_user_provider", (q) => q.eq("userId", args.userId).eq("provider", conn.type))
+      .withIndex("by_user_provider", (q) => q.eq("userId", user!._id).eq("provider", conn.type))
       .unique();
 
     const dexcomCreds = await ctx.db
       .query("patientDexcomCredentials")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user!._id))
       .unique();
     const libreCreds = await ctx.db
       .query("patientLibreCredentials")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user!._id))
       .unique();
     const hasCredentials =
       conn.type === "dexcom" ? dexcomCreds !== null : libreCreds !== null;

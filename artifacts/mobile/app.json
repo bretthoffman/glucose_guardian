@@ -15,7 +15,8 @@
     },
     "ios": {
       "bundleIdentifier": "com.bretthoffman.glucoseguardian",
-      "supportsTablet": false,
+      "supportsTablet": true,
+      "requireFullScreen": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -27,7 +28,26 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/sounds/chime.wav",
+            "./assets/sounds/bell.wav",
+            "./assets/sounds/pulse.wav",
+            "./assets/sounds/soft.wav",
+            "./assets/sounds/urgent.wav"
+          ]
+        }
+      ],
+      "expo-audio",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Glucose Guardian uses the camera to scan access-code QR codes and analyze food photos."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -3,20 +3,58 @@ import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 
 /**
  * Insulin-on-board (IOB) and carbs-on-board (COB) from the on-device logs — the standard pump
- * bolus-calculator model, with linear decay (the accepted manual-calculator simplification; it
- * reports slightly MORE remaining insulin mid-window than the true activity curve, which biases
- * the next suggestion smaller — the safe direction).
+ * bolus-calculator model, with a CURVILINEAR activity curve (bilinear approximation of the real
+ * rapid-insulin action profile: activity ramps to a peak ~30% into the window, then tapers).
+ * The old linear decay overstated remaining insulin mid-window, which systematically shrank
+ * chained daytime recommendations toward zero.
  *
- *  - Rapid-acting insulin: ~4 h duration of insulin action (DIA).
- *  - Regular / pre-mixed: slower, longer tail — 6 h.
+ *  - Rapid-acting insulin: ~4 h duration of insulin action (DIA), activity peak ~72 min.
+ *  - Regular / pre-mixed: slower, longer tail — 6 h, peak ~108 min.
  *  - Basal insulin (long/ultra-long/intermediate) NEVER counts toward IOB — standard practice.
  *  - Entries with no recorded insulin type are counted as rapid: counting an unknown mealtime
  *    dose is the safe direction (it can only reduce the next suggestion).
- *  - Logged carbs absorb over ~3 h.
+ *  - Logged carbs absorb linearly; the window follows the meal's absorption speed when known
+ *    (fast ~2 h, medium ~3 h default, slow/high-fat ~4 h).
  */
 export const RAPID_DIA_MIN = 240;
 export const REGULAR_DIA_MIN = 360;
 export const CARB_ABSORPTION_MIN = 180;
+export const CARB_ABSORPTION_FAST_MIN = 120;
+export const CARB_ABSORPTION_SLOW_MIN = 240;
+
+/** Fraction of DIA at which insulin activity peaks in the bilinear model. */
+const ACTIVITY_PEAK_FRACTION = 0.3;
+
+export type CarbAbsorptionSpeed = "fast" | "medium" | "slow";
+
+/** COB window in minutes for a meal's absorption speed (medium when unknown). */
+export function carbAbsorptionMinFor(absorption?: CarbAbsorptionSpeed | string): number {
+  if (absorption === "fast") return CARB_ABSORPTION_FAST_MIN;
+  if (absorption === "slow") return CARB_ABSORPTION_SLOW_MIN;
+  return CARB_ABSORPTION_MIN;
+}
+
+/**
+ * Remaining fraction of a dose still to act, `ageMin` minutes in, under a bilinear activity curve
+ * that rises linearly to its peak at ACTIVITY_PEAK_FRACTION×DIA and falls linearly to 0 at DIA.
+ * Compared to linear decay this reports slightly MORE remaining insulin before the peak (little
+ * has acted yet) and LESS after it — matching the published rapid-analog action profile.
+ */
+export function remainingInsulinFraction(ageMin: number, diaMin: number): number {
+  if (diaMin <= 0 || ageMin >= diaMin) return 0;
+  if (ageMin <= 0) return 1;
+  const peak = diaMin * ACTIVITY_PEAK_FRACTION;
+  // Area under the activity triangle up to `ageMin` (total area normalized to 1).
+  let delivered: number;
+  if (ageMin <= peak) {
+    delivered = (ageMin * ageMin) / (peak * diaMin);
+  } else {
+    const tail = diaMin - peak;
+    const remainingTail = diaMin - ageMin;
+    delivered = 1 - (remainingTail * remainingTail) / (tail * diaMin);
+  }
+  return Math.min(1, Math.max(0, 1 - delivered));
+}
 
 export interface ActiveInsulinSummary {
   /** Decayed sum of active mealtime insulin, in units (2 dp). */
@@ -71,7 +109,7 @@ export function computeActiveInsulin(
     if (dia == null) continue;
     const ageMin = entryAgeMin(entry.timestamp, nowMs);
     if (ageMin == null || ageMin >= dia) continue;
-    totalUnits += entry.units * (1 - ageMin / dia);
+    totalUnits += entry.units * remainingInsulinFraction(ageMin, dia);
     doseCount++;
     if (last == null || ageMin < last.ageMin) last = { units: entry.units, ageMin };
   }
@@ -91,9 +129,10 @@ export function computeActiveCarbs(foodLog: FoodLogEntry[], nowMs: number): Acti
 
   for (const entry of foodLog) {
     if (!(entry.estimatedCarbs > 0)) continue;
+    const window = carbAbsorptionMinFor(entry.absorption);
     const ageMin = entryAgeMin(entry.timestamp, nowMs);
-    if (ageMin == null || ageMin >= CARB_ABSORPTION_MIN) continue;
-    totalGrams += entry.estimatedCarbs * (1 - ageMin / CARB_ABSORPTION_MIN);
+    if (ageMin == null || ageMin >= window) continue;
+    totalGrams += entry.estimatedCarbs * (1 - ageMin / window);
     entryCount++;
     if (last == null || ageMin < last.ageMin) last = { grams: entry.estimatedCarbs, ageMin };
   }

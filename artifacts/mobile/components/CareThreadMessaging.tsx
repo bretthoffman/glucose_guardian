@@ -3,7 +3,6 @@ import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -12,8 +11,9 @@ import {
   View,
 } from "react-native";
 import Colors, { COLORS } from "@/constants/colors";
-import { useMessages, type CareMessage } from "@/context/MessagesContext";
+import { useMessages, useThreadMessages, type CareMessage } from "@/context/MessagesContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { useKeyboardInset, useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -44,8 +44,6 @@ function groupByDate(messages: CareMessage[]) {
   return groups;
 }
 
-const POLL_MS = 8_000;
-
 interface Props {
   colors: (typeof Colors)["light"];
   threadKey: string;
@@ -57,53 +55,51 @@ interface Props {
   keyboardOffset: number;
 }
 
-/** One cross-account conversation (guardian↔code / code↔code), backed by MessagesContext. */
+/** One cross-account conversation (guardian↔code / code↔code) — a LIVE Convex subscription. */
 export default function CareThreadMessaging({ colors, threadKey, title, bottomSpace, keyboardOffset }: Props) {
-  const { openThread, sendMessage, markRead } = useMessages();
-  const [messages, setMessages] = useState<CareMessage[]>([]);
+  const { sendMessage, markRead } = useMessages();
+  // The server pushes new messages the moment they're written — no polling timer.
+  const serverMessages = useThreadMessages(threadKey);
+  // Optimistic echoes for in-flight sends; dropped as soon as the server list reflects them.
+  const [pending, setPending] = useState<CareMessage[]>([]);
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
+  const keyboardVisible = useKeyboardVisible();
+  const keyboardInset = useKeyboardInset();
 
-  const load = useCallback(async () => {
-    const msgs = await openThread(threadKey);
-    setMessages(msgs);
-  }, [openThread, threadKey]);
+  const serverCount = serverMessages?.length ?? 0;
+  useEffect(() => {
+    // Any server update supersedes local echoes (the send has landed), and new INCOMING messages
+    // are marked read immediately since the user is looking at the thread.
+    setPending([]);
+    if (serverCount > 0) void markRead(threadKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverCount, threadKey]);
 
   useEffect(() => {
-    void load();
     void markRead(threadKey);
-    const id = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(id);
-    // markRead is stable per identity; re-running only on threadKey is intended.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadKey, load]);
+  }, [threadKey]);
 
   async function send() {
     const text = input.trim();
     if (!text) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setInput("");
-    // Optimistic echo so the bubble appears instantly; reconciled by the next load().
-    setMessages((prev) => [
+    setPending((prev) => [
       ...prev,
       { id: `local-${Date.now()}`, text, senderKey: "me", senderName: "You", fromMe: true, createdAt: Date.now() },
     ]);
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
-    try {
-      await sendMessage(threadKey, text);
-    } finally {
-      void load();
-    }
+    await sendMessage(threadKey, text).catch(() => {});
   }
 
-  const groups = groupByDate(messages);
+  const groups = groupByDate([...(serverMessages ?? []), ...pending]);
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={keyboardOffset}
-    >
+    // Padded by the exact keyboard overlap (see useKeyboardInset) — replaces the library
+    // KeyboardAvoidingView, which mis-measured inside the iPad pageSheet and hid the input.
+    <View style={{ flex: 1, paddingBottom: keyboardInset }}>
       <FlatList
         ref={flatListRef}
         data={groups}
@@ -164,7 +160,7 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
         )}
       />
 
-      <View style={[styles.inputBar, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: bottomSpace }]}>
+      <View style={[styles.inputBar, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: keyboardVisible ? 10 : bottomSpace }]}>
         <TextInput
           style={[styles.input, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, color: colors.text }]}
           placeholder={`Message ${title}…`}
@@ -174,8 +170,8 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
           multiline
           maxLength={1000}
           returnKeyType="send"
+          submitBehavior="submit"
           onSubmitEditing={send}
-          blurOnSubmit={false}
         />
         <Pressable
           style={[styles.sendBtn, { backgroundColor: input.trim() ? COLORS.primary : colors.backgroundTertiary }]}
@@ -185,7 +181,7 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
           <Feather name="send" size={16} color={input.trim() ? "#fff" : colors.textMuted} />
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

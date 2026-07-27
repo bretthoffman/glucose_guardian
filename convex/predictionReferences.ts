@@ -14,6 +14,7 @@ import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
+import { userCompat } from "./identity";
 import { careAccessAllowed, type CareAccess } from "./careSchedule";
 import { circleBucketFor } from "./careLogs";
 import {
@@ -39,11 +40,6 @@ const TOP_N = 3;
 
 // ── local auth helpers (same pattern as careLogs/careMessages) ───────────────────────────────
 
-async function assertPatientAuth(ctx: QueryCtx, userId: Id<"users">, passwordHash: string): Promise<boolean> {
-  const user = await ctx.db.get(userId);
-  return user !== null && user.passwordHash === passwordHash;
-}
-
 function normalizeCareCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
 }
@@ -66,10 +62,8 @@ async function resolveBucket(
     if (!careAccessAllowed(row.access as CareAccess, Date.now())) return null;
     return row.patientUserId;
   }
-  if (args.userId && args.passwordHash) {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return null;
-    return await circleBucketFor(ctx, args.userId);
-  }
+  const user = await userCompat(ctx, args);
+  if (user) return await circleBucketFor(ctx, user._id);
   return null;
 }
 

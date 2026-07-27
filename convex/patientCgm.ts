@@ -1,7 +1,8 @@
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { legacyAuthArgs, userCompat } from "./identity";
 
 /** Matches mobile `CGMConnection` when a vendor is connected (row deleted when disconnected). */
 export const cgmConnectionPayload = v.object({
@@ -13,26 +14,17 @@ export const cgmConnectionPayload = v.object({
   connectedAt: v.optional(v.string()),
 });
 
-async function assertPatientAuth(
-  ctx: QueryCtx | MutationCtx,
-  userId: Id<"users">,
-  passwordHash: string,
-): Promise<boolean> {
-  const user = await ctx.db.get(userId);
-  return user !== null && user.passwordHash === passwordHash;
-}
-
 export const get = query({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
+    const user = await userCompat(ctx, args);
+    const ok = user !== null;
     if (!ok) return null;
     const row = await ctx.db
       .query("patientCgmConnections")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user!._id))
       .unique();
     if (!row) return null;
     return {
@@ -55,19 +47,19 @@ export const get = query({
  */
 export const hasCredentials = query({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
+    const user = await userCompat(ctx, args);
+    const ok = user !== null;
     if (!ok) return null;
     const dexcom = await ctx.db
       .query("patientDexcomCredentials")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user!._id))
       .unique();
     const libre = await ctx.db
       .query("patientLibreCredentials")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user!._id))
       .unique();
     return { hasDexcom: dexcom !== null, hasLibre: libre !== null };
   },
@@ -75,20 +67,20 @@ export const hasCredentials = query({
 
 export const replace = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     connection: cgmConnectionPayload,
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
-    if (!ok) throw new Error("Unauthorized");
+    const user = await userCompat(ctx, args);
+    const ok = user !== null;
+    if (!ok) throw new ConvexError("Unauthorized");
     const existing = await ctx.db
       .query("patientCgmConnections")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user!._id))
       .unique();
     const now = Date.now();
     const doc = {
-      userId: args.userId,
+      userId: user!._id,
       ...args.connection,
       updatedAt: now,
     };
@@ -107,7 +99,7 @@ export const replace = mutation({
     const provider = args.connection.type;
     const states = await ctx.db
       .query("cgmSyncState")
-      .withIndex("by_user_provider", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user_provider", (q) => q.eq("userId", user!._id))
       .collect();
     let current: (typeof states)[number] | null = null;
     for (const s of states) {
@@ -128,7 +120,7 @@ export const replace = mutation({
       });
     } else {
       await ctx.db.insert("cgmSyncState", {
-        userId: args.userId,
+        userId: user!._id,
         provider,
         consecutiveFailures: 0,
         status: "pending",
@@ -142,15 +134,15 @@ export const replace = mutation({
 
 export const clear = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
-    if (!ok) throw new Error("Unauthorized");
+    const user = await userCompat(ctx, args);
+    const ok = user !== null;
+    if (!ok) throw new ConvexError("Unauthorized");
     const existing = await ctx.db
       .query("patientCgmConnections")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user!._id))
       .unique();
     if (existing) {
       await ctx.db.delete(existing._id);
@@ -158,7 +150,7 @@ export const clear = mutation({
     // Remove the ingestion work-queue rows so the cron stops syncing a disconnected patient.
     const states = await ctx.db
       .query("cgmSyncState")
-      .withIndex("by_user_provider", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user_provider", (q) => q.eq("userId", user!._id))
       .collect();
     for (const s of states) {
       await ctx.db.delete(s._id);

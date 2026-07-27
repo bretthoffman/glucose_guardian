@@ -18,7 +18,9 @@
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { legacyAuthArgs, requireUserCompat, userCompat } from "./identity";
+import { doseSettingsByTime } from "./schema";
 import {
   FULL_CARE_PERMISSIONS,
   VIEWER_CARE_PERMISSIONS,
@@ -62,15 +64,6 @@ const INVITE_TTL_MS = 48 * 60 * 60 * 1000;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const CODE_LENGTH = 8;
 
-async function assertPatientAuth(
-  ctx: QueryCtx | MutationCtx,
-  userId: Id<"users">,
-  passwordHash: string,
-): Promise<boolean> {
-  const user = await ctx.db.get(userId);
-  return user !== null && user.passwordHash === passwordHash;
-}
-
 function randomCode(): string {
   let code = "";
   for (let i = 0; i < CODE_LENGTH; i++) {
@@ -97,7 +90,7 @@ async function generateUniqueCode(ctx: MutationCtx): Promise<string> {
       .first();
     if (!inviteHit && !accessHit) return code;
   }
-  throw new Error("Could not generate a unique code — try again");
+  throw new ConvexError("Could not generate a unique code — try again");
 }
 
 async function getSettings(ctx: QueryCtx | MutationCtx, patientUserId: Id<"users">) {
@@ -181,6 +174,7 @@ async function slimPatientProfile(ctx: QueryCtx | MutationCtx, patientUserId: Id
     carbRatio: row.carbRatio,
     targetGlucose: row.targetGlucose,
     correctionFactor: row.correctionFactor,
+    doseSettingsByTime: row.doseSettingsByTime,
     /** So a kid/caregiver device evaluates readings against the owner's ranges, not its own. */
     alertPreferences: row.alertPreferences,
   };
@@ -213,28 +207,27 @@ async function readRecentGlucose(
 
 export const createInvite = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     patientUserId: v.id("users"),
     // When set, the invite is delivered to this account's Care Circle as an incoming request to
     // accept (the "found a matching account, invite them" flow) — no code to copy out-of-band.
     targetUserId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    if (!(await isCircleAdmin(ctx, args.patientUserId, args.userId))) throw new Error("Not allowed");
+    const user = await requireUserCompat(ctx, args);
+    if (!(await isCircleAdmin(ctx, args.patientUserId, user._id))) throw new ConvexError("Not allowed");
     const links = await activeCoGuardianLinks(ctx, args.patientUserId);
     if (links.length >= MAX_CO_GUARDIANS) {
-      throw new Error(`This care circle already has ${MAX_CO_GUARDIANS} co-guardians`);
+      throw new ConvexError(`This care circle already has ${MAX_CO_GUARDIANS} co-guardians`);
     }
     const now = Date.now();
 
     if (args.targetUserId) {
-      if (args.targetUserId === args.patientUserId) throw new Error("You can't invite the patient's own account");
+      if (args.targetUserId === args.patientUserId) throw new ConvexError("You can't invite the patient's own account");
       const target = await ctx.db.get(args.targetUserId);
-      if (!target) throw new Error("That account no longer exists");
+      if (!target) throw new ConvexError("That account no longer exists");
       if (await activeLinkFor(ctx, args.patientUserId, args.targetUserId)) {
-        throw new Error("That account is already a co-guardian");
+        throw new ConvexError("That account is already a co-guardian");
       }
       // Reuse an existing live invite to the same target so tapping "Invite" twice doesn't pile up
       // duplicate incoming requests — the code stays stable and they still see a single request.
@@ -253,7 +246,7 @@ export const createInvite = mutation({
       role: "co_guardian",
       presetPermissions: { ...FULL_CARE_PERMISSIONS },
       presetAccess: { mode: "always" },
-      createdByUserId: args.userId,
+      createdByUserId: user._id,
       ...(args.targetUserId ? { targetUserId: args.targetUserId } : {}),
       expiresAt: now + INVITE_TTL_MS,
       status: "pending",
@@ -264,46 +257,46 @@ export const createInvite = mutation({
 });
 
 export const cancelInvite = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), inviteId: v.id("careInvites") },
+  args: { ...legacyAuthArgs, inviteId: v.id("careInvites") },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const invite = await ctx.db.get(args.inviteId);
     if (!invite) return;
-    if (!(await isCircleAdmin(ctx, invite.patientUserId, args.userId))) throw new Error("Not allowed");
+    if (!(await isCircleAdmin(ctx, invite.patientUserId, user._id))) throw new ConvexError("Not allowed");
     if (invite.status === "pending") await ctx.db.patch(args.inviteId, { status: "cancelled" });
   },
 });
 
 export const redeemInvite = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), code: v.string() },
+  args: { ...legacyAuthArgs, code: v.string() },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const code = normalizeCareCode(args.code);
     const invite = await ctx.db
       .query("careInvites")
       .withIndex("by_code", (q) => q.eq("code", code))
       .first();
-    if (!invite || invite.status !== "pending") throw new Error("Invalid or already-used invite code");
-    if (Date.now() > invite.expiresAt) throw new Error("This invite code has expired");
-    if (invite.patientUserId === args.userId) throw new Error("You cannot join your own care circle");
+    if (!invite || invite.status !== "pending") throw new ConvexError("Invalid or already-used invite code");
+    if (Date.now() > invite.expiresAt) throw new ConvexError("This invite code has expired");
+    if (invite.patientUserId === user._id) throw new ConvexError("You cannot join your own care circle");
     // A directed invite can only be accepted by the account it was addressed to — sharing its code
     // with someone else must not let them hijack the seat.
-    if (invite.targetUserId && invite.targetUserId !== args.userId) {
-      throw new Error("This invitation was sent to a different account");
+    if (invite.targetUserId && invite.targetUserId !== user._id) {
+      throw new ConvexError("This invitation was sent to a different account");
     }
 
-    const existing = await activeLinkFor(ctx, invite.patientUserId, args.userId);
-    if (existing) throw new Error("You are already in this care circle");
+    const existing = await activeLinkFor(ctx, invite.patientUserId, user._id);
+    if (existing) throw new ConvexError("You are already in this care circle");
     const links = await activeCoGuardianLinks(ctx, invite.patientUserId);
     if (links.length >= MAX_CO_GUARDIANS) {
-      throw new Error(`This care circle already has ${MAX_CO_GUARDIANS} co-guardians`);
+      throw new ConvexError(`This care circle already has ${MAX_CO_GUARDIANS} co-guardians`);
     }
 
     const now = Date.now();
-    const displayName = await displayNameFor(ctx, args.userId);
+    const displayName = await displayNameFor(ctx, user._id);
     await ctx.db.insert("careLinks", {
       patientUserId: invite.patientUserId,
-      memberUserId: args.userId,
+      memberUserId: user._id,
       role: "co_guardian",
       displayName,
       permissions: invite.presetPermissions,
@@ -314,12 +307,12 @@ export const redeemInvite = mutation({
     });
     await ctx.db.patch(invite._id, {
       status: "redeemed",
-      redeemedByUserId: args.userId,
+      redeemedByUserId: user._id,
       redeemedAt: now,
     });
     // Merge care immediately: everything the joiner logged before linking (their old private
     // bucket) backfills into the circle's shared pool so every guardian sees the same history.
-    await copyBucketLogs(ctx, args.userId, invite.patientUserId, displayName);
+    await copyBucketLogs(ctx, user._id, invite.patientUserId, displayName);
     const patient = await slimPatientProfile(ctx, invite.patientUserId);
     return { patientUserId: invite.patientUserId, patientName: patient?.childName ?? "Patient" };
   },
@@ -360,6 +353,7 @@ async function snapshotSharedToMember(
       carbRatio: ownerProfile.carbRatio,
       targetGlucose: ownerProfile.targetGlucose,
       correctionFactor: ownerProfile.correctionFactor,
+      doseSettingsByTime: ownerProfile.doseSettingsByTime,
       alertPreferences: ownerProfile.alertPreferences,
     };
     const memberProfile = await ctx.db
@@ -393,21 +387,21 @@ async function snapshotSharedToMember(
 }
 
 export const revokeLink = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), linkId: v.id("careLinks") },
+  args: { ...legacyAuthArgs, linkId: v.id("careLinks") },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const link = await ctx.db.get(args.linkId);
     if (!link || link.status !== "active") return;
-    const isMemberLeaving = link.memberUserId === args.userId;
-    if (!isMemberLeaving && !(await isCircleAdmin(ctx, link.patientUserId, args.userId))) {
-      throw new Error("Not allowed");
+    const isMemberLeaving = link.memberUserId === user._id;
+    if (!isMemberLeaving && !(await isCircleAdmin(ctx, link.patientUserId, user._id))) {
+      throw new ConvexError("Not allowed");
     }
     // In dependent mode the last co-guardian cannot be removed — the circle would have no admin.
     const settings = settingsOrDefault(await getSettings(ctx, link.patientUserId));
     if (settings.dependentMode) {
       const links = await activeCoGuardianLinks(ctx, link.patientUserId);
       if (links.length <= 1) {
-        throw new Error("Turn off parent-kid mode before removing the last co-guardian");
+        throw new ConvexError("Turn off parent-kid mode before removing the last co-guardian");
       }
     }
     await ctx.db.patch(args.linkId, {
@@ -423,32 +417,30 @@ export const revokeLink = mutation({
 
 export const setLinkPermissions = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     linkId: v.id("careLinks"),
     permissions: carePermissionsPayload,
   },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const link = await ctx.db.get(args.linkId);
-    if (!link || link.status !== "active") throw new Error("Link not found");
-    if (!(await isCircleAdmin(ctx, link.patientUserId, args.userId))) throw new Error("Not allowed");
+    if (!link || link.status !== "active") throw new ConvexError("Link not found");
+    if (!(await isCircleAdmin(ctx, link.patientUserId, user._id))) throw new ConvexError("Not allowed");
     await ctx.db.patch(args.linkId, { permissions: args.permissions, updatedAt: Date.now() });
   },
 });
 
 export const setLinkAccess = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     linkId: v.id("careLinks"),
     access: careAccessPayload,
   },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const link = await ctx.db.get(args.linkId);
-    if (!link || link.status !== "active") throw new Error("Link not found");
-    if (!(await isCircleAdmin(ctx, link.patientUserId, args.userId))) throw new Error("Not allowed");
+    if (!link || link.status !== "active") throw new ConvexError("Link not found");
+    if (!(await isCircleAdmin(ctx, link.patientUserId, user._id))) throw new ConvexError("Not allowed");
     await ctx.db.patch(args.linkId, { access: args.access, updatedAt: Date.now() });
   },
 });
@@ -457,8 +449,7 @@ export const setLinkAccess = mutation({
 
 export const createAccessCode = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     patientUserId: v.id("users"),
     label: v.string(),
     kind: v.optional(v.union(v.literal("caregiver"), v.literal("child"))),
@@ -466,10 +457,10 @@ export const createAccessCode = mutation({
     access: v.optional(careAccessPayload),
   },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    if (!(await isCircleAdmin(ctx, args.patientUserId, args.userId))) throw new Error("Not allowed");
+    const user = await requireUserCompat(ctx, args);
+    if (!(await isCircleAdmin(ctx, args.patientUserId, user._id))) throw new ConvexError("Not allowed");
     const label = args.label.trim();
-    if (!label) throw new Error("Give this code a name (who it's for)");
+    if (!label) throw new ConvexError("Give this code a name (who it's for)");
     const kind = args.kind ?? "caregiver";
     // A child (the patient's own kid on their phone) gets full-ish defaults the parent then trims;
     // a caregiver defaults to view-only.
@@ -493,18 +484,17 @@ export const createAccessCode = mutation({
 
 export const updateAccessCode = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     codeId: v.id("careAccessCodes"),
     label: v.optional(v.string()),
     permissions: v.optional(carePermissionsPayload),
     access: v.optional(careAccessPayload),
   },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const row = await ctx.db.get(args.codeId);
-    if (!row || row.status !== "active") throw new Error("Code not found");
-    if (!(await isCircleAdmin(ctx, row.patientUserId, args.userId))) throw new Error("Not allowed");
+    if (!row || row.status !== "active") throw new ConvexError("Code not found");
+    if (!(await isCircleAdmin(ctx, row.patientUserId, user._id))) throw new ConvexError("Not allowed");
     await ctx.db.patch(args.codeId, {
       ...(args.label != null && args.label.trim() ? { label: args.label.trim() } : {}),
       ...(args.permissions ? { permissions: args.permissions } : {}),
@@ -515,12 +505,12 @@ export const updateAccessCode = mutation({
 });
 
 export const retireAccessCode = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), codeId: v.id("careAccessCodes") },
+  args: { ...legacyAuthArgs, codeId: v.id("careAccessCodes") },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const row = await ctx.db.get(args.codeId);
     if (!row) return;
-    if (!(await isCircleAdmin(ctx, row.patientUserId, args.userId))) throw new Error("Not allowed");
+    if (!(await isCircleAdmin(ctx, row.patientUserId, user._id))) throw new ConvexError("Not allowed");
     if (row.status === "active") {
       await ctx.db.patch(args.codeId, { status: "retired", retiredAt: Date.now(), updatedAt: Date.now() });
     }
@@ -544,27 +534,26 @@ export const touchAccessCode = mutation({
 
 export const setDependentMode = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     patientUserId: v.id("users"),
     enabled: v.boolean(),
     devicePermissions: v.optional(carePermissionsPayload),
   },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    const isSelf = args.userId === args.patientUserId;
-    const isCoGuardian = (await activeLinkFor(ctx, args.patientUserId, args.userId)) !== null;
-    if (!isSelf && !isCoGuardian) throw new Error("Not allowed");
+    const user = await requireUserCompat(ctx, args);
+    const isSelf = user._id === args.patientUserId;
+    const isCoGuardian = (await activeLinkFor(ctx, args.patientUserId, user._id)) !== null;
+    if (!isSelf && !isCoGuardian) throw new ConvexError("Not allowed");
     const existing = await getSettings(ctx, args.patientUserId);
     const current = settingsOrDefault(existing);
     // The kid account cannot flip control back to itself while dependent mode is on.
     if (current.dependentMode && isSelf && !isCoGuardian && args.enabled === false) {
-      throw new Error("A co-guardian must turn off parent-kid mode");
+      throw new ConvexError("A co-guardian must turn off parent-kid mode");
     }
     if (args.enabled) {
       const links = await activeCoGuardianLinks(ctx, args.patientUserId);
       if (links.length === 0) {
-        throw new Error("Link at least one co-guardian before enabling parent-kid mode");
+        throw new ConvexError("Link at least one co-guardian before enabling parent-kid mode");
       }
     }
     const doc = {
@@ -602,6 +591,7 @@ const sharedProfilePatchPayload = v.object({
   carbRatio: v.optional(v.number()),
   targetGlucose: v.optional(v.number()),
   correctionFactor: v.optional(v.number()),
+  doseSettingsByTime: v.optional(doseSettingsByTime),
 });
 
 const OWNER_ONLY_PROFILE_FIELDS = [
@@ -611,6 +601,7 @@ const OWNER_ONLY_PROFILE_FIELDS = [
   "carbRatio",
   "targetGlucose",
   "correctionFactor",
+  "doseSettingsByTime",
 ] as const;
 
 const emergencyContactPayload = v.object({
@@ -618,6 +609,8 @@ const emergencyContactPayload = v.object({
   name: v.string(),
   phone: v.string(),
   relation: v.string(),
+  /** The ONE contact the emergency banner's one-tap text targets (at most one per circle). */
+  primary: v.optional(v.boolean()),
 });
 
 const MAX_EMERGENCY_CONTACTS = 5;
@@ -650,10 +643,11 @@ async function getCareSharedRow(ctx: QueryCtx | MutationCtx, patientUserId: Id<"
  * profile is already the source of truth), and the mutual quick-meals + emergency-contact pool.
  */
 export const circleContext = query({
-  args: { userId: v.id("users"), passwordHash: v.string() },
+  args: { ...legacyAuthArgs },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return null;
-    const { anchor, isOwner } = await circleAnchorFor(ctx, args.userId);
+    const user = await userCompat(ctx, args);
+    if (!user) return null;
+    const { anchor, isOwner } = await circleAnchorFor(ctx, user._id);
     const pool = await getCareSharedRow(ctx, anchor);
 
     let shared: null | Record<string, unknown> = null;
@@ -679,6 +673,7 @@ export const circleContext = query({
           carbRatio: row.carbRatio,
           targetGlucose: row.targetGlucose,
           correctionFactor: row.correctionFactor,
+          doseSettingsByTime: row.doseSettingsByTime,
           alertPreferences: row.alertPreferences,
           // Same doctor office, same code: a member's app syncs to the owner's portal thread.
           doctorCode: row.doctorCode,
@@ -704,15 +699,15 @@ export const circleContext = query({
  * types, dose math) are rejected so no co-guardian can quietly change the dosing ground truth.
  */
 export const updateSharedProfile = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), patch: sharedProfilePatchPayload },
+  args: { ...legacyAuthArgs, patch: sharedProfilePatchPayload },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    const { anchor, isOwner } = await circleAnchorFor(ctx, args.userId);
+    const user = await requireUserCompat(ctx, args);
+    const { anchor, isOwner } = await circleAnchorFor(ctx, user._id);
     const patch: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(args.patch)) {
       if (value === undefined) continue;
       if (!isOwner && (OWNER_ONLY_PROFILE_FIELDS as readonly string[]).includes(key)) {
-        throw new Error("Only the circle owner can change this setting");
+        throw new ConvexError("Only the circle owner can change this setting");
       }
       patch[key] = value;
     }
@@ -721,17 +716,17 @@ export const updateSharedProfile = mutation({
       .query("patientProfiles")
       .withIndex("by_userId", (q) => q.eq("userId", anchor))
       .unique();
-    if (!row) throw new Error("The circle owner hasn't finished setting up their profile");
+    if (!row) throw new ConvexError("The circle owner hasn't finished setting up their profile");
     await ctx.db.patch(row._id, { ...patch, updatedAt: Date.now() });
   },
 });
 
 /** Replace the circle's Quick Lookup meals list (mutual: any guardian may update it). */
 export const setQuickFoods = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), foods: v.array(v.string()) },
+  args: { ...legacyAuthArgs, foods: v.array(v.string()) },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    const { anchor } = await circleAnchorFor(ctx, args.userId);
+    const user = await requireUserCompat(ctx, args);
+    const { anchor } = await circleAnchorFor(ctx, user._id);
     const foods = args.foods.map((f) => f.trim()).filter(Boolean).slice(0, MAX_QUICK_FOODS);
     const existing = await getCareSharedRow(ctx, anchor);
     if (existing) await ctx.db.patch(existing._id, { quickFoods: foods, updatedAt: Date.now() });
@@ -741,10 +736,10 @@ export const setQuickFoods = mutation({
 
 /** Add to the circle's mutual emergency-contact pool (idempotent by contact id, capped). */
 export const addSharedEmergencyContact = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), contact: emergencyContactPayload },
+  args: { ...legacyAuthArgs, contact: emergencyContactPayload },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    const { anchor } = await circleAnchorFor(ctx, args.userId);
+    const user = await requireUserCompat(ctx, args);
+    const { anchor } = await circleAnchorFor(ctx, user._id);
     const existing = await getCareSharedRow(ctx, anchor);
     const contacts = existing?.emergencyContacts ?? [];
     if (contacts.some((c) => c.id === args.contact.id)) return;
@@ -755,11 +750,32 @@ export const addSharedEmergencyContact = mutation({
   },
 });
 
-export const removeSharedEmergencyContact = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), contactId: v.string() },
+/**
+ * Mark ONE contact as the one-tap emergency text target (radio semantics: setting a contact clears
+ * every other; null clears all). Enforced server-side so no client can produce two primaries.
+ */
+export const setPrimaryEmergencyContact = mutation({
+  args: { ...legacyAuthArgs, contactId: v.union(v.string(), v.null()) },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    const { anchor } = await circleAnchorFor(ctx, args.userId);
+    const user = await requireUserCompat(ctx, args);
+    const { anchor } = await circleAnchorFor(ctx, user._id);
+    const existing = await getCareSharedRow(ctx, anchor);
+    if (!existing?.emergencyContacts) return;
+    await ctx.db.patch(existing._id, {
+      emergencyContacts: existing.emergencyContacts.map((c) => ({
+        ...c,
+        primary: args.contactId != null && c.id === args.contactId ? true : undefined,
+      })),
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const removeSharedEmergencyContact = mutation({
+  args: { ...legacyAuthArgs, contactId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireUserCompat(ctx, args);
+    const { anchor } = await circleAnchorFor(ctx, user._id);
     const existing = await getCareSharedRow(ctx, anchor);
     if (!existing?.emergencyContacts) return;
     await ctx.db.patch(existing._id, {
@@ -775,10 +791,10 @@ export const removeSharedEmergencyContact = mutation({
  * owner's pool (on join, the owner's list IS the list).
  */
 export const importSharedEmergencyContacts = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), contacts: v.array(emergencyContactPayload) },
+  args: { ...legacyAuthArgs, contacts: v.array(emergencyContactPayload) },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
-    const { anchor, isOwner } = await circleAnchorFor(ctx, args.userId);
+    const user = await requireUserCompat(ctx, args);
+    const { anchor, isOwner } = await circleAnchorFor(ctx, user._id);
     if (!isOwner) return;
     const existing = await getCareSharedRow(ctx, anchor);
     if (existing?.emergencyContacts && existing.emergencyContacts.length > 0) return;
@@ -793,12 +809,13 @@ export const importSharedEmergencyContacts = mutation({
 
 /** Full circle view for the panel — admins and the patient account itself (read-only for a kid). */
 export const getCircle = query({
-  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users") },
+  args: { ...legacyAuthArgs, patientUserId: v.id("users") },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return null;
-    const isSelf = args.userId === args.patientUserId;
-    const admin = await isCircleAdmin(ctx, args.patientUserId, args.userId);
-    const isCoGuardian = (await activeLinkFor(ctx, args.patientUserId, args.userId)) !== null;
+    const user = await userCompat(ctx, args);
+    if (!user) return null;
+    const isSelf = user._id === args.patientUserId;
+    const admin = await isCircleAdmin(ctx, args.patientUserId, user._id);
+    const isCoGuardian = (await activeLinkFor(ctx, args.patientUserId, user._id)) !== null;
     if (!isSelf && !admin && !isCoGuardian) return null;
 
     const now = Date.now();
@@ -822,7 +839,7 @@ export const getCircle = query({
       {
         userId: args.patientUserId,
         displayName: await displayNameFor(ctx, args.patientUserId),
-        isMe: args.patientUserId === args.userId,
+        isMe: args.patientUserId === user._id,
         isOwner: true,
         linkId: null as Id<"careLinks"> | null,
         accessState: okAccess,
@@ -830,7 +847,7 @@ export const getCircle = query({
       ...links.map((l) => ({
         userId: l.memberUserId,
         displayName: l.displayName,
-        isMe: l.memberUserId === args.userId,
+        isMe: l.memberUserId === user._id,
         isOwner: false,
         linkId: l._id as Id<"careLinks"> | null,
         accessState: evaluateCareAccess(l.access as CareAccess, now),
@@ -852,7 +869,7 @@ export const getCircle = query({
         permissions: l.permissions,
         access: l.access,
         accessState: evaluateCareAccess(l.access as CareAccess, now),
-        isMe: l.memberUserId === args.userId,
+        isMe: l.memberUserId === user._id,
         createdAt: l.createdAt,
       })),
       pendingInvites: invites
@@ -879,18 +896,19 @@ export const getCircle = query({
  * already-linked, or full-circle invites are filtered out so the list only shows actionable requests.
  */
 export const incomingInvites = query({
-  args: { userId: v.id("users"), passwordHash: v.string() },
+  args: { ...legacyAuthArgs },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return [];
+    const user = await userCompat(ctx, args);
+    if (!user) return [];
     const invites = await ctx.db
       .query("careInvites")
-      .withIndex("by_target", (q) => q.eq("targetUserId", args.userId).eq("status", "pending"))
+      .withIndex("by_target", (q) => q.eq("targetUserId", user._id).eq("status", "pending"))
       .collect();
     const now = Date.now();
     const out = [];
     for (const invite of invites) {
       if (invite.expiresAt <= now) continue;
-      if (await activeLinkFor(ctx, invite.patientUserId, args.userId)) continue;
+      if (await activeLinkFor(ctx, invite.patientUserId, user._id)) continue;
       const links = await activeCoGuardianLinks(ctx, invite.patientUserId);
       if (links.length >= MAX_CO_GUARDIANS) continue;
       const patient = await slimPatientProfile(ctx, invite.patientUserId);
@@ -909,12 +927,13 @@ export const incomingInvites = query({
 
 /** The circles I belong to as a co-guardian (drives "viewing Bella" mode on my device). */
 export const myMemberships = query({
-  args: { userId: v.id("users"), passwordHash: v.string() },
+  args: { ...legacyAuthArgs },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return [];
+    const user = await userCompat(ctx, args);
+    if (!user) return [];
     const links = await ctx.db
       .query("careLinks")
-      .withIndex("by_member", (q) => q.eq("memberUserId", args.userId).eq("status", "active"))
+      .withIndex("by_member", (q) => q.eq("memberUserId", user._id).eq("status", "active"))
       .collect();
     const now = Date.now();
     const out = [];
@@ -937,10 +956,11 @@ export const myMemberships = query({
 
 /** What the patient's own device may do (kid restrictions when dependentMode is on). */
 export const myDeviceSettings = query({
-  args: { userId: v.id("users"), passwordHash: v.string() },
+  args: { ...legacyAuthArgs },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return null;
-    const settings = settingsOrDefault(await getSettings(ctx, args.userId));
+    const user = await userCompat(ctx, args);
+    if (!user) return null;
+    const settings = settingsOrDefault(await getSettings(ctx, user._id));
     return settings;
   },
 });
@@ -954,12 +974,13 @@ export const myDeviceSettings = query({
  * user needs to see it to pick the right person). Flags accounts already linked to the caller.
  */
 export const findSharedSensorAccounts = query({
-  args: { userId: v.id("users"), passwordHash: v.string() },
+  args: { ...legacyAuthArgs },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return null;
+    const user = await userCompat(ctx, args);
+    if (!user) return null;
     const mine = await ctx.db
       .query("patientDexcomCredentials")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .unique();
     // Match on the actual Dexcom username (server-only) so this works regardless of whether the
     // indexed `usernameKey` has been backfilled — no reconnect required.
@@ -971,21 +992,21 @@ export const findSharedSensorAccounts = query({
 
     const matches: { userId: Id<"users">; email: string; name: string; alreadyLinked: boolean }[] = [];
     for (const row of all) {
-      if (row.userId === args.userId) continue;
+      if (row.userId === user._id) continue;
       const rowKey = (row.usernameKey ?? row.dexcomUsername ?? "").trim().toLowerCase();
       if (rowKey !== key) continue;
-      const user = await ctx.db.get(row.userId);
-      if (!user) continue;
+      const matchUser = await ctx.db.get(row.userId);
+      if (!matchUser) continue;
       const profile = await ctx.db
         .query("patientProfiles")
         .withIndex("by_userId", (q) => q.eq("userId", row.userId))
         .unique();
       const linked =
-        (await activeLinkFor(ctx, args.userId, row.userId)) != null ||
-        (await activeLinkFor(ctx, row.userId, args.userId)) != null;
+        (await activeLinkFor(ctx, user._id, row.userId)) != null ||
+        (await activeLinkFor(ctx, row.userId, user._id)) != null;
       matches.push({
         userId: row.userId,
-        email: user.email,
+        email: matchUser.email,
         name: profile?.childName?.trim() || "Glucose Guardian user",
         alreadyLinked: linked,
       });
@@ -999,10 +1020,8 @@ export const findSharedSensorAccounts = query({
 async function requireViewableLink(
   ctx: QueryCtx,
   memberUserId: Id<"users">,
-  passwordHash: string,
   patientUserId: Id<"users">,
 ) {
-  if (!(await assertPatientAuth(ctx, memberUserId, passwordHash))) return null;
   const link = await activeLinkFor(ctx, patientUserId, memberUserId);
   if (!link || !link.permissions.viewReadings) return null;
   if (!careAccessAllowed(link.access as CareAccess, Date.now())) return null;
@@ -1011,22 +1030,25 @@ async function requireViewableLink(
 
 export const glucoseForLink = query({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     patientUserId: v.id("users"),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const link = await requireViewableLink(ctx, args.userId, args.passwordHash, args.patientUserId);
+    const user = await userCompat(ctx, args);
+    if (!user) return [];
+    const link = await requireViewableLink(ctx, user._id, args.patientUserId);
     if (!link) return [];
     return await readRecentGlucose(ctx, args.patientUserId, args.limit);
   },
 });
 
 export const profileForLink = query({
-  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users") },
+  args: { ...legacyAuthArgs, patientUserId: v.id("users") },
   handler: async (ctx, args) => {
-    const link = await requireViewableLink(ctx, args.userId, args.passwordHash, args.patientUserId);
+    const user = await userCompat(ctx, args);
+    if (!user) return null;
+    const link = await requireViewableLink(ctx, user._id, args.patientUserId);
     if (!link) return null;
     return await slimPatientProfile(ctx, args.patientUserId);
   },
@@ -1044,6 +1066,44 @@ async function resolveActiveAccessCode(ctx: QueryCtx, rawCode: string) {
   if (!row || row.status !== "active") return null;
   return row;
 }
+
+/**
+ * Day-scoped glucose for a linked co-guardian's viewing mode — the Log tab's per-day pager. Same
+ * auth as `glucoseForLink`; added because day browsing previously fell back to the ~300-reading
+ * in-memory overlay, capping history at about a day for anyone viewing another patient.
+ */
+export const listForDayRangeForLink = query({
+  args: {
+    ...legacyAuthArgs,
+    patientUserId: v.id("users"),
+    startTimestamp: v.string(),
+    endTimestamp: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const user = await userCompat(ctx, args);
+    if (!user) return [];
+    const link = await requireViewableLink(ctx, user._id, args.patientUserId);
+    if (!link) return [];
+    const lim = Math.min(Math.max(args.limit ?? GLUCOSE_DEFAULT_LIMIT, 1), GLUCOSE_MAX_LIMIT);
+    const rows = await ctx.db
+      .query("patientGlucoseReadings")
+      .withIndex("by_user_time", (q) =>
+        q
+          .eq("userId", args.patientUserId)
+          .gte("timestamp", args.startTimestamp)
+          .lt("timestamp", args.endTimestamp),
+      )
+      .order("asc")
+      .take(lim);
+    return rows.map((r) => ({
+      glucose: r.glucose,
+      timestamp: r.timestamp,
+      anomaly: r.anomaly,
+      dexcomTrend: r.dexcomTrend,
+    }));
+  },
+});
 
 /** Session bootstrap for an external-guardian device: who am I viewing, what may I do, am I in-window. */
 export const resolveAccessCode = query({

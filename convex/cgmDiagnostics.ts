@@ -83,9 +83,13 @@ export const persistDiagnosticSnapshot = internalMutation({
  * Throttled to at most once per minute per user.
  */
 export const runLibreDiagnostic = action({
-  args: { userId: v.id("users"), passwordHash: v.string() },
+  // Clerk token preferred; legacy creds tolerated during the migration. Strings so stale ids can't
+  // crash the validator (see cgmIngest.authConnection).
+  args: { userId: v.optional(v.string()), passwordHash: v.optional(v.string()) },
   handler: async (ctx, args): Promise<LibreDiagnosticSummary | { error: "unauthorized" | "not_libre" | "throttled" }> => {
+    const identity = await ctx.auth.getUserIdentity();
     const auth = await ctx.runQuery(internal.cgmIngest.authConnection, {
+      clerkSubject: identity?.subject,
       userId: args.userId,
       passwordHash: args.passwordHash,
     });
@@ -93,7 +97,7 @@ export const runLibreDiagnostic = action({
     if (auth.provider !== "libre") return { error: "not_libre" };
 
     const lastAt = await ctx.runQuery(internal.cgmDiagnostics.getLastDiagnosticAt, {
-      userId: args.userId,
+      userId: auth.userId,
     });
     const now = Date.now();
     if (lastAt && now - lastAt < MIN_DIAGNOSTIC_INTERVAL_MS) {
@@ -101,7 +105,7 @@ export const runLibreDiagnostic = action({
     }
 
     const target = await ctx.runQuery(internal.cgmIngest.getCredsAndSession, {
-      userId: args.userId,
+      userId: auth.userId,
       provider: "libre",
     });
     if (target.provider !== "libre") return { error: "not_libre" };
@@ -115,7 +119,7 @@ export const runLibreDiagnostic = action({
       if (login.ok) {
         session = login.session;
         await ctx.runMutation(internal.cgmIngest.updateLibreSession, {
-          userId: args.userId,
+          userId: auth.userId,
           token: session.token,
           libreApiBase: session.apiBase,
         });
@@ -125,7 +129,7 @@ export const runLibreDiagnostic = action({
     const summary = await runLibreDiagnosticFlow(creds, { existingSession: session });
 
     await ctx.runMutation(internal.cgmDiagnostics.persistDiagnosticSnapshot, {
-      userId: args.userId,
+      userId: auth.userId,
       now,
       summary,
     });

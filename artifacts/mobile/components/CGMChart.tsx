@@ -171,7 +171,13 @@ export function CGMChart({
 
   const H = chartHeight;
   const yAxisW = 40;
-  const plotW = Math.max(60, SCREEN_WIDTH - paddingHorizontal * 2 - yAxisW);
+  // Width comes from MEASURING the actual container, not from a screen-width snapshot: the old
+  // module-level Dimensions math overflowed iPad cards (portrait) — the plot ran under the y-axis
+  // legend and pushed it out of view — and never tracked rotation. The screen-width formula is
+  // only the pre-measurement first-frame fallback.
+  const [measuredW, setMeasuredW] = useState<number | null>(null);
+  const containerW = measuredW ?? SCREEN_WIDTH - paddingHorizontal * 2;
+  const plotW = Math.max(60, containerW - yAxisW);
   const plotY = (glucose: number) => chartValueToY(glucose, H);
 
   const now = Date.now();
@@ -331,7 +337,13 @@ export function CGMChart({
   const inView = (y: number) => y >= -0.5 && y <= H + 0.5;
 
   return (
-    <View style={styles.wrapper}>
+    <View
+      style={styles.wrapper}
+      onLayout={(e) => {
+        const w = Math.round(e.nativeEvent.layout.width);
+        if (w > 0) setMeasuredW((prev) => (prev === w ? prev : w));
+      }}
+    >
       {showRangeSelector && (
       <View style={styles.topRow}>
         <View style={styles.segment}>

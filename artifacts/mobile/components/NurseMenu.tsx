@@ -28,11 +28,14 @@ import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useProfilePhotoPicker } from "@/hooks/useProfilePhotoPicker";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
+import { convexErrorMessage } from "@/utils/convexError";
+import { useQuery } from "convex/react";
 import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import { SettingsModal } from "@/components/SettingsModal";
+import AccessCodeScanner from "@/components/AccessCodeScanner";
 
 interface Kid {
   code: string;
@@ -77,6 +80,7 @@ export default function NurseMenu() {
   const [kids, setKids] = useState<Kid[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
   const [adding, setAdding] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -109,19 +113,34 @@ export default function NurseMenu() {
     }
   }, []);
 
-  // Poll so a retired code drops its card, a schedule window opening/closing flips the reading, and
-  // fresh glucose appears — all without the nurse doing anything.
+  // LIVE subscription (Stage 2): a retired code drops its card, a schedule window opening/closing
+  // flips the reading, and fresh glucose appears — pushed by the server the moment it changes,
+  // replacing the old 45s poll. `refresh` stays for imperative moments (after add/remove).
+  const liveKids = useQuery(
+    api.caregiverAccounts.listCaregiverKids,
+    isCaregiverAccount && !isViewingLinkedPatient ? {} : "skip",
+  );
   useEffect(() => {
-    if (!isCaregiverAccount || isViewingLinkedPatient) return;
-    void refresh();
-    const id = setInterval(() => refresh(true), 45_000);
-    return () => clearInterval(id);
-  }, [isCaregiverAccount, isViewingLinkedPatient, refresh]);
+    if (liveKids) {
+      setKids(liveKids as Kid[]);
+      setLoading(false);
+    }
+  }, [liveKids]);
 
-  const submitCode = useCallback(async () => {
+  /** `codeOverride` lets the QR scanner submit its freshly-scanned code without a state round-trip. */
+  const submitCode = useCallback(async (codeOverride?: string) => {
     const acc = accountRef.current;
-    const code = codeInput.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
-    if (!acc?.convexUserId || code.length !== 8 || adding) return;
+    const code = (codeOverride ?? codeInput).trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+    if (!acc?.convexUserId || adding) return;
+    // Guide instead of silently ignoring: shorter input is usually the guardian's old 6-character
+    // caregiver code — this flow needs a Care Circle ACCESS code (8 characters).
+    if (code.length !== 8) {
+      Alert.alert(
+        "Check the code",
+        "Access codes are 8 characters. Ask the guardian to share an access code from their Dashboard's Care Circle section (the older 6-character caregiver code won't work here).",
+      );
+      return;
+    }
     setAdding(true);
     try {
       const res = await createConvexAuthClient().mutation(api.caregiverAccounts.addCaregiverCode, {
@@ -135,8 +154,7 @@ export default function NurseMenu() {
       await refresh(true);
       if (res.alreadyLinked) Alert.alert("Already added", `${res.patientName} is already on your list.`);
     } catch (e) {
-      const msg = e instanceof Error ? e.message.replace(/^\[.*?\]\s*/, "") : "Could not add that code.";
-      Alert.alert("Couldn't add code", msg);
+      Alert.alert("Couldn't add code", convexErrorMessage(e, "Could not add that code. Check it and try again."));
     } finally {
       setAdding(false);
     }
@@ -314,18 +332,29 @@ export default function NurseMenu() {
             <Text style={[styles.mdSub, { color: colors.textSecondary }]}>
               Enter the 8-character access code the child's guardian shared with you.
             </Text>
-            <TextInput
-              value={codeInput}
-              onChangeText={(t) => setCodeInput(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8))}
-              placeholder="Access code"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              autoFocus
-              maxLength={8}
-              style={[styles.mdInput, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border }]}
-              onSubmitEditing={submitCode}
-            />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TextInput
+                value={codeInput}
+                onChangeText={(t) => setCodeInput(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8))}
+                placeholder="Access code"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                autoFocus
+                maxLength={8}
+                style={[styles.mdInput, { flex: 1, backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border }]}
+                onSubmitEditing={() => submitCode()}
+              />
+              {/* Scan the guardian's QR instead of typing — fills the field AND submits by itself. */}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Scan access code QR"
+                style={({ pressed }) => [styles.scanBtn, { backgroundColor: COLORS.primary + "18", borderColor: COLORS.primary + "40", opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}); setScannerOpen(true); }}
+              >
+                <Feather name="camera" size={18} color={COLORS.primary} />
+              </Pressable>
+            </View>
             <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
               <Pressable
                 style={({ pressed }) => [styles.mdCancel, { borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
@@ -339,7 +368,7 @@ export default function NurseMenu() {
                   styles.mdAdd,
                   { backgroundColor: codeInput.length === 8 ? COLORS.primary : colors.backgroundTertiary, opacity: pressed ? 0.85 : 1 },
                 ]}
-                onPress={submitCode}
+                onPress={() => submitCode()}
               >
                 {adding ? <ActivityIndicator size="small" color="#fff" /> : (
                   <Text style={[styles.mdAddText, { color: codeInput.length === 8 ? "#fff" : colors.textMuted }]}>Add</Text>
@@ -349,6 +378,17 @@ export default function NurseMenu() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* QR scanner: on recognition it fills the field, closes itself, and submits automatically. */}
+      <AccessCodeScanner
+        visible={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScanned={(code) => {
+          setScannerOpen(false);
+          setCodeInput(code);
+          void submitCode(code);
+        }}
+      />
 
       <SettingsModal
         visible={settingsOpen}
@@ -398,6 +438,7 @@ const styles = StyleSheet.create({
   mdTitle: { fontSize: 18, fontWeight: "800" },
   mdSub: { fontSize: 13, fontWeight: "400", lineHeight: 19 },
   mdInput: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 18, fontWeight: "700", letterSpacing: 3, textAlign: "center" },
+  scanBtn: { width: 52, height: 52, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   mdCancel: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 13, alignItems: "center" },
   mdCancelText: { fontSize: 15, fontWeight: "600" },
   mdAdd: { flex: 1, borderRadius: 12, paddingVertical: 13, alignItems: "center" },

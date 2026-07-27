@@ -70,7 +70,14 @@ export default function LogHistory({
   const [chartCursorActive, setChartCursorActive] = useState(false);
 
   const { targetGlucose, cgmSyncSuccessTick } = useGlucose();
-  const { foodLog, insulinLog, logInsulinDose, alertPrefs, account } = useAuth();
+  const { foodLog, insulinLog, logInsulinDose, alertPrefs, account, caregiverSession, accessCodeRole, profile } = useAuth();
+
+  // Caregivers may view — and with the log grant, add — but NEVER edit or delete logs, regardless
+  // of permissions: nurse email accounts (accountRole "caregiver") and every caregiver access-code
+  // session (new-style codes carry accessCodeRole "caregiver"; legacy codes have none). A child
+  // code is the kid's own device and keeps today's behavior; guardians/co-guardians are unaffected.
+  const isCaregiverViewer =
+    profile?.accountRole === "caregiver" || (caregiverSession && accessCodeRole !== "child");
   const confirmLog = useCareLogConfirm();
   const myUserId = account?.convexUserId ?? null;
 
@@ -194,6 +201,7 @@ export default function LogHistory({
           foodLog={foodLog}
           insulinLog={insulinLog}
           myUserId={myUserId}
+          canEditLogs={!isCaregiverViewer}
           onCursorActiveChange={setChartCursorActive}
         />
       </ScrollView>
@@ -314,6 +322,7 @@ function DayView({
   foodLog,
   insulinLog,
   myUserId,
+  canEditLogs,
   onCursorActiveChange,
 }: {
   day: Date;
@@ -331,6 +340,8 @@ function DayView({
   foodLog: FoodLogEntry[];
   insulinLog: InsulinLogEntry[];
   myUserId: string | null;
+  /** False for caregiver viewers — hides the detail popup's Edit/Delete controls. */
+  canEditLogs: boolean;
   onCursorActiveChange?: (active: boolean) => void;
 }) {
   const isToday = dayOffset === 0;
@@ -435,7 +446,7 @@ function DayView({
           key={selectedLog.data.id}
           entry={selectedLog}
           colors={colors}
-          canEdit
+          canEdit={canEditLogs}
           onClose={() => setSelectedLog(null)}
         />
       )}

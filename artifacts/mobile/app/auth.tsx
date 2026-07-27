@@ -8,6 +8,7 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -22,6 +23,8 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import AccessCodeScanner from "@/components/AccessCodeScanner";
+import * as Haptics from "expo-haptics";
 
 type Mode = "signin" | "create";
 
@@ -29,7 +32,7 @@ export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const { scheme } = useTheme();
   const isDark = scheme !== "light";
-  const { createAccount, signIn, account, isLoading, enterCaregiverMode, enterDoctorMode } = useAuth();
+  const { createAccount, signIn, signInWithGoogle, verifyEmailCode, requestPasswordReset, resetPassword, account, isLoading, enterCaregiverMode, enterDoctorMode } = useAuth();
   const { resetGlucoseData } = useGlucose();
 
   const [mode, setMode] = useState<Mode>(account ? "signin" : "create");
@@ -38,10 +41,33 @@ export default function AuthScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Sub-flows layered over the main form: "verify" collects the sign-up code, "forgot" collects the
+  // reset code + a new password. Both are Clerk-driven.
+  const [subFlow, setSubFlow] = useState<"none" | "verify" | "forgot">("none");
+  const [codeInput, setCodeInput] = useState("");
+  const [resetPasswordInput, setResetPasswordInput] = useState("");
+  const [resetSent, setResetSent] = useState(false);
   const [showCaregiverEntry, setShowCaregiverEntry] = useState(false);
   const [caregiverCode, setCaregiverCode] = useState("");
   const [caregiverError, setCaregiverError] = useState("");
   const [caregiverSubmitting, setCaregiverSubmitting] = useState(false);
+  const [codeScannerOpen, setCodeScannerOpen] = useState(false);
+
+  /** Shared by the Enter button and the QR scanner (which passes its freshly-scanned code). */
+  const submitAccessCode = async (code: string) => {
+    if (code.length < 6 || caregiverSubmitting) return;
+    setCaregiverSubmitting(true);
+    try {
+      const ok = await enterCaregiverMode(code);
+      if (ok) {
+        router.replace("/(tabs)");
+      } else {
+        setCaregiverError("Invalid, expired, or out-of-schedule code. Ask the account owner for a caregiver code.");
+      }
+    } finally {
+      setCaregiverSubmitting(false);
+    }
+  };
   const [showDoctorEntry, setShowDoctorEntry] = useState(false);
   const [doctorCode, setDoctorCode] = useState("");
   const [doctorError, setDoctorError] = useState("");
@@ -81,7 +107,11 @@ export default function AuthScreen() {
       setIsSubmitting(true);
       try {
         resetGlucoseData();
-        await createAccount(trimmedEmail, password);
+        const res = await createAccount(trimmedEmail, password);
+        if (res.status === "needs_verification") {
+          setSubFlow("verify");
+          Alert.alert("Check your email", `We sent a verification code to ${trimmedEmail}.`);
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Could not create account. Please try again.";
         Alert.alert("Error", msg);
@@ -100,6 +130,62 @@ export default function AuthScreen() {
       } finally {
         setIsSubmitting(false);
       }
+    }
+  }
+
+  async function handleGoogle() {
+    setIsSubmitting(true);
+    try {
+      resetGlucoseData();
+      const ok = await signInWithGoogle();
+      // `false` also means "user closed the browser sheet", so stay quiet unless it truly failed.
+      if (!ok) setIsSubmitting(false);
+    } catch {
+      Alert.alert("Google sign-in failed", "Please try again, or use your email and password.");
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleVerifyCode() {
+    if (!codeInput.trim()) return;
+    setIsSubmitting(true);
+    try {
+      const ok = await verifyEmailCode(codeInput.trim());
+      if (!ok) Alert.alert("Incorrect code", "That code didn't work. Check your email and try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleSendReset() {
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail.includes("@")) {
+      Alert.alert("Enter your email", "Type the email address for your account first.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const ok = await requestPasswordReset(trimmedEmail);
+      // Deliberately identical messaging either way — never reveal whether an email is registered.
+      setResetSent(true);
+      Alert.alert("Check your email", `If an account exists for ${trimmedEmail}, we sent a reset code.`);
+      if (!ok) setResetSent(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleResetPassword() {
+    if (!codeInput.trim() || resetPasswordInput.length < 8) {
+      Alert.alert("Missing info", "Enter the emailed code and a new password (8+ characters).");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const ok = await resetPassword(codeInput.trim(), resetPasswordInput);
+      if (!ok) Alert.alert("Couldn't reset", "That code didn't work or has expired. Request a new one.");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -152,6 +238,25 @@ export default function AuthScreen() {
         </View>
 
         <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
+          {/* Google sits ABOVE the email form — it's the fastest path in, and the divider makes clear
+              the form below is the alternative rather than a required step. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Continue with Google"
+            disabled={isSubmitting}
+            onPress={handleGoogle}
+            style={({ pressed }) => [styles.googleBtn, { opacity: pressed || isSubmitting ? 0.75 : 1 }]}
+          >
+            <Text style={styles.googleG}>G</Text>
+            <Text style={styles.googleText}>Continue with Google</Text>
+          </Pressable>
+
+          <View style={styles.dividerRow}>
+            <View style={[styles.dividerLine, { backgroundColor: borderColor }]} />
+            <Text style={[styles.dividerText, { color: subtextColor }]}>or</Text>
+            <View style={[styles.dividerLine, { backgroundColor: borderColor }]} />
+          </View>
+
           <View style={[styles.tabRow, { backgroundColor: "rgba(255,255,255,0.06)", borderColor }]}>
             <Animated.View
               style={[
@@ -279,6 +384,21 @@ export default function AuthScreen() {
             )}
           </Pressable>
 
+          {mode === "signin" && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setCodeInput("");
+                setResetPasswordInput("");
+                setResetSent(false);
+                setSubFlow("forgot");
+              }}
+              style={styles.forgotBtn}
+            >
+              <Text style={[styles.forgotText, { color: subtextColor }]}>Forgot your password?</Text>
+            </Pressable>
+          )}
+
           {mode === "create" && (
             <Text style={[styles.disclaimer, { color: subtextColor }]}>
               Your data is stored securely on this device only.
@@ -357,6 +477,16 @@ export default function AuthScreen() {
                   maxLength={8}
                 />
                 <Text style={[styles.caregiverCounter, { color: "rgba(255,255,255,0.35)" }]}>{caregiverCode.length}</Text>
+                {/* Scan the QR shown on the sharer's device — fills the field and signs in itself. */}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Scan access code QR"
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.caregiverScanBtn, { opacity: pressed ? 0.6 : 1 }]}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setCodeScannerOpen(true); }}
+                >
+                  <Feather name="camera" size={17} color={COLORS.accent} />
+                </Pressable>
               </View>
               {caregiverError ? (
                 <Text style={[styles.caregiverError, { color: COLORS.danger }]}>{caregiverError}</Text>
@@ -371,19 +501,7 @@ export default function AuthScreen() {
                 <Pressable
                   style={[styles.caregiverSubmitBtn, { backgroundColor: caregiverCode.length >= 6 ? COLORS.accent : "rgba(255,255,255,0.12)", opacity: caregiverCode.length >= 6 ? 1 : 0.6 }]}
                   disabled={caregiverCode.length < 6 || caregiverSubmitting}
-                  onPress={async () => {
-                    setCaregiverSubmitting(true);
-                    try {
-                      const ok = await enterCaregiverMode(caregiverCode);
-                      if (ok) {
-                        router.replace("/(tabs)");
-                      } else {
-                        setCaregiverError("Invalid, expired, or out-of-schedule code. Ask the account owner for a caregiver code.");
-                      }
-                    } finally {
-                      setCaregiverSubmitting(false);
-                    }
-                  }}
+                  onPress={() => void submitAccessCode(caregiverCode)}
                 >
                   {caregiverSubmitting ? (
                     <ActivityIndicator color="#fff" size="small" />
@@ -446,6 +564,115 @@ export default function AuthScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Sub-flows. Both are Clerk-driven and layered over the form so the user never loses context. */}
+      <Modal visible={subFlow !== "none"} transparent animationType="fade" onRequestClose={() => setSubFlow("none")}>
+        <View style={styles.flowBackdrop}>
+          <View style={[styles.flowCard, { backgroundColor: cardBg, borderColor }]}>
+            {subFlow === "verify" ? (
+              <>
+                <Text style={[styles.flowTitle, { color: textColor }]}>Verify your email</Text>
+                <Text style={[styles.flowSub, { color: subtextColor }]}>
+                  Enter the code we sent to {email.trim().toLowerCase()} to finish creating your account.
+                </Text>
+                <TextInput
+                  style={[styles.flowInput, { backgroundColor: inputBg, borderColor, color: textColor }]}
+                  value={codeInput}
+                  onChangeText={setCodeInput}
+                  placeholder="6-digit code"
+                  placeholderTextColor={subtextColor}
+                  keyboardType="number-pad"
+                  autoFocus
+                />
+                <View style={styles.flowActions}>
+                  <Pressable
+                    style={[styles.flowBtn, { backgroundColor: inputBg }]}
+                    onPress={() => setSubFlow("none")}
+                    disabled={isSubmitting}
+                  >
+                    <Text style={[styles.flowBtnText, { color: subtextColor }]}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.flowBtn, { backgroundColor: COLORS.primary, opacity: isSubmitting ? 0.7 : 1 }]}
+                    onPress={handleVerifyCode}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={[styles.flowBtnText, { color: "#fff" }]}>Verify</Text>
+                    )}
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={[styles.flowTitle, { color: textColor }]}>Reset your password</Text>
+                <Text style={[styles.flowSub, { color: subtextColor }]}>
+                  {resetSent
+                    ? "Enter the code from your email and choose a new password."
+                    : `We'll email a reset code to ${email.trim().toLowerCase() || "your account"}.`}
+                </Text>
+                {resetSent && (
+                  <>
+                    <TextInput
+                      style={[styles.flowInput, { backgroundColor: inputBg, borderColor, color: textColor }]}
+                      value={codeInput}
+                      onChangeText={setCodeInput}
+                      placeholder="Reset code"
+                      placeholderTextColor={subtextColor}
+                      keyboardType="number-pad"
+                    />
+                    <TextInput
+                      style={[styles.flowInput, { backgroundColor: inputBg, borderColor, color: textColor }]}
+                      value={resetPasswordInput}
+                      onChangeText={setResetPasswordInput}
+                      placeholder="New password (8+ characters)"
+                      placeholderTextColor={subtextColor}
+                      secureTextEntry
+                    />
+                  </>
+                )}
+                <View style={styles.flowActions}>
+                  <Pressable
+                    style={[styles.flowBtn, { backgroundColor: inputBg }]}
+                    onPress={() => setSubFlow("none")}
+                    disabled={isSubmitting}
+                  >
+                    <Text style={[styles.flowBtnText, { color: subtextColor }]}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.flowBtn, { backgroundColor: COLORS.primary, opacity: isSubmitting ? 0.7 : 1 }]}
+                    onPress={resetSent ? handleResetPassword : handleSendReset}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={[styles.flowBtnText, { color: "#fff" }]}>
+                        {resetSent ? "Reset password" : "Send code"}
+                      </Text>
+                    )}
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* QR scanner for "Sign in with access code": on recognition it fills the field, closes
+          itself, and signs in automatically. */}
+      <AccessCodeScanner
+        visible={codeScannerOpen}
+        onClose={() => setCodeScannerOpen(false)}
+        onScanned={(code) => {
+          setCodeScannerOpen(false);
+          setCaregiverCode(code);
+          setCaregiverError("");
+          void submitAccessCode(code);
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -528,6 +755,38 @@ const styles = StyleSheet.create({
   },
   eyeBtn: { padding: 4 },
 
+  googleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    paddingVertical: 14,
+    marginBottom: 14,
+  },
+  googleG: { fontSize: 18, fontWeight: "800", color: "#4285F4" },
+  googleText: { fontSize: 15, fontWeight: "700", color: "#1F1F1F" },
+  dividerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 },
+  dividerLine: { flex: 1, height: 1 },
+  dividerText: { fontSize: 12, fontWeight: "500" },
+  forgotBtn: { alignItems: "center", paddingVertical: 12 },
+  forgotText: { fontSize: 13, fontWeight: "500", textDecorationLine: "underline" },
+  flowBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: 24 },
+  flowCard: { borderRadius: 20, borderWidth: 1, padding: 22, gap: 12 },
+  flowTitle: { fontSize: 18, fontWeight: "800" },
+  flowSub: { fontSize: 13, fontWeight: "400", lineHeight: 19 },
+  flowInput: {
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  flowActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  flowBtn: { flex: 1, borderRadius: 12, paddingVertical: 13, alignItems: "center", justifyContent: "center" },
+  flowBtnText: { fontSize: 14, fontWeight: "700" },
   submitBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -568,6 +827,7 @@ const styles = StyleSheet.create({
   caregiverInputWrap: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
   caregiverInput: { flex: 1, fontSize: 20, fontWeight: "700", letterSpacing: 4, textAlign: "center" },
   caregiverCounter: { fontSize: 12, fontWeight: "400" },
+  caregiverScanBtn: { paddingLeft: 8, paddingVertical: 2 },
   caregiverError: { fontSize: 12, fontWeight: "400", textAlign: "center" },
   caregiverBtns: { flexDirection: "row", gap: 10 },
   caregiverCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },

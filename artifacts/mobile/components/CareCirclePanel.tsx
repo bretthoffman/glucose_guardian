@@ -30,6 +30,8 @@ import type { CareAccess, CarePermissions } from "../../../convex/careSchedule";
 import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
+import { useQuery } from "convex/react";
+import { convexErrorMessage } from "@/utils/convexError";
 import { formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
 
 type AccessState = { state: "ok" | "before_window" | "outside_window" | "disabled"; nextStartMs?: number };
@@ -108,15 +110,9 @@ const VIEWER_PERMISSIONS: CarePermissions = {
 
 /** Convex surfaces server `throw new Error("msg")` inside a noisy wrapper — pull the message out. */
 function cleanConvexError(raw: unknown): string {
-  const text = raw instanceof Error ? raw.message : String(raw);
-  const marker = "Uncaught Error: ";
-  const at = text.indexOf(marker);
-  if (at >= 0) {
-    const rest = text.slice(at + marker.length);
-    const end = rest.indexOf(" at handler");
-    return (end >= 0 ? rest.slice(0, end) : rest).trim();
-  }
-  return "Something went wrong. Check your connection and try again.";
+  // Shared extractor: understands ConvexError data (the only form that survives prod redaction)
+  // plus the old dev-style message text.
+  return convexErrorMessage(raw, "Something went wrong. Check your connection and try again.");
 }
 
 function fmtClock(ms: number): string {
@@ -429,54 +425,37 @@ export default function CareCirclePanel({
   const targetPatientId = (circle?.patientUserId as Id<"users"> | undefined) ?? myUserId;
   const viewingOthersCircle = circle != null && myUserId != null && circle.patientUserId !== myUserId;
 
-  const refresh = useCallback(async (silent = false) => {
-    if (!account?.convexUserId) {
+  // ── LIVE circle state: subscriptions replace the old fetch-on-open/refresh-after-action model,
+  // which left the panel a stale snapshot — a directed invite's "pending" row never appeared (and
+  // the roster didn't update when the other device accepted seconds later). Resolve the shared
+  // anchor first (memberships say whose circle I belong to), then subscribe to that one merged
+  // circle; if it can't load (stale membership), fall back to my own so codes/invites stay
+  // manageable. Every device sees invite/accept/revoke changes the moment they commit. ──
+  const liveMemberships = useQuery(api.careCircle.myMemberships, myUserId ? {} : "skip");
+  const liveIncoming = useQuery(api.careCircle.incomingInvites, myUserId ? {} : "skip");
+  const liveAnchor = ((liveMemberships?.[0]?.patientUserId as Id<"users"> | undefined) ?? myUserId) as Id<"users"> | null;
+  const livePrimary = useQuery(
+    api.careCircle.getCircle,
+    myUserId && liveMemberships !== undefined && liveAnchor ? { patientUserId: liveAnchor } : "skip",
+  );
+  const liveFallback = useQuery(
+    api.careCircle.getCircle,
+    myUserId && livePrimary === null && liveAnchor !== myUserId ? { patientUserId: myUserId } : "skip",
+  );
+
+  useEffect(() => {
+    if (!myUserId) {
       setLoading(false);
       setError("Sign in with a Glucose Guardian account to use the Care Circle.");
       return;
     }
-    // Silent refreshes (after an action) update data in place — no full-panel spinner remount,
-    // which would blink the popup and jump the scroll back to the top.
-    if (!silent) setLoading(true);
-    setError("");
-    try {
-      const client = createConvexAuthClient();
-      const userId = account.convexUserId as Id<"users">;
-      // Resolve the shared anchor first (memberships tell me whose circle I belong to), then load
-      // that one merged circle — so a co-guardian and the owner see identical data.
-      const [m, inc] = await Promise.all([
-        client.query(api.careCircle.myMemberships, { userId, passwordHash: account.passwordHash }),
-        client.query(api.careCircle.incomingInvites, { userId, passwordHash: account.passwordHash }),
-      ]);
-      const memberships = m as MembershipRow[];
-      const anchor = (memberships[0]?.patientUserId as Id<"users"> | undefined) ?? userId;
-      let c = (await client.query(api.careCircle.getCircle, {
-        userId,
-        passwordHash: account.passwordHash,
-        patientUserId: anchor,
-      })) as CircleData | null;
-      // Never leave the panel blank: if the shared circle can't be loaded (e.g. a stale membership),
-      // fall back to my own circle so I can always manage codes and invites.
-      if (!c && anchor !== userId) {
-        c = (await client.query(api.careCircle.getCircle, {
-          userId,
-          passwordHash: account.passwordHash,
-          patientUserId: userId,
-        })) as CircleData | null;
-      }
-      setCircle(c);
-      setMemberships(memberships);
-      setIncoming(inc as IncomingInvite[]);
-    } catch {
-      setError("Could not load the care circle. Check your connection and try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [account?.convexUserId, account?.passwordHash]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (liveMemberships !== undefined) setMemberships(liveMemberships as MembershipRow[]);
+    if (liveIncoming !== undefined) setIncoming(liveIncoming as IncomingInvite[]);
+    if (livePrimary === undefined) return; // first snapshot still loading
+    if (livePrimary === null && liveAnchor !== myUserId && liveFallback === undefined) return; // fallback in flight
+    setCircle((livePrimary ?? liveFallback ?? null) as CircleData | null);
+    setLoading(false);
+  }, [myUserId, liveMemberships, liveIncoming, livePrimary, liveFallback, liveAnchor]);
 
   const runAction = useCallback(
     async (fn: (client: ReturnType<typeof createConvexAuthClient>, userId: Id<"users">, passwordHash: string) => Promise<void>) => {
@@ -485,7 +464,7 @@ export default function CareCirclePanel({
       try {
         const client = createConvexAuthClient();
         await fn(client, account.convexUserId as Id<"users">, account.passwordHash);
-        await refresh(true);
+        // The live subscriptions above pick up the result on their own — no manual refetch.
         // Re-anchor the whole app right away: joining/leaving a circle swaps which log pool and
         // owner-settings the account runs on, and that must not wait for the next 60s poll.
         void refreshCareMemberships();
@@ -495,7 +474,7 @@ export default function CareCirclePanel({
         setBusy(false);
       }
     },
-    [account?.convexUserId, account?.passwordHash, refresh, refreshCareMemberships],
+    [account?.convexUserId, account?.passwordHash, refreshCareMemberships],
   );
 
   /** Same-sensor discovery is a read-only query — no circle refresh, so the panel never blinks. */
@@ -567,8 +546,8 @@ export default function CareCirclePanel({
         <View style={[styles.errorBox, { backgroundColor: COLORS.dangerLight }]}>
           <Feather name="alert-circle" size={14} color={COLORS.danger} />
           <Text style={[styles.errorText, { color: COLORS.danger }]}>{error}</Text>
-          <Pressable onPress={() => refresh()}>
-            <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: 12 }}>Retry</Text>
+          <Pressable onPress={() => setError("")}>
+            <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: 12 }}>Dismiss</Text>
           </Pressable>
         </View>
       )}
@@ -592,8 +571,10 @@ export default function CareCirclePanel({
 
       {circle && (
         <>
-          {/* ── Child Access (kids have no account — they use a code on their own phone) ── */}
-          {isAdmin && (
+          {/* ── Child Access (kids have no account — they use a code on their own phone).
+              Hidden entirely for ADULT account types: an adult managing their own diabetes has no
+              kid — caregiver access codes cover everything they need to share. ── */}
+          {isAdmin && profile?.accountRole !== "adult" && (
             <View style={[styles.sectionBox, { borderTopColor: colors.separator }]}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Child Access</Text>
               <Text style={[styles.sectionSub, { color: colors.textMuted }]}>

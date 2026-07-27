@@ -10,8 +10,10 @@
  */
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { legacyAuthArgs, requireUserCompat, userCompat } from "./identity";
 import { careAccessAllowed, type CareAccess } from "./careSchedule";
 
 const FOOD_CAP = 200;
@@ -26,6 +28,10 @@ const foodEntryPayload = v.object({
   confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
   fromPhoto: v.boolean(),
   photoUri: v.optional(v.string()),
+  // Optional nutrition context (AI photo/lookup analysis) — carbs-only entries stay valid.
+  fatGrams: v.optional(v.number()),
+  proteinGrams: v.optional(v.number()),
+  absorption: v.optional(v.union(v.literal("fast"), v.literal("medium"), v.literal("slow"))),
 });
 
 const insulinEntryPayload = v.object({
@@ -41,15 +47,6 @@ const insulinEntryPayload = v.object({
 });
 
 // ─── auth helpers (kept local; small + self-contained) ───────────────────────────────────────
-
-async function assertPatientAuth(
-  ctx: QueryCtx | MutationCtx,
-  userId: Id<"users">,
-  passwordHash: string,
-): Promise<boolean> {
-  const user = await ctx.db.get(userId);
-  return user !== null && user.passwordHash === passwordHash;
-}
 
 function normalizeCareCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
@@ -199,6 +196,8 @@ async function upsertFood(
   patientUserId: Id<"users">,
   auth: WriteAuth,
   entry: typeof foodEntryPayload.type,
+  /** Set when the write came from an access-code session, so that device isn't notified of its own log. */
+  actorCode?: string,
 ) {
   const existing = await ctx.db
     .query("careFoodLogs")
@@ -215,6 +214,34 @@ async function upsertFood(
     ...entry,
   });
   await pruneFood(ctx, patientUserId);
+  await notifyCircleOfLog(ctx, patientUserId, auth, actorCode, {
+    kind: "food",
+    carbs: entry.estimatedCarbs,
+    foodName: entry.foodName,
+  });
+}
+
+/**
+ * Tell the rest of the circle someone logged something — the push that arrives with the app closed.
+ * Scheduled (not awaited inline) so the write stays fast and a push failure can't fail the log. The
+ * actor is excluded: you don't get notified about your own entry. Duplicate (idempotent) writes
+ * return above, so a retry never re-notifies.
+ */
+async function notifyCircleOfLog(
+  ctx: MutationCtx,
+  patientUserId: Id<"users">,
+  auth: WriteAuth,
+  actorCode: string | undefined,
+  detail: { kind: "food" | "insulin"; units?: number; carbs?: number; foodName?: string },
+) {
+  await ctx.scheduler.runAfter(0, internal.push.notifyCareLog, {
+    patientUserId,
+    authorName: auth.authorName,
+    patientName: await patientDisplayName(ctx, patientUserId),
+    excludeUserId: auth.authorUserId,
+    excludeCode: actorCode,
+    ...detail,
+  });
 }
 
 async function upsertInsulin(
@@ -222,6 +249,7 @@ async function upsertInsulin(
   patientUserId: Id<"users">,
   auth: WriteAuth,
   entry: typeof insulinEntryPayload.type,
+  actorCode?: string,
 ) {
   const existing = await ctx.db
     .query("careInsulinLogs")
@@ -238,6 +266,7 @@ async function upsertInsulin(
     ...entry,
   });
   await pruneInsulin(ctx, patientUserId);
+  await notifyCircleOfLog(ctx, patientUserId, auth, actorCode, { kind: "insulin", units: entry.units });
 }
 
 /**
@@ -287,6 +316,9 @@ export async function copyBucketLogs(
       confidence: row.confidence,
       fromPhoto: row.fromPhoto,
       ...(row.photoUri != null ? { photoUri: row.photoUri } : {}),
+      ...(row.fatGrams != null ? { fatGrams: row.fatGrams } : {}),
+      ...(row.proteinGrams != null ? { proteinGrams: row.proteinGrams } : {}),
+      ...(row.absorption != null ? { absorption: row.absorption } : {}),
     });
   }
 
@@ -329,35 +361,33 @@ export async function copyBucketLogs(
 
 export const addFoodLog = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     patientUserId: v.id("users"),
     entry: foodEntryPayload,
   },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     // "Log to myself" lands in the caller's circle bucket, so a co-guardian's entry reaches everyone.
     const patientUserId =
-      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
-    const auth = await resolveAccountWriteAuth(ctx, args.userId, patientUserId);
-    if (!auth) throw new Error("Not allowed to log for this patient");
+      args.patientUserId === user._id ? await circleBucketFor(ctx, user._id) : args.patientUserId;
+    const auth = await resolveAccountWriteAuth(ctx, user._id, patientUserId);
+    if (!auth) throw new ConvexError("Not allowed to log for this patient");
     await upsertFood(ctx, patientUserId, auth, args.entry);
   },
 });
 
 export const addInsulinLog = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     patientUserId: v.id("users"),
     entry: insulinEntryPayload,
   },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const patientUserId =
-      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
-    const auth = await resolveAccountWriteAuth(ctx, args.userId, patientUserId);
-    if (!auth) throw new Error("Not allowed to log for this patient");
+      args.patientUserId === user._id ? await circleBucketFor(ctx, user._id) : args.patientUserId;
+    const auth = await resolveAccountWriteAuth(ctx, user._id, patientUserId);
+    if (!auth) throw new ConvexError("Not allowed to log for this patient");
     await upsertInsulin(ctx, patientUserId, auth, args.entry);
   },
 });
@@ -365,18 +395,17 @@ export const addInsulinLog = mutation({
 /** Idempotent bulk import — used once to migrate a device's local AsyncStorage logs to the cloud. */
 export const importLogs = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     patientUserId: v.id("users"),
     food: v.array(foodEntryPayload),
     insulin: v.array(insulinEntryPayload),
   },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const patientUserId =
-      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
-    const auth = await resolveAccountWriteAuth(ctx, args.userId, patientUserId);
-    if (!auth) throw new Error("Not allowed to log for this patient");
+      args.patientUserId === user._id ? await circleBucketFor(ctx, user._id) : args.patientUserId;
+    const auth = await resolveAccountWriteAuth(ctx, user._id, patientUserId);
+    if (!auth) throw new ConvexError("Not allowed to log for this patient");
     for (const entry of args.food) await upsertFood(ctx, patientUserId, auth, entry);
     for (const entry of args.insulin) await upsertInsulin(ctx, patientUserId, auth, entry);
   },
@@ -404,7 +433,7 @@ async function viaCodeWriteAuth(
   authorUserId: Id<"users"> | undefined,
   passwordHash: string | undefined,
 ): Promise<WriteAuth> {
-  if (authorUserId && passwordHash && (await assertPatientAuth(ctx, authorUserId, passwordHash))) {
+  if (authorUserId && (await userCompat(ctx, { userId: authorUserId, passwordHash }))) {
     return { authorUserId, authorName: await guardianDisplayName(ctx, authorUserId) };
   }
   return { authorName: await codeAuthorName(ctx, row) };
@@ -420,10 +449,10 @@ export const addFoodLogViaCode = mutation({
   },
   handler: async (ctx, args) => {
     const row = await resolveActiveAccessCode(ctx, args.code);
-    if (!row || !row.permissions.log) throw new Error("This code cannot add logs");
-    if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new Error("Outside this code's schedule");
+    if (!row || !row.permissions.log) throw new ConvexError("This code cannot add logs");
+    if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new ConvexError("Outside this code's schedule");
     const auth = await viaCodeWriteAuth(ctx, row, args.authorUserId, args.passwordHash);
-    await upsertFood(ctx, row.patientUserId, auth, args.entry);
+    await upsertFood(ctx, row.patientUserId, auth, args.entry, row.code);
   },
 });
 
@@ -436,10 +465,10 @@ export const addInsulinLogViaCode = mutation({
   },
   handler: async (ctx, args) => {
     const row = await resolveActiveAccessCode(ctx, args.code);
-    if (!row || !row.permissions.log) throw new Error("This code cannot add logs");
-    if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new Error("Outside this code's schedule");
+    if (!row || !row.permissions.log) throw new ConvexError("This code cannot add logs");
+    if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new ConvexError("Outside this code's schedule");
     const auth = await viaCodeWriteAuth(ctx, row, args.authorUserId, args.passwordHash);
-    await upsertInsulin(ctx, row.patientUserId, auth, args.entry);
+    await upsertInsulin(ctx, row.patientUserId, auth, args.entry, row.code);
   },
 });
 
@@ -461,7 +490,9 @@ function mapFood(
   row: {
     clientId: string; timestamp: string; foodName: string; estimatedCarbs: number;
     insulinUnits: number; confidence: "high" | "medium" | "low"; fromPhoto: boolean;
-    photoUri?: string; authorUserId?: string; authorName: string; edited?: boolean;
+    photoUri?: string; fatGrams?: number; proteinGrams?: number;
+    absorption?: "fast" | "medium" | "slow";
+    authorUserId?: string; authorName: string; edited?: boolean;
   },
   liveNames: Map<string, string>,
 ) {
@@ -474,6 +505,9 @@ function mapFood(
     confidence: row.confidence,
     fromPhoto: row.fromPhoto,
     photoUri: row.photoUri,
+    fatGrams: row.fatGrams,
+    proteinGrams: row.proteinGrams,
+    absorption: row.absorption,
     authorUserId: row.authorUserId,
     authorName: bylineFor(row, liveNames),
     edited: row.edited,
@@ -537,15 +571,16 @@ async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
 
 /** Merged authored logs for a patient — patient themselves or an authorized co-guardian. */
 export const listLogs = query({
-  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users") },
+  args: { ...legacyAuthArgs, patientUserId: v.id("users") },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return null;
+    const user = await userCompat(ctx, args);
+    if (!user) return null;
     // A member asking for "my logs" is served the circle's pool. If their grant/schedule currently
     // blocks viewing it, they get EMPTY logs — never their stale pre-link private bucket, which
     // would silently mislead the dose calculator.
     const patientUserId =
-      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
-    if (!(await resolveAccountReadAuth(ctx, args.userId, patientUserId))) {
+      args.patientUserId === user._id ? await circleBucketFor(ctx, user._id) : args.patientUserId;
+    if (!(await resolveAccountReadAuth(ctx, user._id, patientUserId))) {
       if (patientUserId !== args.patientUserId) return { foodLog: [], insulinLog: [] };
       return null;
     }
@@ -572,12 +607,12 @@ async function resolveClearAuth(
 }
 
 export const clearFood = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users") },
+  args: { ...legacyAuthArgs, patientUserId: v.id("users") },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const patientUserId =
-      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
-    if (!(await resolveClearAuth(ctx, args.userId, patientUserId))) throw new Error("Not allowed");
+      args.patientUserId === user._id ? await circleBucketFor(ctx, user._id) : args.patientUserId;
+    if (!(await resolveClearAuth(ctx, user._id, patientUserId))) throw new ConvexError("Not allowed");
     const rows = await ctx.db
       .query("careFoodLogs")
       .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
@@ -587,12 +622,12 @@ export const clearFood = mutation({
 });
 
 export const clearInsulin = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users") },
+  args: { ...legacyAuthArgs, patientUserId: v.id("users") },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const patientUserId =
-      args.patientUserId === args.userId ? await circleBucketFor(ctx, args.userId) : args.patientUserId;
-    if (!(await resolveClearAuth(ctx, args.userId, patientUserId))) throw new Error("Not allowed");
+      args.patientUserId === user._id ? await circleBucketFor(ctx, user._id) : args.patientUserId;
+    if (!(await resolveClearAuth(ctx, user._id, patientUserId))) throw new ConvexError("Not allowed");
     const rows = await ctx.db
       .query("careInsulinLogs")
       .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
@@ -664,52 +699,55 @@ async function patchInsulinRow(ctx: MutationCtx, row: NonNullable<Awaited<Return
 }
 
 /** Resolve the circle bucket + write auth for an account-authorized per-entry edit/delete. */
-async function accountEntryAuth(ctx: MutationCtx, userId: Id<"users">, passwordHash: string, patientUserIdArg: Id<"users">): Promise<Id<"users">> {
-  if (!(await assertPatientAuth(ctx, userId, passwordHash))) throw new Error("Unauthorized");
+async function accountEntryAuth(ctx: MutationCtx, userId: Id<"users">, patientUserIdArg: Id<"users">): Promise<Id<"users">> {
   const patientUserId = patientUserIdArg === userId ? await circleBucketFor(ctx, userId) : patientUserIdArg;
-  if (!(await resolveAccountWriteAuth(ctx, userId, patientUserId))) throw new Error("Not allowed to edit this log");
+  if (!(await resolveAccountWriteAuth(ctx, userId, patientUserId))) throw new ConvexError("Not allowed to edit this log");
   return patientUserId;
 }
 
 /** Resolve the patient bucket for an access-code per-entry edit/delete (requires the log grant). */
 async function codeEntryAuth(ctx: MutationCtx, code: string): Promise<Id<"users">> {
   const row = await resolveActiveAccessCode(ctx, code);
-  if (!row || !row.permissions.log) throw new Error("This code cannot edit logs");
-  if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new Error("Outside this code's schedule");
+  if (!row || !row.permissions.log) throw new ConvexError("This code cannot edit logs");
+  if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new ConvexError("Outside this code's schedule");
   return row.patientUserId;
 }
 
 export const deleteFoodLog = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users"), clientId: v.string() },
+  args: { ...legacyAuthArgs, patientUserId: v.id("users"), clientId: v.string() },
   handler: async (ctx, args) => {
-    const patientUserId = await accountEntryAuth(ctx, args.userId, args.passwordHash, args.patientUserId);
+    const user = await requireUserCompat(ctx, args);
+    const patientUserId = await accountEntryAuth(ctx, user._id, args.patientUserId);
     const row = await findFoodRow(ctx, patientUserId, args.clientId);
     if (row) await ctx.db.delete(row._id);
   },
 });
 
 export const deleteInsulinLog = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users"), clientId: v.string() },
+  args: { ...legacyAuthArgs, patientUserId: v.id("users"), clientId: v.string() },
   handler: async (ctx, args) => {
-    const patientUserId = await accountEntryAuth(ctx, args.userId, args.passwordHash, args.patientUserId);
+    const user = await requireUserCompat(ctx, args);
+    const patientUserId = await accountEntryAuth(ctx, user._id, args.patientUserId);
     const row = await findInsulinRow(ctx, patientUserId, args.clientId);
     if (row) await ctx.db.delete(row._id);
   },
 });
 
 export const updateFoodLog = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users"), clientId: v.string(), patch: foodEditPatch },
+  args: { ...legacyAuthArgs, patientUserId: v.id("users"), clientId: v.string(), patch: foodEditPatch },
   handler: async (ctx, args) => {
-    const patientUserId = await accountEntryAuth(ctx, args.userId, args.passwordHash, args.patientUserId);
+    const user = await requireUserCompat(ctx, args);
+    const patientUserId = await accountEntryAuth(ctx, user._id, args.patientUserId);
     const row = await findFoodRow(ctx, patientUserId, args.clientId);
     if (row) await patchFoodRow(ctx, row, args.patch);
   },
 });
 
 export const updateInsulinLog = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), patientUserId: v.id("users"), clientId: v.string(), patch: insulinEditPatch },
+  args: { ...legacyAuthArgs, patientUserId: v.id("users"), clientId: v.string(), patch: insulinEditPatch },
   handler: async (ctx, args) => {
-    const patientUserId = await accountEntryAuth(ctx, args.userId, args.passwordHash, args.patientUserId);
+    const user = await requireUserCompat(ctx, args);
+    const patientUserId = await accountEntryAuth(ctx, user._id, args.patientUserId);
     const row = await findInsulinRow(ctx, patientUserId, args.clientId);
     if (row) await patchInsulinRow(ctx, row, args.patch);
   },

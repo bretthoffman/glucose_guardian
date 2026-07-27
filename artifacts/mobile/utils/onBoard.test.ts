@@ -52,13 +52,21 @@ describe("insulinEntryDiaMin", () => {
 });
 
 describe("computeActiveInsulin", () => {
-  it("decays linearly over the DIA", () => {
-    const log = [insulinEntry({ units: 4, timestamp: minutesAgo(120) })]; // halfway through 240m
+  it("decays along the curvilinear activity curve (less remaining than linear past the peak)", () => {
+    // Halfway through a 240m DIA: the bilinear curve (peak at 72m) has delivered ~64% of the
+    // action, leaving R(120) = (240−120)² ÷ ((240−72)·240) ≈ 0.357 → 4u ≈ 1.43u (linear said 2u).
+    const log = [insulinEntry({ units: 4, timestamp: minutesAgo(120) })];
     const iob = computeActiveInsulin(log, NOW);
-    expect(iob.totalUnits).toBe(2);
+    expect(iob.totalUnits).toBe(1.43);
     expect(iob.doseCount).toBe(1);
     expect(iob.lastDoseUnits).toBe(4);
     expect(iob.lastDoseAgeMin).toBe(120);
+  });
+
+  it("reports MORE remaining than linear before the activity peak", () => {
+    // 30m into a 240m DIA (peak 72m): delivered = 30² ÷ (72·240) ≈ 5.2% → R ≈ 0.948 (linear: 0.875).
+    const log = [insulinEntry({ units: 4, timestamp: minutesAgo(30) })];
+    expect(computeActiveInsulin(log, NOW).totalUnits).toBeCloseTo(3.79, 2);
   });
 
   it("drops doses past their DIA and ignores basal entries", () => {
@@ -73,11 +81,11 @@ describe("computeActiveInsulin", () => {
 
   it("sums multiple active doses and reports the newest", () => {
     const log = [
-      insulinEntry({ id: "a", units: 2, timestamp: minutesAgo(60) }),  // 2 × (1 − 60/240)  = 1.5
-      insulinEntry({ id: "b", units: 4, timestamp: minutesAgo(180) }), // 4 × (1 − 180/240) = 1.0
+      insulinEntry({ id: "a", units: 2, timestamp: minutesAgo(60) }),  // R(60) ≈ 0.792 → 1.58
+      insulinEntry({ id: "b", units: 4, timestamp: minutesAgo(180) }), // R(180) ≈ 0.089 → 0.36
     ];
     const iob = computeActiveInsulin(log, NOW);
-    expect(iob.totalUnits).toBe(2.5);
+    expect(iob.totalUnits).toBe(1.94);
     expect(iob.doseCount).toBe(2);
     expect(iob.lastDoseUnits).toBe(2);
     expect(iob.lastDoseAgeMin).toBe(60);

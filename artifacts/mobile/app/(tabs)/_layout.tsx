@@ -10,6 +10,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { T, withAlpha, type ThemeColors } from "@/constants/theme";
 import AccessLockScreen from "@/components/AccessLockScreen";
 import NurseMenu from "@/components/NurseMenu";
+import EmergencyWaitPrompt from "@/components/EmergencyWaitPrompt";
 
 // Derive the tab-bar props type from expo-router's Tabs so we don't import @react-navigation directly
 // (it isn't hoisted in this workspace). VISUAL ONLY — navigation behavior uses the standard pattern.
@@ -121,6 +122,8 @@ export default function TabLayout() {
       <NurseMenu />
       {/* Out-of-schedule / removed-access lock — overlays the tabs for caregiver + viewer sessions. */}
       <AccessLockScreen />
+      {/* Adult wait-window "confirm you are okay" prompt — mounted here so it fires on any tab. */}
+      <EmergencyWaitPrompt />
     </>
   );
 }
@@ -139,6 +142,9 @@ const makeStyles = (c: ThemeColors, isDark: boolean) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     width: "100%",
+    // On iPad the bar would otherwise stretch the full screen width, leaving 5 tiny icons marooned in
+    // a very wide pill. `wrap` already centers, so capping the width is enough. No-op on phones.
+    maxWidth: T.layout.contentMaxWidth,
     backgroundColor: withAlpha(c.card, 0.96),
     borderRadius: T.radius.nav,
     borderWidth: 1,

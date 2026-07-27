@@ -11,6 +11,8 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY } from "@/constants/storage-keys";
 import { useAuth } from "@/context/AuthContext";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
+import { MEAL_BUCKETS, normalizeDoseSettingsByTime, type DoseSettingsByTime } from "@/utils/doseSettings";
+import { useQuery } from "convex/react";
 
 export interface GlucoseEntry {
   glucose: number;
@@ -30,9 +32,12 @@ export interface GlucoseContextType {
   carbRatio: number;
   targetGlucose: number;
   correctionFactor: number;
+  /** Optional per-meal-window overrides of carbRatio/correctionFactor (undefined = base only). */
+  doseSettingsByTime: DoseSettingsByTime | undefined;
   setCarbRatio: (v: number) => void;
   setTargetGlucose: (v: number) => void;
   setCorrectionFactor: (v: number) => void;
+  setDoseSettingsByTime: (v: DoseSettingsByTime | undefined) => void;
   saveFormula: (carbRatio: number, targetGlucose: number, correctionFactor: number) => void;
   /** Incremented after each successful CGM sync (Convex status ok). Transient UI signals only. */
   cgmSyncSuccessTick: number;
@@ -43,6 +48,13 @@ const GlucoseContext = createContext<GlucoseContextType | null>(null);
 
 const STORAGE_KEY = GLUCOSE_HISTORY_STORAGE_KEY;
 const SETTINGS_KEY = GLUCOSE_SETTINGS_STORAGE_KEY;
+
+/** Key-order-stable fingerprint so the profile-backfill diff can't ping-pong on object ordering. */
+function canonicalDoseSettingsByTime(bt: DoseSettingsByTime | undefined | null): string {
+  const n = normalizeDoseSettingsByTime(bt ?? undefined);
+  if (!n) return "";
+  return MEAL_BUCKETS.map((b) => `${b}:${n[b]?.carbRatio ?? ""},${n[b]?.correctionFactor ?? ""}`).join("|");
+}
 
 function toConvexGlucosePayload(e: GlucoseEntry) {
   const payload: {
@@ -102,6 +114,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
   const [carbRatio, setCarbRatioState] = useState(15);
   const [targetGlucose, setTargetGlucoseState] = useState(120);
   const [correctionFactor, setCorrectionFactorState] = useState(50);
+  const [doseSettingsByTime, setDoseSettingsByTimeState] = useState<DoseSettingsByTime | undefined>(undefined);
   const [cgmSyncSuccessTick, setCgmSyncSuccessTick] = useState(0);
 
   const notifyCgmSyncSuccess = useCallback(() => {
@@ -158,6 +171,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
           if (s.carbRatio) setCarbRatioState(s.carbRatio);
           if (s.targetGlucose) setTargetGlucoseState(s.targetGlucose);
           if (s.correctionFactor) setCorrectionFactorState(s.correctionFactor);
+          if (s.doseSettingsByTime) setDoseSettingsByTimeState(normalizeDoseSettingsByTime(s.doseSettingsByTime));
         }
       } catch {}
       setIsLoading(false);
@@ -179,6 +193,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
           if (typeof s.carbRatio === "number") setCarbRatioState(s.carbRatio);
           if (typeof s.targetGlucose === "number") setTargetGlucoseState(s.targetGlucose);
           if (typeof s.correctionFactor === "number") setCorrectionFactorState(s.correctionFactor);
+          setDoseSettingsByTimeState(normalizeDoseSettingsByTime(s.doseSettingsByTime as DoseSettingsByTime | undefined));
         } catch {
           /* ignore */
         }
@@ -186,6 +201,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
         setCarbRatioState(15);
         setTargetGlucoseState(120);
         setCorrectionFactorState(50);
+        setDoseSettingsByTimeState(undefined);
       }
     })();
     return () => {
@@ -207,14 +223,35 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     if (
       profile.carbRatio !== carbRatio ||
       profile.targetGlucose !== targetGlucose ||
-      profile.correctionFactor !== correctionFactor
+      profile.correctionFactor !== correctionFactor ||
+      canonicalDoseSettingsByTime(profile.doseSettingsByTime) !== canonicalDoseSettingsByTime(doseSettingsByTime)
     ) {
-      void updateProfile({ carbRatio, targetGlucose, correctionFactor });
+      void updateProfile({ carbRatio, targetGlucose, correctionFactor, doseSettingsByTime });
     }
   }, [
     authLoading, isLoading, viewingPatientId, nurseViewCode, caregiverSession, isCircleMember,
-    isSignedIn, account?.convexUserId, profile, carbRatio, targetGlucose, correctionFactor, updateProfile,
+    isSignedIn, account?.convexUserId, profile, carbRatio, targetGlucose, correctionFactor, doseSettingsByTime, updateProfile,
   ]);
+
+  // ── LIVE readings (Stage 2): prod ingestion (the every-minute cron) inserts readings server-side;
+  // this subscription streams them into the app the moment they land — no pull-to-sync needed for
+  // freshness. Merge (not replace) so local/manual entries not yet uploaded are never dropped, and
+  // empty server state never wipes a local seed (the one-shot hydrate below handles first upload).
+  const liveReadingsActive = !authLoading && isSignedIn && !!account?.convexUserId && !viewingPatientId;
+  const liveReadings = useQuery(api.patientGlucose.listRecent, liveReadingsActive ? { limit: 300 } : "skip");
+  useEffect(() => {
+    if (!liveReadingsActive || !liveReadings || liveReadings.length === 0) return;
+    const remoteEntries = liveReadings.map(normalizeRemoteEntry);
+    setHistory((prev) => {
+      const byTs = new Map(prev.map((e) => [e.timestamp, e]));
+      for (const e of remoteEntries) byTs.set(e.timestamp, e);
+      const next = Array.from(byTs.values())
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+        .slice(-300);
+      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, [liveReadings, liveReadingsActive]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -383,6 +420,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     if (typeof profile.carbRatio === "number") setCarbRatioState(profile.carbRatio);
     if (typeof profile.targetGlucose === "number") setTargetGlucoseState(profile.targetGlucose);
     if (typeof profile.correctionFactor === "number") setCorrectionFactorState(profile.correctionFactor);
+    setDoseSettingsByTimeState(normalizeDoseSettingsByTime(profile.doseSettingsByTime));
     if (isCircleMember) {
       AsyncStorage.getItem(SETTINGS_KEY)
         .then((s) => {
@@ -394,12 +432,13 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
               ...(typeof profile.carbRatio === "number" ? { carbRatio: profile.carbRatio } : {}),
               ...(typeof profile.targetGlucose === "number" ? { targetGlucose: profile.targetGlucose } : {}),
               ...(typeof profile.correctionFactor === "number" ? { correctionFactor: profile.correctionFactor } : {}),
+              doseSettingsByTime: normalizeDoseSettingsByTime(profile.doseSettingsByTime) ?? null,
             }),
           );
         })
         .catch(() => {});
     }
-  }, [caregiverSession, caregiverCloudCode, viewingPatientId, isCircleMember, profile?.carbRatio, profile?.targetGlucose, profile?.correctionFactor]);
+  }, [caregiverSession, caregiverCloudCode, viewingPatientId, isCircleMember, profile?.carbRatio, profile?.targetGlucose, profile?.correctionFactor, profile?.doseSettingsByTime]);
 
   const addReading = useCallback(
     (entry: GlucoseEntry) => {
@@ -448,21 +487,20 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  /**
+   * LOCAL-only reset, run on the auth screen before an account change. The remote `clearAll` that
+   * used to live here was both wrong and noisy post-Clerk: it fired while unauthenticated (console
+   * Server Errors on every sign-in attempt) and it targeted whichever account was PREVIOUSLY on the
+   * device — a destructive cross-account hazard. A brand-new account's cloud is empty, and an
+   * existing account's cloud readings must never be cleared by merely signing in.
+   */
   const resetGlucoseData = useCallback(() => {
     setHistory([]);
     setCarbRatioState(15);
     setTargetGlucoseState(120);
     setCorrectionFactorState(50);
+    setDoseSettingsByTimeState(undefined);
     AsyncStorage.multiRemove([STORAGE_KEY, SETTINGS_KEY]).catch(() => {});
-    const acc = accountRef.current;
-    if (acc?.convexUserId) {
-      void createConvexAuthClient()
-        .mutation(api.patientGlucose.clearAll, {
-          userId: acc.convexUserId as Id<"users">,
-          passwordHash: acc.passwordHash,
-        })
-        .catch(() => {});
-    }
   }, []);
 
   const setCarbRatio = useCallback((v: number) => {
@@ -491,6 +529,17 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
       .then((s) => {
         const curr = s ? JSON.parse(s) : {};
         return AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...curr, correctionFactor: v }));
+      })
+      .catch(() => {});
+  }, []);
+
+  const setDoseSettingsByTime = useCallback((v: DoseSettingsByTime | undefined) => {
+    const normalized = normalizeDoseSettingsByTime(v);
+    setDoseSettingsByTimeState(normalized);
+    AsyncStorage.getItem(SETTINGS_KEY)
+      .then((s) => {
+        const curr = s ? JSON.parse(s) : {};
+        return AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...curr, doseSettingsByTime: normalized ?? null }));
       })
       .catch(() => {});
   }, []);
@@ -525,9 +574,11 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
         carbRatio,
         targetGlucose,
         correctionFactor,
+        doseSettingsByTime,
         setCarbRatio,
         setTargetGlucose,
         setCorrectionFactor,
+        setDoseSettingsByTime,
         saveFormula,
         cgmSyncSuccessTick,
         notifyCgmSyncSuccess,

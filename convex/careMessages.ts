@@ -19,22 +19,15 @@
  */
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { userCompat } from "./identity";
 import { careAccessAllowed, type CareAccess } from "./careSchedule";
 
 const MAX_TEXT = 1000;
 
 // ─── local auth / identity helpers (same pattern as careLogs.ts) ─────────────────────────────
-
-async function assertPatientAuth(
-  ctx: QueryCtx | MutationCtx,
-  userId: Id<"users">,
-  passwordHash: string,
-): Promise<boolean> {
-  const user = await ctx.db.get(userId);
-  return user !== null && user.passwordHash === passwordHash;
-}
 
 function normalizeCareCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
@@ -173,12 +166,13 @@ async function resolveViewer(
     return { key: codeKey(row.code), patientUserId: row.patientUserId };
   }
   // Guardian endpoint — must be the owner or an active co-guardian of patientUserId.
-  if (args.userId && args.passwordHash && args.patientUserId) {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return null;
-    if (args.userId !== args.patientUserId && !(await isActiveCoGuardian(ctx, args.patientUserId, args.userId))) {
+  if (args.patientUserId) {
+    const user = await userCompat(ctx, args);
+    if (!user) return null;
+    if (user._id !== args.patientUserId && !(await isActiveCoGuardian(ctx, args.patientUserId, user._id))) {
       return null;
     }
-    return { key: guardianKey(args.userId), patientUserId: args.patientUserId };
+    return { key: guardianKey(user._id), patientUserId: args.patientUserId };
   }
   return null;
 }
@@ -275,26 +269,26 @@ export const sendMessage = mutation({
   args: { ...viewerArgs, threadKey: v.string(), text: v.string() },
   handler: async (ctx, args) => {
     const viewer = await resolveViewer(ctx, args);
-    if (!viewer) throw new Error("Messaging unavailable");
+    if (!viewer) throw new ConvexError("Messaging unavailable");
 
     const eps = args.threadKey.split("|");
-    if (eps.length !== 2 || !eps.includes(viewer.key)) throw new Error("Not your conversation");
+    if (eps.length !== 2 || !eps.includes(viewer.key)) throw new ConvexError("Not your conversation");
     const other = eps[0] === viewer.key ? eps[1] : eps[0];
-    if (other === viewer.key) throw new Error("Invalid conversation");
+    if (other === viewer.key) throw new ConvexError("Invalid conversation");
 
     // The other endpoint must still be a current member of this circle.
     const codes = await activeCircleCodes(ctx, viewer.patientUserId);
     if (isGuardianKey(other)) {
       const guardianIds = await circleGuardianIds(ctx, viewer.patientUserId);
       if (!guardianIds.includes(keyValue(other) as Id<"users">)) {
-        throw new Error("That person is no longer in this circle");
+        throw new ConvexError("That person is no longer in this circle");
       }
     } else if (!codes.some((c) => c.code === keyValue(other))) {
-      throw new Error("That access code is no longer active");
+      throw new ConvexError("That access code is no longer active");
     }
 
     const text = args.text.trim();
-    if (!text) throw new Error("Empty message");
+    if (!text) throw new ConvexError("Empty message");
     const senderName = await endpointName(ctx, viewer.patientUserId, viewer.key, codes);
     const id = await ctx.db.insert("careMessages", {
       patientUserId: viewer.patientUserId,
@@ -304,6 +298,18 @@ export const sendMessage = mutation({
       text: text.slice(0, MAX_TEXT),
       read: false,
       createdAt: Date.now(),
+    });
+
+    // Push the message to the RECIPIENT endpoint only, so it lands even with the app closed.
+    // Scheduled so a push failure can't fail the send.
+    await ctx.scheduler.runAfter(0, internal.push.notifyMessage, {
+      patientUserId: viewer.patientUserId,
+      senderName,
+      text: text.slice(0, MAX_TEXT),
+      threadKey: args.threadKey,
+      ...(isGuardianKey(other)
+        ? { toUserId: keyValue(other) as Id<"users"> }
+        : { toCode: keyValue(other) }),
     });
     return { id };
   },

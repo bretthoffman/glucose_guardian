@@ -7,7 +7,12 @@
  * insulin-on-board / carbs-on-board (see utils/onBoard). Everything here is pure so the projection
  * and the hour-axis rounding rules stay unit-testable.
  */
-import { CARB_ABSORPTION_MIN, RAPID_DIA_MIN, insulinEntryDiaMin } from "./onBoard";
+import {
+  RAPID_DIA_MIN,
+  carbAbsorptionMinFor,
+  insulinEntryDiaMin,
+  remainingInsulinFraction,
+} from "./onBoard";
 import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 
 export const FORECAST_HORIZON_MIN = 240; // 4 h of prediction to the right of "now"
@@ -46,6 +51,12 @@ function actedFraction(ageMin: number, totalMin: number): number {
   if (ageMin <= 0) return 0;
   if (ageMin >= totalMin) return 1;
   return ageMin / totalMin;
+}
+
+/** Insulin delivered fraction under the same curvilinear activity curve the IOB math uses. */
+function insulinActedFraction(ageMin: number, totalMin: number): number {
+  if (totalMin <= 0) return 1;
+  return 1 - remainingInsulinFraction(ageMin, totalMin);
 }
 
 /** One active-agent contribution: an amount plus how far into its action window it already is. */
@@ -92,21 +103,23 @@ export function forecastGlucose(input: GlucoseForecastInput): ForecastPoint[] {
   const carbKinetics: Kinetic[] = [];
   for (const e of foodLog) {
     if (!(e.estimatedCarbs > 0)) continue;
+    const window = carbAbsorptionMinFor(e.absorption);
     const ageNow = Math.max(0, (nowMs - new Date(e.timestamp).getTime()) / 60000);
-    if (!Number.isFinite(ageNow) || ageNow >= CARB_ABSORPTION_MIN) continue;
-    carbKinetics.push({ amount: e.estimatedCarbs, ageNowMin: ageNow, totalMin: CARB_ABSORPTION_MIN });
+    if (!Number.isFinite(ageNow) || ageNow >= window) continue;
+    carbKinetics.push({ amount: e.estimatedCarbs, ageNowMin: ageNow, totalMin: window });
   }
   if (newCarbsGrams > 0) {
-    carbKinetics.push({ amount: newCarbsGrams, ageNowMin: 0, totalMin: CARB_ABSORPTION_MIN });
+    carbKinetics.push({ amount: newCarbsGrams, ageNowMin: 0, totalMin: carbAbsorptionMinFor(undefined) });
   }
 
   const points: ForecastPoint[] = [];
   for (let t = 0; t <= horizonMin + 1e-6; t += stepMin) {
-    // Only the action DELIVERED between now and t moves BG from its current value.
+    // Only the action DELIVERED between now and t moves BG from its current value. Insulin follows
+    // the curvilinear activity curve (matches the calculator's IOB); carbs stay linear.
     let drop = 0;
     for (const k of insulinKinetics) {
       const delivered =
-        actedFraction(k.ageNowMin + t, k.totalMin) - actedFraction(k.ageNowMin, k.totalMin);
+        insulinActedFraction(k.ageNowMin + t, k.totalMin) - insulinActedFraction(k.ageNowMin, k.totalMin);
       drop += k.amount * isf * delivered;
     }
     let rise = 0;

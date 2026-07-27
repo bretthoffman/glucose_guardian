@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useQuery } from "convex/react";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import { useAuth, type MessagingIdentity } from "@/context/AuthContext";
@@ -29,7 +30,9 @@ interface MessagesContextType {
   threads: CareThread[];
   /** Total unread across all cross-account threads — drives the tab/floating badges. */
   unreadCount: number;
+  /** No-op since the subscription is live; kept so existing callers don't change. */
   refresh: () => Promise<void>;
+  /** One-shot fetch of a thread (used by non-reactive callers; the thread view subscribes instead). */
   openThread: (threadKey: string) => Promise<CareMessage[]>;
   sendMessage: (threadKey: string, text: string) => Promise<void>;
   markRead: (threadKey: string) => Promise<void>;
@@ -37,9 +40,7 @@ interface MessagesContextType {
 
 const MessagesContext = createContext<MessagesContextType | null>(null);
 
-const POLL_MS = 15_000;
-
-/** Convex query/mutation args for the active messaging identity, or null when this session can't message. */
+/** Convex query/mutation args for the active messaging identity, or null when it can't message. */
 function identityArgs(identity: MessagingIdentity) {
   if (!identity) return null;
   if (identity.kind === "code") return { code: identity.code } as const;
@@ -50,91 +51,61 @@ function identityArgs(identity: MessagingIdentity) {
   } as const;
 }
 
-/** A stable string key so effects re-run only when the identity meaningfully changes. */
-function identityKey(identity: MessagingIdentity): string | null {
-  if (!identity) return null;
-  return identity.kind === "code"
-    ? `code:${identity.code}`
-    : `user:${identity.userId}:${identity.patientUserId}`;
-}
-
 export function MessagesProvider({ children }: { children: React.ReactNode }) {
   const { messagingIdentity } = useAuth();
-  const key = identityKey(messagingIdentity);
+  const args = identityArgs(messagingIdentity);
 
-  const [threads, setThreads] = useState<CareThread[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  // LIVE subscription (Stage 2 of the ConvexReactClient migration): the server pushes thread/unread
+  // changes the moment they happen — no more 15s polling timer. "skip" disables the subscription for
+  // sessions that can't message (doctor, nurse on their menu, signed out).
+  const live = useQuery(api.careMessages.listThreads, args ?? "skip");
 
-  // Keep the latest identity in a ref so the stable callbacks below always read the current session.
-  const identityRef = useRef<MessagingIdentity>(messagingIdentity);
-  useEffect(() => { identityRef.current = messagingIdentity; }, [messagingIdentity]);
-  const inFlightRef = useRef(false);
+  // Optimistic read overlay so tapping a thread clears its badge instantly; the overlay resets as
+  // soon as the next server state arrives (which then includes the read).
+  const [readOverride, setReadOverride] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (live) setReadOverride(new Set());
+  }, [live]);
+
+  const threads = useMemo<CareThread[]>(() => {
+    const base = (live?.threads ?? []) as CareThread[];
+    if (readOverride.size === 0) return base;
+    return base.map((t) => (readOverride.has(t.threadKey) ? { ...t, unread: 0 } : t));
+  }, [live, readOverride]);
+  const unreadCount = useMemo(() => threads.reduce((n, t) => n + t.unread, 0), [threads]);
 
   const refresh = useCallback(async () => {
-    const args = identityArgs(identityRef.current);
-    if (!args) {
-      setThreads([]);
-      setUnreadCount(0);
-      return;
-    }
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
-    try {
-      const res = await createConvexAuthClient().query(api.careMessages.listThreads, args);
-      // Guard against a late response after the session changed.
-      if (identityKey(identityRef.current) !== key) return;
-      setThreads(res.threads as CareThread[]);
-      setUnreadCount(res.unreadTotal);
-    } catch {
-      // Offline / not-yet-deployed — keep whatever we last had.
-    } finally {
-      inFlightRef.current = false;
-    }
-  }, [key]);
-
-  // Reset + poll whenever the messaging identity changes.
-  useEffect(() => {
-    setThreads([]);
-    setUnreadCount(0);
-    if (!key) return;
-    void refresh();
-    const id = setInterval(() => void refresh(), POLL_MS);
-    return () => clearInterval(id);
-  }, [key, refresh]);
+    /* live subscription — nothing to do */
+  }, []);
 
   const openThread = useCallback(async (threadKey: string): Promise<CareMessage[]> => {
-    const args = identityArgs(identityRef.current);
-    if (!args) return [];
+    const a = identityArgs(messagingIdentity);
+    if (!a) return [];
     try {
-      const msgs = await createConvexAuthClient().query(api.careMessages.listMessages, { ...args, threadKey });
+      const msgs = await createConvexAuthClient().query(api.careMessages.listMessages, { ...a, threadKey });
       return msgs as CareMessage[];
     } catch {
       return [];
     }
-  }, []);
+  }, [messagingIdentity]);
 
   const sendMessage = useCallback(async (threadKey: string, text: string) => {
-    const args = identityArgs(identityRef.current);
-    if (!args) return;
-    await createConvexAuthClient().mutation(api.careMessages.sendMessage, { ...args, threadKey, text });
-    void refresh();
-  }, [refresh]);
+    const a = identityArgs(messagingIdentity);
+    if (!a) return;
+    // The thread-list subscription updates itself when the write lands.
+    await createConvexAuthClient().mutation(api.careMessages.sendMessage, { ...a, threadKey, text });
+  }, [messagingIdentity]);
 
   const markRead = useCallback(async (threadKey: string) => {
-    const args = identityArgs(identityRef.current);
-    if (!args) return;
-    // Optimistically clear this thread's unread so the badge updates immediately.
-    setThreads((prev) => prev.map((th) => (th.threadKey === threadKey ? { ...th, unread: 0 } : th)));
-    setUnreadCount((prev) => {
-      const th = threads.find((t) => t.threadKey === threadKey);
-      return Math.max(0, prev - (th?.unread ?? 0));
-    });
+    const a = identityArgs(messagingIdentity);
+    if (!a) return;
+    setReadOverride((prev) => new Set(prev).add(threadKey));
     try {
-      await createConvexAuthClient().mutation(api.careMessages.markThreadRead, { ...args, threadKey });
-    } finally {
-      void refresh();
+      await createConvexAuthClient().mutation(api.careMessages.markThreadRead, { ...a, threadKey });
+    } catch {
+      /* the overlay clears on the next server state either way */
     }
-  }, [refresh, threads]);
+  }, [messagingIdentity]);
 
   return (
     <MessagesContext.Provider value={{ threads, unreadCount, refresh, openThread, sendMessage, markRead }}>
@@ -147,4 +118,15 @@ export function useMessages(): MessagesContextType {
   const ctx = useContext(MessagesContext);
   if (!ctx) throw new Error("useMessages must be used within a MessagesProvider");
   return ctx;
+}
+
+/**
+ * LIVE messages of one thread — the open-conversation view subscribes here, so incoming messages
+ * appear the moment they're written (replaces the old 8s poll). `undefined` while loading.
+ */
+export function useThreadMessages(threadKey: string): CareMessage[] | undefined {
+  const { messagingIdentity } = useAuth();
+  const a = identityArgs(messagingIdentity);
+  const live = useQuery(api.careMessages.listMessages, a ? { ...a, threadKey } : "skip");
+  return live as CareMessage[] | undefined;
 }

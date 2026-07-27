@@ -1,7 +1,8 @@
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { legacyAuthArgs, userCompat } from "./identity";
 
 const glucoseEntryPayload = v.object({
   glucose: v.number(),
@@ -12,15 +13,6 @@ const glucoseEntryPayload = v.object({
   }),
   dexcomTrend: v.optional(v.union(v.number(), v.string())),
 });
-
-async function assertPatientAuth(
-  ctx: QueryCtx | MutationCtx,
-  userId: Id<"users">,
-  passwordHash: string,
-): Promise<boolean> {
-  const user = await ctx.db.get(userId);
-  return user !== null && user.passwordHash === passwordHash;
-}
 
 function normalizeCaregiverCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
@@ -42,21 +34,21 @@ const DAY_RANGE_MAX_LIMIT = 600;
 /** Bounded glucose readings for one local calendar day — start inclusive, end exclusive (ISO timestamps). */
 export const listForDayRange = query({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     startTimestamp: v.string(),
     endTimestamp: v.string(),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
+    const user = await userCompat(ctx, args);
+    const ok = user !== null;
     if (!ok) return [];
     const lim = Math.min(Math.max(args.limit ?? DAY_RANGE_DEFAULT_LIMIT, 1), DAY_RANGE_MAX_LIMIT);
     const rows = await ctx.db
       .query("patientGlucoseReadings")
       .withIndex("by_user_time", (q) =>
         q
-          .eq("userId", args.userId)
+          .eq("userId", user!._id)
           .gte("timestamp", args.startTimestamp)
           .lt("timestamp", args.endTimestamp),
       )
@@ -74,8 +66,7 @@ export const listForDayRange = query({
  */
 export const windowStats = query({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     startTimestamp: v.string(),
     endTimestamp: v.string(),
     lowThreshold: v.number(),
@@ -83,13 +74,14 @@ export const windowStats = query({
   },
   handler: async (ctx, args) => {
     const empty = { count: 0, sum: 0, lowCount: 0, highCount: 0, oldestTimestamp: null as string | null };
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
+    const user = await userCompat(ctx, args);
+    const ok = user !== null;
     if (!ok) return empty;
     const rows = await ctx.db
       .query("patientGlucoseReadings")
       .withIndex("by_user_time", (q) =>
         q
-          .eq("userId", args.userId)
+          .eq("userId", user!._id)
           .gte("timestamp", args.startTimestamp)
           .lt("timestamp", args.endTimestamp),
       )
@@ -178,17 +170,17 @@ export const listRecentForCaregiver = query({
 
 export const listRecent = query({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
+    const user = await userCompat(ctx, args);
+    const ok = user !== null;
     if (!ok) return [];
     const lim = Math.min(Math.max(args.limit ?? 300, 1), 500);
     const rows = await ctx.db
       .query("patientGlucoseReadings")
-      .withIndex("by_user_time", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user_time", (q) => q.eq("userId", user!._id))
       .order("desc")
       .take(lim);
     const mapped = rows.map((r) => ({
@@ -204,24 +196,24 @@ export const listRecent = query({
 
 export const upsertBatch = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
     entries: v.array(glucoseEntryPayload),
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
-    if (!ok) throw new Error("Unauthorized");
+    const user = await userCompat(ctx, args);
+    const ok = user !== null;
+    if (!ok) throw new ConvexError("Unauthorized");
     let inserted = 0;
     for (const e of args.entries.slice(0, 350)) {
       const existing = await ctx.db
         .query("patientGlucoseReadings")
         .withIndex("by_user_time", (q) =>
-          q.eq("userId", args.userId).eq("timestamp", e.timestamp),
+          q.eq("userId", user!._id).eq("timestamp", e.timestamp),
         )
         .unique();
       if (existing) continue;
       await ctx.db.insert("patientGlucoseReadings", {
-        userId: args.userId,
+        userId: user!._id,
         glucose: e.glucose,
         timestamp: e.timestamp,
         anomaly: e.anomaly,
@@ -235,15 +227,15 @@ export const upsertBatch = mutation({
 
 export const clearAll = mutation({
   args: {
-    userId: v.id("users"),
-    passwordHash: v.string(),
+    ...legacyAuthArgs,
   },
   handler: async (ctx, args) => {
-    const ok = await assertPatientAuth(ctx, args.userId, args.passwordHash);
-    if (!ok) throw new Error("Unauthorized");
+    const user = await userCompat(ctx, args);
+    const ok = user !== null;
+    if (!ok) throw new ConvexError("Unauthorized");
     const rows = await ctx.db
       .query("patientGlucoseReadings")
-      .withIndex("by_user_time", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user_time", (q) => q.eq("userId", user!._id))
       .collect();
     for (const r of rows) {
       await ctx.db.delete(r._id);

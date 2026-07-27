@@ -20,6 +20,7 @@ import {
 import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
+import { T } from "@/constants/theme";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
@@ -38,6 +39,10 @@ interface FoodResult {
   tips?: string;
   insulinUnits?: number;
   fromPhoto?: boolean;
+  /** Optional nutrition context from the AI/lookup — plain carbs-only results stay supported. */
+  fatGrams?: number;
+  proteinGrams?: number;
+  absorption?: "fast" | "medium" | "slow";
 }
 
 interface MealGuidance {
@@ -307,6 +312,9 @@ export default function FoodScreen() {
         confidence: result.confidence,
         fromPhoto: !!result.fromPhoto,
         photoUri: photoUri ?? undefined,
+        fatGrams: result.fatGrams,
+        proteinGrams: result.proteinGrams,
+        absorption: result.absorption,
       });
       setLogged(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -522,6 +530,32 @@ export default function FoodScreen() {
                 <Text style={[{ fontSize: 9, color: COLORS.primary + "80", fontWeight: "400" }]}>tap to edit</Text>
               </View>
             </View>
+
+            {(result.fatGrams != null || result.proteinGrams != null || result.absorption != null) && (
+              <View style={[styles.tipsBox, { backgroundColor: colors.backgroundTertiary }]}>
+                <Feather name="pie-chart" size={14} color={colors.textSecondary} />
+                <Text style={[styles.tipsText, { color: colors.textSecondary }]}>
+                  {[
+                    result.fatGrams != null ? `${result.fatGrams}g fat` : null,
+                    result.proteinGrams != null ? `${result.proteinGrams}g protein` : null,
+                    result.absorption != null
+                      ? `${result.absorption === "fast" ? "fast-acting carbs" : result.absorption === "slow" ? "slow-absorbing meal" : "typical absorption"}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </Text>
+              </View>
+            )}
+
+            {result.absorption === "slow" && (
+              <View style={[styles.tipsBox, { backgroundColor: COLORS.warning + "14" }]}>
+                <Feather name="clock" size={14} color={COLORS.warning} />
+                <Text style={[styles.tipsText, { color: colors.textSecondary }]}>
+                  High fat/protein meals digest slowly — glucose can keep rising 3–4 hours after eating. Recheck in about 2 hours; a delayed rise may need a small follow-up correction.
+                </Text>
+              </View>
+            )}
 
             {result.tips && (
               <View style={[styles.tipsBox, { backgroundColor: colors.backgroundTertiary }]}>
@@ -798,7 +832,8 @@ function StatBox({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scroll: { paddingHorizontal: 20 },
+  // iPad: cap + center the content column so it doesn't stretch across a 13" screen. No-op on phones.
+  scroll: { paddingHorizontal: 20, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
   trendChip: {
     flexDirection: "row",
     alignItems: "center",

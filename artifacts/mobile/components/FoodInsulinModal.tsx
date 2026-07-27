@@ -23,6 +23,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import { useGlucose } from "@/context/GlucoseContext";
 import { computeDose } from "@/utils/dose";
+import { effectiveDoseSettings } from "@/utils/doseSettings";
+import { computePatternTuning, patternFactorForNow } from "@/utils/doseTuning";
 import type { DoseBreakdown } from "@/utils/dose";
 import {
   doseAmountsEqual,
@@ -54,7 +56,7 @@ export default function FoodInsulinModal({
   onLogged,
   colors,
 }: Props) {
-  const { targetGlucose, carbRatio, correctionFactor, history } = useGlucose();
+  const { targetGlucose, carbRatio, correctionFactor, doseSettingsByTime, history } = useGlucose();
   const { profile, insulinLog, foodLog, logInsulinDose, isMinor } = useAuth();
   const confirmLog = useCareLogConfirm();
 
@@ -111,6 +113,31 @@ export default function FoodInsulinModal({
 
   const hasCarbs = carbInput !== "" && parseFloat(carbInput) > 0;
 
+  // Same live inputs as the main Dose tab: time-of-day effective settings, the 45-min glucose
+  // delta for the IOB-effectiveness check, pattern tuning, and the weight-based safety cap.
+  const effSettings = useMemo(
+    () => effectiveDoseSettings(carbRatio, correctionFactor, doseSettingsByTime, new Date()),
+    [carbRatio, correctionFactor, doseSettingsByTime, visible, latest?.timestamp],
+  );
+
+  const bgDelta45Min = useMemo(() => {
+    if (!latest) return undefined;
+    const nowT = new Date(latest.timestamp).getTime();
+    let best: { deltaFromTarget: number; glucose: number } | null = null;
+    for (const r of history) {
+      const age = (nowT - new Date(r.timestamp).getTime()) / 60_000;
+      if (age < 35 || age > 60) continue;
+      const d = Math.abs(age - 45);
+      if (best == null || d < best.deltaFromTarget) best = { deltaFromTarget: d, glucose: r.glucose };
+    }
+    return best ? latest.glucose - best.glucose : undefined;
+  }, [history, latest]);
+
+  const bucketTuning = useMemo(() => {
+    const tuning = computePatternTuning(insulinLog ?? [], Date.now());
+    return patternFactorForNow(tuning, new Date());
+  }, [insulinLog, visible]);
+
   const dose = useMemo<DoseBreakdown | null>(() => {
     const carbs = carbInput === "" ? 0 : parseFloat(carbInput);
     if (!doseBg || isNaN(carbs) || carbs < 0) return null;
@@ -120,15 +147,18 @@ export default function FoodInsulinModal({
       carbs,
       currentBG: doseBg.n,
       targetBG: targetGlucose,
-      carbRatio,
-      correctionFactor,
+      carbRatio: effSettings.carbRatio,
+      correctionFactor: effSettings.correctionFactor,
       trend,
       previousBG: prev,
       insulinKind: lockedInsulin?.type,
       activeInsulinUnits: activeInsulin.totalUnits,
       activeCarbsGrams: activeCarbs.totalGrams,
+      bgDelta45Min,
+      weightLbs: profile?.weightLbs,
+      patternFactor: bucketTuning.factor,
     });
-  }, [carbInput, doseBg, targetGlucose, carbRatio, correctionFactor, history, latest, lockedInsulin, activeInsulin, activeCarbs]);
+  }, [carbInput, doseBg, targetGlucose, effSettings, history, latest, lockedInsulin, activeInsulin, activeCarbs, bgDelta45Min, profile?.weightLbs, bucketTuning]);
 
   const systemRecommendedDose = dose?.totalDose ?? 0;
   const effectiveDose = manualDoseOverride ?? systemRecommendedDose;
@@ -155,22 +185,35 @@ export default function FoodInsulinModal({
     });
   }, [manualDoseOverride, systemRecommendedDose]);
 
+  // Live mirror for the flush-then-log tick below: after committing an open dose edit, the log
+  // must read the RECOMPUTED values, not the ones captured when the tap started.
+  const logStateRef = useRef({ dose, effectiveDose, systemRecommendedDose, manualDoseOverride });
+  useEffect(() => {
+    logStateRef.current = { dose, effectiveDose, systemRecommendedDose, manualDoseOverride };
+  });
+
   const handleTookInsulin = () => {
-    if (!dose || effectiveDose <= 0) return;
-    const wasManual =
-      manualDoseOverride != null && !doseAmountsEqual(effectiveDose, systemRecommendedDose);
-    // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
-    confirmLog(() => {
-      logInsulinDose({
-        timestamp: new Date().toISOString(),
-        units: roundToQuarterUnits(effectiveDose),
-        type: "bolus",
-        ...(lockedInsulin ? { insulinType: insulinChipLabel(lockedInsulin) } : {}),
-        recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
-        manualOverride: wasManual,
+    // Lock in an in-progress dose edit FIRST — tapping straight from the keyboard must log the
+    // number on screen, not the last committed one. (Carbs/BG here commit per keystroke already.)
+    completeDoseEdit();
+    setTimeout(() => {
+      const { dose, effectiveDose, systemRecommendedDose, manualDoseOverride } = logStateRef.current;
+      if (!dose || effectiveDose <= 0) return;
+      const wasManual =
+        manualDoseOverride != null && !doseAmountsEqual(effectiveDose, systemRecommendedDose);
+      // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
+      confirmLog(() => {
+        logInsulinDose({
+          timestamp: new Date().toISOString(),
+          units: roundToQuarterUnits(effectiveDose),
+          type: "bolus",
+          ...(lockedInsulin ? { insulinType: insulinChipLabel(lockedInsulin) } : {}),
+          recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
+          manualOverride: wasManual,
+        });
+        onLogged();
       });
-      onLogged();
-    });
+    }, 0);
   };
 
   return (
@@ -233,24 +276,24 @@ export default function FoodInsulinModal({
 
             <View style={[styles.breakdown, { borderTopColor: colors.border }]}>
               {hasCarbs && (
-                <DoseRow label="Carb Dose" sub={`${parseFloat(carbInput)}g ÷ ${carbRatio}g`} value={dose.carbInsulin} unit="u" colors={colors} />
+                <DoseRow label="Carb Dose" sub={`${parseFloat(carbInput)}g ÷ ${effSettings.carbRatio}g${effSettings.usedOverride ? " (time-of-day)" : ""}`} value={dose.carbInsulin} unit="u" colors={colors} />
               )}
               <DoseRow
                 label="Correction"
                 sub={dose.correctionSuppressed
                   ? "BG below target — suppressed"
-                  : `(${doseBg.label} − ${targetGlucose}) ÷ ${correctionFactor}`}
-                value={dose.correctionInsulin}
+                  : `(${doseBg.label} − ${targetGlucose}) ÷ ${effSettings.correctionFactor}${dose.resistanceBump > 0 ? " · +10% very high" : ""}`}
+                value={dose.correctionInsulin + dose.resistanceBump}
                 unit="u"
                 colors={colors}
                 dimmed={dose.correctionSuppressed}
               />
-              <DoseRow label="Trend Adj." sub={dose.trendLabel} value={dose.trendAdjustment} unit="u" colors={colors} signed />
-              {dose.activeCarbInsulin > 0 && (
+              <DoseRow label="Trend Adj." sub={dose.hyperTrendZeroed ? `${dose.trendLabel} · skipped while high` : dose.trendLabel} value={dose.trendAdjustment} unit="u" colors={colors} signed />
+              {dose.uncoveredCarbInsulin > 0 && (
                 <DoseRow
-                  label="Active Carbs"
+                  label="Uncovered Carbs"
                   sub={`${activeCarbs.totalGrams}g still absorbing · logged ${formatAgeShort(activeCarbs.lastEntryAgeMin)}${activeCarbs.lastEntryAgeMin != null && activeCarbs.lastEntryAgeMin >= 1 ? " ago" : ""}`}
-                  value={dose.activeCarbInsulin}
+                  value={dose.uncoveredCarbInsulin}
                   unit="u"
                   colors={colors}
                   signed
@@ -263,8 +306,28 @@ export default function FoodInsulinModal({
                     activeInsulin.doseCount > 1
                       ? `${activeInsulin.doseCount} recent doses`
                       : `${formatDoseAmount(activeInsulin.lastDoseUnits ?? 0)}u`
-                  } · taken ${formatAgeShort(activeInsulin.lastDoseAgeMin)}${activeInsulin.lastDoseAgeMin != null && activeInsulin.lastDoseAgeMin >= 1 ? " ago" : ""}`}
-                  value={-dose.activeInsulinUnits}
+                  } · taken ${formatAgeShort(activeInsulin.lastDoseAgeMin)}${activeInsulin.lastDoseAgeMin != null && activeInsulin.lastDoseAgeMin >= 1 ? " ago" : ""} · reduces correction only${dose.iobDiscounted ? " · half-credited (BG not falling)" : ""}`}
+                  value={-dose.iobCredit}
+                  unit="u"
+                  colors={colors}
+                  signed
+                />
+              )}
+              {Math.abs(dose.patternDelta) >= 0.005 && (
+                <DoseRow
+                  label="Pattern Adj."
+                  sub={`Recent ${dose.patternDelta > 0 ? "higher" : "lower"} dosing at this time of day`}
+                  value={dose.patternDelta}
+                  unit="u"
+                  colors={colors}
+                  signed
+                />
+              )}
+              {dose.cappedAtMax && (
+                <DoseRow
+                  label="Safety Cap"
+                  sub={`Limited to ${dose.maxDoseCap}u per dose`}
+                  value={dose.totalRaw - dose.subTotal - dose.patternDelta}
                   unit="u"
                   colors={colors}
                   signed
@@ -304,7 +367,7 @@ export default function FoodInsulinModal({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="I took this insulin"
-              disabled={effectiveDose <= 0}
+              disabled={(doseEditing ? finalizeManualDoseInput(doseEditText) ?? effectiveDose : effectiveDose) <= 0}
               style={({ pressed }) => [
                 styles.tookBtn,
                 { backgroundColor: COLORS.primary, opacity: pressed ? 0.8 : effectiveDose <= 0 ? 0.5 : 1 },

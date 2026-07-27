@@ -11,21 +11,13 @@
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { legacyAuthArgs, requireUserCompat, userCompat } from "./identity";
 import { careAccessAllowed, evaluateCareAccess, type CareAccess, type CarePermissions } from "./careSchedule";
 
 const CODE_LENGTH = 8;
 /** How far back to fetch logs for the active-carbs/insulin math (longest insulin DIA is 6 h). */
 const ACTIVE_LOG_WINDOW_MS = 6 * 60 * 60 * 1000;
-
-async function assertPatientAuth(
-  ctx: QueryCtx | MutationCtx,
-  userId: Id<"users">,
-  passwordHash: string,
-): Promise<boolean> {
-  const user = await ctx.db.get(userId);
-  return user !== null && user.passwordHash === passwordHash;
-}
 
 function normalizeCareCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, CODE_LENGTH);
@@ -43,18 +35,18 @@ async function resolveActiveAccessCode(ctx: QueryCtx | MutationCtx, rawCode: str
 
 /** Add a guardian's access code to this nurse account so the child appears on their menu. */
 export const addCaregiverCode = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), code: v.string() },
+  args: { ...legacyAuthArgs, code: v.string() },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const row = await resolveActiveAccessCode(ctx, args.code);
-    if (!row) throw new Error("That access code isn't valid or is no longer active");
+    if (!row) throw new ConvexError("That access code isn't valid or is no longer active");
     // A nurse must actually be able to see readings — a log-only / no-view code is useless here.
-    if (!row.permissions.viewReadings) throw new Error("This code doesn't allow viewing glucose");
+    if (!row.permissions.viewReadings) throw new ConvexError("This code doesn't allow viewing glucose");
     const code = normalizeCareCode(args.code);
     // Dedupe: adding the same code twice is a no-op (return the existing link's child).
     const existing = await ctx.db
       .query("caregiverLinks")
-      .withIndex("by_caregiver_code", (q) => q.eq("caregiverUserId", args.userId).eq("code", code))
+      .withIndex("by_caregiver_code", (q) => q.eq("caregiverUserId", user._id).eq("code", code))
       .first();
     if (existing) {
       const profile = await ctx.db
@@ -64,7 +56,7 @@ export const addCaregiverCode = mutation({
       return { patientUserId: existing.patientUserId, patientName: profile?.childName?.trim() || "Patient", alreadyLinked: true };
     }
     await ctx.db.insert("caregiverLinks", {
-      caregiverUserId: args.userId,
+      caregiverUserId: user._id,
       code,
       patientUserId: row.patientUserId,
       createdAt: Date.now(),
@@ -79,13 +71,13 @@ export const addCaregiverCode = mutation({
 
 /** Remove a code the nurse added (their menu card disappears; the code itself is untouched). */
 export const removeCaregiverCode = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string(), code: v.string() },
+  args: { ...legacyAuthArgs, code: v.string() },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const code = normalizeCareCode(args.code);
     const link = await ctx.db
       .query("caregiverLinks")
-      .withIndex("by_caregiver_code", (q) => q.eq("caregiverUserId", args.userId).eq("code", code))
+      .withIndex("by_caregiver_code", (q) => q.eq("caregiverUserId", user._id).eq("code", code))
       .first();
     if (link) await ctx.db.delete(link._id);
   },
@@ -93,12 +85,12 @@ export const removeCaregiverCode = mutation({
 
 /** Delete caregiver links whose underlying access code has been retired/removed. Best-effort. */
 export const pruneStaleCaregiverLinks = mutation({
-  args: { userId: v.id("users"), passwordHash: v.string() },
+  args: { ...legacyAuthArgs },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) throw new Error("Unauthorized");
+    const user = await requireUserCompat(ctx, args);
     const links = await ctx.db
       .query("caregiverLinks")
-      .withIndex("by_caregiver", (q) => q.eq("caregiverUserId", args.userId))
+      .withIndex("by_caregiver", (q) => q.eq("caregiverUserId", user._id))
       .collect();
     for (const link of links) {
       const row = await ctx.db
@@ -128,12 +120,13 @@ function ageFromDob(dateOfBirth: string | undefined): number | null {
  * lacks view-readings, so a locked child shows "--" and can't leak data.
  */
 export const listCaregiverKids = query({
-  args: { userId: v.id("users"), passwordHash: v.string() },
+  args: { ...legacyAuthArgs },
   handler: async (ctx, args) => {
-    if (!(await assertPatientAuth(ctx, args.userId, args.passwordHash))) return [];
+    const user = await userCompat(ctx, args);
+    if (!user) return [];
     const links = await ctx.db
       .query("caregiverLinks")
-      .withIndex("by_caregiver", (q) => q.eq("caregiverUserId", args.userId))
+      .withIndex("by_caregiver", (q) => q.eq("caregiverUserId", user._id))
       .collect();
     const now = Date.now();
     const out: {

@@ -1,6 +1,22 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+/**
+ * Optional per-meal-window dose-setting overrides (breakfast/lunch/dinner/night). The base
+ * carbRatio/correctionFactor stay the user's source of truth; an override wins only for its
+ * window. Shared with co-guardians/caregivers exactly like the base values.
+ */
+const doseSettingsOverride = v.object({
+  carbRatio: v.optional(v.number()),
+  correctionFactor: v.optional(v.number()),
+});
+export const doseSettingsByTime = v.object({
+  breakfast: v.optional(doseSettingsOverride),
+  lunch: v.optional(doseSettingsOverride),
+  dinner: v.optional(doseSettingsOverride),
+  night: v.optional(doseSettingsOverride),
+});
+
 const doctorMessage = v.object({
   id: v.string(),
   timestamp: v.string(),
@@ -37,6 +53,14 @@ const alertPreferences = v.object({
   highThreshold: v.optional(v.number()),
   urgentLowThreshold: v.optional(v.number()),
   urgentHighThreshold: v.optional(v.number()),
+  /** Owner's Emergency Text Alerts toggle — kid/caregiver sessions mirror it LOCKED. */
+  emergencyAlertsEnabled: v.optional(v.boolean()),
+  /** One-tap SMS banner (build-the-text-for-you). Default OFF; main accounts only. */
+  oneTapTextEnabled: v.optional(v.boolean()),
+  /** ADULT main accounts: delay urgent-glucose pushes to caregiver ACCESS-CODE devices by
+   *  `waitWindowMinutes` (1–15), giving the adult a confirm-you're-OK window first. */
+  waitWindowEnabled: v.optional(v.boolean()),
+  waitWindowMinutes: v.optional(v.number()),
 });
 
 /**
@@ -83,13 +107,24 @@ const labA1c = v.object({
   enteredAt: v.string(),
 });
 
-/** Patient app accounts (email + legacy client hash). Source of truth for signup/signin. */
+/**
+ * Patient app accounts. Identity is moving to Clerk (Google + email/password): `clerkId` is the Clerk
+ * `subject` and becomes the real credential, replacing the legacy client-supplied `passwordHash`.
+ *
+ * Both fields are optional during the migration — new Clerk accounts have no `passwordHash`, and rows
+ * created before the cutover have no `clerkId`. `passwordHash` is deleted once every function has
+ * moved to `requireUser` (see PREBUILD_PLAN_01 §3). NOTE: `doctorAccounts.passwordHash` is a SEPARATE
+ * auth system for the doctor portal and is deliberately NOT part of this migration.
+ */
 const users = defineTable({
   email: v.string(),
-  passwordHash: v.string(),
+  passwordHash: v.optional(v.string()),
+  clerkId: v.optional(v.string()),
   createdAt: v.number(),
   updatedAt: v.number(),
-}).index("by_email", ["email"]);
+})
+  .index("by_email", ["email"])
+  .index("by_clerkId", ["clerkId"]);
 
 const patientAccessLogEntry = v.object({
   id: v.string(),
@@ -128,6 +163,7 @@ const patientProfiles = defineTable({
   carbRatio: v.optional(v.number()),
   targetGlucose: v.optional(v.number()),
   correctionFactor: v.optional(v.number()),
+  doseSettingsByTime: v.optional(doseSettingsByTime),
   // Glucose alert thresholds, account-scoped so an access-code (kid/caregiver) device shows the
   // code owner's ranges — not whatever was cached locally from a previous sign-in.
   alertPreferences: v.optional(alertPreferences),
@@ -499,6 +535,8 @@ const careShared = defineTable({
         name: v.string(),
         phone: v.string(),
         relation: v.string(),
+        // The ONE contact the emergency banner's one-tap text targets (at most one per circle).
+        primary: v.optional(v.boolean()),
       }),
     ),
   ),
@@ -524,6 +562,10 @@ const careFoodLogs = defineTable({
   confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
   fromPhoto: v.boolean(),
   photoUri: v.optional(v.string()),
+  // Optional nutrition context from the AI analysis (fat/protein grams + absorption speed).
+  fatGrams: v.optional(v.number()),
+  proteinGrams: v.optional(v.number()),
+  absorption: v.optional(v.union(v.literal("fast"), v.literal("medium"), v.literal("slow"))),
   createdAt: v.number(),
   edited: v.optional(v.boolean()), // true once a viewer has edited this entry in place
 })
@@ -572,6 +614,73 @@ const careMessages = defineTable({
   .index("by_thread", ["patientUserId", "threadKey", "createdAt"])
   .index("by_patient", ["patientUserId"]);
 
+// ─── Push notifications (alerts that arrive with the app CLOSED) ─────────────────────────────
+// Everything before this shipped as LOCAL notifications, which only fire while the app is running.
+// These tables let the BACKEND decide to notify: one row per device (`pushTokens`), plus per-patient
+// cooldown state so a sustained out-of-range glucose doesn't re-alert every cron tick.
+//
+// Per-type toggles live HERE, server-side, and not on the device — the server is what decides whether
+// to send, so device-local toggles would be invisible to it (see PREBUILD_PLAN_01 §2.2a).
+// `glucoseUrgent` is the only category eligible for iOS Critical Alerts; that narrow scope is what we
+// declared to Apple in the entitlement request, so keep the others standard.
+const pushPrefs = v.object({
+  glucoseUrgent: v.boolean(),
+  glucoseHighLow: v.boolean(),
+  careLog: v.boolean(),
+  messages: v.boolean(),
+  doctor: v.boolean(),
+});
+
+/**
+ * One row per device. A device belongs to EITHER a signed-in guardian (`userId`) or an access-code
+ * session (`code`) — the same two identity kinds the rest of the app uses. `disabledAt` is set when
+ * Expo reports the token is dead (app uninstalled), so we stop sending to it.
+ */
+const pushTokens = defineTable({
+  token: v.string(),
+  userId: v.optional(v.id("users")),
+  code: v.optional(v.string()),
+  platform: v.string(),
+  prefs: pushPrefs,
+  /** Per-device custom alert sounds (bundled filenames) by group; absent = system default. */
+  sounds: v.optional(
+    v.object({
+      glucose: v.optional(v.string()),
+      urgent: v.optional(v.string()),
+      messages: v.optional(v.string()),
+    }),
+  ),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  disabledAt: v.optional(v.number()),
+})
+  .index("by_token", ["token"])
+  .index("by_user", ["userId"])
+  .index("by_code", ["code"]);
+
+/** Per-patient, per-kind send cooldown so a sustained low doesn't alert on every ingest tick. */
+const pushAlertState = defineTable({
+  patientUserId: v.id("users"),
+  kind: v.string(),
+  lastSentAt: v.number(),
+  lastValue: v.optional(v.number()),
+}).index("by_patient_kind", ["patientUserId", "kind"]);
+
+/**
+ * An adult's wait-window hold on the caregiver emergency alert: the urgent push to ACCESS-CODE
+ * devices is deferred until `fireAt` unless the adult confirms "I am OK" (→ canceled) or taps
+ * "Alert them now" / the failsafe fires it early (→ fired). At most one pending row per patient.
+ */
+const emergencyWaits = defineTable({
+  patientUserId: v.id("users"),
+  kind: v.string(), // urgent_low | urgent_high
+  value: v.number(),
+  minutes: v.number(),
+  createdAt: v.number(),
+  fireAt: v.number(),
+  status: v.union(v.literal("pending"), v.literal("fired"), v.literal("canceled")),
+}).index("by_patient_status", ["patientUserId", "status"]);
+
 /** One row per doctor access code: optional full patient payload (after sync), always carries messages thread. */
 export default defineSchema({
   users,
@@ -591,6 +700,9 @@ export default defineSchema({
   careFoodLogs,
   careInsulinLogs,
   careMessages,
+  pushTokens,
+  pushAlertState,
+  emergencyWaits,
   doctorAccounts,
   doctorSessions,
   doctorAlerts,

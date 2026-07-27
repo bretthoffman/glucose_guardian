@@ -94,9 +94,16 @@ export default function OnboardingScreen() {
       const parsedCarbGrams = parseFloat(carbRatioInput);
       const parsedTarget = parseFloat(targetGlucoseInput);
       const parsedISF = parseFloat(isfInput);
-      const cr = !isNaN(parsedCarbGrams) && parsedCarbGrams > 0 ? (carbUnitHalf ? parsedCarbGrams * 2 : parsedCarbGrams) : 40;
+      // Skipped ratio fields: when weight is known, seed defaults from the clinical 500/1800 rules
+      // (estimated total daily dose ≈ 0.5 u/kg/day) instead of one-size-fits-all constants — a
+      // 30 kg child and a 70 kg teen need very different starting math. No weight → old defaults.
+      const hasWeight = !isNaN(parsedWeight) && parsedWeight > 0;
+      const estTdd = hasWeight ? parsedWeight * 0.45359237 * 0.5 : null;
+      const defaultCr = estTdd ? Math.min(60, Math.max(5, Math.round(500 / estTdd))) : 40;
+      const defaultCf = estTdd ? Math.min(250, Math.max(15, Math.round(1800 / estTdd))) : 50;
+      const cr = !isNaN(parsedCarbGrams) && parsedCarbGrams > 0 ? (carbUnitHalf ? parsedCarbGrams * 2 : parsedCarbGrams) : defaultCr;
       const tg = !isNaN(parsedTarget) && parsedTarget > 0 ? parsedTarget : 120;
-      const cf = !isNaN(parsedISF) && parsedISF > 0 ? parsedISF : 50;
+      const cf = !isNaN(parsedISF) && parsedISF > 0 ? parsedISF : defaultCf;
       await setupProfile({
         childName: childName.trim(),
         childLastName: childLastName.trim() ? childLastName.trim() : undefined,

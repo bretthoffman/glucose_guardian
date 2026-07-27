@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { Platform } from "react-native";
@@ -39,7 +40,27 @@ export interface NotificationPermissionStatus {
   soundEnabled: boolean;
   criticalAlertsEnabled: boolean;
   canAskAgain: boolean;
+  /** iOS is showing the "Notification Settings" link into our own in-app alert preferences. */
+  appSettingsLinkEnabled: boolean;
 }
+
+/**
+ * The iOS options we ask for. Requested as ONE full set at first prompt because iOS only shows the
+ * system dialog once — anything omitted here can't be granted later without the user going to
+ * Settings. This is a build-time-critical decision (see PREBUILD_PLAN_01 §2.1).
+ *
+ * - `provideAppNotificationSettings` adds a "Notification Settings" row under
+ *   iOS Settings → Notifications → Glucose Guardian that deep-links into OUR alert preferences screen.
+ * - `allowCriticalAlerts` only takes effect once Apple grants the critical-alerts entitlement
+ *   (applied for 2026-07-23); until then iOS ignores it and the rest still work.
+ */
+const IOS_PERMISSION_OPTIONS = {
+  allowAlert: true,
+  allowSound: true,
+  allowBadge: true,
+  allowCriticalAlerts: true,
+  provideAppNotificationSettings: true,
+} as const;
 
 export async function getNotificationPermissionStatus(): Promise<NotificationPermissionStatus> {
   if (isWeb) {
@@ -48,6 +69,7 @@ export async function getNotificationPermissionStatus(): Promise<NotificationPer
       soundEnabled: false,
       criticalAlertsEnabled: false,
       canAskAgain: false,
+      appSettingsLinkEnabled: false,
     };
   }
   const perms = await Notifications.getPermissionsAsync();
@@ -55,34 +77,59 @@ export async function getNotificationPermissionStatus(): Promise<NotificationPer
   const soundEnabled = granted && (perms.ios?.allowsSound !== false);
   const criticalAlertsEnabled = granted && (perms.ios?.allowsCriticalAlerts === true);
   const canAskAgain = perms.canAskAgain;
-  return { granted, soundEnabled, criticalAlertsEnabled, canAskAgain };
+  const appSettingsLinkEnabled = granted && perms.ios?.providesAppNotificationSettings === true;
+  return { granted, soundEnabled, criticalAlertsEnabled, canAskAgain, appSettingsLinkEnabled };
 }
 
 export async function requestNotificationPermissions(): Promise<boolean> {
   if (isWeb) return false;
   const existing = await Notifications.getPermissionsAsync();
   if (existing.status === "granted") return true;
-  const { status } = await Notifications.requestPermissionsAsync({
-    ios: {
-      allowAlert: true,
-      allowSound: true,
-      allowBadge: true,
-      allowCriticalAlerts: true,
-    },
-  });
+  const { status } = await Notifications.requestPermissionsAsync({ ios: { ...IOS_PERMISSION_OPTIONS } });
   return status === "granted";
+}
+
+/**
+ * This device's Expo push token — the address the BACKEND sends alerts to, which is what makes them
+ * arrive with the app closed. Returns null on web, in a simulator, or when permission isn't granted.
+ * Needs the EAS projectId, which the push service uses to route to the right app credentials.
+ */
+export async function getExpoPushToken(): Promise<string | null> {
+  if (isWeb) return null;
+  try {
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId ?? undefined;
+    if (!projectId) return null;
+    const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
+    return data ?? null;
+  } catch {
+    // No credentials (Expo Go / simulator) or offline — the app still works, just without push.
+    return null;
+  }
+}
+
+/**
+ * Android needs channels declared before a notification can use them; the ids must match what the
+ * server sets in the push payload (`buildExpoMessage` in convex/pushLogic.ts). No-op on iOS.
+ */
+export async function registerAndroidChannels() {
+  if (isWeb || Platform.OS !== "android") return;
+  await Notifications.setNotificationChannelAsync("default", {
+    name: "Alerts",
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: "default",
+  });
+  await Notifications.setNotificationChannelAsync("glucose-urgent", {
+    name: "Urgent glucose",
+    importance: Notifications.AndroidImportance.MAX,
+    sound: "default",
+    bypassDnd: true,
+  });
 }
 
 export async function requestCriticalAlerts(): Promise<boolean> {
   if (isWeb) return false;
-  const { status, ios } = await Notifications.requestPermissionsAsync({
-    ios: {
-      allowAlert: true,
-      allowSound: true,
-      allowBadge: true,
-      allowCriticalAlerts: true,
-    },
-  });
+  const { status, ios } = await Notifications.requestPermissionsAsync({ ios: { ...IOS_PERMISSION_OPTIONS } });
   if (status !== "granted") return false;
   return ios?.allowsCriticalAlerts === true;
 }

@@ -22,6 +22,12 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { GlucoseProvider } from "@/context/GlucoseContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { MessagesProvider } from "@/context/MessagesContext";
+import { PushProvider } from "@/context/PushContext";
+import { addNotificationSettingsListener } from "@/modules/notification-settings";
+import { ClerkProvider, useAuth as useClerkAuth } from "@clerk/clerk-expo";
+import { tokenCache } from "@clerk/clerk-expo/token-cache";
+import { ConvexProviderWithClerk } from "convex/react-clerk";
+import { convex } from "@/utils/convex-auth-client";
 import {
   registerNotificationCategories,
   handleNotificationResponse,
@@ -98,9 +104,17 @@ function RootLayoutNav() {
       }
     );
 
+    // iOS Settings → Notifications → Glucose Guardian → "Notification Settings" opens the app; route
+    // it to our own per-type Alerts controls on the dashboard. No-op where the native module isn't
+    // present (Android, web, Expo Go, older builds) — there the link just opens the app.
+    const removeSettingsListener = addNotificationSettingsListener(() => {
+      router.push("/(tabs)/dashboard");
+    });
+
     return () => {
       notificationListener.current?.remove();
       responseListener.current?.remove();
+      removeSettingsListener();
     };
   }, [isLoggedIn, alertPrefs.notificationsEnabled, isWeb]);
 
@@ -173,17 +187,30 @@ export default function RootLayout() {
         <ThemedStatusBar />
         <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
-          <AuthProvider>
-            <GlucoseProvider>
-              <MessagesProvider>
-                <GestureHandlerRootView>
-                  <KeyboardProvider>
-                    <RootLayoutNav />
-                  </KeyboardProvider>
-                </GestureHandlerRootView>
-              </MessagesProvider>
-            </GlucoseProvider>
-          </AuthProvider>
+          {/* Clerk owns identity (Google + email/password); ConvexProviderWithClerk keeps the shared
+              Convex client's auth token attached and refreshed. Both must sit ABOVE AuthProvider,
+              which reads the Clerk session. `tokenCache` persists the session in expo-secure-store so
+              users stay signed in across launches. */}
+          <ClerkProvider
+            publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
+            tokenCache={tokenCache}
+          >
+            <ConvexProviderWithClerk client={convex} useAuth={useClerkAuth}>
+              <AuthProvider>
+                <GlucoseProvider>
+                  <MessagesProvider>
+                    <PushProvider>
+                      <GestureHandlerRootView>
+                        <KeyboardProvider>
+                          <RootLayoutNav />
+                        </KeyboardProvider>
+                      </GestureHandlerRootView>
+                    </PushProvider>
+                  </MessagesProvider>
+                </GlucoseProvider>
+              </AuthProvider>
+            </ConvexProviderWithClerk>
+          </ClerkProvider>
         </QueryClientProvider>
         </ErrorBoundary>
       </ThemeProvider>

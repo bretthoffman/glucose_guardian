@@ -1,4 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useQuery } from "convex/react";
+import { useAuth as useClerkAuth, useSSO, useSignIn, useSignUp } from "@clerk/clerk-expo";
+import * as Linking from "expo-linking";
 import React, {
   createContext,
   useCallback,
@@ -12,6 +15,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import type { CarePermissions } from "../../../convex/careSchedule";
 import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY, QUICK_FOODS_STORAGE_KEY } from "@/constants/storage-keys";
 import { apiUrl } from "@/utils/api-base-url";
+import type { DoseSettingsByTime } from "@/utils/doseSettings";
 import { mergeCloudLogs } from "@/utils/careLogsMerge";
 import { resolveLogConfirmName } from "@/utils/careLogConfirm";
 import { DEFAULT_QUICK_FOODS, insertQuickFood, parseStoredQuickFoods } from "@/utils/quickFoods";
@@ -85,6 +89,8 @@ export interface UserProfile {
   carbRatio?: number;
   targetGlucose?: number;
   correctionFactor?: number;
+  /** Optional per-meal-window overrides of carbRatio/correctionFactor (see utils/doseSettings). */
+  doseSettingsByTime?: DoseSettingsByTime;
 }
 
 export interface InsulinLogEntry {
@@ -115,6 +121,12 @@ export interface InsulinLogPatch {
 
 export interface UserAccount {
   email: string;
+  /**
+   * LEGACY credential, kept only so pre-Clerk sessions restored from storage keep working during the
+   * migration. Clerk-authenticated accounts set this to "" — the backend's `userCompat` treats an
+   * empty value as "no legacy credential" and falls through to the verified Clerk identity, so
+   * nothing has to change at the ~40 call sites that still pass it.
+   */
   passwordHash: string;
   /** Convex document id for `users` — set for cloud-backed accounts. */
   convexUserId?: string;
@@ -190,6 +202,11 @@ export interface FoodLogEntry {
   confidence: "high" | "medium" | "low";
   fromPhoto: boolean;
   photoUri?: string;
+  /** Optional nutrition context from the AI analysis — carbs-only entries stay fully supported. */
+  fatGrams?: number;
+  proteinGrams?: number;
+  /** How fast this meal's carbs hit: fast (~2h), medium (~3h, default), slow/high-fat (~4h). */
+  absorption?: "fast" | "medium" | "slow";
   /** Care Circle shared bucket: who logged this. Absent on legacy device-local entries. */
   authorUserId?: string;
   authorName?: string;
@@ -209,6 +226,8 @@ export interface EmergencyContact {
   name: string;
   phone: string;
   relation: string;
+  /** The ONE contact the emergency banner's one-tap text targets (radio: at most one is true). */
+  primary?: boolean;
 }
 
 export interface AlertPreferences {
@@ -218,6 +237,11 @@ export interface AlertPreferences {
   lowThreshold: number;
   highThreshold: number;
   urgentHighThreshold: number;
+  /** One-tap SMS banner (build-the-text-for-you). Default OFF; main accounts only. */
+  oneTapTextEnabled?: boolean;
+  /** ADULT main accounts: hold the caregiver code-device emergency push this many minutes. */
+  waitWindowEnabled?: boolean;
+  waitWindowMinutes?: number;
 }
 
 export interface AuthContextType {
@@ -249,10 +273,21 @@ export interface AuthContextType {
   editInsulinLogEntry: (id: string, patch: InsulinLogPatch) => void;
   logout: () => Promise<void>;
   signOut: () => Promise<void>;
-  createAccount: (email: string, password: string) => Promise<void>;
+  /** Resolves "needs_verification" when the Clerk instance requires an emailed code first. */
+  createAccount: (email: string, password: string) => Promise<{ status: "complete" | "needs_verification" }>;
+  /** Finish a sign-up that required an emailed verification code. */
+  verifyEmailCode: (code: string) => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
+  /** Google sign-in via Clerk SSO. Returns false if the user cancels. */
+  signInWithGoogle: () => Promise<boolean>;
+  /** Email a password-reset code (Clerk-delivered). */
+  requestPasswordReset: (email: string) => Promise<boolean>;
+  /** Complete the reset with the emailed code + new password; also signs in. */
+  resetPassword: (code: string, newPassword: string) => Promise<boolean>;
   addEmergencyContact: (contact: Omit<EmergencyContact, "id">) => Promise<void>;
   removeEmergencyContact: (id: string) => Promise<void>;
+  /** Radio toggle: mark ONE contact as the one-tap emergency text target (null clears all). */
+  setPrimaryEmergencyContact: (id: string | null) => Promise<void>;
   updateAlertPrefs: (prefs: Partial<AlertPreferences>) => Promise<void>;
   setChildMode: (enabled: boolean) => Promise<void>;
   generateCaregiverCode: () => Promise<string>;
@@ -360,6 +395,9 @@ function toFoodEntryPayload(e: FoodLogEntry) {
     confidence: e.confidence,
     fromPhoto: e.fromPhoto,
     ...(e.photoUri != null ? { photoUri: e.photoUri } : {}),
+    ...(e.fatGrams != null ? { fatGrams: e.fatGrams } : {}),
+    ...(e.proteinGrams != null ? { proteinGrams: e.proteinGrams } : {}),
+    ...(e.absorption != null ? { absorption: e.absorption } : {}),
   };
 }
 
@@ -392,12 +430,18 @@ function toInsulinEntryPayload(e: InsulinLogEntry) {
 }
 
 const DEFAULT_ALERT_PREFS: AlertPreferences = {
-  notificationsEnabled: false,
+  // Glucose alerts start ON for every new account and every fresh access-code session — protective
+  // by default; each device can still turn them off.
+  notificationsEnabled: true,
   emergencyAlertsEnabled: false,
   urgentLowThreshold: 55,
   lowThreshold: 70,
   highThreshold: 180,
   urgentHighThreshold: 250,
+  // One-tap SMS building starts OFF until the account turns it on in Emergency settings.
+  oneTapTextEnabled: false,
+  waitWindowEnabled: false,
+  waitWindowMinutes: 5,
 };
 
 type RemoteThresholds = {
@@ -405,6 +449,8 @@ type RemoteThresholds = {
   highThreshold?: number | null;
   urgentLowThreshold?: number | null;
   urgentHighThreshold?: number | null;
+  /** Owner's Emergency Text Alerts toggle — synced so restricted sessions can mirror it locked. */
+  emergencyAlertsEnabled?: boolean | null;
 } | null | undefined;
 
 /** Pull just the four numeric thresholds out of a backend `alertPreferences` (notification toggles
@@ -419,6 +465,20 @@ function thresholdOverlay(remote: RemoteThresholds): Partial<AlertPreferences> |
   return Object.keys(out).length > 0 ? out : null;
 }
 
+/**
+ * Thresholds PLUS the owner's Emergency Text Alerts toggle. Used wherever a device adopts an
+ * ACCOUNT's alert state — the owner's own sign-in/hydrate (cross-device sync) and kid/caregiver
+ * sessions (which mirror the owner's emergency setting LOCKED). Co-guardians keep using
+ * `thresholdOverlay`: they inherit ranges but own their personal emergency toggle.
+ */
+function sessionAlertOverlay(remote: RemoteThresholds): Partial<AlertPreferences> | null {
+  const out: Partial<AlertPreferences> = { ...(thresholdOverlay(remote) ?? {}) };
+  if (remote && typeof remote.emergencyAlertsEnabled === "boolean") {
+    out.emergencyAlertsEnabled = remote.emergencyAlertsEnabled;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** The account-scoped subset of alert prefs that persists to the backend profile. */
 function thresholdsToBackend(prefs: AlertPreferences) {
   return {
@@ -426,6 +486,11 @@ function thresholdsToBackend(prefs: AlertPreferences) {
     highThreshold: prefs.highThreshold,
     urgentLowThreshold: prefs.urgentLowThreshold,
     urgentHighThreshold: prefs.urgentHighThreshold,
+    emergencyAlertsEnabled: prefs.emergencyAlertsEnabled,
+    // The wait-window pair must reach the backend — the PUSH PIPELINE reads them server-side.
+    oneTapTextEnabled: prefs.oneTapTextEnabled,
+    waitWindowEnabled: prefs.waitWindowEnabled,
+    waitWindowMinutes: prefs.waitWindowMinutes,
   };
 }
 
@@ -444,19 +509,11 @@ const SHARED_PROFILE_EDIT_KEYS = [
   "carbRatio",
   "targetGlucose",
   "correctionFactor",
+  "doseSettingsByTime",
 ] as const;
 
 /** Max Quick Lookup entries (list length stays constant; saving pushes the oldest off). */
 const QUICK_FOODS_MAX = DEFAULT_QUICK_FOODS.length;
-
-function hashPassword(password: string): string {
-  const salted = `gg::${password}::glucose_guardian_2025`;
-  let encoded = "";
-  for (let i = 0; i < salted.length; i++) {
-    encoded += salted.charCodeAt(i).toString(16).padStart(2, "0");
-  }
-  return encoded;
-}
 
 /** Local profile can be seeded to Convex once if it has the minimum required fields. */
 function isMigratableLocalProfile(p: unknown): p is UserProfile {
@@ -517,6 +574,12 @@ async function restoreConvexBackedSession(acc: UserAccount): Promise<boolean> {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  // Clerk owns identity now (Google + email/password). These hooks must live at component level.
+  const { signIn: clerkSignIn, setActive: setSignInActive } = useSignIn();
+  const { signUp: clerkSignUp, setActive: setSignUpActive } = useSignUp();
+  const { signOut: clerkSignOut } = useClerkAuth();
+  const { startSSOFlow } = useSSO();
+
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [account, setAccount] = useState<UserAccount | null>(null);
   const [isSignedIn, setIsSignedIn] = useState(false);
@@ -757,7 +820,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setProfile(nextProfile);
                 await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
                 // Show the code owner's alert thresholds for this restored session (in memory only).
-                setAlertPrefsState((prev) => ({ ...prev, ...DEFAULT_ALERT_PREFS, ...(thresholdOverlay(slim.alertPreferences) ?? {}) }));
+                setAlertPrefsState((prev) => ({ ...prev, ...DEFAULT_ALERT_PREFS, ...(sessionAlertOverlay(slim.alertPreferences) ?? {}) }));
               }
             } catch {
               /* keep the AsyncStorage-cached profile */
@@ -940,7 +1003,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(p));
                     // Account-scoped thresholds: adopt the account's saved ranges, or seed the backend
                     // from this device's local thresholds if the account has none yet.
-                    const overlay = thresholdOverlay(remotePrefs);
+                    const overlay = sessionAlertOverlay(remotePrefs);
                     if (overlay) {
                       const next = { ...DEFAULT_ALERT_PREFS, ...(storedAlertPrefs ? JSON.parse(storedAlertPrefs) : {}), ...overlay };
                       setAlertPrefsState(next);
@@ -1227,7 +1290,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
             // Own thresholds only apply when NOT inheriting (a circle owner's, or a viewed child's).
             if (!circleSharedRef.current && !nurseViewCodeRef.current) {
-              const overlay = thresholdOverlay(remotePrefs);
+              const overlay = sessionAlertOverlay(remotePrefs);
               if (overlay) {
                 setAlertPrefsState((prev) => {
                   const merged = { ...prev, ...overlay };
@@ -1363,20 +1426,167 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [caregiverCodeKind, caregiverCloudCode, viewingPatientId, nurseViewCode, account?.convexUserId, account?.passwordHash]);
 
+  /**
+   * Adopt a freshly-activated Clerk session: provision/find the Convex `users` row and build the
+   * local account. Clerk's `setActive` and ConvexProviderWithClerk's token attach are asynchronous
+   * with respect to each other, so `ensureUser` is retried briefly — otherwise the very first call
+   * can land before the client has a token and fail as unauthenticated.
+   */
+  const adoptClerkSession = useCallback(async (emailForAccount: string): Promise<UserAccount> => {
+    const client = createConvexAuthClient();
+    let lastErr: unknown = null;
+    // Give ConvexProviderWithClerk a beat to attach the fresh token before the first attempt —
+    // otherwise attempt 1 reliably lands unauthenticated and logs a scary (but harmless) console
+    // error on every single sign-in.
+    await new Promise((r) => setTimeout(r, 400));
+    for (let attempt = 0; attempt < 8; attempt++) {
+      try {
+        const res = await client.mutation(api.identity.ensureUser, {});
+        return {
+          email: emailForAccount || res.email || "",
+          passwordHash: "",
+          convexUserId: String(res.userId),
+        };
+      } catch (err) {
+        lastErr = err;
+        await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+      }
+    }
+    throw lastErr ?? new Error("Could not finish signing in");
+  }, []);
+
+  /**
+   * Clear every "borrowed session" overlay: co-guardian viewing, the nurse kid-view (code +
+   * inherited role/permissions/contacts), access-code session kind, and the schedule lock. This must
+   * run at every ACCOUNT BOUNDARY (sign-in, sign-out, create, logout) — the smoke test that skipped
+   * it had a nurse's kid-view survive a sign-out and bleed into the next (owner) account, which then
+   * greeted as "Jimbo's Caregiver" and MESSAGED AS THE CODE, making both sides render the same
+   * message as their own. Unconditional, unlike `exitViewingMode` (which only tears down nurse state
+   * when a nurse view is active).
+   */
+  const clearSessionOverlay = useCallback(() => {
+    setViewingPatientId(null);
+    setViewedProfile(null);
+    setViewedFoodLog([]);
+    setViewedInsulinLog([]);
+    setViewedEmergencyContacts([]);
+    setAccessLock(null);
+    setNurseViewCode(null);
+    nurseViewCodeRef.current = null;
+    setAccessCodeRole(null);
+    setAccessCodePermissions(null);
+    setCaregiverCodeKind(null);
+  }, []);
+
+  /**
+   * The single "this Clerk account now owns this device" commit, shared by every entry path (email
+   * sign-in, Google SSO, email verification, password reset). Fetches the account's remote
+   * profile/CGM/thresholds FIRST (so routing decides off complete state — no onboarding flash),
+   * then atomically replaces ALL per-account state and storage. Clearing everything matters: the
+   * device may hold a previous account's cached profile/logs/CGM, and the Google path skipping this
+   * was exactly the "old name + phantom Dexcom + skipped onboarding" bug in the first smoke test.
+   */
+  const commitClerkAccount = useCallback(async (acc: UserAccount): Promise<void> => {
+    const client = createConvexAuthClient();
+    let nextProfile: UserProfile | null = null;
+    let appliedAlertPrefs: AlertPreferences | null = null;
+    let nextCgm: CGMConnection | null = null;
+    try {
+      // Identity rides the Clerk token on the shared client — no credentials in the args.
+      const remote = await client.query(api.patientProfile.get, {});
+      if (remote) {
+        const { alertPreferences: remotePrefs, ...p } = remote as UserProfile & { alertPreferences?: RemoteThresholds };
+        nextProfile = p as UserProfile;
+        appliedAlertPrefs = { ...DEFAULT_ALERT_PREFS, ...(sessionAlertOverlay(remotePrefs) ?? {}) };
+      }
+      const remoteCgm = await client.query(api.patientCgm.get, {});
+      if (remoteCgm) nextCgm = remoteCgm as CGMConnection;
+    } catch {
+      /* offline — sign in with an empty profile/CGM; the hydrate poll fills them in later */
+    }
+
+    // Commit in one batch. `setIsSignedIn(true)` goes last so the first render that observes it
+    // already carries the resolved profile.
+    accountRef.current = acc;
+    setAccount(acc);
+    clearSessionOverlay();
+    setCaregiverSession(false);
+    setCaregiverCloudCode(null);
+    setDoctorSession(false);
+    setCareMemberships([]);
+    setCircleShared(null);
+    circleSharedRef.current = null;
+    setQuickFoods(DEFAULT_QUICK_FOODS);
+    setFoodLog([]);
+    setInsulinLog([]);
+    setEmergencyContacts([]);
+    profileRef.current = nextProfile;
+    setProfile(nextProfile);
+    setAlertPrefsState(appliedAlertPrefs ?? DEFAULT_ALERT_PREFS);
+    setCGMConnectionState(nextCgm ?? { type: null });
+    setIsSignedIn(true);
+
+    await AsyncStorage.multiSet([
+      [ACCOUNT_KEY, JSON.stringify(acc)],
+      [SESSION_KEY, "true"],
+    ]);
+    await AsyncStorage.multiRemove([
+      CAREGIVER_CODE_KEY,
+      CARE_MEMBERSHIPS_KEY,
+      CIRCLE_SHARED_KEY,
+      QUICK_FOODS_STORAGE_KEY,
+      GLUCOSE_HISTORY_STORAGE_KEY,
+      GLUCOSE_SETTINGS_STORAGE_KEY,
+      FOOD_LOG_KEY,
+      INSULIN_LOG_KEY,
+      EMERGENCY_CONTACTS_KEY,
+    ]);
+    if (nextProfile) await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+    else await AsyncStorage.removeItem(PROFILE_KEY);
+    if (appliedAlertPrefs) await AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(appliedAlertPrefs)).catch(() => {});
+    else await AsyncStorage.removeItem(ALERT_PREFS_KEY).catch(() => {});
+    if (nextCgm?.type) await AsyncStorage.setItem(CGM_KEY, JSON.stringify(nextCgm));
+    else await AsyncStorage.removeItem(CGM_KEY);
+  }, [clearSessionOverlay]);
+
+  /**
+   * Google sign-in. Clerk's SSO flow opens a browser session and returns a Clerk session id; from
+   * there it converges with the email/password path (`adoptClerkSession`), so the rest of the app
+   * sees no difference between how someone signed in.
+   */
+  const signInWithGoogle = useCallback(async (): Promise<boolean> => {
+    try {
+      const { createdSessionId, setActive: setSsoActive } = await startSSOFlow({
+        strategy: "oauth_google",
+        redirectUrl: Linking.createURL("/"),
+      });
+      // Null when the user backs out of the browser sheet — not an error worth surfacing.
+      if (!createdSessionId || !setSsoActive) return false;
+      await setSsoActive({ session: createdSessionId });
+      const acc = await adoptClerkSession("");
+      // Full account commit — fetches this account's remote profile (new Google account ⇒ none ⇒
+      // onboarding) and clears every trace of any previous account cached on this device.
+      await commitClerkAccount(acc);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [startSSOFlow, adoptClerkSession, commitClerkAccount]);
+
   const createAccount = useCallback(async (email: string, password: string) => {
     const normalizedEmail = email.trim().toLowerCase();
-    const passwordHash = hashPassword(password);
-    const client = createConvexAuthClient();
-    const convexUserId = await client.mutation(api.auth.register, {
-      email: normalizedEmail,
-      passwordHash,
-    });
-    const acc: UserAccount = {
-      email: normalizedEmail,
-      passwordHash,
-      convexUserId: String(convexUserId),
-    };
+    if (!clerkSignUp || !setSignUpActive) throw new Error("Sign-up isn't ready yet — try again.");
+    const attempt = await clerkSignUp.create({ emailAddress: normalizedEmail, password });
+    if (attempt.status !== "complete") {
+      // The Clerk instance requires email verification. Kick off the code and let the UI collect it;
+      // `verifyEmailCode` finishes the job.
+      await clerkSignUp.prepareEmailAddressVerification({ strategy: "email_code" });
+      return { status: "needs_verification" as const };
+    }
+    await setSignUpActive({ session: attempt.createdSessionId });
+    const acc = await adoptClerkSession(normalizedEmail);
     accountRef.current = acc;
+    clearSessionOverlay();
     setProfile(null);
     profileRef.current = null;
     setCGMConnectionState({ type: null });
@@ -1411,110 +1621,76 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       GLUCOSE_HISTORY_STORAGE_KEY,
       GLUCOSE_SETTINGS_STORAGE_KEY,
     ]);
-  }, []);
+    return { status: "complete" as const };
+  }, [clerkSignUp, setSignUpActive, adoptClerkSession, clearSessionOverlay]);
+
+  /** Finish an email/password sign-up that required an emailed verification code. */
+  const verifyEmailCode = useCallback(async (code: string): Promise<boolean> => {
+    if (!clerkSignUp || !setSignUpActive) return false;
+    const attempt = await clerkSignUp.attemptEmailAddressVerification({ code });
+    if (attempt.status !== "complete") return false;
+    await setSignUpActive({ session: attempt.createdSessionId });
+    const acc = await adoptClerkSession(accountRef.current?.email ?? "");
+    await commitClerkAccount(acc);
+    return true;
+  }, [clerkSignUp, setSignUpActive, adoptClerkSession, commitClerkAccount]);
+
+  /** Email a password-reset code. Clerk owns delivery, templates, expiry, and rate limiting. */
+  const requestPasswordReset = useCallback(async (email: string): Promise<boolean> => {
+    if (!clerkSignIn) return false;
+    try {
+      await clerkSignIn.create({
+        strategy: "reset_password_email_code",
+        identifier: email.trim().toLowerCase(),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [clerkSignIn]);
+
+  /** Complete the reset with the emailed code + a new password, which also signs the user in. */
+  const resetPassword = useCallback(async (code: string, newPassword: string): Promise<boolean> => {
+    if (!clerkSignIn || !setSignInActive) return false;
+    try {
+      const attempt = await clerkSignIn.attemptFirstFactor({
+        strategy: "reset_password_email_code",
+        code,
+        password: newPassword,
+      });
+      if (attempt.status !== "complete") return false;
+      await setSignInActive({ session: attempt.createdSessionId });
+      const acc = await adoptClerkSession(accountRef.current?.email ?? "");
+      await commitClerkAccount(acc);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [clerkSignIn, setSignInActive, adoptClerkSession, commitClerkAccount]);
 
   const signIn = useCallback(async (email: string, password: string): Promise<boolean> => {
     const normalizedEmail = email.trim().toLowerCase();
-    const passwordHash = hashPassword(password);
-    const client = createConvexAuthClient();
+    if (!clerkSignIn || !setSignInActive) return false;
     try {
-      const result = await client.query(api.auth.login, {
-        email: normalizedEmail,
-        passwordHash,
-      });
-      if (result) {
-        const acc: UserAccount = {
-          email: result.email,
-          passwordHash,
-          convexUserId: String(result.userId),
-        };
-        // Resolve this account's profile + CGM BEFORE flipping `isSignedIn`. If we set isSignedIn
-        // first (with a null profile) the router briefly sees "signed in but no profile" and routes
-        // to the onboarding "Get started" screen for a frame before the profile arrives — the flash
-        // we're fixing. Fetching first means the very first signed-in render already has the profile,
-        // so `isLoggedIn` is true immediately and routing goes straight to the tabs.
-        let nextProfile: UserProfile | null = null;
-        let appliedAlertPrefs: AlertPreferences | null = null;
-        let nextCgm: CGMConnection | null = null;
-        try {
-          const remote = await client.query(api.patientProfile.get, {
-            userId: acc.convexUserId as Id<"users">,
-            passwordHash: acc.passwordHash,
-          });
-          if (remote) {
-            const { alertPreferences: remotePrefs, ...p } = remote as UserProfile & { alertPreferences?: RemoteThresholds };
-            nextProfile = p as UserProfile;
-            // Thresholds are account-scoped: adopt this account's saved ranges over a clean default
-            // base so nothing carries over from a previous session.
-            appliedAlertPrefs = { ...DEFAULT_ALERT_PREFS, ...(thresholdOverlay(remotePrefs) ?? {}) };
-          }
-          const remoteCgm = await client.query(api.patientCgm.get, {
-            userId: acc.convexUserId as Id<"users">,
-            passwordHash: acc.passwordHash,
-          });
-          if (remoteCgm) nextCgm = remoteCgm as CGMConnection;
-        } catch {
-          /* offline — sign in with an empty profile/CGM; the hydrate poll fills them in later */
-        }
-
-        // Commit the whole signed-in state in one batch. `setIsSignedIn(true)` goes last so the
-        // first render that observes it already carries the resolved profile (no onboarding flash).
-        accountRef.current = acc;
-        setAccount(acc);
-        setCaregiverSession(false);
-        setCaregiverCloudCode(null);
-        setDoctorSession(false);
-        setCareMemberships([]);
-        setCircleShared(null);
-        circleSharedRef.current = null;
-        setQuickFoods(DEFAULT_QUICK_FOODS);
-        profileRef.current = nextProfile;
-        setProfile(nextProfile);
-        if (appliedAlertPrefs) setAlertPrefsState(appliedAlertPrefs);
-        setCGMConnectionState(nextCgm ?? { type: null });
-        setIsSignedIn(true);
-
-        // Persist the session + the resolved account data (routing already decided off React state).
-        await AsyncStorage.multiSet([
-          [ACCOUNT_KEY, JSON.stringify(acc)],
-          [SESSION_KEY, "true"],
-        ]);
-        await AsyncStorage.multiRemove([
-          CAREGIVER_CODE_KEY,
-          CARE_MEMBERSHIPS_KEY,
-          CIRCLE_SHARED_KEY,
-          QUICK_FOODS_STORAGE_KEY,
-          GLUCOSE_HISTORY_STORAGE_KEY,
-          GLUCOSE_SETTINGS_STORAGE_KEY,
-        ]);
-        if (nextProfile) await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
-        else await AsyncStorage.removeItem(PROFILE_KEY);
-        if (appliedAlertPrefs) await AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(appliedAlertPrefs)).catch(() => {});
-        if (nextCgm?.type) await AsyncStorage.setItem(CGM_KEY, JSON.stringify(nextCgm));
-        else await AsyncStorage.removeItem(CGM_KEY);
+      const attempt = await clerkSignIn.create({ identifier: normalizedEmail, password });
+      if (attempt.status !== "complete") return false;
+      await setSignInActive({ session: attempt.createdSessionId });
+      const acc = await adoptClerkSession(normalizedEmail);
+      {
+        await commitClerkAccount(acc);
         return true;
       }
     } catch {
-      // Offline or Convex error — try legacy single-device account below.
-    }
-    const storedRaw = await AsyncStorage.getItem(ACCOUNT_KEY);
-    if (!storedRaw) return false;
-    const stored = JSON.parse(storedRaw) as UserAccount;
-    if (
-      stored.email === normalizedEmail &&
-      stored.passwordHash === passwordHash &&
-      !stored.convexUserId
-    ) {
-      accountRef.current = stored;
-      setAccount(stored);
-      setIsSignedIn(true);
-      await AsyncStorage.setItem(SESSION_KEY, "true");
-      return true;
+      // Wrong password, unknown email, or offline. The pre-Convex "legacy single-device account"
+      // fallback that used to live here is gone: Clerk is the only credential store now, and it
+      // can't verify a password held locally.
     }
     return false;
-  }, []);
+  }, [clerkSignIn, setSignInActive, adoptClerkSession, commitClerkAccount]);
 
   const signOut = useCallback(async () => {
+    // End the Clerk session first; otherwise the persisted token would restore the user on relaunch.
+    await clerkSignOut().catch(() => {});
     setIsSignedIn(false);
     setCaregiverSession(false);
     setCaregiverCloudCode(null);
@@ -1522,12 +1698,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCareMemberships([]);
     setCircleShared(null);
     circleSharedRef.current = null;
-    setViewingPatientId(null);
-    setViewedProfile(null);
-    setViewedFoodLog([]);
-    setViewedInsulinLog([]);
+    clearSessionOverlay();
     await AsyncStorage.multiRemove([SESSION_KEY, CAREGIVER_CODE_KEY, CARE_MEMBERSHIPS_KEY, CIRCLE_SHARED_KEY]);
-  }, []);
+  }, [clerkSignOut, clearSessionOverlay]);
 
   const setupProfile = useCallback(async (p: UserProfile) => {
     await commitProfile(p);
@@ -1855,6 +2028,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [mutateInsulinEntry]);
 
   const logout = useCallback(async () => {
+    await clerkSignOut().catch(() => {});
+    clearSessionOverlay();
     profileRef.current = null;
     accountRef.current = null;
     setProfile(null);
@@ -1892,7 +2067,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       GLUCOSE_HISTORY_STORAGE_KEY,
       GLUCOSE_SETTINGS_STORAGE_KEY,
     ]);
-  }, []);
+  }, [clerkSignOut, clearSessionOverlay]);
 
   const addEmergencyContact = useCallback(async (contact: Omit<EmergencyContact, "id">) => {
     // A nurse viewing a child sees the child's shared pool read-only — never edits it.
@@ -1939,6 +2114,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  /** Radio semantics locally AND server-side: setting one contact clears every other. */
+  const setPrimaryEmergencyContact = useCallback(async (id: string | null) => {
+    if (nurseViewCodeRef.current) return; // read-only borrowed pool while a nurse views a child
+    setEmergencyContacts((prev) => {
+      const next = prev.map((c) => ({ ...c, primary: id != null && c.id === id ? true : undefined }));
+      AsyncStorage.setItem(EMERGENCY_CONTACTS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+    const acc = accountRef.current;
+    if (acc?.convexUserId && !caregiverSessionRef.current) {
+      createConvexAuthClient()
+        .mutation(api.careCircle.setPrimaryEmergencyContact, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          contactId: id,
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   /** Quick Lookup meals: front-insert locally, then sync the circle's mutual list. */
   const saveQuickFood = useCallback((name: string) => {
     setQuickFoods((prev) => {
@@ -1963,7 +2158,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // this device is only viewing. Update in memory for the current view, but never persist: don't
     // touch this device's local cache and don't write the owner's backend thresholds.
     if (caregiverSessionRef.current) {
-      setAlertPrefsState((prev) => ({ ...prev, ...partial }));
+      // Emergency Text Alerts mirror the OWNER's setting in a code session — locked here.
+      const { emergencyAlertsEnabled: _locked, ...personal } = partial;
+      setAlertPrefsState((prev) => ({ ...prev, ...personal }));
       return;
     }
     // A linked co-guardian OR a nurse viewing a child inherits the owner's thresholds read-only: keep
@@ -1973,7 +2170,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { notificationsEnabled, emergencyAlertsEnabled } = partial;
       const toggles: Partial<AlertPreferences> = {
         ...(notificationsEnabled !== undefined ? { notificationsEnabled } : {}),
-        ...(emergencyAlertsEnabled !== undefined ? { emergencyAlertsEnabled } : {}),
+        // A nurse viewing a kid mirrors the owner's LOCKED emergency setting; a co-guardian
+        // (circleShared) keeps their own personal toggle.
+        ...(emergencyAlertsEnabled !== undefined && !nurseViewCodeRef.current ? { emergencyAlertsEnabled } : {}),
       };
       setAlertPrefsState((prev) => {
         const next = { ...prev, ...toggles };
@@ -2072,7 +2271,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Adopt the code owner's alert thresholds for this session (in memory only — never write
             // this borrowed view over the device's own account thresholds). Fall back to the owner's
             // defaults so we never leave the previous account's ranges in place.
-            setAlertPrefsState((prev) => ({ ...prev, ...DEFAULT_ALERT_PREFS, ...(thresholdOverlay(slim?.alertPreferences) ?? {}) }));
+            setAlertPrefsState((prev) => ({ ...prev, ...DEFAULT_ALERT_PREFS, ...(sessionAlertOverlay(slim?.alertPreferences) ?? {}) }));
             setCaregiverCloudCode(normalized);
             setCaregiverCodeKind("access");
             setAccessCodeRole(resolved.kind);
@@ -2298,7 +2497,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           lowThreshold: DEFAULT_ALERT_PREFS.lowThreshold,
           highThreshold: DEFAULT_ALERT_PREFS.highThreshold,
           urgentHighThreshold: DEFAULT_ALERT_PREFS.urgentHighThreshold,
-          ...(thresholdOverlay(s?.alertPreferences) ?? {}),
+          ...(sessionAlertOverlay(s?.alertPreferences) ?? {}),
         }));
         // Inherit the child's shared emergency-contact pool (read-only view).
         setViewedEmergencyContacts(s?.emergencyContacts ?? []);
@@ -2535,6 +2734,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [caregiverSession, accessCodeRole, isCaregiverViewingChild, effectiveProfile, viewingPatientName],
   );
 
+  // ── LIVE pooled logs (Stage 2): the circle's shared log bucket as a subscription, so a
+  // co-guardian's entry appears on every guardian's phone the moment it's written — the 60s hydrate
+  // poll still runs for memberships/profile/settings, but log freshness no longer waits on it.
+  // Skipped for access-code sessions (they read via code queries) and while viewing another patient
+  // (the viewing overlay owns the visible logs).
+  const liveLogsArgs =
+    !isLoading && isSignedIn && account?.convexUserId && !caregiverSession && !doctorSession
+      ? { patientUserId: (careMemberships[0]?.patientUserId ?? account.convexUserId) as Id<"users"> }
+      : ("skip" as const);
+  const liveLogs = useQuery(api.careLogs.listLogs, liveLogsArgs);
+  useEffect(() => {
+    if (!liveLogs || viewingPatientIdRef.current) return;
+    setFoodLog((prev) => {
+      const next = mergeCloudLogs(liveLogs.foodLog as FoodLogEntry[], prev, 200);
+      AsyncStorage.setItem(FOOD_LOG_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+    setInsulinLog((prev) => {
+      const next = mergeCloudLogs(liveLogs.insulinLog as InsulinLogEntry[], prev, 500);
+      AsyncStorage.setItem(INSULIN_LOG_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, [liveLogs]);
+
   const messagingIdentity: MessagingIdentity = useMemo(() => {
     // A code session (accountless access code, or a nurse viewing via a code) messages AS the code.
     if (caregiverCodeKind === "access" && caregiverCloudCode) return { kind: "code", code: caregiverCloudCode };
@@ -2590,9 +2813,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         signOut,
         createAccount,
+        signInWithGoogle,
+        verifyEmailCode,
+        requestPasswordReset,
+        resetPassword,
         signIn,
         addEmergencyContact,
         removeEmergencyContact,
+        setPrimaryEmergencyContact,
         updateAlertPrefs,
         setChildMode,
         generateCaregiverCode,

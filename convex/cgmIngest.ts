@@ -131,17 +131,40 @@ export const recentReadings = internalQuery({
   },
 });
 
-/** INTERNAL: verify patient auth and return the connected provider (or null connection / null auth). */
+/**
+ * INTERNAL: resolve the caller (Clerk subject preferred, legacy creds as fallback) and return their
+ * id + connected provider. Called by ACTIONS, which have no `ctx.db` — they read `ctx.auth`
+ * themselves and pass the subject down. `userId` is a plain string + `normalizeId` on purpose: a
+ * stale id cached from another deployment must resolve to "unauthorized", not a validator crash
+ * (that exact crash was the red-screen in the first prod smoke test).
+ */
 export const authConnection = internalQuery({
-  args: { userId: v.id("users"), passwordHash: v.string() },
-  handler: async (ctx, args): Promise<{ provider: Provider | null } | null> => {
-    const user = await ctx.db.get(args.userId);
-    if (!user || user.passwordHash !== args.passwordHash) return null;
+  args: {
+    userId: v.optional(v.string()),
+    passwordHash: v.optional(v.string()),
+    clerkSubject: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ userId: Id<"users">; provider: Provider | null } | null> => {
+    let user = null;
+    if (args.clerkSubject) {
+      user = await ctx.db
+        .query("users")
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", args.clerkSubject))
+        .unique();
+    }
+    if (!user && args.userId && args.passwordHash) {
+      const id = ctx.db.normalizeId("users", args.userId);
+      if (id) {
+        const candidate = await ctx.db.get(id);
+        if (candidate && candidate.passwordHash === args.passwordHash) user = candidate;
+      }
+    }
+    if (!user) return null;
     const conn = await ctx.db
       .query("patientCgmConnections")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .unique();
-    return { provider: conn?.type ?? null };
+    return { userId: user._id, provider: conn?.type ?? null };
   },
 });
 
@@ -304,6 +327,8 @@ export const insertReadings = internalMutation({
   handler: async (ctx, args): Promise<{ inserted: number; maxTimestamp: string | null }> => {
     let inserted = 0;
     let maxTimestamp: string | null = null;
+    /** Newest reading actually inserted this run — the only one worth alerting on. */
+    let newest: { glucose: number; timestamp: string } | null = null;
     for (const e of args.entries.slice(0, 400)) {
       if (maxTimestamp === null || e.timestamp > maxTimestamp) maxTimestamp = e.timestamp;
       const existing = await ctx.db
@@ -319,10 +344,25 @@ export const insertReadings = internalMutation({
         dexcomTrend: e.dexcomTrend,
       });
       inserted++;
+      if (newest === null || e.timestamp > newest.timestamp) newest = { glucose: e.glucose, timestamp: e.timestamp };
+    }
+
+    // Server-side threshold check — this is what makes glucose alerts fire with the app CLOSED
+    // (the in-app check in app/(tabs)/index.tsx only runs in the foreground). Only the newest new
+    // reading is evaluated, so a backfill of old readings can't spray stale alerts; `push` applies
+    // the per-kind cooldown. Skipped entirely for readings older than STALE_ALERT_MS.
+    if (newest && Date.now() - new Date(newest.timestamp).getTime() < STALE_ALERT_MS) {
+      await ctx.scheduler.runAfter(0, internal.push.evaluateGlucoseForPush, {
+        patientUserId: args.userId,
+        value: newest.glucose,
+      });
     }
     return { inserted, maxTimestamp };
   },
 });
+
+/** A reading older than this is history, not an alertable event (e.g. a gap-recovery backfill). */
+const STALE_ALERT_MS = 20 * 60_000;
 
 /**
  * INTERNAL: commit the result of a sync and release the lease. Guarded by `leaseOwner` AND
@@ -587,7 +627,9 @@ export const runDueIngest = internalAction({
  * cannot generate uncontrolled provider requests. Auth is by `userId` + `passwordHash`.
  */
 export const requestExpeditedSync = action({
-  args: { userId: v.id("users"), passwordHash: v.string() },
+  // Identity: the Clerk token on the request (preferred) or legacy creds during the migration.
+  // Plain strings so stale cached ids can never crash the validator.
+  args: { userId: v.optional(v.string()), passwordHash: v.optional(v.string()) },
   handler: async (
     ctx,
     args,
@@ -615,7 +657,9 @@ export const requestExpeditedSync = action({
     }>;
   }> => {
     const now = Date.now();
+    const identity = await ctx.auth.getUserIdentity();
     const auth = await ctx.runQuery(internal.cgmIngest.authConnection, {
+      clerkSubject: identity?.subject,
       userId: args.userId,
       passwordHash: args.passwordHash,
     });
@@ -640,10 +684,10 @@ export const requestExpeditedSync = action({
       };
     }
 
-    await ctx.runMutation(internal.cgmIngest.ensureState, { userId: args.userId, provider: auth.provider, now });
+    await ctx.runMutation(internal.cgmIngest.ensureState, { userId: auth.userId, provider: auth.provider, now });
 
     const result = await processConnection(ctx, {
-      userId: args.userId,
+      userId: auth.userId,
       provider: auth.provider,
       leaseOwner: `expedited-${now}-${Math.floor(Math.random() * 1e9)}`,
       now,
@@ -651,7 +695,7 @@ export const requestExpeditedSync = action({
       minSinceAttemptMs: ingestConfig.expeditedMinIntervalMs,
     });
 
-    const readings = await ctx.runQuery(internal.cgmIngest.recentReadings, { userId: args.userId, limit: 300 });
+    const readings = await ctx.runQuery(internal.cgmIngest.recentReadings, { userId: auth.userId, limit: 300 });
     const diagnosticCategory = failureCategoryToDiagnostic(
       result.category === "skipped" ? "none" : result.category,
       { inserted: result.inserted },

@@ -3,7 +3,6 @@ import * as Haptics from "expo-haptics";
 import React, { useEffect, useRef, useState } from "react";
 import {
   FlatList,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -16,6 +15,7 @@ import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import type { DoctorMessage } from "@/context/AuthContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { useKeyboardInset, useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 
 function fmtTime(iso: string): string {
   const d = new Date(iso);
@@ -60,6 +60,8 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
   const { doctorMessages, addDoctorMessage, markDoctorMessagesRead, profile } = useAuth();
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
+  const keyboardVisible = useKeyboardVisible();
+  const keyboardInset = useKeyboardInset();
   const sender = isDoctor ? "doctor" : "guardian";
   const name = profile?.childName ?? "the patient";
   const parentName = profile?.parentName?.trim() || "Guardian";
@@ -81,11 +83,9 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
   const groups = groupMessagesByDate(doctorMessages);
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={tabBarHeight}
-    >
+    // Padded by the exact keyboard overlap (see useKeyboardInset) — replaces the library
+    // KeyboardAvoidingView, which mis-measured on iPad (pageSheet + full-screen alike).
+    <View style={{ flex: 1, paddingBottom: keyboardInset }}>
       <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <View style={[styles.headerIcon, { backgroundColor: "#6366F1" + "20" }]}>
           <Feather name="message-circle" size={16} color="#6366F1" />
@@ -178,7 +178,7 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
           {
             backgroundColor: colors.card,
             borderTopColor: colors.border,
-            paddingBottom: tabBarHeight,
+            paddingBottom: keyboardVisible ? 10 : tabBarHeight,
           },
         ]}
       >
@@ -191,8 +191,8 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
           multiline
           maxLength={1000}
           returnKeyType="send"
+          submitBehavior="submit"
           onSubmitEditing={send}
-          blurOnSubmit={false}
         />
         <Pressable
           style={[styles.sendBtn, { backgroundColor: input.trim() ? (isDoctor ? "#6366F1" : COLORS.primary) : colors.backgroundTertiary }]}
@@ -202,7 +202,7 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
           <Feather name="send" size={16} color={input.trim() ? "#fff" : colors.textMuted} />
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

@@ -65,13 +65,18 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@clerk/clerk-expo": "^2.19.31",
     "@nkzw/create-context-hook": "^1.1.0",
     "convex": "^1.35.1",
+    "expo-audio": "~1.1.1",
+    "expo-auth-session": "~7.0.11",
     "expo-camera": "^17.0.10",
+    "expo-crypto": "~15.0.9",
     "expo-file-system": "^19.0.21",
     "expo-image-manipulator": "^14.0.8",
     "expo-notifications": "~0.32.16",
     "expo-print": "^15.0.8",
+    "expo-secure-store": "^57.0.1",
     "expo-sharing": "^14.0.8",
     "expo-updates": "~29.0.17",
     "react-native-qrcode-svg": "^6.3.21"

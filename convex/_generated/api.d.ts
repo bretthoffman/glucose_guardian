@@ -28,6 +28,7 @@ import type * as guardianPin_config from "../guardianPin/config.js";
 import type * as guardianPin_hashNode from "../guardianPin/hashNode.js";
 import type * as guardianPin_internal from "../guardianPin/internal.js";
 import type * as guardianPin_validate from "../guardianPin/validate.js";
+import type * as identity from "../identity.js";
 import type * as patientCgm from "../patientCgm.js";
 import type * as patientCgmSync from "../patientCgmSync.js";
 import type * as patientDexcomSecrets from "../patientDexcomSecrets.js";
@@ -38,6 +39,8 @@ import type * as patientLibreSecrets from "../patientLibreSecrets.js";
 import type * as patientProfile from "../patientProfile.js";
 import type * as predictionMatch from "../predictionMatch.js";
 import type * as predictionReferences from "../predictionReferences.js";
+import type * as push from "../push.js";
+import type * as pushLogic from "../pushLogic.js";
 
 import type {
   ApiFromModules,
@@ -66,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   "guardianPin/hashNode": typeof guardianPin_hashNode;
   "guardianPin/internal": typeof guardianPin_internal;
   "guardianPin/validate": typeof guardianPin_validate;
+  identity: typeof identity;
   patientCgm: typeof patientCgm;
   patientCgmSync: typeof patientCgmSync;
   patientDexcomSecrets: typeof patientDexcomSecrets;
@@ -76,6 +80,8 @@ declare const fullApi: ApiFromModules<{
   patientProfile: typeof patientProfile;
   predictionMatch: typeof predictionMatch;
   predictionReferences: typeof predictionReferences;
+  push: typeof push;
+  pushLogic: typeof pushLogic;
 }>;
 
 /**

@@ -101,10 +101,14 @@ describe("buildDoseWarning priority + blending", () => {
     isLowBG: false,
     isBelowTarget: false,
     isHighBG: false,
+    isVeryHighBG: false,
     isSpike: false,
     isFalling: false,
     iobCovers: false,
     iobUnits: 0,
+    iobDiscounted: false,
+    cappedAtMax: false,
+    maxDoseCap: 10,
     targetBG: 120,
     currentBG: 150,
   };
@@ -138,32 +142,49 @@ describe("buildDoseWarning priority + blending", () => {
   });
 });
 
-describe("computeDose insulin-on-board / carbs-on-board", () => {
-  it("subtracts active insulin from the total", () => {
-    // BASE raw = 3.2; minus 1u IOB → 2.2 → rounded 2
+describe("computeDose insulin-on-board / carbs-on-board (net model)", () => {
+  it("credits surplus IOB against the correction only", () => {
+    // BASE: carbs 2u + correction 1.2u. 1u IOB (no COB) → credit 1u off the correction → 2.2 raw.
     const dose = computeDose({ ...BASE, activeInsulinUnits: 1 });
     expect(dose.activeInsulinUnits).toBe(1);
+    expect(dose.iobCredit).toBe(1);
+    expect(dose.correctionApplied).toBeCloseTo(0.2, 5);
     expect(dose.totalRaw).toBe(2.2);
     expect(dose.totalDose).toBe(2);
   });
 
-  it("floors at zero and explains when IOB covers the whole dose", () => {
+  it("NEVER reduces the carb dose, even when IOB dwarfs the correction (the Rec-0 collapse fix)", () => {
+    // 5u IOB fully covers the 1.2u correction, but the 2u meal bolus must survive intact.
     const dose = computeDose({ ...BASE, activeInsulinUnits: 5 });
-    expect(dose.totalDose).toBe(0);
-    expect(dose.warnings.some((w) => w.message.includes("already covers"))).toBe(true);
+    expect(dose.iobCredit).toBeCloseTo(1.2, 5);
+    expect(dose.correctionApplied).toBe(0);
+    expect(dose.carbInsulin).toBe(2);
+    expect(dose.totalDose).toBe(2);
+    expect(dose.warnings.some((w) => w.message.includes("covers the correction"))).toBe(true);
   });
 
-  it("adds absorbing carbs like typed carbs", () => {
-    // 15g ÷ 15 CR = +1u on top of BASE's 3.2 raw
+  it("adds absorbing carbs the insulin on board does not cover", () => {
+    // 15g ÷ 15 CR = 1u of uncovered carbs (no IOB) on top of BASE's 3.2.
     const dose = computeDose({ ...BASE, activeCarbsGrams: 15 });
     expect(dose.activeCarbInsulin).toBe(1);
+    expect(dose.uncoveredCarbInsulin).toBe(1);
     expect(dose.totalRaw).toBe(4.2);
   });
 
   it("nets a covered meal: carbs on board cancel against the insulin logged for them", () => {
-    // 30g COB adds 2u; 2u IOB subtracts it — back to BASE
+    // 30g COB (2u worth) balances 2u IOB — no credit, no uncovered carbs — back to BASE.
     const dose = computeDose({ ...BASE, activeCarbsGrams: 30, activeInsulinUnits: 2 });
+    expect(dose.iobCredit).toBe(0);
+    expect(dose.uncoveredCarbInsulin).toBe(0);
     expect(dose.totalDose).toBe(computeDose(BASE).totalDose);
+  });
+
+  it("partially-covered meal: only the surplus IOB credits the correction", () => {
+    // COB 15g = 1u; IOB 1.5u → net 0.5u credit; correction 1.2 → 0.7 applied; carbs untouched.
+    const dose = computeDose({ ...BASE, activeCarbsGrams: 15, activeInsulinUnits: 1.5 });
+    expect(dose.iobCredit).toBeCloseTo(0.5, 5);
+    expect(dose.correctionApplied).toBeCloseTo(0.7, 5);
+    expect(dose.totalRaw).toBeCloseTo(2.7, 5);
   });
 
   it("ignores IOB and COB entirely in basal mode", () => {
@@ -171,5 +192,104 @@ describe("computeDose insulin-on-board / carbs-on-board", () => {
     expect(dose.activeInsulinUnits).toBe(0);
     expect(dose.activeCarbInsulin).toBe(0);
     expect(dose.totalDose).toBe(0);
+  });
+
+  it("screenshot-day regression: a chained lunch dose no longer collapses toward zero", () => {
+    // Lunch (45g) 76 min after a 2u breakfast dose, BG 150: the old model subtracted the whole
+    // IOB from the meal and recommended ~0.5u less; carbs must now be fully covered.
+    const dose = computeDose({
+      ...BASE,
+      carbs: 45,
+      currentBG: 150,
+      activeInsulinUnits: 1.39, // breakfast tail
+      activeCarbsGrams: 0, // breakfast carbs finished absorbing faster than the insulin tail
+    });
+    expect(dose.carbInsulin).toBe(3); // 45 ÷ 15 — untouched by the tail
+    // The 0.6u correction is what the tail credits (capped at the correction, never the meal).
+    expect(dose.iobCredit).toBeCloseTo(0.6, 5);
+    expect(dose.totalDose).toBe(3);
+  });
+});
+
+describe("computeDose hyperglycemia regime", () => {
+  it("zeroes a falling-trend reduction while glucose is high (the 400-mg/dL case)", () => {
+    const dose = computeDose({ ...BASE, carbs: 0, currentBG: 400, trend: "falling" });
+    expect(dose.trendAdjustment).toBe(0);
+    expect(dose.hyperTrendZeroed).toBe(true);
+    // (400 − 120) ÷ 50 = 5.6 base + 10% resistance bump (≥300) = 6.16
+    expect(dose.correctionInsulin).toBeCloseTo(5.6, 2);
+    expect(dose.resistanceBump).toBeCloseTo(0.56, 2);
+    expect(dose.totalRaw).toBeCloseTo(6.16, 2);
+  });
+
+  it("keeps the falling reduction below the high threshold", () => {
+    const dose = computeDose({ ...BASE, carbs: 0, currentBG: 200, trend: "falling" });
+    expect(dose.trendAdjustment).toBeCloseTo(-0.5, 5); // −25 ÷ 50
+    expect(dose.hyperTrendZeroed).toBe(false);
+  });
+
+  it("adds the resistance bump only at very high glucose", () => {
+    expect(computeDose({ ...BASE, currentBG: 299 }).resistanceBump).toBe(0);
+    const dose = computeDose({ ...BASE, currentBG: 300 });
+    expect(dose.resistanceBump).toBeCloseTo(((300 - 120) / 50) * 0.1, 2);
+    expect(dose.warnings.some((w) => w.message.includes("ketones"))).toBe(true);
+  });
+
+  it("half-credits IOB when glucose is high and provably not falling despite it", () => {
+    const flat = computeDose({ ...BASE, carbs: 0, currentBG: 300, activeInsulinUnits: 2, bgDelta45Min: 5 });
+    expect(flat.iobDiscounted).toBe(true);
+    expect(flat.iobCredit).toBe(1); // 2u surplus × 0.5
+    expect(flat.warnings.some((w) => w.message.includes("checking the injection site"))).toBe(true);
+    const dropping = computeDose({ ...BASE, carbs: 0, currentBG: 300, activeInsulinUnits: 2, bgDelta45Min: -40 });
+    expect(dropping.iobDiscounted).toBe(false);
+    expect(dropping.iobCredit).toBe(2);
+  });
+
+  it("does not discount IOB at normal glucose regardless of the delta", () => {
+    const dose = computeDose({ ...BASE, currentBG: 180, activeInsulinUnits: 1, bgDelta45Min: 10 });
+    expect(dose.iobDiscounted).toBe(false);
+  });
+});
+
+describe("computeDose ISF-scaled trend adjustment", () => {
+  it("scales the trend adjustment by the correction factor", () => {
+    expect(computeDose({ ...BASE, trend: "rising" }).trendAdjustment).toBeCloseTo(0.5, 5); // 25 ÷ 50
+    expect(
+      computeDose({ ...BASE, correctionFactor: 100, trend: "rising" }).trendAdjustment,
+    ).toBeCloseTo(0.25, 5);
+    expect(
+      computeDose({ ...BASE, correctionFactor: 25, trend: "rapidly_rising" }).trendAdjustment,
+    ).toBeCloseTo(2, 5); // 50 ÷ 25, at the cap
+  });
+
+  it("caps the adjustment at ±2u for very sensitive ratios", () => {
+    expect(computeDose({ ...BASE, correctionFactor: 10, trend: "rapidly_rising" }).trendAdjustment).toBe(2);
+  });
+});
+
+describe("computeDose pattern factor + safety cap", () => {
+  it("applies a visible pattern multiplier without touching the component pieces", () => {
+    const dose = computeDose({ ...BASE, patternFactor: 1.2 });
+    expect(dose.subTotal).toBeCloseTo(3.2, 5);
+    expect(dose.patternFactor).toBe(1.2);
+    expect(dose.patternDelta).toBeCloseTo(0.64, 2);
+    expect(dose.totalRaw).toBeCloseTo(3.84, 2);
+  });
+
+  it("caps at 10u when weight is unknown and warns", () => {
+    const dose = computeDose({ ...BASE, carbs: 300 }); // 20u of carbs
+    expect(dose.maxDoseCap).toBe(10);
+    expect(dose.cappedAtMax).toBe(true);
+    expect(dose.totalDose).toBe(10);
+    expect(dose.warnings.some((w) => w.message.includes("capped at 10u"))).toBe(true);
+  });
+
+  it("derives the cap from weight when known (~0.2 u/kg, clamped)", () => {
+    const dose = computeDose({ ...BASE, carbs: 300, weightLbs: 88 }); // ≈ 40 kg → 8u
+    expect(dose.maxDoseCap).toBe(8);
+    expect(dose.totalDose).toBe(8);
+    // A small child never gets capped below the 3u floor; a large teen never above 15u.
+    expect(computeDose({ ...BASE, weightLbs: 22 }).maxDoseCap).toBe(3);
+    expect(computeDose({ ...BASE, weightLbs: 400 }).maxDoseCap).toBe(15);
   });
 });

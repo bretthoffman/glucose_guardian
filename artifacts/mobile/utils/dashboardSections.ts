@@ -33,6 +33,13 @@ export interface DashboardRoleFlags {
 export interface DashboardSectionVisibility {
   /** Notifications, Thresholds, Emergency, Insulin (+ the inline analytics cards and Glucose Trend). */
   showPatientSections: boolean;
+  /**
+   * Notifications alone is ALSO available to kid/caregiver ACCESS-CODE sessions: every device sets
+   * its own alert preferences (glucose alerts + per-device push toggles) — only the Emergency Text
+   * Alerts toggle inside renders locked to the owner's setting. Hidden only in guardian-device
+   * child mode.
+   */
+  showNotifications: boolean;
   showDoctorCareTeam: boolean;
   showAccessManagement: boolean;
 }
@@ -43,6 +50,7 @@ export function dashboardSectionVisibility(role: DashboardRoleFlags): DashboardS
   return {
     // Thresholds / Insulin / Emergency still SHOW for a nurse viewing a child (read-only inherited).
     showPatientSections,
+    showNotifications: !role.isChildMode,
     // Doctor & Care Team (incl. "Share Report with Doctor") is an owner-only section — hidden for the
     // doctor's own session, any access-code / child-view session, and a nurse viewing a child.
     showDoctorCareTeam: !role.doctorSession && !role.isChildMode && !role.caregiverSession && !viewingChild,
@@ -58,7 +66,7 @@ export interface DashboardSectionDef {
 
 /** Authoritative grid order: row1 Notifications/Thresholds, row2 Emergency/Insulin, row3 Doctor Office/Care Circle. */
 const ALL_SECTIONS: { key: DashboardSectionKey; title: string; gate: keyof DashboardSectionVisibility }[] = [
-  { key: "notifications", title: "Notifications", gate: "showPatientSections" },
+  { key: "notifications", title: "Notifications", gate: "showNotifications" },
   { key: "thresholds", title: "Alert Thresholds", gate: "showPatientSections" },
   { key: "emergency", title: "Emergency Contacts", gate: "showPatientSections" },
   { key: "insulin", title: "Insulin Settings", gate: "showPatientSections" },

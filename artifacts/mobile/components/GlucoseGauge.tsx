@@ -29,6 +29,11 @@ interface Props {
   onGaugePress?: () => void;
   /** Fires for taps on the trend pill (the colored oval) — opens Insights & Recommendations. */
   onTrendPress?: () => void;
+  /**
+   * Multiplier for the trend-cluster text/arrow sizes (the gauge circle's own text already scales
+   * with `size`). Used by iPad-portrait layouts that enlarge the whole card proportionally.
+   */
+  contentScale?: number;
 }
 
 // --- ORIGINAL status/trend/movement logic (unchanged: controls ring color + pulse behavior) ---
@@ -121,6 +126,7 @@ export function GlucoseGauge({
   updatedLabel,
   onGaugePress,
   onTrendPress,
+  contentScale = 1,
 }: Props) {
   const status = getGlucoseStatus(value, lowThreshold, highThreshold);
   const c = useThemeColors();
@@ -353,10 +359,10 @@ export function GlucoseGauge({
           >
             <View style={[styles.trendArrowRow, { transform: [{ rotate: TREND_ROTATE[trend] }] }]}>
               {Array.from({ length: arrows }).map((_, i) => (
-                <Feather key={i} name="arrow-up" size={30} color={trendColor} />
+                <Feather key={i} name="arrow-up" size={Math.round(30 * contentScale)} color={trendColor} />
               ))}
             </View>
-            <Text style={[styles.trendCaption, { color: c.textSecondary }]}>Trend</Text>
+            <Text style={[styles.trendCaption, { color: c.textSecondary, fontSize: 11 * contentScale }]}>Trend</Text>
             <View
               style={[
                 styles.trendPill,
@@ -366,11 +372,11 @@ export function GlucoseGauge({
                 },
               ]}
             >
-              <Text style={[styles.trendPillText, { color: trendColor }]} numberOfLines={1}>
+              <Text style={[styles.trendPillText, { color: trendColor, fontSize: 12.5 * contentScale }]} numberOfLines={1}>
                 {trendLabel}
               </Text>
             </View>
-            {updatedLabel ? <Text style={[styles.updated, { color: c.textMuted }]}>{updatedLabel}</Text> : null}
+            {updatedLabel ? <Text style={[styles.updated, { color: c.textMuted, fontSize: 11 * contentScale }]}>{updatedLabel}</Text> : null}
           </Pressable>
         </View>
       )}

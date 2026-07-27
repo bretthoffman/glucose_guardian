@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { apiUrl } from "@/utils/api-base-url";
+import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 type CGMType = "dexcom" | "libre";
@@ -30,19 +31,16 @@ type CGMType = "dexcom" | "libre";
  * failure here (cold serverless start, flaky network) would otherwise silently exclude the patient
  * from the server-side ingestion cron. Resolves true once stored, false if every attempt failed.
  */
-async function backupCredentialsWithRetry(endpoint: string, body: object): Promise<boolean> {
+/** Run a credential write with a couple of retries (network blips, token-attach races). */
+async function withCredentialRetry(op: () => Promise<unknown>): Promise<boolean> {
   const delaysMs = [0, 1000, 2500];
   for (const delay of delaysMs) {
     if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
     try {
-      const res = await fetch(apiUrl(endpoint), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) return true;
+      await op();
+      return true;
     } catch {
-      /* network error — fall through and retry */
+      /* fall through and retry */
     }
   }
   return false;
@@ -116,28 +114,24 @@ export default function CGMSetupScreen() {
       });
 
       let credentialsBackedUp = true;
-      if (account?.convexUserId && account.passwordHash) {
-        const backupEndpoint =
+      if (account?.convexUserId) {
+        // Saved DIRECTLY to Convex under the signed-in Clerk identity. The old api-server hop
+        // authenticated by passwordHash pass-through, which Clerk accounts don't have — it silently
+        // failed and left ingestion stuck on "no_credentials".
+        const client = createConvexAuthClient();
+        credentialsBackedUp = await withCredentialRetry(() =>
           selectedType === "dexcom"
-            ? "/api/cgm/dexcom/credentials"
-            : "/api/cgm/libre/credentials";
-        const backupBody =
-          selectedType === "dexcom"
-            ? {
-                userId: account.convexUserId,
-                passwordHash: account.passwordHash,
-                username: username.trim(),
-                password,
+            ? client.mutation(api.patientDexcomSecrets.saveMyCredentials, {
+                dexcomUsername: username.trim(),
+                dexcomPassword: password,
                 outsideUS,
-              }
-            : {
-                userId: account.convexUserId,
-                passwordHash: account.passwordHash,
-                email: username.trim(),
-                password,
-                apiBase: data.apiBase,
-              };
-        credentialsBackedUp = await backupCredentialsWithRetry(backupEndpoint, backupBody);
+              })
+            : client.mutation(api.patientLibreSecrets.saveMyCredentials, {
+                libreEmail: username.trim(),
+                librePassword: password,
+                libreApiBase: data.apiBase,
+              }),
+        );
         if (!credentialsBackedUp) {
           // Connection is still live; the home screen surfaces a non-blocking banner (driven by the
           // actual Convex credential state) that nudges a reconnect until the backup succeeds.
@@ -168,20 +162,15 @@ export default function CGMSetupScreen() {
           onPress: async () => {
             setIsDisconnecting(true);
             try {
-              if (account?.convexUserId && account.passwordHash) {
-                const clearEndpoint =
-                  cgmConnection.type === "dexcom"
-                    ? "/api/cgm/dexcom/clear-credentials"
-                    : "/api/cgm/libre/clear-credentials";
+              if (account?.convexUserId) {
+                // Cleared directly via the Clerk identity (same reasoning as saveMyCredentials).
                 try {
-                  await fetch(apiUrl(clearEndpoint), {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      userId: account.convexUserId,
-                      passwordHash: account.passwordHash,
-                    }),
-                  });
+                  const client = createConvexAuthClient();
+                  if (cgmConnection.type === "dexcom") {
+                    await client.mutation(api.patientDexcomSecrets.clearMyCredentials, {});
+                  } else {
+                    await client.mutation(api.patientLibreSecrets.clearMyCredentials, {});
+                  }
                 } catch {
                   /* non-fatal — local disconnect still proceeds */
                 }

@@ -5,7 +5,6 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -18,6 +17,8 @@ import {
 import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
+import { T } from "@/constants/theme";
+import { useKeyboardInset, useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { getEffectiveTrend } from "@/utils/trend";
@@ -219,6 +220,8 @@ export default function ChatScreen() {
   const [showMessages, setShowMessages] = useState(false);
   const [activeThread, setActiveThread] = useState<ActiveThread | null>(null);
   const [headerH, setHeaderH] = useState(0);
+  const keyboardVisible = useKeyboardVisible();
+  const keyboardInset = useKeyboardInset();
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -568,11 +571,9 @@ export default function ChatScreen() {
           {activeThread === null ? renderThreadList() : renderThreadView(activeThread, true)}
         </View>
       ) : (
-       <KeyboardAvoidingView
-         style={{ flex: 1 }}
-         behavior={Platform.OS === "ios" ? "padding" : "height"}
-         keyboardVerticalOffset={0}
-       >
+       // Padded by the exact keyboard overlap (see useKeyboardInset) — replaces the library
+       // KeyboardAvoidingView, which mis-measured on iPad and left the input under the keyboard.
+       <View style={{ flex: 1, paddingBottom: keyboardInset }}>
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -621,7 +622,7 @@ export default function ChatScreen() {
       <View
         style={[
           styles.inputRow,
-          { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: bottomPadding + 84 },
+          { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: keyboardVisible ? 10 : bottomPadding + 84 },
         ]}
       >
         <TextInput
@@ -631,6 +632,7 @@ export default function ChatScreen() {
           placeholder={isKidMode ? "Tell me how you're feeling... 😊" : "Ask Glucose Guardian anything..."}
           placeholderTextColor={colors.textMuted}
           returnKeyType="send"
+          submitBehavior="submit"
           onSubmitEditing={() => send()}
           multiline
           maxLength={400}
@@ -647,7 +649,7 @@ export default function ChatScreen() {
           <Feather name="send" size={18} color={input.trim() && !isThinking ? "#fff" : colors.textMuted} />
         </Pressable>
       </View>
-      </KeyboardAvoidingView>
+      </View>
       )}
     </View>
   );
@@ -733,7 +735,8 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 16, fontWeight: "700" },
   headerSub: { fontSize: 11, fontWeight: "400" },
 
-  list: { paddingHorizontal: 16, paddingTop: 12, gap: 10 },
+  // iPad: cap + center the message column so bubbles don't span a 13" screen. No-op on phones.
+  list: { paddingHorizontal: 16, paddingTop: 12, gap: 10, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
   bubbleWrapper: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginBottom: 4 },
   userBubbleWrapper: { justifyContent: "flex-end" },
   aiBubbleWrapper: { justifyContent: "flex-start" },

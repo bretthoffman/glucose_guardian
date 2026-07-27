@@ -20,6 +20,7 @@ describe("dashboardSectionVisibility", () => {
   it("shows every group to a regular patient", () => {
     expect(dashboardSectionVisibility(patientParent)).toEqual({
       showPatientSections: true,
+      showNotifications: true,
       showDoctorCareTeam: true,
       showAccessManagement: true,
     });
@@ -87,8 +88,8 @@ describe("availableDashboardSections", () => {
     ]);
   });
 
-  it("returns no management cards in a caregiver session", () => {
-    expect(keys({ ...patientParent, caregiverSession: true })).toEqual([]);
+  it("returns only Notifications in a caregiver session (device-own alert prefs; emergency locked inside)", () => {
+    expect(keys({ ...patientParent, caregiverSession: true })).toEqual(["notifications"]);
   });
 
   it("returns no management cards in child view", () => {

@@ -1,5 +1,6 @@
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 const doctorMessage = v.object({
@@ -201,6 +202,16 @@ export const appendMessage = mutation({
       .query("doctorPortalState")
       .withIndex("by_accessCode", (q) => q.eq("accessCode", args.accessCode))
       .unique();
+    if (args.message.sender === "doctor") {
+      // Guardian hears about care-team messages even with the app closed ("doctor" push category).
+      const preview = args.message.text.trim();
+      await ctx.scheduler.runAfter(0, internal.push.notifyDoctor, {
+        accessCode: args.accessCode,
+        title: "New message from your care team",
+        body: preview.length > 140 ? preview.slice(0, 137) + "…" : preview || "Tap to read.",
+        data: { kind: "doctor_message" },
+      });
+    }
     if (existing) {
       const messages = [...existing.messages, args.message];
       await ctx.db.replace(existing._id, {
@@ -266,6 +277,14 @@ export const proposeOrder = mutation({
       accessCode: args.accessCode,
       action: "proposed_change",
       createdAt: Date.now(),
+    });
+
+    // Proposals need a decision — surface them even with the app closed ("doctor" push category).
+    await ctx.scheduler.runAfter(0, internal.push.notifyDoctor, {
+      accessCode: args.accessCode,
+      title: `${args.proposal.proposedByName} proposed a treatment change`,
+      body: "Review and approve or decline it in the app.",
+      data: { kind: "treatment_proposal" },
     });
 
     return args.proposal;

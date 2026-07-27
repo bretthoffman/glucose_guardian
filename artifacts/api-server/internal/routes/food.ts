@@ -106,22 +106,40 @@ const carbDatabase: Record<
   water: { carbs: 0, confidence: "high", tips: "Zero carbs! Staying hydrated helps glucose stability." },
 };
 
-function findFood(normalized: string) {
+/**
+ * Absorption-speed tags for lookup foods where it's clear-cut. Fast = mostly liquid/simple sugar
+ * (~2h); slow = high fat/protein meals with a delayed rise (~4h). Everything else defaults to
+ * medium (~3h) downstream. Keys must match `carbDatabase` keys.
+ */
+const FAST_ABSORPTION_FOODS = new Set([
+  "juice", "soda", "candy", "grapes", "watermelon", "pineapple", "honey",
+]);
+const SLOW_ABSORPTION_FOODS = new Set([
+  "pizza", "grilled cheese", "mac and cheese", "burger", "cheeseburger", "fries", "ice cream",
+  "burrito", "lasagna", "fried chicken", "nuggets",
+]);
+
+function absorptionForKey(key: string | null): "fast" | "slow" | undefined {
+  if (!key) return undefined;
+  if (FAST_ABSORPTION_FOODS.has(key)) return "fast";
+  if (SLOW_ABSORPTION_FOODS.has(key)) return "slow";
+  return undefined;
+}
+
+function findFood(normalized: string): { key: string; val: (typeof carbDatabase)[string] } | null {
   // 1. Exact match
-  if (carbDatabase[normalized]) return carbDatabase[normalized];
+  if (carbDatabase[normalized]) return { key: normalized, val: carbDatabase[normalized] };
   // 2. Database key is a substring of the query (longer key = more specific match)
-  let best: (typeof carbDatabase)[string] | null = null;
-  let bestLen = 0;
+  let best: { key: string; val: (typeof carbDatabase)[string] } | null = null;
   for (const [key, val] of Object.entries(carbDatabase)) {
-    if (normalized.includes(key) && key.length > bestLen) {
-      best = val;
-      bestLen = key.length;
+    if (normalized.includes(key) && key.length > (best?.key.length ?? 0)) {
+      best = { key, val };
     }
   }
   if (best) return best;
   // 3. Query is a substring of a database key
   for (const [key, val] of Object.entries(carbDatabase)) {
-    if (key.includes(normalized) && normalized.length > 3) return val;
+    if (key.includes(normalized) && normalized.length > 3) return { key, val };
   }
   return null;
 }
@@ -131,11 +149,14 @@ router.post("/estimate", (req, res) => {
   const { foodName } = body;
   const normalized = foodName.toLowerCase().trim();
   const match = findFood(normalized);
-  const estimatedCarbs = match?.carbs ?? 30;
-  const confidence: "high" | "medium" | "low" = match ? match.confidence : "low";
-  const tips = match?.tips ?? "Estimate based on typical serving. Weigh food for best accuracy.";
+  const estimatedCarbs = match?.val.carbs ?? 30;
+  const confidence: "high" | "medium" | "low" = match ? match.val.confidence : "low";
+  const tips = match?.val.tips ?? "Estimate based on typical serving. Weigh food for best accuracy.";
   const response = EstimateFoodCarbsResponse.parse({ foodName, estimatedCarbs, confidence, tips });
-  res.json(response);
+  // `absorption` rides alongside the schema'd fields (fast sugar vs slow high-fat meals) so the
+  // app's carbs-on-board window matches the food. Absent = medium.
+  const absorption = absorptionForKey(match?.key ?? null);
+  res.json({ ...response, ...(absorption ? { absorption } : {}) });
 });
 
 router.post("/analyze-photo", async (req, res) => {
@@ -161,18 +182,23 @@ router.post("/analyze-photo", async (req, res) => {
       fetch: globalThis.fetch,
     });
 
-    const prompt = `You are a diabetes nutrition expert helping a child manage their blood sugar. Analyze this food photo and provide carbohydrate estimates.
+    const prompt = `You are a diabetes nutrition expert helping a child manage their blood sugar. Analyze this food photo and provide nutrition estimates that will inform an insulin dose.
 
 Respond ONLY with a valid JSON object in this exact format (no markdown, no extra text):
 {
   "foodName": "name of the food(s) identified",
   "estimatedCarbs": <integer grams of carbohydrates>,
+  "fatGrams": <integer grams of fat>,
+  "proteinGrams": <integer grams of protein>,
+  "absorption": "fast" | "medium" | "slow",
   "confidence": "high" | "medium" | "low",
   "portion": "description of estimated portion size",
   "tips": "1-2 sentence diabetes management tip for this food"
 }
 
-Be specific about what you see. If multiple foods, combine the total carbs and describe all items in foodName. Estimate generously for safety in diabetes management.`;
+Be specific about what you see. If multiple foods, combine the totals and describe all items in foodName.
+"absorption" is how fast the carbs will hit the bloodstream: "fast" for liquids/simple sugars (juice, soda, candy), "slow" for high-fat/high-protein meals that delay the rise (pizza, cheesy or fried foods), "medium" otherwise.
+Estimate carbs as ACCURATELY as you can — this number sizes an insulin dose, so overestimating is as dangerous as underestimating (it can cause low blood sugar). Reflect uncertainty in "confidence", not by padding the number.`;
 
     const response = await openai.chat.completions.create({
       model: "openai/gpt-5.2",
@@ -197,6 +223,9 @@ Be specific about what you see. If multiple foods, combine the total carbs and d
 
     const estimatedCarbs = Number(parsed.estimatedCarbs) || 20;
     const insulinUnits = Math.round((estimatedCarbs / carbRatio) * 10) / 10;
+    const fatGrams = Number.isFinite(Number(parsed.fatGrams)) && Number(parsed.fatGrams) >= 0 ? Math.round(Number(parsed.fatGrams)) : undefined;
+    const proteinGrams = Number.isFinite(Number(parsed.proteinGrams)) && Number(parsed.proteinGrams) >= 0 ? Math.round(Number(parsed.proteinGrams)) : undefined;
+    const absorption = parsed.absorption === "fast" || parsed.absorption === "slow" || parsed.absorption === "medium" ? parsed.absorption : undefined;
 
     res.json({
       foodName: parsed.foodName || "Unknown food",
@@ -205,6 +234,9 @@ Be specific about what you see. If multiple foods, combine the total carbs and d
       portion: parsed.portion || "Estimated serving",
       tips: parsed.tips || "Monitor glucose levels 2 hours after eating.",
       insulinUnits,
+      ...(fatGrams != null ? { fatGrams } : {}),
+      ...(proteinGrams != null ? { proteinGrams } : {}),
+      ...(absorption ? { absorption } : {}),
     });
   } catch (err) {
     console.error("Food photo analysis error:", err);

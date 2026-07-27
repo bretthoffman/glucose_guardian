@@ -1,5 +1,5 @@
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 export const register = mutation({
   args: {
@@ -9,14 +9,14 @@ export const register = mutation({
   handler: async (ctx, args) => {
     const email = args.email.trim().toLowerCase();
     if (!email) {
-      throw new Error("Email required");
+      throw new ConvexError("Email required");
     }
     const existing = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", email))
       .first();
     if (existing) {
-      throw new Error("Email already registered");
+      throw new ConvexError("Email already registered");
     }
     const now = Date.now();
     return await ctx.db.insert("users", {
