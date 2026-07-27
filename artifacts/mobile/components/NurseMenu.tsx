@@ -325,8 +325,14 @@ export default function NurseMenu() {
       </ScrollView>
 
       {/* Add-code modal — same idea as "Sign in with access code", but it links a child instead. */}
-      <Modal visible={addOpen} transparent animationType="fade" onRequestClose={() => setAddOpen(false)} statusBarTranslucent>
-        <Pressable style={styles.mdBackdrop} onPress={() => setAddOpen(false)}>
+      <Modal
+        visible={addOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setScannerOpen(false); setAddOpen(false); }}
+        statusBarTranslucent
+      >
+        <Pressable style={styles.mdBackdrop} onPress={() => { setScannerOpen(false); setAddOpen(false); }}>
           <Pressable style={[styles.mdCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => {}}>
             <Text style={[styles.mdTitle, { color: colors.text }]}>Add caregiver code</Text>
             <Text style={[styles.mdSub, { color: colors.textSecondary }]}>
@@ -376,19 +382,21 @@ export default function NurseMenu() {
               </Pressable>
             </View>
           </Pressable>
+
+          {/* QR scanner — NESTED inside this modal (iOS can't present two sibling modals at once;
+              a sibling here silently never appears and then blocks touches). On recognition it
+              fills the field, closes itself, and submits automatically. */}
+          <AccessCodeScanner
+            visible={scannerOpen}
+            onClose={() => setScannerOpen(false)}
+            onScanned={(code) => {
+              setScannerOpen(false);
+              setCodeInput(code);
+              void submitCode(code);
+            }}
+          />
         </Pressable>
       </Modal>
-
-      {/* QR scanner: on recognition it fills the field, closes itself, and submits automatically. */}
-      <AccessCodeScanner
-        visible={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onScanned={(code) => {
-          setScannerOpen(false);
-          setCodeInput(code);
-          void submitCode(code);
-        }}
-      />
 
       <SettingsModal
         visible={settingsOpen}

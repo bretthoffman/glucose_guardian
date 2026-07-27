@@ -38,13 +38,48 @@ export interface AlertSounds {
 }
 
 /** The sounds shipped INSIDE the app (iOS offers no API to use the phone's ringtone bank). */
-export const ALERT_SOUND_OPTIONS: { file: string | undefined; label: string }[] = [
-  { file: undefined, label: "Default" },
-  { file: "chime.wav", label: "Chime" },
-  { file: "bell.wav", label: "Bell" },
-  { file: "pulse.wav", label: "Pulse" },
-  { file: "soft.wav", label: "Soft" },
-  { file: "urgent.wav", label: "Urgent" },
+/**
+ * The bundled alert-sound library (files ship in the app via the expo-notifications plugin —
+ * iOS forbids using the phone's own tones). "alarms" are loud attention-grabbers for glucose
+ * emergencies; "tones" are gentler picks for messages and everyday alerts. The licensed files
+ * come from Mixkit's royalty-free SFX library (see assets/sounds/SOURCES.md).
+ */
+export const ALERT_SOUND_OPTIONS: {
+  file: string | undefined;
+  label: string;
+  group: "default" | "alarms" | "tones";
+}[] = [
+  { file: undefined, label: "Default", group: "default" },
+  // ── Alarms — insistent, hard to miss ──
+  { file: "emergency.wav", label: "Emergency", group: "alarms" },
+  { file: "critical.wav", label: "Critical", group: "alarms" },
+  { file: "siren.wav", label: "Siren", group: "alarms" },
+  { file: "redalert.wav", label: "Red Alert", group: "alarms" },
+  { file: "warningbuzzer.wav", label: "Warning Buzzer", group: "alarms" },
+  { file: "classicalarm.wav", label: "Classic Alarm", group: "alarms" },
+  { file: "security.wav", label: "Security Alarm", group: "alarms" },
+  { file: "alertalarm.wav", label: "Alert Alarm", group: "alarms" },
+  { file: "urgentloop.wav", label: "Urgent Loop", group: "alarms" },
+  { file: "alarmclock.wav", label: "Alarm Clock", group: "alarms" },
+  { file: "battleship.wav", label: "Battleship", group: "alarms" },
+  { file: "retroalarm.wav", label: "Retro Alarm", group: "alarms" },
+  { file: "alarmtone.wav", label: "Alarm Tone", group: "alarms" },
+  { file: "shortalarm.wav", label: "Short Alarm", group: "alarms" },
+  { file: "urgent.wav", label: "Urgent", group: "alarms" },
+  { file: "pulse.wav", label: "Pulse", group: "alarms" },
+  // ── Tones — friendlier chimes and dings ──
+  { file: "ding.wav", label: "Ding", group: "tones" },
+  { file: "happybells.wav", label: "Happy Bells", group: "tones" },
+  { file: "positive.wav", label: "Positive", group: "tones" },
+  { file: "bright.wav", label: "Bright", group: "tones" },
+  { file: "pop.wav", label: "Pop", group: "tones" },
+  { file: "announce.wav", label: "Announce", group: "tones" },
+  { file: "marimba.wav", label: "Marimba", group: "tones" },
+  { file: "guitar.wav", label: "Guitar", group: "tones" },
+  { file: "flute.wav", label: "Flute", group: "tones" },
+  { file: "chime.wav", label: "Chime", group: "tones" },
+  { file: "bell.wav", label: "Bell", group: "tones" },
+  { file: "soft.wav", label: "Soft", group: "tones" },
 ];
 
 interface PushContextType {
@@ -120,11 +155,13 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         if (remote?.prefs) {
           const loaded = { ...(remote.prefs as PushPrefs) };
-          // Self-heal a pre-lock row: a locked identity with messages off gets corrected upstream.
-          if (messagesLockedRef.current && !loaded.messages) {
-            loaded.messages = true;
-            void client.mutation(api.push.setPrefs, { token, prefs: loaded }).catch(() => {});
-          }
+          // Self-heal older rows: locked identities force messages ON, and doctor always mirrors
+          // messages (its standalone toggle is gone — one switch drives both categories).
+          const needsHeal =
+            (messagesLockedRef.current && !loaded.messages) || loaded.doctor !== (messagesLockedRef.current || loaded.messages);
+          if (messagesLockedRef.current) loaded.messages = true;
+          loaded.doctor = loaded.messages;
+          if (needsHeal) void client.mutation(api.push.setPrefs, { token, prefs: loaded }).catch(() => {});
           setPrefs(loaded);
         }
         if (remote?.sounds) setSounds(remote.sounds as AlertSounds);
@@ -138,8 +175,10 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
 
   const updatePrefs = useCallback(
     async (patch: Partial<PushPrefs>) => {
-      // The lock wins over any attempt (UI is disabled too — this is the backstop).
+      // The lock wins over any attempt (UI is disabled too — this is the backstop). The doctor
+      // category has no toggle of its own — it always mirrors Message Alerts.
       const next = { ...prefs, ...patch, ...(messagesLockedRef.current ? { messages: true } : {}) };
+      next.doctor = next.messages;
       setPrefs(next); // optimistic so the switch doesn't lag
       if (!pushToken) return;
       try {
@@ -169,8 +208,10 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
     [sounds, pushToken],
   );
 
-  // Expose the locked view so every consumer renders Message Alerts ON for locked identities.
-  const effectivePrefs = messagesLocked ? { ...prefs, messages: true } : prefs;
+  // Expose the locked view so every consumer renders Message Alerts ON for locked identities;
+  // doctor mirrors messages unconditionally (they are one switch in the UI).
+  const base = messagesLocked ? { ...prefs, messages: true } : { ...prefs };
+  const effectivePrefs = { ...base, doctor: base.messages };
 
   return (
     <PushContext.Provider value={{ pushToken, prefs: effectivePrefs, registered, messagesLocked, updatePrefs, sounds, updateSounds }}>

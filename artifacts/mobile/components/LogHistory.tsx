@@ -364,14 +364,26 @@ function DayView({
     [insulinLog, bounds.startMs, bounds.endMs],
   );
 
-  /** This day's logs as baseline markers for the graph — insulin first (it wins the on-line spot). */
+  /** This day's logs as baseline markers for the graph — insulin first (it wins the on-line spot).
+   *  Each marker carries its log's id so tapping the icon opens the same detail popup as the row. */
   const dayMarkers = useMemo<ChartEventMarker[]>(
     () => [
-      ...dayInsulin.map((i) => ({ timestamp: i.timestamp, kind: "insulin" as const })),
-      ...dayFood.map((f) => ({ timestamp: f.timestamp, kind: "food" as const })),
+      ...dayInsulin.map((i) => ({ timestamp: i.timestamp, kind: "insulin" as const, id: i.id })),
+      ...dayFood.map((f) => ({ timestamp: f.timestamp, kind: "food" as const, id: f.id })),
     ],
     [dayInsulin, dayFood],
   );
+
+  const openMarkerLog = (marker: { kind: "insulin" | "food"; id?: string }) => {
+    if (!marker.id) return;
+    if (marker.kind === "insulin") {
+      const hit = dayInsulin.find((i) => i.id === marker.id);
+      if (hit) setSelectedLog({ kind: "insulin", data: hit });
+    } else {
+      const hit = dayFood.find((f) => f.id === marker.id);
+      if (hit) setSelectedLog({ kind: "food", data: hit });
+    }
+  };
 
   return (
     <View style={{ gap: 16 }}>
@@ -413,6 +425,8 @@ function DayView({
             showRangeSelector={false}
             onCursorActiveChange={onCursorActiveChange}
             eventMarkers={dayMarkers}
+            onEventMarkerPress={openMarkerLog}
+            enablePinchZoom
           />
         )}
       </View>

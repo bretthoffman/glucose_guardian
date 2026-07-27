@@ -15,6 +15,8 @@ interface ChatRequestBody {
     parentName?: string;
     accountRole?: "parent" | "adult";
     speakingToParent?: boolean;
+    /** WHO is typing: the patient themselves, a guardian, or a caregiver of the patient. */
+    speaker?: { kind: "patient" | "guardian" | "caregiver"; name?: string };
     isChildMode?: boolean;
     caregiverSession?: boolean;
     ageYears?: number | null;
@@ -71,12 +73,22 @@ function buildSystemPrompt(ctx: ChatRequestBody["context"]): string {
   const ageStr = age != null ? `${age} years old` : null;
   const weightStr = ctx.weightLbs ? `${ctx.weightLbs} lbs` : null;
 
-  const speakingToParent =
-    ctx.speakingToParent === true ||
-    (ctx.accountRole === "parent" && ctx.isChildMode !== true);
+  const speaker = ctx.speaker;
+  const speakingToParent = speaker
+    ? speaker.kind !== "patient"
+    : ctx.speakingToParent === true || (ctx.accountRole === "parent" && ctx.isChildMode !== true);
   const parentName = ctx.parentName?.trim() || null;
+  const isCaregiverSpeaker = speaker ? speaker.kind === "caregiver" : ctx.caregiverSession === true;
+  /** e.g. "Brian, Bella's guardian" / "Bella's caregiver" / the patient's own name. */
+  const speakerLabel = !speakingToParent
+    ? name
+    : isCaregiverSpeaker
+    ? `${name}'s caregiver`
+    : speaker?.name ?? parentName
+    ? `${speaker?.name ?? parentName}, ${name}'s guardian`
+    : `${name}'s guardian`;
   const addressee = speakingToParent
-    ? ctx.caregiverSession ? "Caregiver" : parentName ?? "there"
+    ? isCaregiverSpeaker ? `${name}'s caregiver` : (speaker?.name ?? parentName) ?? "there"
     : name;
 
   const diabetesLabel =
@@ -211,7 +223,7 @@ FOR A MEAL + HIGH BG:
 - Total = carb dose + correction, rounded to nearest 0.5u
 
 If ${name}'s glucose is falling or below target: skip or reduce the correction. Never give correction for a falling trend.
-Always address YOUR RESPONSE to the parent (${parentName ?? "the caregiver"}). Never address ${name} directly.${weightStr ? `\nNote: ${name} weighs ${weightStr}.` : ""}`;
+Always address YOUR RESPONSE to ${speakerLabel}. Never address ${name} directly.${weightStr ? `\nNote: ${name} weighs ${weightStr}.` : ""}`;
     } else if (isChild) {
       dosingInstructions = `
 INSULIN DOSING (for ${name}):
@@ -241,9 +253,10 @@ Always remind them to confirm doses with their care team.`;
   }
 
   const languageStyle = speakingToParent
-    ? `LANGUAGE STYLE — PARENT/CAREGIVER MODE:
-- You are speaking with ${parentName ? `${parentName}` : "the parent or caregiver"}, NOT the child.
-- Refer to the child by name (${name}) in the third person.
+    ? `LANGUAGE STYLE — GUARDIAN/CAREGIVER MODE:
+- You are speaking with ${speakerLabel}, NOT with ${name}. "You/your" in your replies means ${speakerLabel} — NEVER ${name}.
+- Refer to ${name} by name, in the third person, every time. Say "keep an eye on ${name}'s sugar", never "watch your sugar".
+- NEVER address the person you're talking to as "${name}" — they are ${speakerLabel}.
 - KEEP IT SHORT: 2–3 plain sentences maximum. One clear action, one brief reason.
 - No markdown. No bold text. No bullet points. No numbered lists. No formulas. Just plain sentences.
 - Do NOT show dose math — just give the final number. Say "give 1.5 units" not "(293−125)÷125=1.34 → 1.5u".
@@ -281,7 +294,7 @@ Always remind them to confirm doses with their care team.`;
 - Use ${name}'s name naturally.`;
 
   const introLine = speakingToParent
-    ? `You are a smart, warm diabetes companion called "Glucose Guardian". You are currently speaking with ${ctx.caregiverSession ? "a caregiver" : parentName ? parentName : "the parent or caregiver"} — ${ctx.caregiverSession ? "a caregiver" : "the parent or guardian"} helping manage ${name}'s${ageStr ? ` (${ageStr})` : ""} ${diabetesLabel}.`
+    ? `You are a smart, warm diabetes companion called "Glucose Guardian". You are currently speaking with ${speakerLabel} — ${isCaregiverSpeaker ? "a caregiver asking on behalf of" : "a guardian helping manage"} ${name}'s${ageStr ? ` (${ageStr})` : ""} ${diabetesLabel}. ${name} is NOT the one typing.`
     : `You are a smart, warm diabetes companion called "Glucose Guardian" — equal parts knowledgeable care team and trusted friend. You talk directly with ${name}${ageStr ? `, who is ${ageStr}` : ""}${diabetesLabel ? ` and has ${diabetesLabel}` : ""}.`;
 
   return `${introLine}

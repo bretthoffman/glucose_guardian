@@ -178,7 +178,7 @@ export default function ChatScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
-  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession, doctorSession, doctorMessages, markDoctorMessagesRead, foodLog, insulinLog, accessCodeRole, accessCodePermissions } = useAuth();
+  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession, doctorSession, doctorMessages, markDoctorMessagesRead, foodLog, insulinLog, accessCodeRole, accessCodePermissions, viewingPatientId, nurseViewCode } = useAuth();
   // A child/caregiver access-code session only sees the AI chat if the parent enabled it.
   const chatLocked = accessCodeRole != null && !accessCodePermissions?.chat;
   const { prompt, fromParent } = useLocalSearchParams<{ prompt?: string; fromParent?: string }>();
@@ -186,10 +186,20 @@ export default function ChatScreen() {
 
   const name = profile?.childName ?? "there";
   const parentName = profile?.parentName?.trim() || null;
-  const speakingToParent =
-    fromParent === "true" ||
-    caregiverSession ||
-    (profile?.accountRole === "parent" && !isChildMode);
+
+  // ── WHO is typing — so the AI addresses the right person and never calls a guardian or
+  // caregiver by the patient's name. Order matters: kid code / child mode first (the patient
+  // themselves), then caregiver identities (codes, nurse accounts, nurse-in-kid-view), then
+  // guardian identities (parent accounts, co-guardians viewing), then adults (own patient). ──
+  const chatSpeaker: { kind: "patient" | "guardian" | "caregiver"; name?: string } =
+    accessCodeRole === "child" || isChildMode
+      ? { kind: "patient" }
+      : nurseViewCode || profile?.accountRole === "caregiver" || caregiverSession
+      ? { kind: "caregiver" }
+      : viewingPatientId || profile?.accountRole === "parent" || fromParent === "true"
+      ? { kind: "guardian", name: parentName ?? undefined }
+      : { kind: "patient" };
+  const speakingToParent = chatSpeaker.kind !== "patient";
 
   const trend = getEffectiveTrend(history);
   const glucose = latestReading?.glucose ?? null;
@@ -324,6 +334,7 @@ export default function ChatScreen() {
             parentName: parentName ?? undefined,
             accountRole: profile?.accountRole,
             speakingToParent,
+            speaker: chatSpeaker,
             isChildMode,
             caregiverSession: caregiverSession || undefined,
             ageYears: ageYears,

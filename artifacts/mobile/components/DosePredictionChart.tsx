@@ -28,6 +28,8 @@ import Colors, { COLORS } from "@/constants/colors";
 import { withAlpha } from "@/constants/theme";
 import { glucoseTone } from "@/constants/theme";
 import {
+  DOT_MODE_READING_RADIUS,
+  DOT_MODE_READING_STROKE,
   buildAxisLabelSpecs,
   chartValueToY,
   formatGlucoseAxisLabel,
@@ -169,7 +171,10 @@ export default function DosePredictionChart({
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i];
       const b = pts[i + 1];
-      if (b.ms - a.ms > GAP_MS) {
+      // Interior CGM gaps break the line, but the FINAL segment to the synthetic Now anchor always
+      // draws — the reading line must reach the Now slicer even when recent data has a hole.
+      const isAnchorSegment = i + 1 === pts.length - 1;
+      if (!isAnchorSegment && b.ms - a.ms > GAP_MS) {
         if (cur) { runs.push({ color: cur.color, points: cur.pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ") }); cur = null; }
         continue;
       }
@@ -185,17 +190,26 @@ export default function DosePredictionChart({
     return runs;
   }, [readings, plotW, win, drawNow, xNow, currentBG, xOf, yOf]);
 
-  // ── Future prediction lines: each matched past episode's real readings, as purple DOTS after
-  // the Now slicer (opacity = confidence rank). One shared reveal clip sweeps them all together. ──
-  const futureDotLines = useMemo(() => {
-    if (plotW <= 0) return [] as { opacity: number; dots: { cx: number; cy: number }[] }[];
-    return forecastLines.map((line) => ({
-      opacity: line.opacity,
-      dots: line.points
+  // ── Future prediction lines: each matched past episode's real readings after the Now slicer.
+  // The MOST-CONFIDENT match draws as a solid line; ranks 2–3 render in the app's standard
+  // reading-dots style (the same look as tapping the other charts into dots mode), faded by
+  // their confidence opacity. One shared reveal clip sweeps them all in together. ──
+  const futureLines = useMemo(() => {
+    if (plotW <= 0) {
+      return [] as { opacity: number; solid: boolean; pointsStr: string; dots: { cx: number; cy: number }[] }[];
+    }
+    return forecastLines.map((line, idx) => {
+      const pts = line.points
         .filter((p) => p.tMin >= 0)
         .map((p) => ({ cx: xOf(drawNow + p.tMin * 60000), cy: yOf(p.bg) }))
-        .filter((d) => d.cx <= plotW + 0.5 && d.cy >= -0.5 && d.cy <= H + 0.5),
-    }));
+        .filter((d) => d.cx <= plotW + 0.5 && d.cy >= -0.5 && d.cy <= H + 0.5);
+      return {
+        opacity: line.opacity,
+        solid: idx === 0,
+        pointsStr: pts.map((d) => `${d.cx.toFixed(1)},${d.cy.toFixed(1)}`).join(" "),
+        dots: pts,
+      };
+    });
   }, [forecastLines, plotW, drawNow, xOf, yOf, H]);
 
   // Right-axis labels + their reference lines, built from the user's thresholds exactly like the
@@ -372,11 +386,32 @@ export default function DosePredictionChart({
                     strokeLinecap="round"
                   />
                 ))}
-                {futureDotLines.map((line, li) => (
+                {futureLines.map((line, li) => (
                   <G key={`f-${li}`} opacity={line.opacity}>
-                    {line.dots.map((d, di) => (
-                      <Circle key={`f-${li}-${di}`} cx={d.cx} cy={d.cy} r={2.6} fill={COLORS.primary} />
-                    ))}
+                    {line.solid ? (
+                      line.dots.length >= 2 && (
+                        <Polyline
+                          points={line.pointsStr}
+                          fill="none"
+                          stroke={COLORS.primary}
+                          strokeWidth={2.75}
+                          strokeLinejoin="round"
+                          strokeLinecap="round"
+                        />
+                      )
+                    ) : (
+                      line.dots.map((d, di) => (
+                        <Circle
+                          key={`f-${li}-${di}`}
+                          cx={d.cx}
+                          cy={d.cy}
+                          r={DOT_MODE_READING_RADIUS}
+                          fill={COLORS.primary}
+                          stroke={withAlpha(COLORS.primary, 0.55)}
+                          strokeWidth={DOT_MODE_READING_STROKE}
+                        />
+                      ))
+                    )}
                   </G>
                 ))}
               </G>

@@ -50,3 +50,47 @@ describe("calendarDayXAxis", () => {
     expect(middle.left).toBe(plotW / 2 - 11);
   });
 });
+
+describe("zoomed-window ticks (Log-page pinch zoom)", () => {
+  const HOUR = 60 * 60 * 1000;
+  const dayStart = new Date(2026, 5, 25, 0, 0, 0, 0).getTime();
+
+  it("picks tighter steps for tighter spans", async () => {
+    const { pickZoomTickStepMs } = await import("./calendarDayXAxis");
+    expect(pickZoomTickStepMs(1 * HOUR)).toBe(15 * 60 * 1000);
+    expect(pickZoomTickStepMs(2 * HOUR)).toBe(30 * 60 * 1000);
+    expect(pickZoomTickStepMs(5 * HOUR)).toBe(HOUR);
+    expect(pickZoomTickStepMs(10 * HOUR)).toBe(2 * HOUR);
+    expect(pickZoomTickStepMs(20 * HOUR)).toBe(4 * HOUR);
+  });
+
+  it("aligns ticks to clean local clock times inside the window", async () => {
+    const { buildZoomedDayXLabels } = await import("./calendarDayXAxis");
+    // 9:07 AM – 12:07 PM (3h) → 30-min ticks starting at 9:30.
+    const windowStart = dayStart + 9 * HOUR + 7 * 60 * 1000;
+    const labels = buildZoomedDayXLabels(windowStart, 3 * HOUR, dayStart, 300);
+    expect(labels[0].timeMs).toBe(dayStart + 9.5 * HOUR);
+    expect(labels.length).toBe(6); // 9:30, 10, 10:30, 11, 11:30, 12
+    expect(labels[0].label).toBe(
+      new Date(labels[0].timeMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+    );
+    // x maps linearly across the zoomed window.
+    expect(labels[0].x).toBeCloseTo(((9.5 * HOUR - (9 * HOUR + 7 * 60 * 1000)) / (3 * HOUR)) * 300, 5);
+  });
+
+  it("hour-step labels drop the minutes", async () => {
+    const { buildZoomedDayXLabels } = await import("./calendarDayXAxis");
+    const labels = buildZoomedDayXLabels(dayStart + 8 * HOUR, 5 * HOUR, dayStart, 300);
+    expect(labels[0].timeMs).toBe(dayStart + 8 * HOUR);
+    expect(labels[0].label).toBe(
+      new Date(labels[0].timeMs).toLocaleTimeString([], { hour: "numeric" }),
+    );
+  });
+
+  it("clamps zoomed label layout inside the plot", async () => {
+    const { zoomedDayLabelLayout } = await import("./calendarDayXAxis");
+    expect(zoomedDayLabelLayout(0, 300, 52).left).toBe(0);
+    expect(zoomedDayLabelLayout(300, 300, 52).left).toBe(248);
+    expect(zoomedDayLabelLayout(150, 300, 52).left).toBe(124);
+  });
+});

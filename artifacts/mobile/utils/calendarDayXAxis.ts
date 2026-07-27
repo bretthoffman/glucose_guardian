@@ -74,6 +74,67 @@ export function calendarDayNumericLabelLayout(
   };
 }
 
+// ── zoomed-window ticks (Log-page pinch zoom) ────────────────────────────────────────────────
+
+export interface ZoomedDayXLabelSpec {
+  /** Tick time in ms since epoch. */
+  timeMs: number;
+  label: string;
+  x: number;
+}
+
+/** Tick spacing that keeps roughly 4–7 labels across any zoomed span. */
+export function pickZoomTickStepMs(spanMs: number): number {
+  const MIN = 60 * 1000;
+  if (spanMs <= 90 * MIN) return 15 * MIN;
+  if (spanMs <= 3 * 60 * MIN) return 30 * MIN;
+  if (spanMs <= 6 * 60 * MIN) return 60 * MIN;
+  if (spanMs <= 12 * 60 * MIN) return 2 * 60 * MIN;
+  return 4 * 60 * MIN;
+}
+
+/**
+ * Wall-clock tick labels for a pinch-zoomed slice of the day. Ticks align to the LOCAL day start
+ * (not epoch multiples) so they land on clean clock times, and each label carries its own
+ * meridiem — the zoomed view drops the full-day AM/PM row.
+ */
+export function buildZoomedDayXLabels(
+  windowStartMs: number,
+  windowMs: number,
+  dayStartMs: number,
+  plotW: number,
+): ZoomedDayXLabelSpec[] {
+  if (windowMs <= 0 || plotW <= 0) return [];
+  const step = pickZoomTickStepMs(windowMs);
+  const withMinutes = step < 60 * 60 * 1000;
+  const first = dayStartMs + Math.ceil((windowStartMs - dayStartMs) / step) * step;
+  const out: ZoomedDayXLabelSpec[] = [];
+  for (let t = first; t <= windowStartMs + windowMs; t += step) {
+    out.push({
+      timeMs: t,
+      label: new Date(t).toLocaleTimeString(
+        [],
+        withMinutes ? { hour: "numeric", minute: "2-digit" } : { hour: "numeric" },
+      ),
+      x: ((t - windowStartMs) / windowMs) * plotW,
+    });
+  }
+  return out;
+}
+
+/** Centered layout for a zoomed tick label, clamped inside the plot. */
+export function zoomedDayLabelLayout(
+  x: number,
+  plotW: number,
+  labelWidth = 52,
+): { left: number; width: number; textAlign: "center" } {
+  return {
+    left: Math.max(0, Math.min(plotW - labelWidth, x - labelWidth / 2)),
+    width: labelWidth,
+    textAlign: "center",
+  };
+}
+
 export interface CalendarDayMeridiemSpec {
   amX: number;
   pmX: number;

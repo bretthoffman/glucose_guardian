@@ -1,8 +1,9 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { scheduleGlucoseAlert } from "@/services/notifications";
+import { classifyGlucose, decideGlucoseAlert, type GlucoseZone } from "../../../../convex/pushLogic";
 import {
   ActivityIndicator,
   Alert,
@@ -31,6 +32,7 @@ import { ReadingCard } from "@/components/ReadingCard";
 import { Surface } from "@/components/Surface";
 import { analyzeReadings, type Suggestion } from "@/utils/insights";
 import { computePatternTuning, tuningSuggestions } from "@/utils/doseTuning";
+import { useQuery } from "convex/react";
 import { COLORS } from "@/constants/colors";
 import { T, withAlpha } from "@/constants/theme";
 import { useThemeColors } from "@/context/ThemeContext";
@@ -171,6 +173,33 @@ export default function HomeScreen() {
   const c = useThemeColors();
   const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose, notifyCgmSyncSuccess } = useGlucose();
   const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession, isMinor, foodLog, insulinLog, isViewingLinkedPatient, viewingPatientName, exitViewingMode, accessCodeRole } = useAuth();
+
+  // ── Tapped-alert popup: notification taps land HERE with the alert text + a ready-made chat
+  // prompt. Nothing is auto-sent — the popup offers Dismiss / Send to chat, it is gated by the
+  // "Send Alerts to Chat on open" toggle, and a pending wait-window confirm SUPERSEDES it (the
+  // dropped popup never comes back — no stacking). ──
+  const { alertMsg, alertPrompt, alertTs } = useLocalSearchParams<{ alertMsg?: string; alertPrompt?: string; alertTs?: string }>();
+  const shownAlertTsRef = useRef<string | null>(null);
+  const waitGate =
+    !!account?.convexUserId && !caregiverSession && !isViewingLinkedPatient && profile?.accountRole === "adult";
+  const pendingWait = useQuery(api.push.pendingEmergencyWait, waitGate ? {} : "skip");
+  useEffect(() => {
+    if (!alertTs || shownAlertTsRef.current === alertTs) return;
+    if (waitGate && pendingWait === undefined) return; // wait-state still resolving — decide next render
+    shownAlertTsRef.current = alertTs;
+    if (pendingWait) return; // the "confirm you are okay" popup owns the screen — drop this one
+    if (alertPrefs.alertToChatOnOpenEnabled === false) return; // toggle off → just land on Glucose
+    const msg = typeof alertMsg === "string" && alertMsg ? alertMsg : "A glucose alert just fired.";
+    const prompt = typeof alertPrompt === "string" ? alertPrompt : "";
+    Alert.alert("Glucose Alert", msg, [
+      { text: "Dismiss", style: "cancel" },
+      {
+        text: "Send to chat",
+        onPress: () =>
+          router.push({ pathname: "/(tabs)/chat", params: { prompt, fromParent: "true", fromNotification: "true" } }),
+      },
+    ]);
+  }, [alertTs, alertMsg, alertPrompt, pendingWait, waitGate, alertPrefs.alertToChatOnOpenEnabled]);
   const [isSyncingCGM, setIsSyncingCGM] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -193,7 +222,10 @@ export default function HomeScreen() {
   const autoSyncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isSyncingRef = useRef(false);
   const prevConnectedRef = useRef(isConnected);
-  const lastAlertTimeRef = useRef<number>(0);
+  // Transition-based local alerting (same machine as the server pushes): last zone re-arms the
+  // high/low crossings; last urgent send drives the 11-minute in-emergency repeat.
+  const lastZoneRef = useRef<GlucoseZone>("in_range");
+  const lastUrgentAtRef = useRef<number | null>(null);
   const lastSilentSyncRef = useRef<number>(0);
   const pullHapticFiredRef = useRef(false);
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -209,7 +241,6 @@ export default function HomeScreen() {
   const scrollResetSettleCallbacksRef = useRef<Array<() => void>>([]);
   const deferredScrollResetStartRef = useRef<(() => void) | null>(null);
   const [pullArmed, setPullArmed] = useState(false);
-  const ALERT_COOLDOWN_MS = 15 * 60 * 1000;
   // Client-side debounce so rapid foreground/tab/timer events don't spam the expedited-sync action.
   // The server also throttles actual provider hits (`minSinceAttemptMs`), which is authoritative.
   const SILENT_SYNC_MIN_GAP_MS = 20 * 1000;
@@ -427,10 +458,21 @@ export default function HomeScreen() {
           const high = alertPrefs.highThreshold;
           const urgHigh = alertPrefs.urgentHighThreshold;
           const nowMs = Date.now();
-          const overThreshold = g <= urgLow || (g < low && g > urgLow) || g >= urgHigh || (g > high && g < urgHigh);
+          // Same transition rules as the server: high/low fire ONCE on the crossing from in-range
+          // (recovering from an emergency zone never re-alerts); emergency zones fire on entry,
+          // then repeat every 11 minutes while readings stay in the zone.
+          const zone: GlucoseZone =
+            classifyGlucose(g, { urgentLowThreshold: urgLow, lowThreshold: low, highThreshold: high, urgentHighThreshold: urgHigh }) ?? "in_range";
+          const sendAlert = decideGlucoseAlert({
+            zone,
+            prevZone: lastZoneRef.current,
+            lastUrgentSentAt: lastUrgentAtRef.current,
+            nowMs,
+          });
+          lastZoneRef.current = zone;
 
-          if (overThreshold && nowMs - lastAlertTimeRef.current > ALERT_COOLDOWN_MS) {
-            lastAlertTimeRef.current = nowMs;
+          if (sendAlert && zone !== "in_range") {
+            if (zone === "urgent_low" || zone === "urgent_high") lastUrgentAtRef.current = nowMs;
             const latestDexcomTrend = mostRecent.dexcomTrend;
             const trendLabel = latestDexcomTrend != null
               ? mapDexcomTrend(latestDexcomTrend).label
@@ -440,7 +482,8 @@ export default function HomeScreen() {
                     : 0;
                   return trendFromDiff(diff).label;
                 })();
-            const status = g <= urgLow ? "critically_low" : g < low ? "low" : g >= urgHigh ? "critically_high" : "high";
+            const status =
+              zone === "urgent_low" ? "critically_low" : zone === "low" ? "low" : zone === "urgent_high" ? "critically_high" : "high";
             scheduleGlucoseAlert({
               childName: profile?.childName ?? "Child",
               glucose: g,

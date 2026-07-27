@@ -131,7 +131,7 @@ describe("recipient resolution", () => {
 });
 
 describe("glucose alert evaluation (server-side, app closed)", () => {
-  it("records state and respects the cooldown for a repeated reading", async () => {
+  it("records the zone and suppresses in-zone repeats inside the 11-minute window", async () => {
     const { t, patient } = await setup();
     await t.mutation(api.push.registerToken, { userId: patient, passwordHash: HASH_A, token: "tok-mom", platform: "ios" });
 
@@ -140,19 +140,43 @@ describe("glucose alert evaluation (server-side, app closed)", () => {
     expect(state).toHaveLength(1);
     expect(state[0].kind).toBe("urgent_low");
     const firstSentAt = state[0].lastSentAt;
+    expect(firstSentAt).toBeGreaterThan(0);
 
-    // Same kind again immediately → cooldown blocks it, timestamp unchanged.
+    // Still in the emergency zone moments later → the 11-minute repeat timer holds it.
     await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 47 });
     state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
     expect(state).toHaveLength(1);
     expect(state[0].lastSentAt).toBe(firstSentAt);
+    await t.finishInProgressScheduledFunctions();
   });
 
-  it("does nothing for an in-range reading", async () => {
+  it("high fires only on the crossing, and recovery from urgent does not re-alert", async () => {
     const { t, patient } = await setup();
+    // in-range seeds the state row without alerting…
     await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 120 });
-    const state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
-    expect(state).toHaveLength(0);
+    let state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
+    expect(state).toHaveLength(1);
+    expect(state[0].kind).toBe("in_range");
+    expect(state[0].lastSentAt).toBe(0);
+    // …crossing into high records the zone; lingering keeps it; dropping back from urgent_high
+    // to high never resets lastSentAt (no non-urgent send ever touches the urgent timer).
+    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 200 });
+    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 210 });
+    state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
+    expect(state).toHaveLength(1);
+    expect(state[0].kind).toBe("high");
+    expect(state[0].lastSentAt).toBe(0);
+    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 260 });
+    state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
+    const urgentSentAt = state[0].lastSentAt;
+    expect(state[0].kind).toBe("urgent_high");
+    expect(urgentSentAt).toBeGreaterThan(0);
+    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 220 });
+    state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
+    expect(state[0].kind).toBe("high");
+    expect(state[0].lastSentAt).toBe(urgentSentAt);
+    // Drain the notify jobs the sends scheduled, so nothing runs after the test transaction closes.
+    await t.finishInProgressScheduledFunctions();
   });
 
   it("uses the patient's own configured thresholds", async () => {
@@ -166,5 +190,6 @@ describe("glucose alert evaluation (server-side, app closed)", () => {
     const state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
     expect(state).toHaveLength(1);
     expect(state[0].kind).toBe("high");
+    await t.finishInProgressScheduledFunctions();
   });
 });

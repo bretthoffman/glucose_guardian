@@ -83,3 +83,31 @@ describe("positionEventMarkers", () => {
     expect(out[1].stackIndex).toBe(1);
   });
 });
+
+describe("marker identity + zoom-scaled clustering", () => {
+  it("carries each log's id and timestamp through positioning (for tap-to-open)", () => {
+    const out = positionEventMarkers(
+      [
+        { kind: "insulin", timestamp: at(12), id: "ins-1" },
+        { kind: "food", timestamp: at(12.05), id: "food-1" },
+      ],
+      START,
+      DAY,
+      PLOT_W,
+    );
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ kind: "insulin", id: "ins-1", timestamp: at(12), stackIndex: 0 });
+    expect(out[1]).toMatchObject({ kind: "food", id: "food-1", stackIndex: 1 });
+  });
+
+  it("a wider cluster threshold (zoomed-in icons) merges columns a narrow one keeps apart", () => {
+    const markers = [
+      { kind: "food" as const, timestamp: at(12), id: "a" },
+      { kind: "food" as const, timestamp: at(13.5), id: "b" },
+    ];
+    const narrow = positionEventMarkers(markers, START, DAY, PLOT_W, 12);
+    expect(narrow.map((m) => m.stackIndex)).toEqual([0, 0]);
+    const wide = positionEventMarkers(markers, START, DAY, PLOT_W, 30);
+    expect(wide.map((m) => m.stackIndex)).toEqual([0, 1]);
+  });
+});

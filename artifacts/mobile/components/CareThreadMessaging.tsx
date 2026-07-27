@@ -13,7 +13,7 @@ import {
 import Colors, { COLORS } from "@/constants/colors";
 import { useMessages, useThreadMessages, type CareMessage } from "@/context/MessagesContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
-import { useKeyboardInset, useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { useContainerKeyboardInset, useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -65,7 +65,9 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
   const keyboardVisible = useKeyboardVisible();
-  const keyboardInset = useKeyboardInset();
+  // Container-aware inset: on iPad the hosting pageSheet floats above the window bottom, so the
+  // raw window overlap over-lifts the input — this variant subtracts the sheet's bottom gap.
+  const { inset: keyboardInset, ref: kbContainerRef, onLayout: onKbContainerLayout } = useContainerKeyboardInset();
 
   const serverCount = serverMessages?.length ?? 0;
   useEffect(() => {
@@ -99,7 +101,7 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
   return (
     // Padded by the exact keyboard overlap (see useKeyboardInset) — replaces the library
     // KeyboardAvoidingView, which mis-measured inside the iPad pageSheet and hid the input.
-    <View style={{ flex: 1, paddingBottom: keyboardInset }}>
+    <View ref={kbContainerRef} onLayout={onKbContainerLayout} style={{ flex: 1, paddingBottom: keyboardInset }}>
       <FlatList
         ref={flatListRef}
         data={groups}

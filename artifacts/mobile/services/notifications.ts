@@ -260,17 +260,31 @@ export function handleNotificationResponse(
     router.push("/(tabs)/dashboard");
     return;
   }
+  // Messages open the Chat page (thread list); care-log activity opens the Glucose page.
+  if (kind === "care_message") {
+    router.push("/(tabs)/chat");
+    return;
+  }
+  if (kind === "care_log") {
+    router.push("/(tabs)");
+    return;
+  }
 
   if (
     actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER ||
     actionIdentifier === "REPLY"
   ) {
+    // Glucose alerts NEVER auto-send to the chat anymore: land on the Glucose page carrying the
+    // alert text + a ready-made prompt. The page shows a Dismiss / Send-to-chat popup (gated by
+    // the "Send Alerts to Chat on open" toggle, and superseded by a pending wait-window confirm).
     const prompt = buildNotificationPrompt(data, actionIdentifier, userText);
-    const params: Record<string, string> = {
-      fromNotification: "true",
-      prompt,
-      fromParent: "true",
-    };
-    router.push({ pathname: "/(tabs)/chat", params });
+    const body =
+      response.notification.request.content.body ??
+      response.notification.request.content.title ??
+      "Glucose alert";
+    router.push({
+      pathname: "/(tabs)",
+      params: { alertMsg: body, alertPrompt: prompt, alertTs: String(Date.now()) },
+    });
   }
 }

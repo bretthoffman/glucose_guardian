@@ -88,12 +88,14 @@ function fmtU(v: number): string {
 
 /** One tappable colored operation card in the "How your dose is calculated" row. */
 function OpCard({
-  def, selected, onPress, colors,
+  def, selected, onPress, colors, scale = 1,
 }: {
   def: OpCardDef;
   selected: boolean;
   onPress: () => void;
   colors: (typeof Colors)["light"];
+  /** iPad: contents render ~50% larger; positions and the window itself stay put. */
+  scale?: number;
 }) {
   return (
     <Pressable
@@ -109,16 +111,17 @@ function OpCard({
           // shows as a soft pill tint of the piece's own color.
           backgroundColor: selected ? withAlpha(def.color, 0.14) : "transparent",
           opacity: pressed ? 0.85 : 1,
+          gap: 5 * scale,
         },
       ]}
     >
       {/* Title in the same muted grey as the section header; only the VALUE carries the piece's
           color. The third row shows the live input feeding this piece. */}
-      <Text style={[styles.opLabel, { color: colors.textSecondary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{def.label}</Text>
-      <Text style={[styles.opValue, { color: def.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+      <Text style={[styles.opLabel, { color: colors.textSecondary, fontSize: 9.5 * scale, lineHeight: 12 * scale }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{def.label}</Text>
+      <Text style={[styles.opValue, { color: def.color, fontSize: 15 * scale }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
         {fmtU(def.value)}
       </Text>
-      <Text style={[styles.opSub, { color: colors.textSecondary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+      <Text style={[styles.opSub, { color: colors.textSecondary, fontSize: 9.5 * scale, lineHeight: 12 * scale }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
         {def.sub}
       </Text>
     </Pressable>
@@ -130,6 +133,8 @@ export default function InsulinScreen() {
   const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
+  // iPad: the calc-window contents (labels, values, operators, breakdown text) render ~50% larger.
+  const calcScale = Platform.OS === "ios" && (Platform as unknown as { isPad?: boolean }).isPad === true ? 1.5 : 1;
   const { targetGlucose, carbRatio, correctionFactor, doseSettingsByTime, history, cgmSyncSuccessTick } = useGlucose();
   const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions, messagingIdentity } = useAuth();
   const confirmLog = useCareLogConfirm();
@@ -933,10 +938,11 @@ export default function InsulinScreen() {
               {opCards.map((c, i) => (
                 <React.Fragment key={c.key}>
                   {i > 0 && (
-                    <Text style={[styles.opSymbol, { color: colors.textMuted }]}>{OP_SYMBOLS[i - 1]}</Text>
+                    <Text style={[styles.opSymbol, { color: colors.textMuted, fontSize: 14 * calcScale, width: 12 * calcScale }]}>{OP_SYMBOLS[i - 1]}</Text>
                   )}
                   <OpCard
                     def={c}
+                    scale={calcScale}
                     selected={expandedCard === c.key}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -958,15 +964,14 @@ export default function InsulinScreen() {
               const ex = doseCardExplanation(expandedCard, explainInput);
               return (
                 <View key="breakdown" style={[styles.breakdownWrap, { borderTopColor: colors.separator }]}>
-                  <Text style={[styles.breakdownHead, { color: colors.textSecondary }]}>YOUR DOSE BREAKDOWN</Text>
                   <View style={styles.breakdownTitleRow}>
-                    <View style={[styles.breakdownIcon, { borderColor: def.color }]}>
-                      <Feather name={def.icon} size={13} color={def.color} />
+                    <View style={[styles.breakdownIcon, { borderColor: def.color, width: 22 * calcScale, height: 22 * calcScale, borderRadius: 11 * calcScale }]}>
+                      <Feather name={def.icon} size={13 * calcScale} color={def.color} />
                     </View>
-                    <Text style={[styles.breakdownTitle, { color: def.color }]}>{ex.title}</Text>
+                    <Text style={[styles.breakdownTitle, { color: def.color, fontSize: 17 * calcScale }]}>{ex.title}</Text>
                   </View>
                   {ex.lines.map((line, li) => (
-                    <Text key={li} style={[styles.breakdownLine, { color: colors.textSecondary }]}>{line}</Text>
+                    <Text key={li} style={[styles.breakdownLine, { color: colors.textSecondary, fontSize: 13.5 * calcScale, lineHeight: 20 * calcScale }]}>{line}</Text>
                   ))}
                 </View>
               );
@@ -1091,6 +1096,9 @@ export default function InsulinScreen() {
                       }}
                     />
                     <PredictionStrength result={prediction} colors={colors} />
+                    <Text style={[styles.predictStaleHint, { color: colors.textMuted }]}>
+                      The more you use the app, the more accurate your predictions can be
+                    </Text>
                     {prediction.matches.length === 0 && (
                       <Text style={[styles.predictStaleHint, { color: colors.textMuted }]}>
                         No similar past situations yet — prediction lines appear as more doses build history.
@@ -1383,7 +1391,6 @@ const styles = StyleSheet.create({
   // ── Collapsible "Your Dose Breakdown" ──
   /** Lives INSIDE calcUnified — a soft top rule separates it from the pieces row above. */
   breakdownWrap: { marginTop: 10, paddingTop: 12, paddingHorizontal: 8, paddingBottom: 5, borderTopWidth: 1, gap: 7 },
-  breakdownHead: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
   breakdownTitleRow: { flexDirection: "row", alignItems: "center", gap: 9 },
   breakdownIcon: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   breakdownTitle: { fontSize: 17, fontWeight: "800" },

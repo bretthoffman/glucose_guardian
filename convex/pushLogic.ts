@@ -74,26 +74,34 @@ export function categoryForGlucose(kind: GlucoseAlertKind): PushCategory {
  * quiet longer. This is the rate-limiting we committed to Apple ("alerts are rate-limited so a
  * sustained out-of-range reading does not repeat excessively").
  */
-export const COOLDOWN_MS: Record<GlucoseAlertKind, number> = {
-  urgent_low: 15 * 60_000,
-  low: 30 * 60_000,
-  urgent_high: 30 * 60_000,
-  high: 60 * 60_000,
-};
+/** While glucose stays in an EMERGENCY zone, the urgent alert repeats on this timer. */
+export const URGENT_REPEAT_MS = 11 * 60 * 1000;
+
+export type GlucoseZone = GlucoseAlertKind | "in_range";
 
 /**
- * Whether to send now. A DIFFERENT kind than last time always sends (escalation from `low` to
- * `urgent_low` must not be swallowed by the previous send's cooldown); the same kind waits.
+ * Transition-based alert decision (replaces the old per-kind cooldowns):
+ *  - LOW / HIGH fire ONCE, only on the in_range → zone crossing. Lingering in the zone never
+ *    re-alerts, and RECOVERING from an emergency zone (urgent_low → low) never alerts either —
+ *    the state must pass back through in_range to re-arm.
+ *  - URGENT zones fire immediately on ENTERING (from any other zone), then repeat every
+ *    URGENT_REPEAT_MS while the readings stay in the emergency zone.
  */
-export function shouldSendGlucoseAlert(params: {
-  kind: GlucoseAlertKind;
-  lastKind: string | null;
-  lastSentAt: number | null;
+export function decideGlucoseAlert(params: {
+  zone: GlucoseZone;
+  prevZone: GlucoseZone;
+  /** When the last URGENT alert was sent (drives the in-zone repeat timer). */
+  lastUrgentSentAt: number | null;
   nowMs: number;
 }): boolean {
-  const { kind, lastKind, lastSentAt, nowMs } = params;
-  if (lastKind !== kind || lastSentAt == null) return true;
-  return nowMs - lastSentAt >= COOLDOWN_MS[kind];
+  const { zone, prevZone, lastUrgentSentAt, nowMs } = params;
+  if (zone === "in_range") return false;
+  const urgent = zone === "urgent_low" || zone === "urgent_high";
+  if (urgent) {
+    if (prevZone !== zone) return true; // just entered (or flipped) the emergency zone
+    return lastUrgentSentAt == null || nowMs - lastUrgentSentAt >= URGENT_REPEAT_MS;
+  }
+  return prevZone === "in_range"; // plain high/low: only the crossing from the good range
 }
 
 // ── copy ─────────────────────────────────────────────────────────────────────────────────────

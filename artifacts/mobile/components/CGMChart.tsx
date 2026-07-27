@@ -9,7 +9,14 @@ import {
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { CgmChartCursorOverlay } from "@/components/CgmChartCursorOverlay";
 import { useCgmChartCursorGesture } from "@/hooks/useCgmChartCursorGesture";
-import { positionEventMarkers, type ChartEventMarker } from "@/utils/chartEventMarkers";
+import { useChartPinchZoom } from "@/hooks/useChartPinchZoom";
+import {
+  CHART_MARKER_CLUSTER_PX,
+  positionEventMarkers,
+  type ChartEventMarker,
+  type PositionedChartMarker,
+} from "@/utils/chartEventMarkers";
+import { markerZoomScale } from "@/utils/chartPinchZoom";
 import { buildChartPlotPoints } from "@/utils/cgmChartCursor";
 import Svg, {
   Circle,
@@ -38,7 +45,14 @@ import {
   formatGlucoseAxisLabel,
   resolveAxisLabelPositions,
 } from "@/utils/cgmChartAxis";
-import { buildCalendarDayXLabels, calendarDayMeridiemPositions, calendarDayMeridiemLabelLayout, calendarDayNumericLabelLayout } from "@/utils/calendarDayXAxis";
+import {
+  buildCalendarDayXLabels,
+  buildZoomedDayXLabels,
+  calendarDayMeridiemPositions,
+  calendarDayMeridiemLabelLayout,
+  calendarDayNumericLabelLayout,
+  zoomedDayLabelLayout,
+} from "@/utils/calendarDayXAxis";
 import {
   DEFAULT_GRAPH_DISPLAY_MODE,
   parseGraphDisplayMode,
@@ -68,6 +82,8 @@ export const RANGE_MS: Record<TimeRange, number> = {
 
 /** Dexcom-style CGM is ~5 min per point; beyond this delta we treat time as discontinuous and skip the line segment. */
 const CHART_LINE_GAP_BREAK_MS = 20 * 60 * 1000;
+/** When pinch-zoomed, readings this far outside the window still draw so the line reaches the edges. */
+const ZOOM_DRAW_PAD_MS = 10 * 60 * 1000;
 
 export interface CGMReading {
   glucose: number;
@@ -112,6 +128,13 @@ interface CGMChartProps {
   onCursorActiveChange?: (active: boolean) => void;
   /** Food/insulin log markers drawn as tiny icons on the target baseline at each log's time. */
   eventMarkers?: ChartEventMarker[];
+  /** Makes log markers tappable — fired with the marker so the host can open its detail popup. */
+  onEventMarkerPress?: (marker: PositionedChartMarker) => void;
+  /**
+   * Log-page only: two-finger pinch zooms into a slice of the day (the full day is the maximum
+   * zoom-out) and two-finger drag pans while zoomed. Requires `calendarDayWindow`.
+   */
+  enablePinchZoom?: boolean;
 }
 
 type Pt = { x: number; y: number; glucose: number };
@@ -133,6 +156,8 @@ export function CGMChart({
   emptyMessage,
   onCursorActiveChange,
   eventMarkers,
+  onEventMarkerPress,
+  enablePinchZoom = false,
 }: CGMChartProps) {
   const c = useThemeColors();
   const styles = useMemo(() => makeStyles(c), [c]);
@@ -180,11 +205,27 @@ export function CGMChart({
   const plotW = Math.max(60, containerW - yAxisW);
   const plotY = (glucose: number) => chartValueToY(glucose, H);
 
+  // Pinch zoom (Log page only): a set zoomWindow narrows every window-derived computation below
+  // — readings, plot points, cursor, markers, x-axis — while the full day stays the zoom-out cap.
+  const { zoomWindow, zoom, pinchActive, wrapperProps } = useChartPinchZoom({
+    enabled: enablePinchZoom && isCalendarDay,
+    day: isCalendarDay ? { startMs: calendarDayWindow.startMs, endMs: calendarDayWindow.endMs } : null,
+    plotW,
+  });
+
   const now = Date.now();
-  const windowStart = isCalendarDay ? calendarDayWindow.startMs : now - RANGE_MS[timeRange];
-  const windowMs = isCalendarDay
-    ? Math.max(1, calendarDayWindow.endMs - calendarDayWindow.startMs)
-    : RANGE_MS[timeRange];
+  const dayStartMs = isCalendarDay ? calendarDayWindow.startMs : 0;
+  const daySpanMs = isCalendarDay ? Math.max(1, calendarDayWindow.endMs - calendarDayWindow.startMs) : 0;
+  const windowStart = zoomWindow
+    ? zoomWindow.startMs
+    : isCalendarDay
+      ? calendarDayWindow.startMs
+      : now - RANGE_MS[timeRange];
+  const windowMs = zoomWindow
+    ? Math.max(1, zoomWindow.endMs - zoomWindow.startMs)
+    : isCalendarDay
+      ? daySpanMs
+      : RANGE_MS[timeRange];
 
   const filtered = readings
     .filter((r) => {
@@ -192,6 +233,17 @@ export function CGMChart({
       return t >= windowStart && t < windowStart + windowMs;
     })
     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  // Zoomed, the line should run to the plot edges instead of stopping at the first in-window
+  // reading — draw with a little off-window padding on each side; the Svg clips the overhang.
+  const drawFiltered = zoomWindow
+    ? readings
+        .filter((r) => {
+          const t = new Date(r.timestamp).getTime();
+          return t >= windowStart - ZOOM_DRAW_PAD_MS && t < windowStart + windowMs + ZOOM_DRAW_PAD_MS;
+        })
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    : filtered;
 
   function handleRangePress(r: TimeRange) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -203,19 +255,24 @@ export function CGMChart({
     }
   }
 
-  const points: Pt[] = filtered.map((r) => ({
-    x: Math.max(0, Math.min(plotW, ((new Date(r.timestamp).getTime() - windowStart) / windowMs) * plotW)),
-    y: plotY(r.glucose),
-    glucose: r.glucose,
-  }));
+  const points: Pt[] = drawFiltered.map((r) => {
+    const rawX = ((new Date(r.timestamp).getTime() - windowStart) / windowMs) * plotW;
+    return {
+      // Zoomed, padded points may sit just off-plot (the Svg clips them); un-zoomed keeps the clamp.
+      x: zoomWindow ? rawX : Math.max(0, Math.min(plotW, rawX)),
+      y: plotY(r.glucose),
+      glucose: r.glucose,
+    };
+  });
 
   const cursorPoints = useMemo(
     () => buildChartPlotPoints(filtered, windowStart, windowMs, plotW, plotY),
     [filtered, windowStart, windowMs, plotW, H],
   );
 
+  const zoomKey = zoomWindow ? `${Math.round(zoomWindow.startMs)}-${Math.round(zoomWindow.endMs)}` : "full";
   const cursorResetKey = isCalendarDay
-    ? `${calendarDayWindow.startMs}-${filtered.length}`
+    ? `${calendarDayWindow.startMs}-${zoomKey}-${filtered.length}`
     : `${timeRange}-${filtered.length}`;
 
   const { selectedPoint, cursorActive, panHandlers, touchHandlers } = useCgmChartCursorGesture({
@@ -224,14 +281,16 @@ export function CGMChart({
     resetKey: cursorResetKey,
   });
 
-  // Let the host page freeze its vertical scroll while the reading cursor is held.
+  // Let the host page freeze its vertical scroll while the reading cursor is held or a pinch is
+  // in progress — both need the fingers to stay on the chart.
+  const freezeHostScroll = cursorActive || pinchActive;
   useEffect(() => {
-    onCursorActiveChange?.(cursorActive);
-  }, [cursorActive, onCursorActiveChange]);
+    onCursorActiveChange?.(freezeHostScroll);
+  }, [freezeHostScroll, onCursorActiveChange]);
 
-  const gapAfterIndex: boolean[] = filtered.map((r, i) => {
-    if (i >= filtered.length - 1) return false;
-    const dt = new Date(filtered[i + 1].timestamp).getTime() - new Date(r.timestamp).getTime();
+  const gapAfterIndex: boolean[] = drawFiltered.map((r, i) => {
+    if (i >= drawFiltered.length - 1) return false;
+    const dt = new Date(drawFiltered[i + 1].timestamp).getTime() - new Date(r.timestamp).getTime();
     return dt > CHART_LINE_GAP_BREAK_MS;
   });
 
@@ -242,10 +301,14 @@ export function CGMChart({
   const clampedTargetGlucose = clampTargetGlucose(targetGlucose, lowThreshold, highThreshold);
   const targetLineY = plotY(clampedTargetGlucose);
 
-  /** Log markers pinned to the target baseline; near-coincident ones stack downward. */
+  /** Log markers pinned to the target baseline; near-coincident ones stack downward. Zooming in
+   *  grows the icons (and the cluster threshold with them) so they stay easy targets. */
+  const markerScale = markerZoomScale(zoom);
+  const markerSize = EVENT_MARKER_SIZE * markerScale;
   const positionedEventMarkers = useMemo(
-    () => positionEventMarkers(eventMarkers ?? [], windowStart, windowMs, plotW),
-    [eventMarkers, windowStart, windowMs, plotW],
+    () =>
+      positionEventMarkers(eventMarkers ?? [], windowStart, windowMs, plotW, CHART_MARKER_CLUSTER_PX * markerScale),
+    [eventMarkers, windowStart, windowMs, plotW, markerScale],
   );
 
   function xLabel(msFromStart: number): string {
@@ -259,13 +322,18 @@ export function CGMChart({
   const calendarXLabels = useMemo(
     () =>
       isCalendarDay
-        ? buildCalendarDayXLabels(windowStart, windowMs, plotW)
+        ? buildCalendarDayXLabels(dayStartMs, daySpanMs, plotW)
         : [],
-    [isCalendarDay, windowStart, windowMs, plotW],
+    [isCalendarDay, dayStartMs, daySpanMs, plotW],
   );
   const calendarMeridiem = useMemo(
     () => (isCalendarDay ? calendarDayMeridiemPositions(plotW) : null),
     [isCalendarDay, plotW],
+  );
+  /** Zoomed slice ticks — each label carries its own AM/PM, replacing the full-day two-row axis. */
+  const zoomedXLabels = useMemo(
+    () => (zoomWindow ? buildZoomedDayXLabels(windowStart, windowMs, dayStartMs, plotW) : []),
+    [zoomWindow, windowStart, windowMs, dayStartMs, plotW],
   );
 
   // Split into contiguous runs (gap breaks), preserving the discontinuity logic above.
@@ -366,6 +434,9 @@ export function CGMChart({
       )}
 
       <View style={[styles.chartRow, { height: H }]}>
+        {/* Pinch-zoom wrapper (inert unless enablePinchZoom): claims two-finger gestures in the
+            capture phase so the inner cursor/tap handlers keep single-finger behavior. */}
+        <View style={{ width: plotW, height: H }} {...wrapperProps}>
         <View
           style={{ width: plotW, height: H }}
           {...panHandlers}
@@ -466,8 +537,8 @@ export function CGMChart({
                 );
               })}
 
-            {/* single emphasized current point */}
-            {last && (
+            {/* single emphasized current point — hidden when zoom padding puts it off-plot */}
+            {last && last.x <= plotW + 0.5 && last.x >= -0.5 && (
               <>
                 <Circle cx={last.x} cy={last.y} r={9} fill={withAlpha(lastColor, 0.18)} />
                 <Circle cx={last.x} cy={last.y} r={5} fill={c.pointCenter} stroke={lastColor} strokeWidth={2.5} />
@@ -475,29 +546,39 @@ export function CGMChart({
             )}
           </Svg>
 
-          {/* Log markers on the target baseline — legend-text sized, stacking downward. Both use
-              the theme-muted color (needle for insulin, fork/knife for food) so they match the
-              Log-page section-title icons in light and dark. */}
+          {/* Log markers on the target baseline — legend-text sized, stacking downward, growing
+              with pinch zoom. Both use the theme-muted color (needle for insulin, fork/knife for
+              food) so they match the Log-page section-title icons in light and dark. When the
+              host passes onEventMarkerPress, a tap opens that log's detail popup — the
+              stopPropagation shields keep a marker tap from also toggling the line/dots mode. */}
           {positionedEventMarkers.map((m, i) => (
-            <View
+            <Pressable
               key={`evt-${i}`}
-              pointerEvents="none"
-              style={{
+              pointerEvents={onEventMarkerPress ? "auto" : "none"}
+              disabled={!onEventMarkerPress}
+              onPress={onEventMarkerPress ? () => onEventMarkerPress(m) : undefined}
+              onTouchStart={onEventMarkerPress ? (e) => e.stopPropagation() : undefined}
+              onTouchMove={onEventMarkerPress ? (e) => e.stopPropagation() : undefined}
+              onTouchEnd={onEventMarkerPress ? (e) => e.stopPropagation() : undefined}
+              accessibilityRole={onEventMarkerPress ? "button" : undefined}
+              accessibilityLabel={m.kind === "insulin" ? "Insulin log entry" : "Food log entry"}
+              style={({ pressed }) => ({
                 position: "absolute",
-                left: m.x - EVENT_MARKER_SIZE / 2,
-                top: targetLineY - EVENT_MARKER_SIZE / 2 + m.stackIndex * (EVENT_MARKER_SIZE + 1),
-                width: EVENT_MARKER_SIZE,
-                height: EVENT_MARKER_SIZE,
+                left: m.x - markerSize / 2,
+                top: targetLineY - markerSize / 2 + m.stackIndex * (markerSize + 1),
+                width: markerSize,
+                height: markerSize,
                 alignItems: "center",
                 justifyContent: "center",
-              }}
+                opacity: pressed && onEventMarkerPress ? 0.5 : 1,
+              })}
             >
               <MaterialCommunityIcons
                 name={m.kind === "insulin" ? "needle" : "silverware-fork-knife"}
-                size={19}
+                size={Math.round(19 * markerScale)}
                 color={c.textMuted}
               />
-            </View>
+            </Pressable>
           ))}
 
           {selectedPoint && (
@@ -519,6 +600,7 @@ export function CGMChart({
             </View>
           )}
         </View>
+        </View>
 
         {/* y-axis on the right, matching the reference */}
         <View style={[styles.yAxis, { width: yAxisW, height: H }]}>
@@ -536,7 +618,24 @@ export function CGMChart({
         </View>
       </View>
 
-      {isCalendarDay && calendarMeridiem ? (
+      {isCalendarDay && zoomWindow ? (
+        // Zoomed slice: one row of clock-time ticks (each with its own AM/PM); the empty second
+        // row keeps the chart block's height stable so content below never jumps mid-pinch.
+        <View style={{ width: plotW }}>
+          <View style={[styles.xAxisCalendar, { width: plotW }]}>
+            {zoomedXLabels.map((label) => (
+              <Text
+                key={`zx-${label.timeMs}`}
+                style={[styles.xLabelCalendar, zoomedDayLabelLayout(label.x, plotW)]}
+                numberOfLines={1}
+              >
+                {label.label}
+              </Text>
+            ))}
+          </View>
+          <View style={[styles.xAxisMeridiem, { width: plotW }]} />
+        </View>
+      ) : isCalendarDay && calendarMeridiem ? (
         <View style={{ width: plotW }}>
           <View style={[styles.xAxisCalendar, { width: plotW }]}>
             {calendarXLabels.map((label) => {

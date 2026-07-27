@@ -15,7 +15,7 @@ import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import type { DoctorMessage } from "@/context/AuthContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
-import { useKeyboardInset, useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { useContainerKeyboardInset, useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 
 function fmtTime(iso: string): string {
   const d = new Date(iso);
@@ -61,7 +61,9 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
   const keyboardVisible = useKeyboardVisible();
-  const keyboardInset = useKeyboardInset();
+  // Container-aware inset: on iPad the hosting pageSheet floats above the window bottom, so the
+  // raw window overlap over-lifts the input — this variant subtracts the sheet's bottom gap.
+  const { inset: keyboardInset, ref: kbContainerRef, onLayout: onKbContainerLayout } = useContainerKeyboardInset();
   const sender = isDoctor ? "doctor" : "guardian";
   const name = profile?.childName ?? "the patient";
   const parentName = profile?.parentName?.trim() || "Guardian";
@@ -85,7 +87,7 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
   return (
     // Padded by the exact keyboard overlap (see useKeyboardInset) — replaces the library
     // KeyboardAvoidingView, which mis-measured on iPad (pageSheet + full-screen alike).
-    <View style={{ flex: 1, paddingBottom: keyboardInset }}>
+    <View ref={kbContainerRef} onLayout={onKbContainerLayout} style={{ flex: 1, paddingBottom: keyboardInset }}>
       <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <View style={[styles.headerIcon, { backgroundColor: "#6366F1" + "20" }]}>
           <Feather name="message-circle" size={16} color="#6366F1" />

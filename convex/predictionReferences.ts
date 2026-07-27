@@ -236,7 +236,8 @@ export const getReferences = query({
         carbs: c.carbs,
         trendBucket: c.trend ?? "steady",
         pre: downsample(pre, 20).map((r) => ({ minutesBefore: Math.round((c.eventMs - r.ms) / MIN), glucose: r.glucose })),
-        post: downsample(post, 10).map((r) => ({ minutesAfter: Math.round((r.ms - c.eventMs) / MIN), glucose: r.glucose })),
+        // 5-min steps = real CGM cadence, so the chart's prediction dots read like actual readings.
+        post: downsample(post, 5).map((r) => ({ minutesAfter: Math.round((r.ms - c.eventMs) / MIN), glucose: r.glucose })),
       });
     }
 

@@ -8,10 +8,14 @@ export type ChartMarkerKind = "insulin" | "food";
 export interface ChartEventMarker {
   kind: ChartMarkerKind;
   timestamp: string;
+  /** The source log's id — lets a tapped marker open that log's detail popup. */
+  id?: string;
 }
 
 export interface PositionedChartMarker {
   kind: ChartMarkerKind;
+  timestamp: string;
+  id?: string;
   /** Plot-space x of the marker's column (clusters share their anchor column). */
   x: number;
   /** 0 = directly on the baseline; 1, 2, … stack below it. */
@@ -31,9 +35,9 @@ export function positionEventMarkers(
   if (windowMs <= 0 || plotW <= 0) return [];
 
   const inWindow = markers
-    .map((m) => ({ kind: m.kind, t: new Date(m.timestamp).getTime() }))
+    .map((m) => ({ kind: m.kind, timestamp: m.timestamp, id: m.id, t: new Date(m.timestamp).getTime() }))
     .filter((m) => Number.isFinite(m.t) && m.t >= windowStartMs && m.t < windowStartMs + windowMs)
-    .map((m) => ({ kind: m.kind, t: m.t, x: ((m.t - windowStartMs) / windowMs) * plotW }))
+    .map((m) => ({ ...m, x: ((m.t - windowStartMs) / windowMs) * plotW }))
     .sort((a, b) => a.x - b.x);
 
   const out: PositionedChartMarker[] = [];
@@ -48,7 +52,9 @@ export function positionEventMarkers(
     }
     // Insulin outranks food for the on-line spot; ties keep chronological order.
     cluster.sort((a, b) => (a.kind === b.kind ? a.t - b.t : a.kind === "insulin" ? -1 : 1));
-    cluster.forEach((m, idx) => out.push({ kind: m.kind, x: anchorX, stackIndex: idx }));
+    cluster.forEach((m, idx) =>
+      out.push({ kind: m.kind, timestamp: m.timestamp, id: m.id, x: anchorX, stackIndex: idx }),
+    );
     i = j;
   }
   return out;

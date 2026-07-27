@@ -30,7 +30,8 @@ import {
   classifyGlucose,
   glucoseCopy,
   messageCopy,
-  shouldSendGlucoseAlert,
+  decideGlucoseAlert,
+  type GlucoseZone,
   type ExpoPushMessage,
   type GlucoseAlertKind,
   type PushCategory,
@@ -390,19 +391,34 @@ export const evaluateGlucoseForPush = internalMutation({
       .withIndex("by_userId", (q) => q.eq("userId", args.patientUserId))
       .unique();
     const kind = classifyGlucose(args.value, profile?.alertPreferences ?? {});
-    if (!kind) return;
+    const zone = kind ?? "in_range";
 
+    // ONE state row per patient: `kind` holds the last ZONE (in_range re-arms the crossings),
+    // `lastSentAt` the last URGENT send (the 11-minute in-zone repeat timer). Legacy per-kind rows
+    // are folded into the newest and removed.
     const rows = await ctx.db
       .query("pushAlertState")
-      .withIndex("by_patient_kind", (q) => q.eq("patientUserId", args.patientUserId).eq("kind", kind))
+      .withIndex("by_patient_kind", (q) => q.eq("patientUserId", args.patientUserId))
       .collect();
+    rows.sort((a, b) => b.lastSentAt - a.lastSentAt);
     const state = rows[0] ?? null;
+    for (const extra of rows.slice(1)) await ctx.db.delete(extra._id);
+    const prevZone = (state?.kind ?? "in_range") as GlucoseZone;
     const now = Date.now();
-    if (!shouldSendGlucoseAlert({ kind, lastKind: state ? kind : null, lastSentAt: state?.lastSentAt ?? null, nowMs: now })) {
-      return;
-    }
-    if (state) await ctx.db.patch(state._id, { lastSentAt: now, lastValue: args.value });
-    else await ctx.db.insert("pushAlertState", { patientUserId: args.patientUserId, kind, lastSentAt: now, lastValue: args.value });
+
+    const send = decideGlucoseAlert({
+      zone: zone as GlucoseZone,
+      prevZone,
+      lastUrgentSentAt: state?.lastSentAt ?? null,
+      nowMs: now,
+    });
+
+    const isUrgentZone = zone === "urgent_low" || zone === "urgent_high";
+    const nextSentAt = send && isUrgentZone ? now : state?.lastSentAt ?? 0;
+    if (state) await ctx.db.patch(state._id, { kind: zone, lastSentAt: nextSentAt, lastValue: args.value });
+    else await ctx.db.insert("pushAlertState", { patientUserId: args.patientUserId, kind: zone, lastSentAt: nextSentAt, lastValue: args.value });
+
+    if (!send || !kind) return;
 
     const patientName = profile?.childName?.trim() || "Your child";
     const prefs = profile?.alertPreferences ?? {};
@@ -410,9 +426,9 @@ export const evaluateGlucoseForPush = internalMutation({
     const waitMinutes = Math.min(15, Math.max(1, Math.round(prefs.waitWindowMinutes ?? 5)));
     const waitOn =
       profile?.accountRole === "adult" && prefs.waitWindowEnabled === true && isUrgent;
-    // FAILSAFE (wait-window accounts only): beyond these extremes the caregiver alert is NEVER
+    // FAILSAFE (wait-window accounts only, <35 / >350): beyond these extremes the caregiver alert is NEVER
     // held — code devices are alerted immediately no matter what is pending or pressed.
-    const failsafe = waitOn && (args.value < 30 || args.value > 350);
+    const failsafe = waitOn && (args.value < 35 || args.value > 350);
 
     if (waitOn && !failsafe) {
       // The adult's own devices alert now, with the confirm line appended; co-guardian ACCOUNTS

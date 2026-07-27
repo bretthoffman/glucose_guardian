@@ -5,10 +5,10 @@ import {
   categoryForGlucose,
   chunk,
   classifyGlucose,
-  COOLDOWN_MS,
+  URGENT_REPEAT_MS,
+  decideGlucoseAlert,
   isCriticalCategory,
   messageCopy,
-  shouldSendGlucoseAlert,
 } from "./pushLogic";
 
 describe("classifyGlucose", () => {
@@ -62,34 +62,38 @@ describe("critical-alert scope (what we told Apple)", () => {
   });
 });
 
-describe("shouldSendGlucoseAlert (rate limiting)", () => {
+describe("decideGlucoseAlert (transition-based)", () => {
   const now = 1_000_000_000;
 
-  it("sends the first time", () => {
-    expect(shouldSendGlucoseAlert({ kind: "low", lastKind: null, lastSentAt: null, nowMs: now })).toBe(true);
+  it("fires low/high ONLY on the crossing from in-range", () => {
+    expect(decideGlucoseAlert({ zone: "low", prevZone: "in_range", lastUrgentSentAt: null, nowMs: now })).toBe(true);
+    expect(decideGlucoseAlert({ zone: "high", prevZone: "in_range", lastUrgentSentAt: null, nowMs: now })).toBe(true);
   });
 
-  it("suppresses a repeat of the SAME kind inside its cooldown", () => {
-    expect(
-      shouldSendGlucoseAlert({ kind: "low", lastKind: "low", lastSentAt: now - 60_000, nowMs: now }),
-    ).toBe(false);
+  it("never re-fires while lingering in the same low/high zone", () => {
+    expect(decideGlucoseAlert({ zone: "low", prevZone: "low", lastUrgentSentAt: null, nowMs: now })).toBe(false);
+    expect(decideGlucoseAlert({ zone: "high", prevZone: "high", lastUrgentSentAt: null, nowMs: now })).toBe(false);
   });
 
-  it("re-sends the same kind once the cooldown elapses", () => {
-    expect(
-      shouldSendGlucoseAlert({ kind: "low", lastKind: "low", lastSentAt: now - COOLDOWN_MS.low, nowMs: now }),
-    ).toBe(true);
+  it("never fires low/high when RECOVERING from an emergency zone", () => {
+    expect(decideGlucoseAlert({ zone: "low", prevZone: "urgent_low", lastUrgentSentAt: now - 1000, nowMs: now })).toBe(false);
+    expect(decideGlucoseAlert({ zone: "high", prevZone: "urgent_high", lastUrgentSentAt: now - 1000, nowMs: now })).toBe(false);
   });
 
-  it("ALWAYS sends an escalation to a different kind, even inside a cooldown", () => {
-    // low → urgent_low must never be swallowed by the previous send's cooldown.
-    expect(
-      shouldSendGlucoseAlert({ kind: "urgent_low", lastKind: "low", lastSentAt: now - 1000, nowMs: now }),
-    ).toBe(true);
+  it("returning to in-range re-arms the crossing", () => {
+    expect(decideGlucoseAlert({ zone: "in_range", prevZone: "low", lastUrgentSentAt: null, nowMs: now })).toBe(false);
+    expect(decideGlucoseAlert({ zone: "low", prevZone: "in_range", lastUrgentSentAt: null, nowMs: now })).toBe(true);
   });
 
-  it("uses a shorter cooldown for urgent lows than for highs", () => {
-    expect(COOLDOWN_MS.urgent_low).toBeLessThan(COOLDOWN_MS.high);
+  it("fires an emergency zone immediately on ENTRY from any zone", () => {
+    expect(decideGlucoseAlert({ zone: "urgent_low", prevZone: "in_range", lastUrgentSentAt: null, nowMs: now })).toBe(true);
+    expect(decideGlucoseAlert({ zone: "urgent_low", prevZone: "low", lastUrgentSentAt: now - 1000, nowMs: now })).toBe(true);
+  });
+
+  it("repeats an in-zone emergency only every 11 minutes", () => {
+    expect(URGENT_REPEAT_MS).toBe(11 * 60 * 1000);
+    expect(decideGlucoseAlert({ zone: "urgent_low", prevZone: "urgent_low", lastUrgentSentAt: now - 60_000, nowMs: now })).toBe(false);
+    expect(decideGlucoseAlert({ zone: "urgent_low", prevZone: "urgent_low", lastUrgentSentAt: now - URGENT_REPEAT_MS, nowMs: now })).toBe(true);
   });
 });
 

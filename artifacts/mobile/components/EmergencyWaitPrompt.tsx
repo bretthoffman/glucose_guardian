@@ -2,7 +2,7 @@
  * The adult wait-window confirm popup. While an urgent reading holds the caregiver (access-code)
  * emergency alert, the owner's app — opened from the push or normally — shows a native prompt:
  * "Alert them now" releases the caregiver alert immediately; "I am OK" cancels it. If neither is
- * chosen, the server timer fires the alert on its own when the window elapses; the <30 / >350
+ * chosen, the server timer fires the alert on its own when the window elapses; the <35 / >350
  * failsafe bypasses all of this server-side. Renders nothing — it only watches and prompts.
  */
 import { useEffect, useRef } from "react";

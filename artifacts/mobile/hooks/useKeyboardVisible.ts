@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Dimensions, Keyboard, LayoutAnimation, Platform, type KeyboardEvent } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Dimensions, Keyboard, LayoutAnimation, Platform, View, type KeyboardEvent } from "react-native";
 
 /**
  * Whether the soft keyboard is up. Used to swap an input bar's resting bottom clearance (tab-bar /
@@ -36,6 +36,36 @@ export function useKeyboardVisible(): boolean {
  * surfaces that use this (full screens + pageSheet modals) are bottom-flush with the window on
  * iPhone AND iPad — the invariant that makes this exact.
  */
+/**
+ * `useKeyboardInset`, corrected for containers that are NOT bottom-flush with the window — iPad
+ * pageSheet modals float with a gap beneath them, so padding by the raw window overlap over-lifts
+ * the input by exactly that gap (the "empty space above the keyboard" bug). Attach `ref` +
+ * `onLayout` to the padded container; it measures its true bottom edge in window coordinates and
+ * subtracts the gap. Bottom-flush containers measure gap 0 and behave identically to the raw hook.
+ */
+export function useContainerKeyboardInset(): {
+  inset: number;
+  ref: React.RefObject<View | null>;
+  onLayout: () => void;
+} {
+  const raw = useKeyboardInset();
+  const ref = useRef<View | null>(null);
+  const [bottomGap, setBottomGap] = useState(0);
+
+  const onLayout = useCallback(() => {
+    // measureInWindow next frame so the layout pass (and sheet presentation) has settled.
+    requestAnimationFrame(() => {
+      ref.current?.measureInWindow((_x, y, _w, h) => {
+        const windowH = Dimensions.get("window").height;
+        if (!Number.isFinite(y) || !Number.isFinite(h) || h <= 0) return;
+        setBottomGap(Math.max(0, Math.round(windowH - (y + h))));
+      });
+    });
+  }, []);
+
+  return { inset: Math.max(0, raw - bottomGap), ref, onLayout };
+}
+
 export function useKeyboardInset(): number {
   const [inset, setInset] = useState(0);
   useEffect(() => {

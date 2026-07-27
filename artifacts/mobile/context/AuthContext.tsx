@@ -242,6 +242,8 @@ export interface AlertPreferences {
   /** ADULT main accounts: hold the caregiver code-device emergency push this many minutes. */
   waitWindowEnabled?: boolean;
   waitWindowMinutes?: number;
+  /** Tapping a glucose alert offers a Dismiss / Send-to-chat popup on the Glucose page. */
+  alertToChatOnOpenEnabled?: boolean;
 }
 
 export interface AuthContextType {
@@ -442,6 +444,7 @@ const DEFAULT_ALERT_PREFS: AlertPreferences = {
   oneTapTextEnabled: false,
   waitWindowEnabled: false,
   waitWindowMinutes: 5,
+  alertToChatOnOpenEnabled: true,
 };
 
 type RemoteThresholds = {
@@ -2167,9 +2170,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // personal notification toggles, drop any threshold keys (the UI hides Edit; backstop here), and
     // never push thresholds to the backend from this borrowing session.
     if (circleSharedRef.current || nurseViewCodeRef.current) {
-      const { notificationsEnabled, emergencyAlertsEnabled } = partial;
+      const { notificationsEnabled, emergencyAlertsEnabled, alertToChatOnOpenEnabled } = partial;
       const toggles: Partial<AlertPreferences> = {
         ...(notificationsEnabled !== undefined ? { notificationsEnabled } : {}),
+        ...(alertToChatOnOpenEnabled !== undefined ? { alertToChatOnOpenEnabled } : {}),
         // A nurse viewing a kid mirrors the owner's LOCKED emergency setting; a co-guardian
         // (circleShared) keeps their own personal toggle.
         ...(emergencyAlertsEnabled !== undefined && !nurseViewCodeRef.current ? { emergencyAlertsEnabled } : {}),

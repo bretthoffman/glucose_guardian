@@ -21,6 +21,8 @@ export function useCgmChartCursorGesture({ points, onQuickTap, resetKey }: Optio
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartRef = useRef({ x: 0, y: 0, time: 0 });
   const suppressTapRef = useRef(false);
+  /** True once a second finger lands — the whole touch sequence stops driving the cursor/tap. */
+  const multiTouchRef = useRef(false);
   const lastIndexRef = useRef<number | null>(null);
   const sortedXs = useMemo(() => points.map((p) => p.x), [points]);
 
@@ -120,10 +122,22 @@ export function useCgmChartCursorGesture({ points, onQuickTap, resetKey }: Optio
   const touchHandlers = useMemo(
     () => ({
       onTouchStart: (evt: GestureResponderEvent) => {
+        // A second finger means a pinch (or at least not a cursor gesture) — stand down for the
+        // rest of this touch sequence so zooming never triggers the cursor or the tap toggle.
+        if (evt.nativeEvent.touches.length >= 2) {
+          multiTouchRef.current = true;
+          clearLongPressTimer();
+          dismissCursor();
+          return;
+        }
         const { locationX, locationY } = evt.nativeEvent;
         scheduleLongPress(locationX, locationY);
       },
       onTouchMove: (evt: GestureResponderEvent) => {
+        if (evt.nativeEvent.touches.length >= 2 || multiTouchRef.current) {
+          clearLongPressTimer();
+          return;
+        }
         const { locationX, locationY } = evt.nativeEvent;
         if (cursorActiveRef.current) {
           selectAtX(locationX, true);
@@ -136,6 +150,10 @@ export function useCgmChartCursorGesture({ points, onQuickTap, resetKey }: Optio
       },
       onTouchEnd: (evt: GestureResponderEvent) => {
         clearLongPressTimer();
+        if (multiTouchRef.current) {
+          if (evt.nativeEvent.touches.length === 0) multiTouchRef.current = false;
+          return;
+        }
         if (cursorActiveRef.current) {
           dismissCursor();
           suppressTapRef.current = true;
@@ -152,6 +170,7 @@ export function useCgmChartCursorGesture({ points, onQuickTap, resetKey }: Optio
         }
       },
       onTouchCancel: () => {
+        multiTouchRef.current = false;
         clearLongPressTimer();
         dismissCursor();
       },

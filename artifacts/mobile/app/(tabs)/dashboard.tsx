@@ -222,6 +222,7 @@ export default function DashboardScreen() {
 
   // ── Emergency-alert sub-settings popup (one-tap text; adults also get the wait window) ──
   const [emergencySettingsOpen, setEmergencySettingsOpen] = useState(false);
+  const [waitWindowOpen, setWaitWindowOpen] = useState(false);
   const [waitMinutesText, setWaitMinutesText] = useState(String(alertPrefs.waitWindowMinutes ?? 5));
   const commitWaitMinutes = () => {
     const n = parseInt(waitMinutesText, 10);
@@ -857,11 +858,11 @@ export default function DashboardScreen() {
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Notifications</Text>
           <Text style={[styles.cardSub, { color: colors.textSecondary }]}>
-            Get alerted when glucose goes out of range
+            Alert switches apply to this device — each device in the circle sets its own.
           </Text>
           <ToggleRow
-            label="Glucose Alerts"
-            description={`Alerts when outside ${alertPrefs.lowThreshold}–${alertPrefs.highThreshold} mg/dL range`}
+            label="In-App Alerts"
+            description={`Pop-up banners while the app is open, outside ${alertPrefs.lowThreshold}–${alertPrefs.highThreshold} mg/dL`}
             value={alertPrefs.notificationsEnabled}
             onToggle={async (v) => {
               if (!v) {
@@ -886,6 +887,127 @@ export default function DashboardScreen() {
             }}
             colors={colors}
           />
+
+
+          {/* Per-type push switches. These are stored SERVER-side (per device) because the backend is
+              what decides whether to send — see PREBUILD_PLAN_01 §2.2a. Only shown once the device is
+              registered for push, so we never present toggles that wouldn't stick. */}
+          {pushRegistered && (
+            <>
+              <ToggleRow
+                label="Emergency Glucose Alerts"
+                description="Severe lows and highs, even with the app closed — can alert on silent"
+                value={pushPrefs.glucoseUrgent}
+                onToggle={(v) => void updatePushPrefs({ glucoseUrgent: v })}
+                colors={colors}
+                last
+              />
+              <View style={styles.soundBtnRowSplit}>
+                {/* Adult accounts: hold the caregivers' URGENT alert while they confirm they're OK. */}
+                {profile?.accountRole === "adult" ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Wait window settings"
+                    style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.warning + "1E", opacity: pressed ? 0.7 : 1 }]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setWaitMinutesText(String(alertPrefs.waitWindowMinutes ?? 5));
+                      setWaitWindowOpen(true);
+                    }}
+                  >
+                    <Feather name="clock" size={12} color={COLORS.warning} />
+                    <Text style={[styles.chooseSoundBtnText, { color: COLORS.warning }]}>Wait Window</Text>
+                  </Pressable>
+                ) : (
+                  <View />
+                )}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose sound for this alert"
+                  style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("urgent"); }}
+                >
+                  <Feather name="music" size={12} color={COLORS.primary} />
+                  <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.urgent)}</Text>
+                </Pressable>
+              </View>
+              <ToggleRow
+                label="High & Low Glucose"
+                description="Outside-range readings, even with the app closed"
+                value={pushPrefs.glucoseHighLow}
+                onToggle={(v) => void updatePushPrefs({ glucoseHighLow: v })}
+                colors={colors}
+                last
+              />
+              <View style={styles.soundBtnRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose sound for this alert"
+                  style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("glucose"); }}
+                >
+                  <Feather name="music" size={12} color={COLORS.primary} />
+                  <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.glucose)}</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
+          <ToggleRow
+            label="Send Alerts to Chat on open"
+            description="Tapping a glucose alert offers a popup to send the situation to the AI chat — or just dismiss it"
+            value={alertPrefs.alertToChatOnOpenEnabled !== false}
+            onToggle={(v) => updateAlertPrefs({ alertToChatOnOpenEnabled: v })}
+            colors={colors}
+            last
+          />
+          {pushRegistered && (
+            <>
+              <View style={[styles.categoryDivider, { borderTopColor: colors.textMuted + "66" }]} />
+              <ToggleRow
+                label="Care Activity"
+                // Same alert either way — the push fires whenever anyone else in the circle logs
+                // into the shared record; only the wording changes for who "the patient" is.
+                description={
+                  profile?.accountRole === "adult"
+                    ? "When a caregiver or co-guardian logs insulin or a meal for you"
+                    : "When someone logs insulin or a meal for your child"
+                }
+                value={pushPrefs.careLog}
+                onToggle={(v) => void updatePushPrefs({ careLog: v })}
+                colors={colors}
+              />
+              <ToggleRow
+                label="Message Alerts"
+                description={
+                  messagesLocked
+                    ? "Always on for caregiver and kid access — you'll never miss a guardian's message"
+                    : "New messages from anyone — co-guardians, caregivers, kids, and your doctor's care team"
+                }
+                value={pushPrefs.messages}
+                onToggle={(v) => {
+                  if (messagesLocked) return;
+                  void updatePushPrefs({ messages: v });
+                }}
+                disabled={messagesLocked}
+                colors={colors}
+                last
+              />
+              <View style={styles.soundBtnRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose sound for this alert"
+                  style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("messages"); }}
+                >
+                  <Feather name="music" size={12} color={COLORS.primary} />
+                  <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.messages)}</Text>
+                </Pressable>
+              </View>
+
+            </>
+          )}
+
+          <View style={[styles.categoryDivider, { borderTopColor: colors.textMuted + "66" }]} />
           {/* Kid/caregiver sessions (codes AND nurse email accounts) mirror the OWNER's emergency
               setting, locked — every other toggle on this page stays the device's own choice. */}
           {(() => {
@@ -907,6 +1029,8 @@ export default function DashboardScreen() {
                   }}
                   disabled={emergencyLocked}
                   colors={colors}
+                  // No divider under this row when its Settings button follows — they read as one field.
+                  last={!emergencyLocked}
                 />
                 {/* Main accounts only: the emergency-alert sub-settings popup (one-tap text; and
                     for ADULT accounts, the caregiver-alert wait window). */}
@@ -926,99 +1050,6 @@ export default function DashboardScreen() {
               </>
             );
           })()}
-
-          {/* Per-type push switches. These are stored SERVER-side (per device) because the backend is
-              what decides whether to send — see PREBUILD_PLAN_01 §2.2a. Only shown once the device is
-              registered for push, so we never present toggles that wouldn't stick. */}
-          {pushRegistered && (
-            <>
-              <View style={[styles.pushPrefsHeader, { borderTopColor: colors.border }]}>
-                <Text style={[styles.pushPrefsTitle, { color: colors.text }]}>Alerts sent to this device</Text>
-                <Text style={[styles.pushPrefsSub, { color: colors.textSecondary }]}>
-                  These arrive even when the app is closed. Settings apply to this device.
-                </Text>
-              </View>
-              <ToggleRow
-                label="Urgent glucose"
-                description="Severe lows and highs. These can alert even on silent."
-                value={pushPrefs.glucoseUrgent}
-                onToggle={(v) => void updatePushPrefs({ glucoseUrgent: v })}
-                colors={colors}
-              />
-              <ToggleRow
-                label="High and low glucose"
-                description="Non-urgent readings outside your target range"
-                value={pushPrefs.glucoseHighLow}
-                onToggle={(v) => void updatePushPrefs({ glucoseHighLow: v })}
-                colors={colors}
-              />
-              <ToggleRow
-                label="Care activity"
-                description="When someone logs insulin or a meal for your child"
-                value={pushPrefs.careLog}
-                onToggle={(v) => void updatePushPrefs({ careLog: v })}
-                colors={colors}
-              />
-              <ToggleRow
-                label="Message Alerts"
-                description={
-                  messagesLocked
-                    ? "Always on for caregiver and kid access — you'll never miss a guardian's message"
-                    : "New messages from anyone — co-guardians, caregivers, and kids"
-                }
-                value={pushPrefs.messages}
-                onToggle={(v) => {
-                  if (messagesLocked) return;
-                  void updatePushPrefs({ messages: v });
-                }}
-                disabled={messagesLocked}
-                colors={colors}
-              />
-              <ToggleRow
-                label="Care team"
-                description="Messages and treatment proposals from your doctor"
-                value={pushPrefs.doctor}
-                onToggle={(v) => void updatePushPrefs({ doctor: v })}
-                colors={colors}
-              />
-
-              {/* ── Per-alert-type sounds, chosen per DEVICE. iOS offers no API to use the phone's
-                  ringtone bank (and no Settings page to deep-link to), so these are the app's own
-                  bundled sounds — the same pattern messaging apps use. ── */}
-              <View style={[styles.pushPrefsHeader, { borderTopColor: colors.border }]}>
-                <Text style={[styles.pushPrefsTitle, { color: colors.text }]}>Alert sounds</Text>
-                <Text style={[styles.pushPrefsSub, { color: colors.textSecondary }]}>
-                  Pick the sound each alert plays on this device. iPhones don&apos;t let apps use the
-                  phone&apos;s ringtone bank, so these are Glucose Guardian&apos;s built-in sounds.
-                </Text>
-              </View>
-              {(
-                [
-                  ["glucose", "Glucose alerts", "High and low readings"],
-                  ["urgent", "Emergency alerts", "Severe lows and highs"],
-                  ["messages", "Messages", "Care circle and care team"],
-                ] as const
-              ).map(([key, label, desc]) => (
-                <View key={key} style={[styles.toggleRow, { borderBottomWidth: 1, borderBottomColor: colors.separator }]}>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text style={[styles.toggleLabel, { color: colors.text }]}>{label}</Text>
-                    <Text style={[styles.toggleDesc, { color: colors.textMuted }]}>
-                      {desc} · {soundLabelFor(alertSounds[key])}
-                    </Text>
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Choose sound for ${label}`}
-                    style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
-                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor(key); }}
-                  >
-                    <Feather name="music" size={12} color={COLORS.primary} />
-                    <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Choose Sound</Text>
-                  </Pressable>
-                </View>
-              ))}
-            </>
-          )}
 
           {notifPerm && (
             <View style={[styles.notifPermRow, { borderTopColor: colors.border }]}>
@@ -1115,27 +1146,38 @@ export default function DashboardScreen() {
               <Text style={[styles.cardTitle, { color: colors.text }]}>
                 {soundPickerFor === "glucose" ? "Glucose Alert Sound" : soundPickerFor === "urgent" ? "Emergency Alert Sound" : "Message Sound"}
               </Text>
-              {ALERT_SOUND_OPTIONS.map((opt) => {
-                const selected = soundPickerFor != null && alertSounds[soundPickerFor] === opt.file;
-                return (
-                  <Pressable
-                    key={opt.label}
-                    style={({ pressed }) => [styles.soundOptionRow, { borderBottomColor: colors.separator, opacity: pressed ? 0.7 : 1 }]}
-                    onPress={() => {
-                      if (soundPickerFor == null) return;
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      playAlertSoundPreview(opt.file);
-                      void updateAlertSounds({ [soundPickerFor]: opt.file } as Parameters<typeof updateAlertSounds>[0]);
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      {opt.file != null && <Feather name="volume-2" size={13} color={selected ? COLORS.primary : colors.textMuted} />}
-                      <Text style={[styles.soundOptionText, { color: selected ? COLORS.primary : colors.text }]}>{opt.label}</Text>
-                    </View>
-                    {selected && <Feather name="check" size={16} color={COLORS.primary} />}
-                  </Pressable>
-                );
-              })}
+              <ScrollView style={styles.soundOptionScroll} showsVerticalScrollIndicator>
+                {(["default", "alarms", "tones"] as const).map((group) => (
+                  <View key={group}>
+                    {group !== "default" && (
+                      <Text style={[styles.soundGroupHeader, { color: colors.textMuted }]}>
+                        {group === "alarms" ? "ALARMS" : "TONES"}
+                      </Text>
+                    )}
+                    {ALERT_SOUND_OPTIONS.filter((o) => o.group === group).map((opt) => {
+                      const selected = soundPickerFor != null && alertSounds[soundPickerFor] === opt.file;
+                      return (
+                        <Pressable
+                          key={opt.label}
+                          style={({ pressed }) => [styles.soundOptionRow, { borderBottomColor: colors.separator, opacity: pressed ? 0.7 : 1 }]}
+                          onPress={() => {
+                            if (soundPickerFor == null) return;
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            playAlertSoundPreview(opt.file);
+                            void updateAlertSounds({ [soundPickerFor]: opt.file } as Parameters<typeof updateAlertSounds>[0]);
+                          }}
+                        >
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            {opt.file != null && <Feather name="volume-2" size={13} color={selected ? COLORS.primary : colors.textMuted} />}
+                            <Text style={[styles.soundOptionText, { color: selected ? COLORS.primary : colors.text }]}>{opt.label}</Text>
+                          </View>
+                          {selected && <Feather name="check" size={16} color={COLORS.primary} />}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ))}
+              </ScrollView>
               <Text style={[styles.pushPrefsSub, { color: colors.textMuted, marginTop: 8 }]}>
                 Tap a sound to hear it — your tap also selects it. Sound files ship with the app; iOS
                 doesn&apos;t allow using the phone&apos;s own ringtones.
@@ -1143,6 +1185,42 @@ export default function DashboardScreen() {
               <Pressable
                 style={({ pressed }) => [styles.emergencySettingsDone, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
                 onPress={() => { stopAlertSoundPreview(); setSoundPickerFor(null); }}
+              >
+                <Text style={styles.emergencySettingsDoneText}>Done</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* ── Wait Window — the adult's hold on the caregivers' URGENT glucose alert. Minutes are
+            always editable (even while the toggle is off) and persist on the account. ── */}
+        <Modal visible={waitWindowOpen} transparent animationType="fade" onRequestClose={() => { commitWaitMinutes(); setWaitWindowOpen(false); }}>
+          <Pressable style={styles.emergencySettingsBackdrop} onPress={() => { commitWaitMinutes(); setWaitWindowOpen(false); }}>
+            <Pressable style={[styles.emergencySettingsCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => {}}>
+              <ToggleRow
+                label="Wait Window"
+                description="Hold your caregivers' urgent glucose alert while you confirm you're okay — below 35 or above 350 mg/dL always sends immediately"
+                value={alertPrefs.waitWindowEnabled === true}
+                onToggle={(v) => updateAlertPrefs({ waitWindowEnabled: v })}
+                colors={colors}
+                last
+              />
+              <View style={styles.waitMinutesRow}>
+                <Text style={[styles.settingLabel, { color: colors.text }]}>Wait time</Text>
+                <TextInput
+                  style={[styles.settingInput, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border, textAlign: "center", minWidth: 54 }]}
+                  value={waitMinutesText}
+                  onChangeText={(t) => setWaitMinutesText(t.replace(/[^0-9]/g, "").slice(0, 2))}
+                  onBlur={commitWaitMinutes}
+                  keyboardType="number-pad"
+                  returnKeyType="done"
+                  onSubmitEditing={commitWaitMinutes}
+                />
+                <Text style={[styles.settingDesc, { color: colors.textMuted }]}>minutes (1–15)</Text>
+              </View>
+              <Pressable
+                style={({ pressed }) => [styles.emergencySettingsDone, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
+                onPress={() => { commitWaitMinutes(); setWaitWindowOpen(false); }}
               >
                 <Text style={styles.emergencySettingsDoneText}>Done</Text>
               </Pressable>
@@ -1162,35 +1240,8 @@ export default function DashboardScreen() {
                 value={alertPrefs.oneTapTextEnabled === true}
                 onToggle={(v) => updateAlertPrefs({ oneTapTextEnabled: v })}
                 colors={colors}
-                last={profile?.accountRole !== "adult"}
+                last
               />
-              {profile?.accountRole === "adult" && (
-                <>
-                  <ToggleRow
-                    label="Wait Window"
-                    description="Hold the caregiver emergency alert while you confirm you're okay — below 30 or above 350 mg/dL it always sends immediately"
-                    value={alertPrefs.waitWindowEnabled === true}
-                    onToggle={(v) => updateAlertPrefs({ waitWindowEnabled: v })}
-                    colors={colors}
-                    last={alertPrefs.waitWindowEnabled !== true}
-                  />
-                  {alertPrefs.waitWindowEnabled === true && (
-                    <View style={styles.waitMinutesRow}>
-                      <Text style={[styles.settingLabel, { color: colors.text }]}>Wait time</Text>
-                      <TextInput
-                        style={[styles.settingInput, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border, textAlign: "center", minWidth: 54 }]}
-                        value={waitMinutesText}
-                        onChangeText={(t) => setWaitMinutesText(t.replace(/[^0-9]/g, "").slice(0, 2))}
-                        onBlur={commitWaitMinutes}
-                        keyboardType="number-pad"
-                        returnKeyType="done"
-                        onSubmitEditing={commitWaitMinutes}
-                      />
-                      <Text style={[styles.settingDesc, { color: colors.textMuted }]}>minutes (1–15)</Text>
-                    </View>
-                  )}
-                </>
-              )}
               <Pressable
                 style={({ pressed }) => [styles.emergencySettingsDone, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
                 onPress={() => { commitWaitMinutes(); setEmergencySettingsOpen(false); }}
@@ -2260,8 +2311,17 @@ const styles = StyleSheet.create({
   contactRemoveBtn: { padding: 4 },
   emergencySettingsBtnRow: { flexDirection: "row", justifyContent: "flex-end", marginTop: 6 },
   chooseSoundBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  /** Right-aligned "Sound: X" pill living directly under the toggle it customizes. */
+  soundBtnRow: { flexDirection: "row", justifyContent: "flex-end", marginTop: 2, marginBottom: 8 },
+  /** Between alert CATEGORIES — deliberately bolder than the per-row hairlines within one. */
+  categoryDivider: { borderTopWidth: 2, marginTop: 12, marginBottom: 6 },
+  /** Urgent Glucose's under-row: Wait Window pill left, Sound pill right. */
+  soundBtnRowSplit: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 2, marginBottom: 8 },
   chooseSoundBtnText: { fontSize: 11.5, fontWeight: "700" },
   soundOptionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 11, borderBottomWidth: 1 },
+  /** Caps the picker so the long sound library scrolls inside the card (fits an iPhone SE). */
+  soundOptionScroll: { maxHeight: 380 },
+  soundGroupHeader: { fontSize: 11, fontWeight: "800", letterSpacing: 1, marginTop: 14, marginBottom: 2 },
   soundOptionText: { fontSize: 14, fontWeight: "600" },
   emergencySettingsBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1 },
   emergencySettingsBtnText: { fontSize: 11, fontWeight: "700" },
