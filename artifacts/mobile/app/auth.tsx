@@ -25,6 +25,11 @@ import { useGlucose } from "@/context/GlucoseContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import AccessCodeScanner from "@/components/AccessCodeScanner";
 import * as Haptics from "expo-haptics";
+import * as WebBrowser from "expo-web-browser";
+
+// Clerk's recommended call for OAuth screens: settles any auth session left pending when the
+// browser sheet hands control back to the app (standalone builds; no-op in Expo Go).
+WebBrowser.maybeCompleteAuthSession();
 
 type Mode = "signin" | "create";
 
@@ -137,11 +142,16 @@ export default function AuthScreen() {
     setIsSubmitting(true);
     try {
       resetGlucoseData();
-      const ok = await signInWithGoogle();
-      // `false` also means "user closed the browser sheet", so stay quiet unless it truly failed.
-      if (!ok) setIsSubmitting(false);
+      // A hung OAuth session (e.g. misconfigured redirect) must never brick the button — give the
+      // flow two minutes, then treat it as failed. `false` also covers "user closed the browser
+      // sheet", so both stay quiet; only a thrown error surfaces an alert.
+      await Promise.race([
+        signInWithGoogle(),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), 120_000)),
+      ]);
     } catch {
       Alert.alert("Google sign-in failed", "Please try again, or use your email and password.");
+    } finally {
       setIsSubmitting(false);
     }
   }

@@ -126,7 +126,7 @@ export default function DashboardScreen() {
     circleOwnerName,
     isCaregiverViewingChild,
   } = useAuth();
-  const { prefs: pushPrefs, registered: pushRegistered, messagesLocked, updatePrefs: updatePushPrefs, sounds: alertSounds, updateSounds: updateAlertSounds } = usePush();
+  const { prefs: pushPrefs, registered: pushRegistered, messagesLocked, updatePrefs: updatePushPrefs, sounds: alertSounds, updateSounds: updateAlertSounds, ensureRegistered } = usePush();
   /** Which alert group the Choose Sound picker is open for (null = closed). */
   const [soundPickerFor, setSoundPickerFor] = useState<null | "glucose" | "urgent" | "messages">(null);
   const soundLabelFor = (file: string | undefined) =>
@@ -232,8 +232,13 @@ export default function DashboardScreen() {
   };
 
   useEffect(() => {
-    getNotificationPermissionStatus().then(setNotifPerm);
-  }, []);
+    getNotificationPermissionStatus().then((p) => {
+      setNotifPerm(p);
+      // Safety net: permission may have been granted outside our flows (e.g. in iOS Settings)
+      // after registration already gave up — a no-op whenever the device is registered.
+      if (p?.granted) ensureRegistered();
+    });
+  }, [ensureRegistered]);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -874,6 +879,8 @@ export default function DashboardScreen() {
                 updateAlertPrefs({ notificationsEnabled: true });
                 const updated = await getNotificationPermissionStatus();
                 setNotifPerm(updated);
+                // Register for push right away — the sign-in-time attempt bailed without permission.
+                ensureRegistered();
               } else {
                 Alert.alert(
                   "Notifications Blocked",
@@ -1083,6 +1090,7 @@ export default function DashboardScreen() {
                     await requestNotificationPermissions();
                     const updated = await getNotificationPermissionStatus();
                     setNotifPerm(updated);
+                    if (updated.granted) ensureRegistered();
                   }}
                 >
                   <Feather name="bell" size={13} color="#fff" />
@@ -1118,6 +1126,7 @@ export default function DashboardScreen() {
                             await Linking.openSettings();
                             const updated = await getNotificationPermissionStatus();
                             setNotifPerm(updated);
+                            if (updated.granted) ensureRegistered();
                           },
                         },
                       ]

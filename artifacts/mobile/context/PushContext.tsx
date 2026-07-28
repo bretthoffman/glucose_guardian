@@ -94,6 +94,12 @@ interface PushContextType {
   /** This device's chosen alert sounds by group (empty = defaults). */
   sounds: AlertSounds;
   updateSounds: (patch: AlertSounds) => Promise<void>;
+  /**
+   * Re-run device registration if it hasn't succeeded yet (no-op once registered). Call after
+   * granting notification permission: the register effect only fires on identity changes, so a
+   * first-run "sign in → then tap Allow" sequence otherwise stays unregistered until relaunch.
+   */
+  ensureRegistered: () => void;
 }
 
 const PushContext = createContext<PushContextType | null>(null);
@@ -124,8 +130,16 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
   const [prefs, setPrefs] = useState<PushPrefs>(DEFAULT_PUSH_PREFS);
   const [sounds, setSounds] = useState<AlertSounds>({});
   const [registered, setRegistered] = useState(false);
+  const registeredRef = useRef(false);
+  useEffect(() => { registeredRef.current = registered; }, [registered]);
+  /** Bumped by ensureRegistered() to re-run the register effect after a permission grant. */
+  const [regTick, setRegTick] = useState(0);
   const identityRef = useRef<MessagingIdentity>(messagingIdentity);
   useEffect(() => { identityRef.current = messagingIdentity; }, [messagingIdentity]);
+
+  const ensureRegistered = useCallback(() => {
+    if (!registeredRef.current) setRegTick((t) => t + 1);
+  }, []);
 
   // Register this device against the current identity whenever that identity changes. The token is
   // stable per install, so re-registering just re-points the existing row to whoever is signed in.
@@ -171,7 +185,7 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [key]);
+  }, [key, regTick]);
 
   const updatePrefs = useCallback(
     async (patch: Partial<PushPrefs>) => {
@@ -214,7 +228,7 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
   const effectivePrefs = { ...base, doctor: base.messages };
 
   return (
-    <PushContext.Provider value={{ pushToken, prefs: effectivePrefs, registered, messagesLocked, updatePrefs, sounds, updateSounds }}>
+    <PushContext.Provider value={{ pushToken, prefs: effectivePrefs, registered, messagesLocked, updatePrefs, sounds, updateSounds, ensureRegistered }}>
       {children}
     </PushContext.Provider>
   );

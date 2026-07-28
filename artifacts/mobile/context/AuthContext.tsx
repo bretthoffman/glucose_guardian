@@ -580,7 +580,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Clerk owns identity now (Google + email/password). These hooks must live at component level.
   const { signIn: clerkSignIn, setActive: setSignInActive } = useSignIn();
   const { signUp: clerkSignUp, setActive: setSignUpActive } = useSignUp();
-  const { signOut: clerkSignOut } = useClerkAuth();
+  const { signOut: clerkSignOut, isSignedIn: clerkIsSignedIn } = useClerkAuth();
   const { startSSOFlow } = useSSO();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -1552,34 +1552,96 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     else await AsyncStorage.removeItem(CGM_KEY);
   }, [clearSessionOverlay]);
 
+  /** Clerk's "You're already signed in." — a stale Keychain session (it survives app reinstall). */
+  const isClerkSessionExistsError = (e: unknown): boolean => {
+    const errors = (e as { errors?: { code?: string }[] } | null)?.errors;
+    return Array.isArray(errors) && errors.some((err) => err?.code === "session_exists");
+  };
+
+  /** Human-readable message out of a Clerk API error (or any Error) for on-screen surfacing. */
+  const clerkErrorMessage = (e: unknown): string | null => {
+    const err = (e as { errors?: { longMessage?: string; message?: string }[] } | null)?.errors?.[0];
+    return err?.longMessage ?? err?.message ?? (e instanceof Error && e.message ? e.message : null);
+  };
+
   /**
    * Google sign-in. Clerk's SSO flow opens a browser session and returns a Clerk session id; from
    * there it converges with the email/password path (`adoptClerkSession`), so the rest of the app
    * sees no difference between how someone signed in.
    */
   const signInWithGoogle = useCallback(async (): Promise<boolean> => {
-    try {
-      const { createdSessionId, setActive: setSsoActive } = await startSSOFlow({
-        strategy: "oauth_google",
-        redirectUrl: Linking.createURL("/"),
-      });
-      // Null when the user backs out of the browser sheet — not an error worth surfacing.
-      if (!createdSessionId || !setSsoActive) return false;
-      await setSsoActive({ session: createdSessionId });
+    // Full account commit — fetches this account's remote profile (new Google account ⇒ none ⇒
+    // onboarding) and clears every trace of any previous account cached on this device.
+    const adoptAndCommit = async () => {
       const acc = await adoptClerkSession("");
-      // Full account commit — fetches this account's remote profile (new Google account ⇒ none ⇒
-      // onboarding) and clears every trace of any previous account cached on this device.
       await commitClerkAccount(acc);
       return true;
-    } catch {
-      return false;
+    };
+    const runFlow = () =>
+      startSSOFlow({
+        strategy: "oauth_google",
+        // Standalone builds must redirect to a URL on the Clerk dashboard's "Allowlist for mobile
+        // SSO redirect" (Native applications page). The bundle-id scheme is registered in the
+        // binary alongside "mobile" and is collision-proof; Expo Go ignores the scheme override
+        // and keeps using its own exp:// URL.
+        redirectUrl: Linking.createURL("callback", { scheme: "com.bretthoffman.glucoseguardian" }),
+      });
+
+    let flow;
+    try {
+      flow = await runFlow();
+    } catch (e) {
+      if (!isClerkSessionExistsError(e)) {
+        throw new Error(clerkErrorMessage(e) ?? "Google sign-in could not start.");
+      }
+      // A session survived in the Keychain (reinstalls keep it). Adopt it if it still works;
+      // if it's a zombie (token no longer refreshes), purge it and run the flow fresh.
+      try {
+        return await adoptAndCommit();
+      } catch {
+        await clerkSignOut().catch(() => {});
+        try {
+          flow = await runFlow();
+        } catch (retryErr) {
+          throw new Error(clerkErrorMessage(retryErr) ?? "Google sign-in could not start.");
+        }
+      }
     }
-  }, [startSSOFlow, adoptClerkSession, commitClerkAccount]);
+
+    const { createdSessionId, setActive: setSsoActive } = flow;
+    if (createdSessionId && setSsoActive) {
+      await setSsoActive({ session: createdSessionId });
+      return await adoptAndCommit();
+    }
+    // No new session and no error: the user backed out of the browser sheet — stay quiet —
+    // unless an (adoptable) existing session is signed in underneath.
+    if (clerkIsSignedIn) {
+      try {
+        return await adoptAndCommit();
+      } catch {
+        await clerkSignOut().catch(() => {});
+        return false;
+      }
+    }
+    return false;
+  }, [startSSOFlow, adoptClerkSession, commitClerkAccount, clerkIsSignedIn, clerkSignOut]);
 
   const createAccount = useCallback(async (email: string, password: string) => {
     const normalizedEmail = email.trim().toLowerCase();
     if (!clerkSignUp || !setSignUpActive) throw new Error("Sign-up isn't ready yet — try again.");
-    const attempt = await clerkSignUp.create({ emailAddress: normalizedEmail, password });
+    let attempt;
+    try {
+      attempt = await clerkSignUp.create({ emailAddress: normalizedEmail, password });
+    } catch (e) {
+      // A session already lives in the Keychain (survives reinstall) — adopt it instead of
+      // erroring with "You're already signed in." on a screen with no way out.
+      if (isClerkSessionExistsError(e)) {
+        const acc = await adoptClerkSession(normalizedEmail);
+        await commitClerkAccount(acc);
+        return { status: "complete" as const };
+      }
+      throw e;
+    }
     if (attempt.status !== "complete") {
       // The Clerk instance requires email verification. Kick off the code and let the UI collect it;
       // `verifyEmailCode` finishes the job.
@@ -1625,7 +1687,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       GLUCOSE_SETTINGS_STORAGE_KEY,
     ]);
     return { status: "complete" as const };
-  }, [clerkSignUp, setSignUpActive, adoptClerkSession, clearSessionOverlay]);
+  }, [clerkSignUp, setSignUpActive, adoptClerkSession, clearSessionOverlay, commitClerkAccount]);
 
   /** Finish an email/password sign-up that required an emailed verification code. */
   const verifyEmailCode = useCallback(async (code: string): Promise<boolean> => {
@@ -1683,7 +1745,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await commitClerkAccount(acc);
         return true;
       }
-    } catch {
+    } catch (e) {
+      // A Keychain session from a previous install blocks new sign-ins — adopt it instead.
+      if (isClerkSessionExistsError(e)) {
+        try {
+          const acc = await adoptClerkSession(normalizedEmail);
+          await commitClerkAccount(acc);
+          return true;
+        } catch {
+          /* fall through to false */
+        }
+      }
       // Wrong password, unknown email, or offline. The pre-Convex "legacy single-device account"
       // fallback that used to live here is gone: Clerk is the only credential store now, and it
       // can't verify a password held locally.

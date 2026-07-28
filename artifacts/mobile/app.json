@@ -70,7 +70,8 @@
         {
           "cameraPermission": "Glucose Guardian uses the camera to scan access-code QR codes and analyze food photos."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
