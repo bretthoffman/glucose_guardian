@@ -409,6 +409,20 @@ export default function AuthScreen() {
             </Pressable>
           )}
 
+          {/* Access-code entry lives up here with the account actions (its form opens below);
+              the doctor/provider link stays at the bottom of the page. */}
+          {!showCaregiverEntry && (
+            <Pressable
+              style={styles.caregiverLink}
+              onPress={() => { setShowCaregiverEntry(true); setCaregiverError(""); }}
+            >
+              <Feather name="users" size={14} color={COLORS.accent} />
+              <Text style={[styles.caregiverLinkText, { color: COLORS.accent }]}>
+                Sign in with access code →
+              </Text>
+            </Pressable>
+          )}
+
           {mode === "create" && (
             <Text style={[styles.disclaimer, { color: subtextColor }]}>
               Your data is stored securely on this device only.
@@ -449,15 +463,6 @@ export default function AuthScreen() {
         <View style={[styles.caregiverSection, { borderColor: "rgba(255,255,255,0.10)" }]}>
           {!showCaregiverEntry && !showDoctorEntry ? (
             <View style={{ gap: 10 }}>
-              <Pressable
-                style={styles.caregiverLink}
-                onPress={() => { setShowCaregiverEntry(true); setCaregiverError(""); }}
-              >
-                <Feather name="users" size={14} color={COLORS.accent} />
-                <Text style={[styles.caregiverLinkText, { color: COLORS.accent }]}>
-                  Sign in with access code →
-                </Text>
-              </Pressable>
               <Pressable
                 style={styles.caregiverLink}
                 onPress={() => { setShowDoctorEntry(true); setDoctorError(""); }}

@@ -300,7 +300,7 @@ export default function OnboardingScreen() {
               ]}
               value={parentNameInput}
               onChangeText={setParentNameInput}
-              placeholder={accountRole === "caregiver" ? "Your first name..." : "Your first name (optional)..."}
+              placeholder="Your first name..."
               placeholderTextColor={colors.textMuted}
               autoFocus
               returnKeyType="next"
@@ -313,7 +313,7 @@ export default function OnboardingScreen() {
               ]}
               value={parentLastNameInput}
               onChangeText={setParentLastNameInput}
-              placeholder="Last name (optional)..."
+              placeholder="Last name..."
               placeholderTextColor={colors.textMuted}
               returnKeyType="next"
               maxLength={30}
@@ -424,7 +424,7 @@ export default function OnboardingScreen() {
               ]}
               value={childLastName}
               onChangeText={setChildLastName}
-              placeholder="Last name (optional)..."
+              placeholder="Last name..."
               placeholderTextColor={colors.textMuted}
               returnKeyType="next"
               maxLength={30}
