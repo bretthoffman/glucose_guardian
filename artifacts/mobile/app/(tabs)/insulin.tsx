@@ -1010,7 +1010,9 @@ export default function InsulinScreen() {
             <View style={styles.suggestTotalRow}>
               <View style={styles.doseTotalLabelWrap}>
                 <Text style={[styles.doseTotalHeadLabel, { color: colors.textSecondary }]}>
-                  {isMinor ? "Ask your adult to give:" : "Suggested Dose"}
+                  {/* Kid-facing phrasing ONLY on a kid's access-code session — guardians,
+                      caregivers, and adults all see the standard label. */}
+                  {caregiverSession && accessCodeRole === "child" ? "Ask your adult to give:" : "Suggested Dose"}
                 </Text>
               </View>
               <EditableDoseTotalBadge
@@ -1097,7 +1099,7 @@ export default function InsulinScreen() {
                     />
                     <PredictionStrength result={prediction} colors={colors} />
                     <Text style={[styles.predictStaleHint, { color: colors.textMuted }]}>
-                      The more you use the app, the more accurate your predictions can be
+                      The more you use the app, the more accurate your predictions will be
                     </Text>
                     {prediction.matches.length === 0 && (
                       <Text style={[styles.predictStaleHint, { color: colors.textMuted }]}>

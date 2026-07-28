@@ -1098,8 +1098,10 @@ export default function HomeScreen() {
           <Surface style={styles.section} padding={Math.round(T.space.xl * padScale)}>
             <GlucoseGauge
               value={displayGlucose}
-              size={Math.round(172 * padScale)}
-              contentScale={padScale}
+              // Gauge circle (and everything inside it) +15%; trend cluster text/arrows +25% —
+              // both on top of the iPad-portrait padScale. The card grows with its content.
+              size={Math.round(172 * 1.15 * padScale)}
+              contentScale={1.25 * padScale}
               trend={glucoseTrend}
               trendInfo={effectiveTrend}
               lowThreshold={alertPrefs.lowThreshold}

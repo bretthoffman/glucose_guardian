@@ -902,7 +902,7 @@ export default function DashboardScreen() {
           {pushRegistered && (
             <>
               <ToggleRow
-                label="Emergency Glucose Alerts"
+                label="Urgent Glucose Alerts"
                 description="Severe lows and highs, even with the app closed — can alert on silent"
                 value={pushPrefs.glucoseUrgent}
                 onToggle={(v) => void updatePushPrefs({ glucoseUrgent: v })}
@@ -1153,7 +1153,7 @@ export default function DashboardScreen() {
           <Pressable style={styles.emergencySettingsBackdrop} onPress={() => { stopAlertSoundPreview(); setSoundPickerFor(null); }}>
             <Pressable style={[styles.emergencySettingsCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => {}}>
               <Text style={[styles.cardTitle, { color: colors.text }]}>
-                {soundPickerFor === "glucose" ? "Glucose Alert Sound" : soundPickerFor === "urgent" ? "Emergency Alert Sound" : "Message Sound"}
+                {soundPickerFor === "glucose" ? "Glucose Alert Sound" : soundPickerFor === "urgent" ? "Urgent Alert Sound" : "Message Sound"}
               </Text>
               <ScrollView style={styles.soundOptionScroll} showsVerticalScrollIndicator>
                 {(["default", "alarms", "tones"] as const).map((group) => (

@@ -409,40 +409,17 @@ export default function AuthScreen() {
             </Pressable>
           )}
 
-          {/* Access-code entry lives up here with the account actions (its form opens below);
+          {/* Access-code entry lives up here with the account actions (it opens as a popup);
               the doctor/provider link stays at the bottom of the page. */}
-          {!showCaregiverEntry && (
-            <Pressable
-              style={styles.caregiverLink}
-              onPress={() => { setShowCaregiverEntry(true); setCaregiverError(""); }}
-            >
-              <Feather name="users" size={14} color={COLORS.accent} />
-              <Text style={[styles.caregiverLinkText, { color: COLORS.accent }]}>
-                Sign in with access code →
-              </Text>
-            </Pressable>
-          )}
-
-          {mode === "create" && (
-            <Text style={[styles.disclaimer, { color: subtextColor }]}>
-              Your data is stored securely on this device only.
+          <Pressable
+            style={styles.caregiverLink}
+            onPress={() => { setShowCaregiverEntry(true); setCaregiverError(""); }}
+          >
+            <Feather name="users" size={14} color={COLORS.accent} />
+            <Text style={[styles.caregiverLinkText, { color: COLORS.accent }]}>
+              Sign in with access code →
             </Text>
-          )}
-
-          {mode === "signin" && account && (
-            <Pressable
-              onPress={() => {
-                setMode("create");
-                setEmail("");
-                setPassword("");
-              }}
-              style={styles.switchLink}
-            >
-              <Text style={[styles.switchText, { color: COLORS.primary }]}>
-                Not your account? Create a new one
-              </Text>
-            </Pressable>
-          )}
+          </Pressable>
         </View>
 
         <View style={styles.features}>
@@ -461,7 +438,7 @@ export default function AuthScreen() {
         </View>
 
         <View style={[styles.caregiverSection, { borderColor: "rgba(255,255,255,0.10)" }]}>
-          {!showCaregiverEntry && !showDoctorEntry ? (
+          {!showDoctorEntry ? (
             <View style={{ gap: 10 }}>
               <Pressable
                 style={styles.caregiverLink}
@@ -472,62 +449,6 @@ export default function AuthScreen() {
                   Doctor / Provider? Enter your code →
                 </Text>
               </Pressable>
-            </View>
-          ) : showCaregiverEntry ? (
-            <View style={styles.caregiverForm}>
-              <Text style={[styles.caregiverFormTitle, { color: "#fff" }]}>Sign In with Access Code</Text>
-              <Text style={[styles.caregiverFormSub, { color: "rgba(255,255,255,0.55)" }]}>
-                Enter the code shared by the account owner
-              </Text>
-              <View style={[styles.caregiverInputWrap, { backgroundColor: "rgba(255,255,255,0.06)", borderColor: caregiverError ? COLORS.danger : "rgba(255,255,255,0.15)" }]}>
-                <Feather name="key" size={15} color="rgba(255,255,255,0.5)" />
-                <TextInput
-                  style={[styles.caregiverInput, { color: "#fff" }]}
-                  value={caregiverCode}
-                  onChangeText={(v) => { setCaregiverCode(v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8)); setCaregiverError(""); }}
-                  placeholder="ABCD2345"
-                  placeholderTextColor="rgba(255,255,255,0.25)"
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  maxLength={8}
-                />
-                <Text style={[styles.caregiverCounter, { color: "rgba(255,255,255,0.35)" }]}>{caregiverCode.length}</Text>
-                {/* Scan the QR shown on the sharer's device — fills the field and signs in itself. */}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Scan access code QR"
-                  hitSlop={8}
-                  style={({ pressed }) => [styles.caregiverScanBtn, { opacity: pressed ? 0.6 : 1 }]}
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setCodeScannerOpen(true); }}
-                >
-                  <Feather name="camera" size={17} color={COLORS.accent} />
-                </Pressable>
-              </View>
-              {caregiverError ? (
-                <Text style={[styles.caregiverError, { color: COLORS.danger }]}>{caregiverError}</Text>
-              ) : null}
-              <View style={styles.caregiverBtns}>
-                <Pressable
-                  style={[styles.caregiverCancelBtn, { borderColor: "rgba(255,255,255,0.15)" }]}
-                  onPress={() => { setShowCaregiverEntry(false); setCaregiverCode(""); setCaregiverError(""); }}
-                >
-                  <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, fontWeight: "500" }}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.caregiverSubmitBtn, { backgroundColor: caregiverCode.length >= 6 ? COLORS.accent : "rgba(255,255,255,0.12)", opacity: caregiverCode.length >= 6 ? 1 : 0.6 }]}
-                  disabled={caregiverCode.length < 6 || caregiverSubmitting}
-                  onPress={() => void submitAccessCode(caregiverCode)}
-                >
-                  {caregiverSubmitting ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <>
-                      <Feather name="unlock" size={15} color="#fff" />
-                      <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>Enter</Text>
-                    </>
-                  )}
-                </Pressable>
-              </View>
             </View>
           ) : (
             <View style={styles.caregiverForm}>
@@ -676,18 +597,87 @@ export default function AuthScreen() {
         </View>
       </Modal>
 
-      {/* QR scanner for "Sign in with access code": on recognition it fills the field, closes
-          itself, and signs in automatically. */}
-      <AccessCodeScanner
-        visible={codeScannerOpen}
-        onClose={() => setCodeScannerOpen(false)}
-        onScanned={(code) => {
-          setCodeScannerOpen(false);
-          setCaregiverCode(code);
-          setCaregiverError("");
-          void submitAccessCode(code);
-        }}
-      />
+      {/* "Sign in with access code" popup — mirrors the caregiver dashboard's add-code popup.
+          The QR scanner is NESTED inside this Modal (iOS can't present two sibling modals at
+          once; a sibling here would silently never appear and then block touches). */}
+      <Modal
+        visible={showCaregiverEntry}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setCodeScannerOpen(false); setShowCaregiverEntry(false); }}
+        statusBarTranslucent
+      >
+        <Pressable style={styles.flowBackdrop} onPress={() => { setCodeScannerOpen(false); setShowCaregiverEntry(false); }}>
+          <Pressable style={[styles.flowCard, { backgroundColor: cardBg, borderColor }]} onPress={() => {}}>
+            <Text style={[styles.caregiverFormTitle, { color: textColor }]}>Sign In with Access Code</Text>
+            <Text style={[styles.caregiverFormSub, { color: subtextColor }]}>
+              Enter the code shared by the account owner
+            </Text>
+            <View style={[styles.caregiverInputWrap, { backgroundColor: inputBg, borderColor: caregiverError ? COLORS.danger : borderColor }]}>
+              <Feather name="key" size={15} color={subtextColor} />
+              <TextInput
+                style={[styles.caregiverInput, { color: textColor }]}
+                value={caregiverCode}
+                onChangeText={(v) => { setCaregiverCode(v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8)); setCaregiverError(""); }}
+                placeholder="ABCD2345"
+                placeholderTextColor={subtextColor}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                autoFocus
+                maxLength={8}
+              />
+              <Text style={[styles.caregiverCounter, { color: subtextColor }]}>{caregiverCode.length}</Text>
+              {/* Scan the QR shown on the sharer's device — fills the field and signs in itself. */}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Scan access code QR"
+                hitSlop={8}
+                style={({ pressed }) => [styles.caregiverScanBtn, { opacity: pressed ? 0.6 : 1 }]}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setCodeScannerOpen(true); }}
+              >
+                <Feather name="camera" size={17} color={COLORS.accent} />
+              </Pressable>
+            </View>
+            {caregiverError ? (
+              <Text style={[styles.caregiverError, { color: COLORS.danger }]}>{caregiverError}</Text>
+            ) : null}
+            <View style={styles.caregiverBtns}>
+              <Pressable
+                style={[styles.caregiverCancelBtn, { borderColor }]}
+                onPress={() => { setCodeScannerOpen(false); setShowCaregiverEntry(false); setCaregiverCode(""); setCaregiverError(""); }}
+              >
+                <Text style={{ color: subtextColor, fontSize: 14, fontWeight: "500" }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.caregiverSubmitBtn, { backgroundColor: caregiverCode.length >= 6 ? COLORS.accent : inputBg, opacity: caregiverCode.length >= 6 ? 1 : 0.6 }]}
+                disabled={caregiverCode.length < 6 || caregiverSubmitting}
+                onPress={() => void submitAccessCode(caregiverCode)}
+              >
+                {caregiverSubmitting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Feather name="unlock" size={15} color="#fff" />
+                    <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>Enter</Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
+          </Pressable>
+
+          {/* On recognition: fills the field, closes itself, and signs in automatically. */}
+          <AccessCodeScanner
+            visible={codeScannerOpen}
+            onClose={() => setCodeScannerOpen(false)}
+            onScanned={(code) => {
+              setCodeScannerOpen(false);
+              setCaregiverCode(code);
+              setCaregiverError("");
+              void submitAccessCode(code);
+            }}
+          />
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
