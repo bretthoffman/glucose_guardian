@@ -625,7 +625,12 @@ const careMessages = defineTable({
 // declared to Apple in the entitlement request, so keep the others standard.
 const pushPrefs = v.object({
   glucoseUrgent: v.boolean(),
-  glucoseHighLow: v.boolean(),
+  /** Legacy shared High&Low toggle — still on old rows; readers use it as the split default. */
+  glucoseHighLow: v.optional(v.boolean()),
+  glucoseHigh: v.optional(v.boolean()),
+  glucoseLow: v.optional(v.boolean()),
+  riseFast: v.optional(v.boolean()),
+  fallFast: v.optional(v.boolean()),
   careLog: v.boolean(),
   messages: v.boolean(),
   doctor: v.boolean(),
@@ -642,10 +647,15 @@ const pushTokens = defineTable({
   code: v.optional(v.string()),
   platform: v.string(),
   prefs: pushPrefs,
-  /** Per-device custom alert sounds (bundled filenames) by group; absent = system default. */
+  /** Per-device custom alert sounds (bundled filenames) by group; absent = system default.
+   *  `glucose` is the legacy shared High&Low slot kept as the split slots' fallback. */
   sounds: v.optional(
     v.object({
       glucose: v.optional(v.string()),
+      glucoseHigh: v.optional(v.string()),
+      glucoseLow: v.optional(v.string()),
+      riseFast: v.optional(v.string()),
+      fallFast: v.optional(v.string()),
       urgent: v.optional(v.string()),
       messages: v.optional(v.string()),
     }),

@@ -173,6 +173,26 @@ export async function scheduleGlucoseAlert(params: {
   });
 }
 
+/** Local trend alert (rising/falling fast) — fired per new fast-trending reading while app is open. */
+export async function scheduleTrendAlert(params: {
+  childName: string;
+  glucose: number;
+  direction: "rise" | "fall";
+}) {
+  if (isWeb) return;
+  const { childName, glucose, direction } = params;
+  const title =
+    direction === "rise" ? `📈 ${childName}'s glucose is rising fast` : `📉 ${childName}'s glucose is falling fast`;
+  const body =
+    direction === "rise"
+      ? `${glucose} mg/dL and climbing quickly — keep an eye on it.`
+      : `${glucose} mg/dL and dropping quickly — check in soon.`;
+  await Notifications.scheduleNotificationAsync({
+    content: { title, body, data: { kind: "glucose_trend", glucose, direction }, sound: true },
+    trigger: null,
+  });
+}
+
 export async function scheduleDoctorMessageNotification(params: {
   doctorName?: string;
   count: number;

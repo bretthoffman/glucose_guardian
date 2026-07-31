@@ -4,12 +4,27 @@
  * exact copy — are unit-testable and live in one place.
  */
 
-/** The alert categories a user can independently toggle. */
-export type PushCategory = "glucoseUrgent" | "glucoseHighLow" | "careLog" | "messages" | "doctor";
+/**
+ * The alert categories a user can independently toggle. High and Low are SPLIT (each with its own
+ * sound); `riseFast`/`fallFast` are trend alerts. Legacy rows may still carry a `glucoseHighLow`
+ * field — readers treat it as the default for both split values.
+ */
+export type PushCategory =
+  | "glucoseUrgent"
+  | "glucoseHigh"
+  | "glucoseLow"
+  | "riseFast"
+  | "fallFast"
+  | "careLog"
+  | "messages"
+  | "doctor";
 
 export interface PushPrefs {
   glucoseUrgent: boolean;
-  glucoseHighLow: boolean;
+  glucoseHigh: boolean;
+  glucoseLow: boolean;
+  riseFast: boolean;
+  fallFast: boolean;
   careLog: boolean;
   messages: boolean;
   doctor: boolean;
@@ -18,7 +33,10 @@ export interface PushPrefs {
 /** New devices opt in to everything; users turn things off from the Alerts screen. */
 export const DEFAULT_PUSH_PREFS: PushPrefs = {
   glucoseUrgent: true,
-  glucoseHighLow: true,
+  glucoseHigh: true,
+  glucoseLow: true,
+  riseFast: true,
+  fallFast: true,
   careLog: true,
   messages: true,
   doctor: true,
@@ -63,45 +81,67 @@ export function classifyGlucose(value: number, t: GlucoseThresholds): GlucoseAle
   return null;
 }
 
+/**
+ * Which toggle a zone alert fires under. EXACTLY ONE category per reading — the bands are mutually
+ * exclusive, so urgent-low never also fires the Low alert (it takes it over completely).
+ * `urgent_high` deliberately routes to the HIGH category (its copy still says "very high"): only
+ * urgent LOWS get the urgent category (and with it, the Critical Alerts eligibility).
+ */
 export function categoryForGlucose(kind: GlucoseAlertKind): PushCategory {
-  return kind === "urgent_low" || kind === "urgent_high" ? "glucoseUrgent" : "glucoseHighLow";
+  if (kind === "urgent_low") return "glucoseUrgent";
+  if (kind === "low") return "glucoseLow";
+  return "glucoseHigh"; // high + urgent_high
 }
 
-// ── cooldown ─────────────────────────────────────────────────────────────────────────────────
+// ── trend alerts (rising / falling fast) ─────────────────────────────────────────────────────
+
+export type TrendAlertKind = "rise_fast" | "fall_fast";
+
+/** Dexcom's "fast" band starts at 2 mg/dL/min (SingleUp/SingleDown); Double* is >3. */
+export const TREND_FAST_MG_PER_MIN = 2;
+/** Two readings further apart than this can't produce a trustworthy rate. */
+export const TREND_MAX_GAP_MIN = 12;
 
 /**
- * Cooldowns per kind. Urgent states re-alert sooner because they need action; non-urgent ones stay
- * quiet longer. This is the rate-limiting we committed to Apple ("alerts are rate-limited so a
- * sustained out-of-range reading does not repeat excessively").
+ * Trend alert for the newest reading. Prefers the sensor's own Dexcom trend arrow when the reading
+ * carries one; otherwise computes mg/dL-per-minute from the previous reading. Null = no trend alert.
  */
-/** While glucose stays in an EMERGENCY zone, the urgent alert repeats on this timer. */
-export const URGENT_REPEAT_MS = 11 * 60 * 1000;
-
-export type GlucoseZone = GlucoseAlertKind | "in_range";
-
-/**
- * Transition-based alert decision (replaces the old per-kind cooldowns):
- *  - LOW / HIGH fire ONCE, only on the in_range → zone crossing. Lingering in the zone never
- *    re-alerts, and RECOVERING from an emergency zone (urgent_low → low) never alerts either —
- *    the state must pass back through in_range to re-arm.
- *  - URGENT zones fire immediately on ENTERING (from any other zone), then repeat every
- *    URGENT_REPEAT_MS while the readings stay in the emergency zone.
- */
-export function decideGlucoseAlert(params: {
-  zone: GlucoseZone;
-  prevZone: GlucoseZone;
-  /** When the last URGENT alert was sent (drives the in-zone repeat timer). */
-  lastUrgentSentAt: number | null;
-  nowMs: number;
-}): boolean {
-  const { zone, prevZone, lastUrgentSentAt, nowMs } = params;
-  if (zone === "in_range") return false;
-  const urgent = zone === "urgent_low" || zone === "urgent_high";
-  if (urgent) {
-    if (prevZone !== zone) return true; // just entered (or flipped) the emergency zone
-    return lastUrgentSentAt == null || nowMs - lastUrgentSentAt >= URGENT_REPEAT_MS;
+export function classifyTrendAlert(params: {
+  latest: { glucose: number; timestampMs: number };
+  prev: { glucose: number; timestampMs: number } | null;
+  dexcomTrend?: number | string | null;
+}): TrendAlertKind | null {
+  const t = params.dexcomTrend;
+  if (t != null) {
+    if (t === 1 || t === 2 || t === "DoubleUp" || t === "SingleUp") return "rise_fast";
+    if (t === 6 || t === 7 || t === "SingleDown" || t === "DoubleDown") return "fall_fast";
+    return null;
   }
-  return prevZone === "in_range"; // plain high/low: only the crossing from the good range
+  if (!params.prev) return null;
+  const gapMin = (params.latest.timestampMs - params.prev.timestampMs) / 60_000;
+  if (gapMin <= 0 || gapMin > TREND_MAX_GAP_MIN) return null;
+  const rate = (params.latest.glucose - params.prev.glucose) / gapMin;
+  if (rate >= TREND_FAST_MG_PER_MIN) return "rise_fast";
+  if (rate <= -TREND_FAST_MG_PER_MIN) return "fall_fast";
+  return null;
+}
+
+export function categoryForTrend(kind: TrendAlertKind): PushCategory {
+  return kind === "rise_fast" ? "riseFast" : "fallFast";
+}
+
+export function trendCopy(params: { kind: TrendAlertKind; value: number; patientName: string }): PushMessageCopy {
+  const { kind, value, patientName } = params;
+  if (kind === "rise_fast") {
+    return {
+      title: `📈 ${patientName}'s glucose is rising fast`,
+      body: `${value} mg/dL and climbing quickly — keep an eye on it.`,
+    };
+  }
+  return {
+    title: `📉 ${patientName}'s glucose is falling fast`,
+    body: `${value} mg/dL and dropping quickly — check in soon.`,
+  };
 }
 
 // ── copy ─────────────────────────────────────────────────────────────────────────────────────
@@ -196,9 +236,14 @@ export interface ExpoPushMessage {
  * iOS only honors those once the Critical Alerts entitlement is granted, and silently downgrades to a
  * normal alert until then — so this is safe to ship before Apple approves.
  */
-/** Per-device custom alert sounds by group; a missing entry means the system default sound. */
+/** Per-device custom alert sounds by group; a missing entry means the system default sound.
+ *  `glucose` is the legacy shared High&Low slot — readers fall back to it for the split slots. */
 export interface AlertSoundPrefs {
   glucose?: string;
+  glucoseHigh?: string;
+  glucoseLow?: string;
+  riseFast?: string;
+  fallFast?: string;
   urgent?: string;
   messages?: string;
 }
@@ -208,8 +253,14 @@ export function soundKeyForCategory(category: PushCategory): keyof AlertSoundPre
   switch (category) {
     case "glucoseUrgent":
       return "urgent";
-    case "glucoseHighLow":
-      return "glucose";
+    case "glucoseHigh":
+      return "glucoseHigh";
+    case "glucoseLow":
+      return "glucoseLow";
+    case "riseFast":
+      return "riseFast";
+    case "fallFast":
+      return "fallFast";
     case "messages":
     case "doctor":
       return "messages";

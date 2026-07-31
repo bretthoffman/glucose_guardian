@@ -4,6 +4,8 @@ export interface TrendInfo {
   glucoseTrend: GlucoseTrend;
   arrow: string;
   label: string;
+  /** True only for the MAXIMUM trend speed (Dexcom DoubleUp/DoubleDown) — the two-arrow states. */
+  veryFast?: boolean;
 }
 
 /**
@@ -29,19 +31,19 @@ const DEXCOM_STRING_MAP: Record<string, number> = {
 
 export function mapDexcomTrend(trend: number | string): TrendInfo {
   const n = typeof trend === "string" ? (DEXCOM_STRING_MAP[trend] ?? 4) : trend;
-  // The app groups Dexcom's 7 states into 5 (`glucoseTrend`), and SingleUp/SingleDown (2–3 mg/dL/min)
-  // are grouped with DoubleUp/DoubleDown as `rapidly_*` — the "fast" states that drive the trend
-  // warning + the dose trend-adjustment. So they must PRESENT as fast too: a double arrow + a "fast"
-  // label. Keeping SingleDown as a single arrow (its native Dexcom glyph) is what made the top gauge
-  // show one arrow while the "Dropping Fast ↓↓" warning fired — the inconsistency this fixes.
+  // The app groups Dexcom's 7 states into 5 (`glucoseTrend`): SingleUp/SingleDown (2–3 mg/dL/min)
+  // stay grouped with DoubleUp/DoubleDown as `rapidly_*` — the "fast" states that drive the trend
+  // warning, the trend alerts, and the dose trend-adjustment. Visually though, only the MAXIMUM
+  // speed (DoubleUp/DoubleDown, >3 mg/dL/min) shows the double arrow; Single* shows one arrow with
+  // a "fast" label, and Double* reads "very fast".
   switch (n) {
-    case 1: return { glucoseTrend: "rapidly_rising", arrow: "↑↑", label: "Rising fast" };
-    case 2: return { glucoseTrend: "rapidly_rising", arrow: "↑↑", label: "Rising fast" };
+    case 1: return { glucoseTrend: "rapidly_rising", arrow: "↑↑", label: "Rising very fast", veryFast: true };
+    case 2: return { glucoseTrend: "rapidly_rising",  arrow: "↑", label: "Rising fast" };
     case 3: return { glucoseTrend: "rising",          arrow: "↗", label: "Rising slowly" };
     case 4: return { glucoseTrend: "stable",           arrow: "→", label: "Stable" };
     case 5: return { glucoseTrend: "falling",          arrow: "↘", label: "Falling slowly" };
-    case 6: return { glucoseTrend: "rapidly_falling",  arrow: "↓↓", label: "Falling fast" };
-    case 7: return { glucoseTrend: "rapidly_falling",  arrow: "↓↓", label: "Falling fast" };
+    case 6: return { glucoseTrend: "rapidly_falling",  arrow: "↓", label: "Falling fast" };
+    case 7: return { glucoseTrend: "rapidly_falling", arrow: "↓↓", label: "Falling very fast", veryFast: true };
     default: return { glucoseTrend: "stable",          arrow: "→", label: "Stable" };
   }
 }
@@ -67,11 +69,11 @@ export function getEffectiveTrend(
  * Used only when no Dexcom trend field is available (manual entries, LibreLink).
  */
 export function trendFromDiff(diff: number): TrendInfo {
-  // Same grouping as mapDexcomTrend: everything `rapidly_*` presents as a double arrow + "fast" label
-  // so the gauge arrows always match the trend warning, on every account type / data source.
-  if (diff > 15) return { glucoseTrend: "rapidly_rising", arrow: "↑↑", label: "Rising fast" };
+  // Same grouping as mapDexcomTrend. A 5-min diff over 15 mg/dL ≈ >3 mg/dL/min — the Dexcom
+  // Double* band — so the diff-based fast tier is the two-arrow "very fast" state.
+  if (diff > 15) return { glucoseTrend: "rapidly_rising", arrow: "↑↑", label: "Rising very fast", veryFast: true };
   if (diff > 8)  return { glucoseTrend: "rising",          arrow: "↗", label: "Rising slowly" };
-  if (diff < -15) return { glucoseTrend: "rapidly_falling", arrow: "↓↓", label: "Falling fast" };
+  if (diff < -15) return { glucoseTrend: "rapidly_falling", arrow: "↓↓", label: "Falling very fast", veryFast: true };
   if (diff < -8)  return { glucoseTrend: "falling",          arrow: "↘", label: "Falling slowly" };
   return { glucoseTrend: "stable", arrow: "→", label: "Stable" };
 }
@@ -85,13 +87,17 @@ export function isFastTrend(info: TrendInfo): boolean {
   return info.glucoseTrend === "rapidly_rising" || info.glucoseTrend === "rapidly_falling";
 }
 
-/** Compact summary-card label (title case; fast fall reads "Dropping Fast"). */
+/** Compact summary-card label (title case; fast falls read "Dropping …"). */
 export function trendGaugeLabel(info: TrendInfo): string {
   switch (info.label) {
     case "Rising fast":
       return "Rising Fast";
+    case "Rising very fast":
+      return "Rising Very Fast";
     case "Falling fast":
       return "Dropping Fast";
+    case "Falling very fast":
+      return "Dropping Very Fast";
     case "Rising slowly":
       return "Rising slowly";
     case "Falling slowly":
@@ -101,6 +107,7 @@ export function trendGaugeLabel(info: TrendInfo): string {
   }
 }
 
+/** Two arrows are reserved for the MAXIMUM trend speed; every other state shows one. */
 export function trendArrowCount(info: TrendInfo): 1 | 2 {
-  return isFastTrend(info) ? 2 : 1;
+  return info.veryFast ? 2 : 1;
 }

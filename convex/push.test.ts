@@ -35,7 +35,8 @@ describe("push token registration", () => {
     });
     const prefs = await t.query(api.push.getPrefs, { token: "ExponentPushToken[mom]" });
     expect(prefs?.prefs).toEqual({
-      glucoseUrgent: true, glucoseHighLow: true, careLog: true, messages: true, doctor: true,
+      glucoseUrgent: true, glucoseHigh: true, glucoseLow: true, riseFast: true, fallFast: true,
+      careLog: true, messages: true, doctor: true,
     });
   });
 
@@ -131,51 +132,27 @@ describe("recipient resolution", () => {
 });
 
 describe("glucose alert evaluation (server-side, app closed)", () => {
-  it("records the zone and suppresses in-zone repeats inside the 11-minute window", async () => {
+  it("fires on EVERY new reading — one zone category per reading, no repeat timers", async () => {
     const { t, patient } = await setup();
     await t.mutation(api.push.registerToken, { userId: patient, passwordHash: HASH_A, token: "tok-mom", platform: "ios" });
 
-    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 48 });
-    let state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
-    expect(state).toHaveLength(1);
-    expect(state[0].kind).toBe("urgent_low");
-    const firstSentAt = state[0].lastSentAt;
-    expect(firstSentAt).toBeGreaterThan(0);
-
-    // Still in the emergency zone moments later → the 11-minute repeat timer holds it.
-    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 47 });
-    state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
-    expect(state).toHaveLength(1);
-    expect(state[0].lastSentAt).toBe(firstSentAt);
+    // Urgent low fires each time it's evaluated — back-to-back readings both alert.
+    let res = await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 48 });
+    expect(res).toEqual({ zone: "urgent_low", trend: null });
+    res = await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 47 });
+    expect(res.zone).toBe("urgent_low");
+    // In range → nothing fires. (No state machine left to re-arm — it's per reading.)
+    res = await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 120 });
+    expect(res.zone).toBeNull();
     await t.finishInProgressScheduledFunctions();
   });
 
-  it("high fires only on the crossing, and recovery from urgent does not re-alert", async () => {
+  it("urgent-high readings fire as the HIGH category (urgent is reserved for lows)", async () => {
     const { t, patient } = await setup();
-    // in-range seeds the state row without alerting…
-    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 120 });
-    let state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
-    expect(state).toHaveLength(1);
-    expect(state[0].kind).toBe("in_range");
-    expect(state[0].lastSentAt).toBe(0);
-    // …crossing into high records the zone; lingering keeps it; dropping back from urgent_high
-    // to high never resets lastSentAt (no non-urgent send ever touches the urgent timer).
-    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 200 });
-    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 210 });
-    state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
-    expect(state).toHaveLength(1);
-    expect(state[0].kind).toBe("high");
-    expect(state[0].lastSentAt).toBe(0);
-    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 260 });
-    state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
-    const urgentSentAt = state[0].lastSentAt;
-    expect(state[0].kind).toBe("urgent_high");
-    expect(urgentSentAt).toBeGreaterThan(0);
-    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 220 });
-    state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
-    expect(state[0].kind).toBe("high");
-    expect(state[0].lastSentAt).toBe(urgentSentAt);
-    // Drain the notify jobs the sends scheduled, so nothing runs after the test transaction closes.
+    let res = await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 260 });
+    expect(res.zone).toBe("urgent_high"); // zone name (and its "very high" copy) is preserved…
+    res = await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 200 });
+    expect(res.zone).toBe("high");
     await t.finishInProgressScheduledFunctions();
   });
 
@@ -186,10 +163,31 @@ describe("glucose alert evaluation (server-side, app closed)", () => {
       alertPreferences: { urgentLowThreshold: 60, lowThreshold: 90, highThreshold: 140, urgentHighThreshold: 200 },
     });
     // 150 is in range on defaults, but HIGH against this patient's tighter thresholds.
-    await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 150 });
-    const state = await t.run(async (ctx: any) => await ctx.db.query("pushAlertState").collect());
-    expect(state).toHaveLength(1);
-    expect(state[0].kind).toBe("high");
+    const res = await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 150 });
+    expect(res.zone).toBe("high");
+    await t.finishInProgressScheduledFunctions();
+  });
+
+  it("classifies the trend: sensor arrow first, else the rate from stored readings", async () => {
+    const { t, patient } = await setup();
+    // Sensor arrow wins outright.
+    let res = await t.mutation(internal.push.evaluateGlucoseForPush, {
+      patientUserId: patient as any, value: 150, dexcomTrend: "SingleDown",
+    });
+    expect(res.trend).toBe("fall_fast");
+    // No arrow: the two newest stored readings give ~3 mg/dL/min rising.
+    const base = Date.now();
+    await t.run(async (ctx: any) => {
+      await ctx.db.insert("patientGlucoseReadings", {
+        userId: patient, glucose: 140, timestamp: new Date(base - 5 * 60_000).toISOString(), anomaly: { warning: false },
+      });
+      await ctx.db.insert("patientGlucoseReadings", {
+        userId: patient, glucose: 155, timestamp: new Date(base).toISOString(), anomaly: { warning: false },
+      });
+    });
+    res = await t.mutation(internal.push.evaluateGlucoseForPush, { patientUserId: patient as any, value: 155 });
+    expect(res.trend).toBe("rise_fast");
+    expect(res.zone).toBeNull(); // 155 is in range — a trend alert can fire alone
     await t.finishInProgressScheduledFunctions();
   });
 });

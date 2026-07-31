@@ -185,7 +185,8 @@ export default function InsulinScreen() {
   const [pendingInsulinLabel, setPendingInsulinLabel] = useState<string | null>(null);
   // Which colored operation card is expanded in "Your Dose Breakdown" (null = collapsed by default).
   const [expandedCard, setExpandedCard] = useState<DoseCardKey | null>(null);
-  // Prediction graph is revealed on demand by the "See Prediction" toggle.
+  // Prediction graph is revealed on demand by the first Predict tap.
+  const [showPrediction, setShowPrediction] = useState(false);
 
   // ── "I just took this dose" — green until the next successful CGM sync ──
   const [doseLoggedAtTick, setDoseLoggedAtTick] = useState<number | null>(null);
@@ -460,27 +461,29 @@ export default function InsulinScreen() {
   const effectiveDose = manualDoseOverride ?? systemRecommendedDose;
   const doseJustLogged = doseLoggedAtTick !== null && doseLoggedAtTick === cgmSyncSuccessTick;
 
-  // ── Prediction chart (bolus only): the top-3 REAL past episodes matching this situation, drawn
-  // directly — no AI call. Always on: it runs by itself on open, whenever a committed input changes
-  // (typed edits lock in on done/tap-off), and whenever a fresh reading shifts the calculator.
-  // Estimate-only — never feeds the calculator. ──
+  // ── Prediction chart: an AI projection of the next 90 min IF this dose is taken now (bolus only).
+  // Estimate-only — never feeds the calculator. Runs ONLY on an explicit Predict tap and holds that
+  // result until Predict is tapped again, even if the calculator inputs change. ──
   const [predicting, setPredicting] = useState(false);
   const [drawing, setDrawing] = useState(false); // graph is still animating in
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [predictedInputs, setPredictedInputs] = useState<{ bg: number; carbs: string; dose: number } | null>(null);
   const predictRunRef = useRef(0);
-  // The run whose intro animation has COMPLETED — a tab flip remounts the chart for the same run,
-  // which must render fully drawn instead of replaying the animation.
-  const introDoneRunRef = useRef(0);
 
   const runPredict = useCallback(async () => {
     if (isBasalMode || !doseBg || effectiveDose <= 0) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const runId = ++predictRunRef.current;
-    // Clear the old graph immediately so the "Building your prediction" state shows while the
-    // matcher works (the stale curve must not linger while fresh matches are en route).
+    // Clear the old graph immediately so "Predict Again" drops to the loading state (the stale curve
+    // must not linger while the new prediction is en route).
     setPrediction(null);
     setDrawing(false);
     setPredicting(true);
+    if (!showPrediction) {
+      pendingScrollRef.current = true;
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setShowPrediction(true);
+    }
     const submitted = { bg: doseBg.n, carbs: carbInput, dose: roundToQuarterUnits(effectiveDose) };
     const result = await runPrediction({
       identity: messagingIdentity,
@@ -489,52 +492,35 @@ export default function InsulinScreen() {
       carbsGrams: parseFloat(carbInput) || 0,
       nowMs: Date.now(),
       history,
+      correctionFactor: effSettings.correctionFactor,
+      carbRatio: effSettings.carbRatio,
+      newDoseDiaMin: selectedInsulinOption?.type === "regular" ? 360 : 240,
     });
     if (predictRunRef.current !== runId) return; // a newer run superseded this one
     setPrediction(result);
     setPredicting(false);
     if (result.ok) {
       setPredictedInputs(submitted);
-      setDrawing(true); // spinner on the button until the graph finishes drawing (onDrawComplete)
+      setDrawing(true); // hold the button until the graph finishes drawing (onDrawComplete)
       // Safety net in case the draw is interrupted (navigation) and the completion never fires.
       setTimeout(() => {
         if (predictRunRef.current === runId) setDrawing(false);
       }, 6000);
     }
-  }, [isBasalMode, doseBg, effectiveDose, messagingIdentity, carbInput, history]);
+  }, [isBasalMode, doseBg, effectiveDose, showPrediction, messagingIdentity, carbInput, history, effSettings, selectedInsulinOption]);
 
-  // The result is stale once the submitted tuple (BG, carbs, or dose) no longer matches what was
-  // last matched against — committed manual edits and self-updating readings both land here. Only
-  // an OK result can be stale: after a failed fetch we wait for Predict Again (no retry loop).
+  // The snapshot is stale once the data being submitted (BG, carbs, or dose) no longer exactly
+  // matches what was last predicted — the only condition under which Predict may run again.
   const predictionStale =
-    prediction?.ok === true &&
+    !!prediction?.ok &&
     predictedInputs != null &&
     (predictedInputs.bg !== (doseBg?.n ?? null) ||
       predictedInputs.carbs !== carbInput ||
       predictedInputs.dose !== roundToQuarterUnits(effectiveDose));
-
-  // ── Auto-predict: first run when the calculator becomes ready, then a debounced re-run whenever
-  // the inputs actually change. The debounce coalesces cascades (a new reading shifts BG, dose, and
-  // IOB in one burst) into a single rebuild. ──
-  const runPredictRef = useRef(runPredict);
-  useEffect(() => {
-    runPredictRef.current = runPredict;
-  }, [runPredict]);
-  const canPredict = !isBasalMode && !!doseBg && effectiveDose > 0;
-  useEffect(() => {
-    if (!canPredict) return;
-    if (prediction === null && !predicting) {
-      const id = setTimeout(() => runPredictRef.current(), 150);
-      return () => clearTimeout(id);
-    }
-    if (predictionStale && !predicting) {
-      const id = setTimeout(() => runPredictRef.current(), 400);
-      return () => clearTimeout(id);
-    }
-  }, [canPredict, prediction, predicting, predictionStale]);
-
-  // Manual "Predict Again": always available (except mid-fetch) — pulls fresh matches on demand.
-  const predictDisabled = effectiveDose <= 0 || predicting;
+  // Predict is blocked while computing, while drawing, and while an IDENTICAL prediction is on screen.
+  // An unavailable result leaves it enabled so it can be retried.
+  const predictDisabled =
+    effectiveDose <= 0 || predicting || drawing || (prediction?.ok === true && !predictionStale);
 
   // Push a field's in-progress draft into its committed value. No-op when the field isn't being
   // edited, so it's safe to call defensively from anywhere.
@@ -1029,13 +1015,13 @@ export default function InsulinScreen() {
               />
             </View>
 
-            {/* Actions: Predict Again (re-pulls fresh matches on demand — the graph also refreshes
-                itself on input/reading changes) + I Just Took This Dose. */}
+            {/* Actions: Predict (runs an AI prediction on an EXPLICIT tap only) + I Just Took This
+                Dose. Disabled exactly like Took Dose when there's no dose (faded, not clickable). */}
             <View style={[styles.doseActionsRow, { marginTop: 0 }]}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ disabled: predictDisabled, busy: predicting || drawing }}
-                accessibilityLabel="Predict again"
+                accessibilityLabel="Predict"
                 disabled={predictDisabled}
                 style={({ pressed }) => [
                   styles.tookDoseBtn,
@@ -1044,10 +1030,7 @@ export default function InsulinScreen() {
                     opacity: pressed ? 0.8 : predictDisabled ? 0.5 : 1,
                   },
                 ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  void runPredict();
-                }}
+                onPress={runPredict}
               >
                 {predicting || drawing ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -1055,18 +1038,18 @@ export default function InsulinScreen() {
                   <Feather name="trending-up" size={13} color="#fff" />
                 )}
                 <Text style={styles.tookDoseBtnText}>
-                  {predicting || drawing ? "Predicting…" : "Predict Again"}
+                  {predicting || drawing ? "Predicting…" : prediction?.ok ? "Predict Again" : "Predict"}
                 </Text>
               </Pressable>
               {tookDoseButton}
             </View>
 
-            {/* Graph — ALWAYS open. While the matcher works we show the "building" placeholder;
-                results refresh automatically when committed inputs or readings change. The dotted
-                lines after Now are the top matches' REAL past outcomes — no AI synthesis. */}
-            {(
+            {/* Graph — appears only after a Predict tap. While the model works we show a "building"
+                placeholder; the result holds until Predict is tapped again (never auto-updates). If
+                the AI prediction can't be produced we say so — there is no local-math fallback. */}
+            {showPrediction && (
               <View key="graph-area">
-                {predicting || (prediction === null && canPredict) ? (
+                {predicting ? (
                   <View style={[styles.predictBuilding, { borderColor: colors.border }]}>
                     <ActivityIndicator color={COLORS.primary} />
                     <Text style={[styles.predictBuildingText, { color: colors.textSecondary }]}>
@@ -1078,12 +1061,8 @@ export default function InsulinScreen() {
                     <DosePredictionChart
                       key={`graph-${predictRunRef.current}`}
                       readings={history}
-                      // Rank opacities: #1 solid, #2 and #3 each fading by the same proportion.
-                      forecastLines={prediction.matches.map((m, i) => ({
-                        points: m.points,
-                        opacity: [1, 0.68, 0.46][i] ?? 0.46,
-                      }))}
-                      currentBG={doseBg?.n ?? 0}
+                      forecast={prediction.forecast}
+                      currentBG={doseBg?.n ?? prediction.forecast[0]?.bg ?? 0}
                       targetGlucose={targetGlucose}
                       lowThreshold={alertPrefs.lowThreshold}
                       highThreshold={alertPrefs.highThreshold}
@@ -1091,19 +1070,15 @@ export default function InsulinScreen() {
                       nowMs={nowMs}
                       redrawKey={`run-${predictRunRef.current}`}
                       colors={colors}
-                      skipIntro={introDoneRunRef.current === predictRunRef.current}
-                      onDrawComplete={() => {
-                        introDoneRunRef.current = predictRunRef.current;
-                        setDrawing(false);
-                      }}
+                      onDrawComplete={() => setDrawing(false)}
                     />
                     <PredictionStrength result={prediction} colors={colors} />
                     <Text style={[styles.predictStaleHint, { color: colors.textMuted }]}>
                       The more you use the app, the more accurate your predictions will be
                     </Text>
-                    {prediction.matches.length === 0 && (
+                    {predictionStale && (
                       <Text style={[styles.predictStaleHint, { color: colors.textMuted }]}>
-                        No similar past situations yet — prediction lines appear as more doses build history.
+                        Inputs changed — tap Predict to update.
                       </Text>
                     )}
                   </>
@@ -1114,15 +1089,7 @@ export default function InsulinScreen() {
                       Prediction unavailable
                     </Text>
                     <Text style={[styles.predictUnavailableSub, { color: colors.textSecondary }]}>
-                      Couldn&apos;t load your history matches. Check your connection and tap Predict Again.
-                    </Text>
-                  </View>
-                ) : !canPredict ? (
-                  <View style={[styles.predictBuilding, { borderColor: colors.border }]}>
-                    <Feather name="trending-up" size={22} color={colors.textMuted} />
-                    <Text style={[styles.predictUnavailableSub, { color: colors.textSecondary }]}>
-                      The prediction draws once there&apos;s a dose to model — add carbs or wait for a
-                      correction-worthy reading.
+                      Couldn&apos;t reach the prediction service. Check your connection and tap Predict to try again.
                     </Text>
                   </View>
                 ) : null}

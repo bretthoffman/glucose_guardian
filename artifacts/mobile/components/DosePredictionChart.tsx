@@ -1,18 +1,17 @@
 /**
- * Dose-tab prediction mini-chart. Shows the last ~6 h of real glucose readings, and — after the
- * Now slicer — up to THREE dotted purple lines: the REAL post-dose readings of the situations that
- * best match right now (opacity = confidence rank; see utils/predictionClient). No AI synthesis.
+ * Dose-tab prediction mini-chart. Shows the last ~6 h of real glucose readings and a 4 h forward
+ * projection of where glucose is heading IF the suggested dose is taken (see utils/glucoseForecast).
  *
  * Behavior (per spec):
  *  - Fixed 10 h window, hour-locked so "Now" floats near 60% (25-min axis rounding rule).
- *  - A purple vertical "Now" line; SOLID single reading line before it, dotted match lines after.
- *  - The user's target glucose drawn as a horizontal reference — neutral GRAY on this chart only.
- *  - On a new prediction, the reading line draws in left→right, easing slower at 30 min and 10 min
- *    before Now, blinking the Now line and pausing 0.5 s AT Now, then revealing all dotted lines
- *    together at one speed. `skipIntro` remounts (tab flips) render fully drawn instead.
+ *  - A purple vertical "Now" line; the glucose line turns purple once it crosses into the future.
+ *  - The user's target glucose drawn as a horizontal reference, like the app's other charts.
+ *  - On page open, the reading line draws in left→right, easing slower at 30 min and 10 min before
+ *    Now, blinking the Now line and pausing 0.5 s AT Now, then drawing the purple future line.
+ *  - When the dose or carbs change, only the future line re-draws (blink + redraw), same cadence.
  *
- * The reveal is a clip rectangle sliding left→right over the glucose layers, so only they animate —
- * the grid, target, and Now line stay static on top.
+ * The reveal is a background-colored "cover" rectangle sliding left→right over the glucose line, so
+ * only the reading line animates — the grid, target, and Now line stay static on top.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -23,13 +22,11 @@ import {
   Text,
   View,
 } from "react-native";
-import Svg, { Circle, ClipPath, Defs, G, Line, Polyline, Rect } from "react-native-svg";
+import Svg, { ClipPath, Defs, G, Line, Polyline, Rect } from "react-native-svg";
 import Colors, { COLORS } from "@/constants/colors";
 import { withAlpha } from "@/constants/theme";
 import { glucoseTone } from "@/constants/theme";
 import {
-  DOT_MODE_READING_RADIUS,
-  DOT_MODE_READING_STROKE,
   buildAxisLabelSpecs,
   chartValueToY,
   formatGlucoseAxisLabel,
@@ -70,17 +67,9 @@ interface HistPt {
   ms: number;
 }
 
-/** One dotted prediction line: a matched past episode's REAL post-dose readings. */
-export interface ForecastLine {
-  points: ForecastPoint[];
-  /** 1 = most-confident match (solid); lower ranks fade by the same proportion. */
-  opacity: number;
-}
-
 interface DosePredictionChartProps {
   readings: { glucose: number; timestamp: string }[];
-  /** Confidence-ordered dotted lines after Now (up to 3). All reveal together, same speed. */
-  forecastLines: ForecastLine[];
+  forecast: ForecastPoint[];
   currentBG: number;
   targetGlucose: number;
   /** User's alert thresholds — drive the reference lines + right-axis labels, like the other charts. */
@@ -92,18 +81,13 @@ interface DosePredictionChartProps {
   redrawKey: string;
   colors: (typeof Colors)["light"];
   height?: number;
-  /**
-   * Render fully drawn immediately — no intro animation. Used when the host remounts an
-   * ALREADY-DRAWN prediction (e.g. flipping Log ↔ Dose tabs) so the animation never replays.
-   */
-  skipIntro?: boolean;
   /** Fired when the future line finishes drawing in (so callers can re-enable a Predict button). */
   onDrawComplete?: () => void;
 }
 
 export default function DosePredictionChart({
   readings,
-  forecastLines,
+  forecast,
   currentBG,
   targetGlucose,
   lowThreshold,
@@ -113,7 +97,6 @@ export default function DosePredictionChart({
   redrawKey,
   colors,
   height = 156,
-  skipIntro = false,
   onDrawComplete,
 }: DosePredictionChartProps) {
   const onDrawCompleteRef = useRef(onDrawComplete);
@@ -190,27 +173,13 @@ export default function DosePredictionChart({
     return runs;
   }, [readings, plotW, win, drawNow, xNow, currentBG, xOf, yOf]);
 
-  // ── Future prediction lines: each matched past episode's real readings after the Now slicer.
-  // The MOST-CONFIDENT match draws as a solid line; ranks 2–3 render in the app's standard
-  // reading-dots style (the same look as tapping the other charts into dots mode), faded by
-  // their confidence opacity. One shared reveal clip sweeps them all in together. ──
-  const futureLines = useMemo(() => {
-    if (plotW <= 0) {
-      return [] as { opacity: number; solid: boolean; pointsStr: string; dots: { cx: number; cy: number }[] }[];
-    }
-    return forecastLines.map((line, idx) => {
-      const pts = line.points
-        .filter((p) => p.tMin >= 0)
-        .map((p) => ({ cx: xOf(drawNow + p.tMin * 60000), cy: yOf(p.bg) }))
-        .filter((d) => d.cx <= plotW + 0.5 && d.cy >= -0.5 && d.cy <= H + 0.5);
-      return {
-        opacity: line.opacity,
-        solid: idx === 0,
-        pointsStr: pts.map((d) => `${d.cx.toFixed(1)},${d.cy.toFixed(1)}`).join(" "),
-        dots: pts,
-      };
-    });
-  }, [forecastLines, plotW, drawNow, xOf, yOf, H]);
+  // ── Future (purple) projection line ──
+  const futurePoints = useMemo(() => {
+    if (plotW <= 0) return "";
+    return forecast
+      .map((p) => `${xOf(drawNow + p.tMin * 60000).toFixed(1)},${yOf(p.bg).toFixed(1)}`)
+      .join(" ");
+  }, [forecast, plotW, drawNow, xOf, yOf]);
 
   // Right-axis labels + their reference lines, built from the user's thresholds exactly like the
   // app's other glucose charts (buildAxisLabelSpecs handles the fixed grid ticks + target clamping).
@@ -289,15 +258,12 @@ export default function DosePredictionChart({
     );
   }, [revealX, nowBlink, blinkNow, drawFuture, runTargetReveal]);
 
-  // Animate the draw-in exactly ONCE, when the chart mounts for a NEW prediction (the host keys the
-  // component per run). A remount of an ALREADY-DRAWN run (Log ↔ Dose tab flip) passes `skipIntro`
-  // and renders fully drawn instantly instead of replaying the animation.
+  // Animate the draw-in exactly ONCE, when the chart mounts (a new prediction remounts it via its
+  // key). Deliberately NOT tied to screen focus, so flipping between tabs never replays the animation.
   useEffect(() => {
-    pendingIntroRef.current = !skipIntro;
-    if (!skipIntro) {
-      revealX.setValue(0); // hide immediately so the fresh window doesn't flash fully-drawn
-      targetRevealX.setValue(0);
-    }
+    pendingIntroRef.current = true;
+    revealX.setValue(0); // hide immediately so the fresh window doesn't flash fully-drawn
+    targetRevealX.setValue(0);
     nowBlink.setValue(1);
     setDrawNow(Date.now());
     return () => {
@@ -309,18 +275,13 @@ export default function DosePredictionChart({
   }, []);
 
   // Run the pending intro once BOTH the frozen "now" and the measured width are in place — this
-  // effect fires on the drawNow refresh above and again when onLayout reports the width. The
-  // skip-intro path snaps both reveals to full width instead.
+  // effect fires on the drawNow refresh above and again when onLayout reports the width.
   useEffect(() => {
-    if (plotW <= 0) return;
-    if (pendingIntroRef.current) {
+    if (pendingIntroRef.current && plotW > 0) {
       pendingIntroRef.current = false;
       runIntro();
-    } else if (skipIntro) {
-      revealX.setValue(plotW);
-      targetRevealX.setValue(plotW);
     }
-  }, [drawNow, plotW, runIntro, skipIntro, revealX, targetRevealX]);
+  }, [drawNow, plotW, runIntro]);
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     // Reserve the right-axis gutter; the plot (and every x-position) uses the remaining width.
@@ -360,16 +321,14 @@ export default function DosePredictionChart({
                 <ClipPath id="revealGlucose"><AnimatedRect x={0} y={0} width={revealX} height={H} /></ClipPath>
               </Defs>
 
-              {/* Target line — underneath the reading line; revealed FAST by its own clip. On THIS
-                  chart it renders in the same neutral gray as the 40/300/400 gridlines (the app's
-                  other charts keep their colored target). */}
+              {/* Target line — underneath the reading line; revealed FAST by its own clip. */}
               <G clipPath="url(#revealTarget)">
                 {(() => {
                   const t = axisLabels.find((l) => l.kind === "target");
                   if (!t) return null;
                   const y = yOf(t.value);
                   if (y < -0.5 || y > H + 0.5) return null;
-                  return <Line x1={0} y1={y} x2={plotW} y2={y} stroke={gridColor} strokeWidth={1.5} opacity={1} />;
+                  return <Line x1={0} y1={y} x2={plotW} y2={y} stroke={t.color} strokeWidth={1.5} opacity={0.85} />;
                 })()}
               </G>
 
@@ -386,34 +345,16 @@ export default function DosePredictionChart({
                     strokeLinecap="round"
                   />
                 ))}
-                {futureLines.map((line, li) => (
-                  <G key={`f-${li}`} opacity={line.opacity}>
-                    {line.solid ? (
-                      line.dots.length >= 2 && (
-                        <Polyline
-                          points={line.pointsStr}
-                          fill="none"
-                          stroke={COLORS.primary}
-                          strokeWidth={2.75}
-                          strokeLinejoin="round"
-                          strokeLinecap="round"
-                        />
-                      )
-                    ) : (
-                      line.dots.map((d, di) => (
-                        <Circle
-                          key={`f-${li}-${di}`}
-                          cx={d.cx}
-                          cy={d.cy}
-                          r={DOT_MODE_READING_RADIUS}
-                          fill={COLORS.primary}
-                          stroke={withAlpha(COLORS.primary, 0.55)}
-                          strokeWidth={DOT_MODE_READING_STROKE}
-                        />
-                      ))
-                    )}
-                  </G>
-                ))}
+                {futurePoints.length > 0 && (
+                  <Polyline
+                    points={futurePoints}
+                    fill="none"
+                    stroke={COLORS.primary}
+                    strokeWidth={2.75}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                )}
               </G>
 
               {/* Static reference lines (neutral grid + threshold colors) — always visible, on top.
@@ -449,8 +390,7 @@ export default function DosePredictionChart({
             return (
               <Text
                 key={`${label.kind}-${label.value}`}
-                // Target reads neutral-gray on THIS chart (matches its gray target line).
-                style={[styles.yLabel, { top: label.top, color: label.kind === "target" ? colors.textMuted : label.color }]}
+                style={[styles.yLabel, { top: label.top, color: label.color }]}
               >
                 {formatGlucoseAxisLabel(label.value)}
               </Text>

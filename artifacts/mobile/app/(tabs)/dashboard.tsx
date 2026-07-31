@@ -128,7 +128,9 @@ export default function DashboardScreen() {
   } = useAuth();
   const { prefs: pushPrefs, registered: pushRegistered, messagesLocked, updatePrefs: updatePushPrefs, sounds: alertSounds, updateSounds: updateAlertSounds, ensureRegistered } = usePush();
   /** Which alert group the Choose Sound picker is open for (null = closed). */
-  const [soundPickerFor, setSoundPickerFor] = useState<null | "glucose" | "urgent" | "messages">(null);
+  const [soundPickerFor, setSoundPickerFor] = useState<
+    null | "glucoseHigh" | "glucoseLow" | "riseFast" | "fallFast" | "urgent" | "messages"
+  >(null);
   const soundLabelFor = (file: string | undefined) =>
     ALERT_SOUND_OPTIONS.find((o) => o.file === file)?.label ?? "Default";
   // A nurse viewing a child inherits settings read-only — treat edit gating like a co-guardian member.
@@ -903,7 +905,7 @@ export default function DashboardScreen() {
             <>
               <ToggleRow
                 label="Urgent Glucose Alerts"
-                description="Severe lows and highs, even with the app closed — can alert on silent"
+                description="Severe lows, even with the app closed — can alert on silent"
                 value={pushPrefs.glucoseUrgent}
                 onToggle={(v) => void updatePushPrefs({ glucoseUrgent: v })}
                 colors={colors}
@@ -939,22 +941,79 @@ export default function DashboardScreen() {
                 </Pressable>
               </View>
               <ToggleRow
-                label="High & Low Glucose"
-                description="Outside-range readings, even with the app closed"
-                value={pushPrefs.glucoseHighLow}
-                onToggle={(v) => void updatePushPrefs({ glucoseHighLow: v })}
+                label="High Glucose"
+                description="Above your high threshold — includes very high readings"
+                value={pushPrefs.glucoseHigh}
+                onToggle={(v) => void updatePushPrefs({ glucoseHigh: v })}
                 colors={colors}
                 last
               />
               <View style={styles.soundBtnRow}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Choose sound for this alert"
+                  accessibilityLabel="Choose sound for high glucose alerts"
                   style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("glucose"); }}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("glucoseHigh"); }}
                 >
                   <Feather name="music" size={12} color={COLORS.primary} />
-                  <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.glucose)}</Text>
+                  <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.glucoseHigh ?? alertSounds.glucose)}</Text>
+                </Pressable>
+              </View>
+              <ToggleRow
+                label="Low Glucose"
+                description="Below your low threshold"
+                value={pushPrefs.glucoseLow}
+                onToggle={(v) => void updatePushPrefs({ glucoseLow: v })}
+                colors={colors}
+                last
+              />
+              <View style={styles.soundBtnRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose sound for low glucose alerts"
+                  style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("glucoseLow"); }}
+                >
+                  <Feather name="music" size={12} color={COLORS.primary} />
+                  <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.glucoseLow ?? alertSounds.glucose)}</Text>
+                </Pressable>
+              </View>
+              <ToggleRow
+                label="Rising Fast"
+                description="Glucose climbing quickly, from the trend on new readings"
+                value={pushPrefs.riseFast}
+                onToggle={(v) => void updatePushPrefs({ riseFast: v })}
+                colors={colors}
+                last
+              />
+              <View style={styles.soundBtnRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose sound for rising fast alerts"
+                  style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("riseFast"); }}
+                >
+                  <Feather name="music" size={12} color={COLORS.primary} />
+                  <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.riseFast)}</Text>
+                </Pressable>
+              </View>
+              <ToggleRow
+                label="Falling Fast"
+                description="Glucose dropping quickly, from the trend on new readings"
+                value={pushPrefs.fallFast}
+                onToggle={(v) => void updatePushPrefs({ fallFast: v })}
+                colors={colors}
+                last
+              />
+              <View style={styles.soundBtnRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose sound for falling fast alerts"
+                  style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("fallFast"); }}
+                >
+                  <Feather name="music" size={12} color={COLORS.primary} />
+                  <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.fallFast)}</Text>
                 </Pressable>
               </View>
             </>
@@ -1153,7 +1212,17 @@ export default function DashboardScreen() {
           <Pressable style={styles.emergencySettingsBackdrop} onPress={() => { stopAlertSoundPreview(); setSoundPickerFor(null); }}>
             <Pressable style={[styles.emergencySettingsCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => {}}>
               <Text style={[styles.cardTitle, { color: colors.text }]}>
-                {soundPickerFor === "glucose" ? "Glucose Alert Sound" : soundPickerFor === "urgent" ? "Urgent Alert Sound" : "Message Sound"}
+                {soundPickerFor === "glucoseHigh"
+                  ? "High Glucose Sound"
+                  : soundPickerFor === "glucoseLow"
+                    ? "Low Glucose Sound"
+                    : soundPickerFor === "riseFast"
+                      ? "Rising Fast Sound"
+                      : soundPickerFor === "fallFast"
+                        ? "Falling Fast Sound"
+                        : soundPickerFor === "urgent"
+                          ? "Urgent Alert Sound"
+                          : "Message Sound"}
               </Text>
               <ScrollView style={styles.soundOptionScroll} showsVerticalScrollIndicator>
                 {(["default", "alarms", "tones"] as const).map((group) => (

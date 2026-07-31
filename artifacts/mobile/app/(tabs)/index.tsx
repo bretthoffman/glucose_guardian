@@ -2,8 +2,8 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { scheduleGlucoseAlert } from "@/services/notifications";
-import { classifyGlucose, decideGlucoseAlert, type GlucoseZone } from "../../../../convex/pushLogic";
+import { scheduleGlucoseAlert, scheduleTrendAlert } from "@/services/notifications";
+import { classifyGlucose } from "../../../../convex/pushLogic";
 import {
   ActivityIndicator,
   Alert,
@@ -23,7 +23,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlucoseGauge } from "@/components/GlucoseGauge";
-import { mapDexcomTrend, trendFromDiff, type TrendInfo } from "@/utils/trend";
+import { isFastTrend, mapDexcomTrend, trendFromDiff, type TrendInfo } from "@/utils/trend";
 import { bannerKindFromSyncStatus, cgmDiagnosticMessage } from "@/utils/cgmDiagnosticMessages";
 import { CGMChart } from "@/components/CGMChart";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
@@ -222,10 +222,9 @@ export default function HomeScreen() {
   const autoSyncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isSyncingRef = useRef(false);
   const prevConnectedRef = useRef(isConnected);
-  // Transition-based local alerting (same machine as the server pushes): last zone re-arms the
-  // high/low crossings; last urgent send drives the 11-minute in-emergency repeat.
-  const lastZoneRef = useRef<GlucoseZone>("in_range");
-  const lastUrgentAtRef = useRef<number | null>(null);
+  // Per-reading local alerting (same model as the server pushes): each NEW reading alerts at most
+  // once — the same reading never re-alerts, and no new readings means no new alerts.
+  const lastAlertedReadingRef = useRef<string | null>(null);
   const lastSilentSyncRef = useRef<number>(0);
   const pullHapticFiredRef = useRef(false);
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -451,44 +450,42 @@ export default function HomeScreen() {
       if (entries.length > 0) {
         const mostRecent = entries[entries.length - 1];
 
-        if (alertPrefs.notificationsEnabled) {
+        if (alertPrefs.notificationsEnabled && mostRecent.timestamp !== lastAlertedReadingRef.current) {
+          // Alerts fire per NEW reading — the same reading never alerts twice, and when readings
+          // stop arriving (sensor gap, lost connection) no new alerts fire at all. Each reading
+          // triggers AT MOST one zone alert (bands are mutually exclusive — urgent low takes over
+          // from Low entirely) plus at most one trend alert.
+          lastAlertedReadingRef.current = mostRecent.timestamp;
           const g = mostRecent.glucose;
-          const urgLow = alertPrefs.urgentLowThreshold;
-          const low = alertPrefs.lowThreshold;
-          const high = alertPrefs.highThreshold;
-          const urgHigh = alertPrefs.urgentHighThreshold;
-          const nowMs = Date.now();
-          // Same transition rules as the server: high/low fire ONCE on the crossing from in-range
-          // (recovering from an emergency zone never re-alerts); emergency zones fire on entry,
-          // then repeat every 11 minutes while readings stay in the zone.
-          const zone: GlucoseZone =
-            classifyGlucose(g, { urgentLowThreshold: urgLow, lowThreshold: low, highThreshold: high, urgentHighThreshold: urgHigh }) ?? "in_range";
-          const sendAlert = decideGlucoseAlert({
-            zone,
-            prevZone: lastZoneRef.current,
-            lastUrgentSentAt: lastUrgentAtRef.current,
-            nowMs,
+          const kind = classifyGlucose(g, {
+            urgentLowThreshold: alertPrefs.urgentLowThreshold,
+            lowThreshold: alertPrefs.lowThreshold,
+            highThreshold: alertPrefs.highThreshold,
+            urgentHighThreshold: alertPrefs.urgentHighThreshold,
           });
-          lastZoneRef.current = zone;
+          const trendInfo = mostRecent.dexcomTrend != null
+            ? mapDexcomTrend(mostRecent.dexcomTrend)
+            : trendFromDiff(
+                entries.length >= 2
+                  ? entries[entries.length - 1].glucose - entries[entries.length - 2].glucose
+                  : 0,
+              );
 
-          if (sendAlert && zone !== "in_range") {
-            if (zone === "urgent_low" || zone === "urgent_high") lastUrgentAtRef.current = nowMs;
-            const latestDexcomTrend = mostRecent.dexcomTrend;
-            const trendLabel = latestDexcomTrend != null
-              ? mapDexcomTrend(latestDexcomTrend).label
-              : (() => {
-                  const diff = entries.length >= 2
-                    ? entries[entries.length - 1].glucose - entries[entries.length - 2].glucose
-                    : 0;
-                  return trendFromDiff(diff).label;
-                })();
+          if (kind) {
             const status =
-              zone === "urgent_low" ? "critically_low" : zone === "low" ? "low" : zone === "urgent_high" ? "critically_high" : "high";
+              kind === "urgent_low" ? "critically_low" : kind === "low" ? "low" : kind === "urgent_high" ? "critically_high" : "high";
             scheduleGlucoseAlert({
               childName: profile?.childName ?? "Child",
               glucose: g,
               status,
-              trendLabel,
+              trendLabel: trendInfo.label,
+            }).catch(() => {});
+          }
+          if (isFastTrend(trendInfo)) {
+            scheduleTrendAlert({
+              childName: profile?.childName ?? "Child",
+              glucose: g,
+              direction: trendInfo.glucoseTrend === "rapidly_rising" ? "rise" : "fall",
             }).catch(() => {});
           }
         }
@@ -1095,13 +1092,19 @@ export default function HomeScreen() {
 
         {/* Glucose summary */}
         {latestReading ? (
-          <Surface style={styles.section} padding={Math.round(T.space.xl * padScale)}>
+          <Surface
+            // Card height is LOCKED to what the 15%-larger gauge needed, and the content centers
+            // inside it — the circle reverted to its original size but the window must not shrink.
+            style={[styles.section, { minHeight: Math.round(172 * 1.15 * padScale) + Math.round(T.space.xl * padScale) * 2, justifyContent: "center" }]}
+            padding={Math.round(T.space.xl * padScale)}
+          >
             <GlucoseGauge
               value={displayGlucose}
-              // Gauge circle (and everything inside it) +15%; trend cluster text/arrows +25% —
-              // both on top of the iPad-portrait padScale. The card grows with its content.
-              size={Math.round(172 * 1.15 * padScale)}
+              // Circle + its contents at original size; arrow + colored trend pill keep the +25%;
+              // the grey "Trend"/"Updated…" lines revert to original via mutedTextScale.
+              size={Math.round(172 * padScale)}
               contentScale={1.25 * padScale}
+              mutedTextScale={padScale}
               trend={glucoseTrend}
               trendInfo={effectiveTrend}
               lowThreshold={alertPrefs.lowThreshold}

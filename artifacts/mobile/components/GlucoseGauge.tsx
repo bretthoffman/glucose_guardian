@@ -34,6 +34,12 @@ interface Props {
    * with `size`). Used by iPad-portrait layouts that enlarge the whole card proportionally.
    */
   contentScale?: number;
+  /**
+   * Separate multiplier for the muted grey lines ("Trend" caption + "Updated…" recency) so they
+   * can stay small while the arrow + colored trend pill scale with `contentScale`. Defaults to
+   * `contentScale` so callers that don't split the two are unaffected.
+   */
+  mutedTextScale?: number;
 }
 
 // --- ORIGINAL status/trend/movement logic (unchanged: controls ring color + pulse behavior) ---
@@ -127,7 +133,9 @@ export function GlucoseGauge({
   onGaugePress,
   onTrendPress,
   contentScale = 1,
+  mutedTextScale,
 }: Props) {
+  const mutedScale = mutedTextScale ?? contentScale;
   const status = getGlucoseStatus(value, lowThreshold, highThreshold);
   const c = useThemeColors();
 
@@ -362,7 +370,7 @@ export function GlucoseGauge({
                 <Feather key={i} name="arrow-up" size={Math.round(30 * contentScale)} color={trendColor} />
               ))}
             </View>
-            <Text style={[styles.trendCaption, { color: c.textSecondary, fontSize: 11 * contentScale }]}>Trend</Text>
+            <Text style={[styles.trendCaption, { color: c.textSecondary, fontSize: 11 * mutedScale }]}>Trend</Text>
             <View
               style={[
                 styles.trendPill,
@@ -376,7 +384,7 @@ export function GlucoseGauge({
                 {trendLabel}
               </Text>
             </View>
-            {updatedLabel ? <Text style={[styles.updated, { color: c.textMuted, fontSize: 11 * contentScale }]}>{updatedLabel}</Text> : null}
+            {updatedLabel ? <Text style={[styles.updated, { color: c.textMuted, fontSize: 11 * mutedScale }]}>{updatedLabel}</Text> : null}
           </Pressable>
         </View>
       )}

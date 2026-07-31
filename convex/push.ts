@@ -26,24 +26,42 @@ import {
   buildExpoMessage,
   careLogCopy,
   categoryForGlucose,
+  categoryForTrend,
   chunk,
   classifyGlucose,
+  classifyTrendAlert,
   glucoseCopy,
   messageCopy,
-  decideGlucoseAlert,
-  type GlucoseZone,
+  trendCopy,
+  type AlertSoundPrefs,
   type ExpoPushMessage,
   type GlucoseAlertKind,
   type PushCategory,
+  type TrendAlertKind,
 } from "./pushLogic";
 
+/** Accepts BOTH shapes: old clients still send `glucoseHighLow`; new clients send the split keys. */
 const pushPrefsPayload = v.object({
   glucoseUrgent: v.boolean(),
-  glucoseHighLow: v.boolean(),
+  glucoseHighLow: v.optional(v.boolean()),
+  glucoseHigh: v.optional(v.boolean()),
+  glucoseLow: v.optional(v.boolean()),
+  riseFast: v.optional(v.boolean()),
+  fallFast: v.optional(v.boolean()),
   careLog: v.boolean(),
   messages: v.boolean(),
   doctor: v.boolean(),
 });
+
+/**
+ * A category's effective on/off for a device row: split glucose keys fall back to the legacy
+ * combined toggle; absent keys (rows predating a category) default ON, matching every other alert.
+ */
+export function categoryEnabled(prefs: Record<string, boolean | undefined>, category: PushCategory): boolean {
+  if (category === "glucoseHigh") return (prefs.glucoseHigh ?? prefs.glucoseHighLow) !== false;
+  if (category === "glucoseLow") return (prefs.glucoseLow ?? prefs.glucoseHighLow) !== false;
+  return prefs[category] !== false;
+}
 
 // ── auth helpers (same pattern as careLogs / careMessages) ───────────────────────────────────
 
@@ -137,6 +155,10 @@ export const setSounds = mutation({
     token: v.string(),
     sounds: v.object({
       glucose: v.optional(v.string()),
+      glucoseHigh: v.optional(v.string()),
+      glucoseLow: v.optional(v.string()),
+      riseFast: v.optional(v.string()),
+      fallFast: v.optional(v.string()),
       urgent: v.optional(v.string()),
       messages: v.optional(v.string()),
     }),
@@ -202,9 +224,11 @@ export const collectTokens = internalQuery({
     const category = args.category as PushCategory;
     const soundKey = soundKeyForCategory(category);
     const out: { token: string; sound?: string }[] = [];
-    const wants = (prefs: Record<string, boolean>) => prefs[category] !== false;
-    const soundOf = (row: { sounds?: { glucose?: string; urgent?: string; messages?: string } }) => {
-      const file = soundKey ? row.sounds?.[soundKey] : undefined;
+    const wants = (prefs: Record<string, boolean | undefined>) => categoryEnabled(prefs, category);
+    const soundOf = (row: { sounds?: AlertSoundPrefs }) => {
+      let file = soundKey ? row.sounds?.[soundKey] : undefined;
+      // Split glucose slots fall back to the legacy shared "glucose" sound a device may have set.
+      if (!file && (soundKey === "glucoseHigh" || soundKey === "glucoseLow")) file = row.sounds?.glucose;
       return file ? { sound: file } : {};
     };
 
@@ -382,53 +406,72 @@ export const notifyGlucose = internalAction({
   },
 });
 
-/** Resolve thresholds + name, classify the reading, and fire when the cooldown allows. */
+/**
+ * Classify the newest reading (zone + trend) and fire the matching alerts — on EVERY new reading,
+ * no cooldowns or repeat timers. Cadence control is upstream: cgmIngest calls this only for the
+ * newest reading of a fresh ingest (never backfills, never stale data), so when readings stop
+ * arriving the alerts stop with them. Exactly ONE zone category fires per reading (the bands are
+ * mutually exclusive — urgent-low takes over from Low entirely), plus at most one trend alert.
+ * Returns what fired so tests can assert without spying on the scheduler.
+ */
 export const evaluateGlucoseForPush = internalMutation({
-  args: { patientUserId: v.id("users"), value: v.number() },
-  handler: async (ctx, args) => {
+  args: {
+    patientUserId: v.id("users"),
+    value: v.number(),
+    /** The reading's own Dexcom trend arrow, when the source provided one. */
+    dexcomTrend: v.optional(v.union(v.number(), v.string())),
+  },
+  handler: async (ctx, args): Promise<{ zone: string | null; trend: string | null }> => {
     const profile = await ctx.db
       .query("patientProfiles")
       .withIndex("by_userId", (q) => q.eq("userId", args.patientUserId))
       .unique();
-    const kind = classifyGlucose(args.value, profile?.alertPreferences ?? {});
-    const zone = kind ?? "in_range";
-
-    // ONE state row per patient: `kind` holds the last ZONE (in_range re-arms the crossings),
-    // `lastSentAt` the last URGENT send (the 11-minute in-zone repeat timer). Legacy per-kind rows
-    // are folded into the newest and removed.
-    const rows = await ctx.db
-      .query("pushAlertState")
-      .withIndex("by_patient_kind", (q) => q.eq("patientUserId", args.patientUserId))
-      .collect();
-    rows.sort((a, b) => b.lastSentAt - a.lastSentAt);
-    const state = rows[0] ?? null;
-    for (const extra of rows.slice(1)) await ctx.db.delete(extra._id);
-    const prevZone = (state?.kind ?? "in_range") as GlucoseZone;
-    const now = Date.now();
-
-    const send = decideGlucoseAlert({
-      zone: zone as GlucoseZone,
-      prevZone,
-      lastUrgentSentAt: state?.lastSentAt ?? null,
-      nowMs: now,
-    });
-
-    const isUrgentZone = zone === "urgent_low" || zone === "urgent_high";
-    const nextSentAt = send && isUrgentZone ? now : state?.lastSentAt ?? 0;
-    if (state) await ctx.db.patch(state._id, { kind: zone, lastSentAt: nextSentAt, lastValue: args.value });
-    else await ctx.db.insert("pushAlertState", { patientUserId: args.patientUserId, kind: zone, lastSentAt: nextSentAt, lastValue: args.value });
-
-    if (!send || !kind) return;
-
-    const patientName = profile?.childName?.trim() || "Your child";
     const prefs = profile?.alertPreferences ?? {};
-    const isUrgent = kind === "urgent_low" || kind === "urgent_high";
+    const patientName = profile?.childName?.trim() || "Your child";
+    const kind = classifyGlucose(args.value, prefs);
+
+    // Trend alert: prefer the sensor's own arrow; else compute the rate from the two newest
+    // stored readings (manual/LibreLink sources without a trend field).
+    let trendKind: TrendAlertKind | null = null;
+    if (args.dexcomTrend != null) {
+      trendKind = classifyTrendAlert({
+        latest: { glucose: args.value, timestampMs: 0 },
+        prev: null,
+        dexcomTrend: args.dexcomTrend,
+      });
+    } else {
+      const recent = await ctx.db
+        .query("patientGlucoseReadings")
+        .withIndex("by_user_time", (q) => q.eq("userId", args.patientUserId))
+        .order("desc")
+        .take(2);
+      if (recent.length === 2) {
+        trendKind = classifyTrendAlert({
+          latest: { glucose: recent[0].glucose, timestampMs: new Date(recent[0].timestamp).getTime() },
+          prev: { glucose: recent[1].glucose, timestampMs: new Date(recent[1].timestamp).getTime() },
+        });
+      }
+    }
+    if (trendKind) {
+      await ctx.scheduler.runAfter(0, internal.push.notifyTrend, {
+        patientUserId: args.patientUserId,
+        patientName,
+        value: args.value,
+        kind: trendKind,
+      });
+    }
+
+    if (!kind) return { zone: null, trend: trendKind };
+
+    const now = Date.now();
+    // The wait window holds CODE devices for the URGENT category only — which is urgent LOWS now
+    // (urgent_high routes to the High category and always goes straight out).
+    const isUrgent = kind === "urgent_low";
     const waitMinutes = Math.min(15, Math.max(1, Math.round(prefs.waitWindowMinutes ?? 5)));
     const waitOn =
       profile?.accountRole === "adult" && prefs.waitWindowEnabled === true && isUrgent;
-    // FAILSAFE (wait-window accounts only, <35 / >350): beyond these extremes the caregiver alert is NEVER
-    // held — code devices are alerted immediately no matter what is pending or pressed.
-    const failsafe = waitOn && (args.value < 35 || args.value > 350);
+    // FAILSAFE (wait-window accounts, <35): below this the caregiver alert is NEVER held.
+    const failsafe = waitOn && args.value < 35;
 
     if (waitOn && !failsafe) {
       // The adult's own devices alert now, with the confirm line appended; co-guardian ACCOUNTS
@@ -465,7 +508,7 @@ export const evaluateGlucoseForPush = internalMutation({
         });
         await ctx.scheduler.runAfter(waitMinutes * 60_000, internal.push.fireEmergencyWait, { waitId });
       }
-      return;
+      return { zone: kind, trend: trendKind };
     }
 
     if (failsafe) {
@@ -482,6 +525,33 @@ export const evaluateGlucoseForPush = internalMutation({
       patientName,
       value: args.value,
       kind,
+    });
+    return { zone: kind, trend: trendKind };
+  },
+});
+
+/** Push for a trend alert (rising/falling fast) — its own category + per-device sound. */
+export const notifyTrend = internalAction({
+  args: {
+    patientUserId: v.id("users"),
+    patientName: v.string(),
+    value: v.number(),
+    kind: v.union(v.literal("rise_fast"), v.literal("fall_fast")),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    const category = categoryForTrend(args.kind);
+    const tokens: { token: string; sound?: string }[] = await ctx.runQuery(internal.push.collectTokens, {
+      patientUserId: args.patientUserId,
+      category,
+    });
+    if (tokens.length === 0) return;
+    const copy = trendCopy({ kind: args.kind, value: args.value, patientName: args.patientName });
+    await ctx.runAction(internal.push.deliver, {
+      tokens,
+      category,
+      title: copy.title,
+      body: copy.body,
+      data: { kind: "glucose_trend", trend: args.kind, glucose: args.value },
     });
   },
 });

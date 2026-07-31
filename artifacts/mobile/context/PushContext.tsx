@@ -16,7 +16,10 @@ import {
  */
 export interface PushPrefs {
   glucoseUrgent: boolean;
-  glucoseHighLow: boolean;
+  glucoseHigh: boolean;
+  glucoseLow: boolean;
+  riseFast: boolean;
+  fallFast: boolean;
   careLog: boolean;
   messages: boolean;
   doctor: boolean;
@@ -24,15 +27,42 @@ export interface PushPrefs {
 
 export const DEFAULT_PUSH_PREFS: PushPrefs = {
   glucoseUrgent: true,
-  glucoseHighLow: true,
+  glucoseHigh: true,
+  glucoseLow: true,
+  riseFast: true,
+  fallFast: true,
   careLog: true,
   messages: true,
   doctor: true,
 };
 
-/** Per-device custom alert sounds (bundled filenames); a missing key = the system default sound. */
+/**
+ * Server rows may predate the High/Low split and the trend alerts: the legacy `glucoseHighLow`
+ * seeds both split values, and any missing key defaults ON.
+ */
+export function normalizePushPrefs(
+  remote: Partial<PushPrefs> & { glucoseHighLow?: boolean },
+): PushPrefs {
+  return {
+    glucoseUrgent: remote.glucoseUrgent !== false,
+    glucoseHigh: (remote.glucoseHigh ?? remote.glucoseHighLow) !== false,
+    glucoseLow: (remote.glucoseLow ?? remote.glucoseHighLow) !== false,
+    riseFast: remote.riseFast !== false,
+    fallFast: remote.fallFast !== false,
+    careLog: remote.careLog !== false,
+    messages: remote.messages !== false,
+    doctor: remote.doctor !== false,
+  };
+}
+
+/** Per-device custom alert sounds (bundled filenames); a missing key = the system default sound.
+ *  `glucose` is the legacy shared High&Low slot — kept so an old choice carries into the split. */
 export interface AlertSounds {
   glucose?: string;
+  glucoseHigh?: string;
+  glucoseLow?: string;
+  riseFast?: string;
+  fallFast?: string;
   urgent?: string;
   messages?: string;
 }
@@ -168,7 +198,7 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
         const remote = await client.query(api.push.getPrefs, { token });
         if (cancelled) return;
         if (remote?.prefs) {
-          const loaded = { ...(remote.prefs as PushPrefs) };
+          const loaded = normalizePushPrefs(remote.prefs as Partial<PushPrefs> & { glucoseHighLow?: boolean });
           // Self-heal older rows: locked identities force messages ON, and doctor always mirrors
           // messages (its standalone toggle is gone — one switch drives both categories).
           const needsHeal =

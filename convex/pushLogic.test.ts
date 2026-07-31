@@ -3,12 +3,13 @@ import {
   buildExpoMessage,
   careLogCopy,
   categoryForGlucose,
+  categoryForTrend,
   chunk,
   classifyGlucose,
-  URGENT_REPEAT_MS,
-  decideGlucoseAlert,
+  classifyTrendAlert,
   isCriticalCategory,
   messageCopy,
+  soundKeyForCategory,
 } from "./pushLogic";
 
 describe("classifyGlucose", () => {
@@ -30,18 +31,18 @@ describe("classifyGlucose", () => {
     expect(classifyGlucose(300, {})).toBe("urgent_high");
   });
 
-  it("routes only urgent bands to the critical-alert category", () => {
-    expect(categoryForGlucose("urgent_low")).toBe("glucoseUrgent");
-    expect(categoryForGlucose("urgent_high")).toBe("glucoseUrgent");
-    expect(categoryForGlucose("low")).toBe("glucoseHighLow");
-    expect(categoryForGlucose("high")).toBe("glucoseHighLow");
+  it("routes each band to exactly ONE category — urgent low owns urgent; urgent high folds into High", () => {
+    expect(categoryForGlucose("urgent_low")).toBe("glucoseUrgent"); // takes over from Low entirely
+    expect(categoryForGlucose("low")).toBe("glucoseLow");
+    expect(categoryForGlucose("high")).toBe("glucoseHigh");
+    expect(categoryForGlucose("urgent_high")).toBe("glucoseHigh"); // copy stays "very high"
   });
 });
 
 describe("critical-alert scope (what we told Apple)", () => {
   it("allows Critical Alerts ONLY for urgent glucose", () => {
     expect(isCriticalCategory("glucoseUrgent")).toBe(true);
-    for (const c of ["glucoseHighLow", "careLog", "messages", "doctor"] as const) {
+    for (const c of ["glucoseHigh", "glucoseLow", "riseFast", "fallFast", "careLog", "messages", "doctor"] as const) {
       expect(isCriticalCategory(c)).toBe(false);
     }
   });
@@ -62,38 +63,35 @@ describe("critical-alert scope (what we told Apple)", () => {
   });
 });
 
-describe("decideGlucoseAlert (transition-based)", () => {
-  const now = 1_000_000_000;
+describe("classifyTrendAlert (rising/falling fast)", () => {
+  const at = (min: number) => min * 60_000;
+  const latest = { glucose: 150, timestampMs: at(10) };
 
-  it("fires low/high ONLY on the crossing from in-range", () => {
-    expect(decideGlucoseAlert({ zone: "low", prevZone: "in_range", lastUrgentSentAt: null, nowMs: now })).toBe(true);
-    expect(decideGlucoseAlert({ zone: "high", prevZone: "in_range", lastUrgentSentAt: null, nowMs: now })).toBe(true);
+  it("prefers the sensor's Dexcom arrow: Single and Double both count as fast", () => {
+    expect(classifyTrendAlert({ latest, prev: null, dexcomTrend: "DoubleUp" })).toBe("rise_fast");
+    expect(classifyTrendAlert({ latest, prev: null, dexcomTrend: 2 })).toBe("rise_fast");
+    expect(classifyTrendAlert({ latest, prev: null, dexcomTrend: "SingleDown" })).toBe("fall_fast");
+    expect(classifyTrendAlert({ latest, prev: null, dexcomTrend: 7 })).toBe("fall_fast");
+    expect(classifyTrendAlert({ latest, prev: null, dexcomTrend: "Flat" })).toBeNull();
+    expect(classifyTrendAlert({ latest, prev: null, dexcomTrend: 3 })).toBeNull();
   });
 
-  it("never re-fires while lingering in the same low/high zone", () => {
-    expect(decideGlucoseAlert({ zone: "low", prevZone: "low", lastUrgentSentAt: null, nowMs: now })).toBe(false);
-    expect(decideGlucoseAlert({ zone: "high", prevZone: "high", lastUrgentSentAt: null, nowMs: now })).toBe(false);
+  it("computes the mg/dL-per-minute rate from the previous reading when no arrow is present", () => {
+    const prev = { glucose: 140, timestampMs: at(0) };
+    expect(classifyTrendAlert({ latest: { glucose: 151, timestampMs: at(5) }, prev })).toBe("rise_fast");
+    expect(classifyTrendAlert({ latest: { glucose: 129, timestampMs: at(5) }, prev })).toBe("fall_fast");
+    expect(classifyTrendAlert({ latest: { glucose: 145, timestampMs: at(5) }, prev })).toBeNull(); // 1 mg/min
+    expect(classifyTrendAlert({ latest: { glucose: 190, timestampMs: at(20) }, prev })).toBeNull(); // gap too wide
+    expect(classifyTrendAlert({ latest: { glucose: 190, timestampMs: at(5) }, prev: null })).toBeNull();
   });
 
-  it("never fires low/high when RECOVERING from an emergency zone", () => {
-    expect(decideGlucoseAlert({ zone: "low", prevZone: "urgent_low", lastUrgentSentAt: now - 1000, nowMs: now })).toBe(false);
-    expect(decideGlucoseAlert({ zone: "high", prevZone: "urgent_high", lastUrgentSentAt: now - 1000, nowMs: now })).toBe(false);
-  });
-
-  it("returning to in-range re-arms the crossing", () => {
-    expect(decideGlucoseAlert({ zone: "in_range", prevZone: "low", lastUrgentSentAt: null, nowMs: now })).toBe(false);
-    expect(decideGlucoseAlert({ zone: "low", prevZone: "in_range", lastUrgentSentAt: null, nowMs: now })).toBe(true);
-  });
-
-  it("fires an emergency zone immediately on ENTRY from any zone", () => {
-    expect(decideGlucoseAlert({ zone: "urgent_low", prevZone: "in_range", lastUrgentSentAt: null, nowMs: now })).toBe(true);
-    expect(decideGlucoseAlert({ zone: "urgent_low", prevZone: "low", lastUrgentSentAt: now - 1000, nowMs: now })).toBe(true);
-  });
-
-  it("repeats an in-zone emergency only every 11 minutes", () => {
-    expect(URGENT_REPEAT_MS).toBe(11 * 60 * 1000);
-    expect(decideGlucoseAlert({ zone: "urgent_low", prevZone: "urgent_low", lastUrgentSentAt: now - 60_000, nowMs: now })).toBe(false);
-    expect(decideGlucoseAlert({ zone: "urgent_low", prevZone: "urgent_low", lastUrgentSentAt: now - URGENT_REPEAT_MS, nowMs: now })).toBe(true);
+  it("maps trend kinds to their own categories and sound slots", () => {
+    expect(categoryForTrend("rise_fast")).toBe("riseFast");
+    expect(categoryForTrend("fall_fast")).toBe("fallFast");
+    expect(soundKeyForCategory("riseFast")).toBe("riseFast");
+    expect(soundKeyForCategory("fallFast")).toBe("fallFast");
+    expect(soundKeyForCategory("glucoseHigh")).toBe("glucoseHigh");
+    expect(soundKeyForCategory("glucoseLow")).toBe("glucoseLow");
   });
 });
 

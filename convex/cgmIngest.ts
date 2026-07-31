@@ -328,7 +328,7 @@ export const insertReadings = internalMutation({
     let inserted = 0;
     let maxTimestamp: string | null = null;
     /** Newest reading actually inserted this run — the only one worth alerting on. */
-    let newest: { glucose: number; timestamp: string } | null = null;
+    let newest: { glucose: number; timestamp: string; dexcomTrend?: number | string } | null = null;
     for (const e of args.entries.slice(0, 400)) {
       if (maxTimestamp === null || e.timestamp > maxTimestamp) maxTimestamp = e.timestamp;
       const existing = await ctx.db
@@ -344,17 +344,20 @@ export const insertReadings = internalMutation({
         dexcomTrend: e.dexcomTrend,
       });
       inserted++;
-      if (newest === null || e.timestamp > newest.timestamp) newest = { glucose: e.glucose, timestamp: e.timestamp };
+      if (newest === null || e.timestamp > newest.timestamp) {
+        newest = { glucose: e.glucose, timestamp: e.timestamp, dexcomTrend: e.dexcomTrend };
+      }
     }
 
     // Server-side threshold check — this is what makes glucose alerts fire with the app CLOSED
     // (the in-app check in app/(tabs)/index.tsx only runs in the foreground). Only the newest new
-    // reading is evaluated, so a backfill of old readings can't spray stale alerts; `push` applies
-    // the per-kind cooldown. Skipped entirely for readings older than STALE_ALERT_MS.
+    // reading is evaluated, so a backfill of old readings can't spray stale alerts, and alerts fire
+    // on every fresh reading — no readings, no alerts. Skipped for readings older than STALE_ALERT_MS.
     if (newest && Date.now() - new Date(newest.timestamp).getTime() < STALE_ALERT_MS) {
       await ctx.scheduler.runAfter(0, internal.push.evaluateGlucoseForPush, {
         patientUserId: args.userId,
         value: newest.glucose,
+        dexcomTrend: newest.dexcomTrend,
       });
     }
     return { inserted, maxTimestamp };
