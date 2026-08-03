@@ -549,7 +549,7 @@ export default function HomeScreen() {
       setLastSyncTime(now);
 
       if (result.status === "no_shared_patient") {
-        const msg = cgmDiagnosticMessage(result.messageKey, "libre");
+        const msg = cgmDiagnosticMessage(result.messageKey, cgmConnection.type);
         setLastSyncResult({ status: "no_shared_patient", at: now, message: msg });
         if (!silent) {
           return {
@@ -562,7 +562,7 @@ export default function HomeScreen() {
       }
 
       if (result.status === "connected_no_data") {
-        const msg = cgmDiagnosticMessage(result.messageKey, "libre");
+        const msg = cgmDiagnosticMessage(result.messageKey, cgmConnection.type);
         setLastSyncResult({ status: "connected_no_data", at: now, message: msg });
         if (!silent) {
           return {
@@ -1061,6 +1061,8 @@ export default function HomeScreen() {
                   { color: libreBannerKind === "connected_no_data" ? T.color.emerald : T.color.amber },
                 ]}
               >
+                {/* The first three states are LibreLinkUp-only (see bannerKindFromSyncStatus);
+                    the rest can happen on either service, so they name the connected one. */}
                 {libreBannerKind === "no_shared_patient"
                   ? "No shared Libre patient"
                   : libreBannerKind === "connected_no_data"
@@ -1068,8 +1070,8 @@ export default function HomeScreen() {
                     : libreBannerKind === "sharing_not_enabled"
                       ? "LibreLinkUp sharing required"
                       : libreBannerKind === "provider_unavailable"
-                        ? "Libre temporarily unavailable"
-                        : "Libre reconnect needed"}
+                        ? `${deviceLabel} temporarily unavailable`
+                        : `${deviceLabel} reconnect needed`}
               </Text>
               <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>{libreBannerMessage}</Text>
             </View>

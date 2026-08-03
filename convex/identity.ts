@@ -145,3 +145,50 @@ export const ensureUser = mutation({
     return { userId, email };
   },
 });
+
+/**
+ * Abandon an account whose setup was never finished (the user backed out of onboarding and chose
+ * "delete", rather than "I'll finish later"). Removes the `users` row so the SAME email can create a
+ * fresh account later with no leftovers.
+ *
+ * HARD GUARD: refuses when a `patientProfiles` row exists — that's the marker that setup completed,
+ * so this can never delete a real account no matter what the client sends. The caller deletes the
+ * Clerk user separately; if that half fails the email stays claimed in Clerk, which is why the UI
+ * only reports success once both halves are done.
+ */
+export const discardUnfinishedAccount = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await currentUser(ctx);
+    if (!user) return { deleted: false as const, reason: "not_signed_in" as const };
+
+    const profile = await ctx.db
+      .query("patientProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .unique();
+    if (profile) return { deleted: false as const, reason: "setup_complete" as const };
+
+    // Nothing else should exist this early, but sweep the per-user tables so an abandoned attempt
+    // can't strand rows that a later sign-up with the same email would inherit.
+    for (const table of [
+      "patientGuardianPins",
+      "patientCgmConnections",
+      "patientDexcomCredentials",
+      "patientLibreCredentials",
+    ] as const) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_userId", (q) => q.eq("userId", user._id))
+        .collect();
+      for (const row of rows) await ctx.db.delete(row._id);
+    }
+    const tokens = await ctx.db
+      .query("pushTokens")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    for (const row of tokens) await ctx.db.delete(row._id);
+
+    await ctx.db.delete(user._id);
+    return { deleted: true as const };
+  },
+});

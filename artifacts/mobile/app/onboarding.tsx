@@ -3,8 +3,11 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -49,10 +52,13 @@ export default function OnboardingScreen() {
   const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { setupProfile } = useAuth();
+  const { setupProfile, signOut, abandonSignup } = useAuth();
   const { saveFormula } = useGlucose();
 
   const [step, setStep] = useState<Step>("welcome");
+  // "Leave setup?" confirmation — reachable from the Back control on every onboarding step.
+  const [exitPromptOpen, setExitPromptOpen] = useState(false);
+  const [exiting, setExiting] = useState(false);
   const [accountRole, setAccountRole] = useState<"parent" | "adult" | "caregiver">("parent");
   const [parentNameInput, setParentNameInput] = useState("");
   const [parentLastNameInput, setParentLastNameInput] = useState("");
@@ -215,6 +221,10 @@ export default function OnboardingScreen() {
               <Text style={styles.primaryBtnText}>Get Started</Text>
               <Feather name="arrow-right" size={18} color="#fff" />
             </Pressable>
+
+            {/* The way OUT. Signing up creates the account before setup runs, so without this the
+                first screen is a dead end — the only escape was finishing setup and signing out. */}
+            <BackBtn onPress={() => setExitPromptOpen(true)} colors={colors} />
           </View>
         )}
 
@@ -841,6 +851,103 @@ export default function OnboardingScreen() {
         )}
 
       </ScrollView>
+
+      {/* Leaving setup — the account already exists at this point, so the user picks its fate:
+          keep it (sign in later and land right back here) or delete it (frees the email). */}
+      <Modal
+        visible={exitPromptOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { if (!exiting) setExitPromptOpen(false); }}
+      >
+        <View style={styles.exitBackdrop}>
+          <View style={[styles.exitCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.exitTitle, { color: colors.text }]}>Leave setup?</Text>
+            <Text style={[styles.exitSub, { color: colors.textSecondary }]}>
+              Your account was created when you signed up, but setup isn&apos;t finished yet.
+            </Text>
+
+            <Pressable
+              disabled={exiting}
+              style={({ pressed }) => [
+                styles.exitPrimaryBtn,
+                { backgroundColor: COLORS.primary, opacity: pressed || exiting ? 0.85 : 1 },
+              ]}
+              onPress={async () => {
+                if (exiting) return;
+                setExiting(true);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                // Keep everything — signing in with this email returns to setup right here.
+                await signOut();
+                setExiting(false);
+                setExitPromptOpen(false);
+              }}
+            >
+              <Feather name="clock" size={15} color="#fff" />
+              <Text style={styles.exitPrimaryBtnText}>Save it — I&apos;ll finish later</Text>
+            </Pressable>
+            <Text style={[styles.exitHint, { color: colors.textMuted }]}>
+              Sign in with the same email and you&apos;ll come right back to these steps.
+            </Text>
+
+            <Pressable
+              disabled={exiting}
+              style={({ pressed }) => [
+                styles.exitDangerBtn,
+                { borderColor: COLORS.danger, opacity: pressed || exiting ? 0.7 : 1 },
+              ]}
+              onPress={() => {
+                if (exiting) return;
+                Alert.alert(
+                  "Delete this account setup?",
+                  "This removes the account that was just created. You can sign up again with the same email later.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Delete",
+                      style: "destructive",
+                      onPress: async () => {
+                        setExiting(true);
+                        const ok = await abandonSignup();
+                        if (!ok) {
+                          // Couldn't delete (offline, or setup actually finished) — never strand the
+                          // user on this screen: sign out so the account is simply resumable.
+                          await signOut();
+                          setExiting(false);
+                          setExitPromptOpen(false);
+                          Alert.alert(
+                            "Saved instead",
+                            "We couldn't delete the account right now, so it was saved. Sign in with the same email to finish setup, or try deleting again later.",
+                          );
+                          return;
+                        }
+                        setExiting(false);
+                        setExitPromptOpen(false);
+                      },
+                    },
+                  ],
+                );
+              }}
+            >
+              <Feather name="trash-2" size={15} color={COLORS.danger} />
+              <Text style={[styles.exitDangerBtnText, { color: COLORS.danger }]}>
+                Go back and delete this account
+              </Text>
+            </Pressable>
+
+            <Pressable
+              disabled={exiting}
+              style={({ pressed }) => [styles.exitCancelBtn, { opacity: pressed || exiting ? 0.6 : 1 }]}
+              onPress={() => setExitPromptOpen(false)}
+            >
+              <Text style={[styles.exitCancelText, { color: colors.textSecondary }]}>
+                {exiting ? " " : "Keep setting up"}
+              </Text>
+            </Pressable>
+            {exiting && <ActivityIndicator color={COLORS.primary} style={{ marginTop: 4 }} />}
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -872,6 +979,40 @@ const stepStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingHorizontal: 24 },
+
+  exitBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  exitCard: { width: "100%", maxWidth: 400, borderRadius: 18, borderWidth: 1, padding: 20, gap: 10 },
+  exitTitle: { fontSize: 18, fontWeight: "700" },
+  exitSub: { fontSize: 13, fontWeight: "400", lineHeight: 19, marginBottom: 4 },
+  exitPrimaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: 12,
+  },
+  exitPrimaryBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  exitHint: { fontSize: 11.5, fontWeight: "400", lineHeight: 16, textAlign: "center", marginTop: -2 },
+  exitDangerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  exitDangerBtnText: { fontSize: 14, fontWeight: "600" },
+  exitCancelBtn: { alignItems: "center", paddingVertical: 10 },
+  exitCancelText: { fontSize: 14, fontWeight: "500" },
   stepContainer: { flex: 1, alignItems: "center", gap: 16 },
   logoCircle: {
     width: 110,

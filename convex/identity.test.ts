@@ -98,3 +98,54 @@ describe("Clerk identity path (the post-migration auth)", () => {
     expect(rows[0].clerkId).toBe("clerk_mom");
   });
 });
+
+describe("abandoning an unfinished sign-up", () => {
+  it("deletes the account when setup never finished, freeing the email to sign up again", async () => {
+    const t = convexTest(schema, modules);
+    const asMom = t.withIdentity(MOM);
+    await asMom.mutation(api.identity.ensureUser, {});
+    expect(await t.run(async (ctx: any) => (await ctx.db.query("users").collect()).length)).toBe(1);
+
+    const res = await asMom.mutation(api.identity.discardUnfinishedAccount, {});
+    expect(res.deleted).toBe(true);
+    expect(await t.run(async (ctx: any) => await ctx.db.query("users").collect())).toEqual([]);
+
+    // The SAME email signs up cleanly afterwards — a brand-new row, no leftovers.
+    const fresh = await t.withIdentity({ subject: "clerk_mom_2", email: "mom@example.com" })
+      .mutation(api.identity.ensureUser, {});
+    expect(fresh.email).toBe("mom@example.com");
+    const rows = await t.run(async (ctx: any) => await ctx.db.query("users").collect());
+    expect(rows).toHaveLength(1);
+    expect(rows[0].clerkId).toBe("clerk_mom_2");
+  });
+
+  it("REFUSES to delete once setup completed — a finished account can never be dropped this way", async () => {
+    const t = convexTest(schema, modules);
+    const asMom = t.withIdentity(MOM);
+    await asMom.mutation(api.identity.ensureUser, {});
+    await asMom.mutation(api.patientProfile.replace, {
+      profile: { childName: "Bella", parentName: "Mom", diabetesType: "type1", dateOfBirth: "2014-01-01" },
+    });
+
+    const res = await asMom.mutation(api.identity.discardUnfinishedAccount, {});
+    expect(res).toEqual({ deleted: false, reason: "setup_complete" });
+    expect(await t.run(async (ctx: any) => (await ctx.db.query("users").collect()).length)).toBe(1);
+  });
+
+  it("only ever touches the caller's own account", async () => {
+    const t = convexTest(schema, modules);
+    await t.withIdentity(MOM).mutation(api.identity.ensureUser, {});
+    await t.withIdentity(DAD).mutation(api.identity.ensureUser, {});
+
+    await t.withIdentity(DAD).mutation(api.identity.discardUnfinishedAccount, {});
+    const rows = await t.run(async (ctx: any) => await ctx.db.query("users").collect());
+    expect(rows).toHaveLength(1);
+    expect(rows[0].clerkId).toBe("clerk_mom");
+  });
+
+  it("does nothing when nobody is signed in", async () => {
+    const t = convexTest(schema, modules);
+    const res = await t.mutation(api.identity.discardUnfinishedAccount, {});
+    expect(res).toEqual({ deleted: false, reason: "not_signed_in" });
+  });
+});

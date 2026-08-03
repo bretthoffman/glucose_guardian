@@ -1,4 +1,4 @@
-import Constants from "expo-constants";
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { Platform } from "react-native";
@@ -96,6 +96,10 @@ export async function requestNotificationPermissions(): Promise<boolean> {
  */
 export async function getExpoPushToken(): Promise<string | null> {
   if (isWeb) return null;
+  // Expo Go must NOT register for push: it CAN fetch a working token of its own, which the backend
+  // would then deliver to alongside the real app's — every alert arriving doubled (once to Glucose
+  // Guardian, once to Expo Go). Dev sessions run without push; standalone builds are unaffected.
+  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return null;
   try {
     const projectId =
       Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId ?? undefined;
@@ -103,7 +107,7 @@ export async function getExpoPushToken(): Promise<string | null> {
     const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
     return data ?? null;
   } catch {
-    // No credentials (Expo Go / simulator) or offline — the app still works, just without push.
+    // No credentials (simulator) or offline — the app still works, just without push.
     return null;
   }
 }

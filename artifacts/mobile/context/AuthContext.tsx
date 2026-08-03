@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQuery } from "convex/react";
-import { useAuth as useClerkAuth, useSSO, useSignIn, useSignUp } from "@clerk/clerk-expo";
+import { useAuth as useClerkAuth, useSSO, useSignIn, useSignUp, useUser } from "@clerk/clerk-expo";
 import * as Linking from "expo-linking";
 import React, {
   createContext,
@@ -275,6 +275,12 @@ export interface AuthContextType {
   editInsulinLogEntry: (id: string, patch: InsulinLogPatch) => void;
   logout: () => Promise<void>;
   signOut: () => Promise<void>;
+  /**
+   * Delete an account whose onboarding was never finished (the "back out and start over" choice),
+   * freeing its email for a fresh sign-up. False = nothing was deleted (setup was already complete,
+   * or we couldn't reach Convex/Clerk) — the caller should fall back to just signing out.
+   */
+  abandonSignup: () => Promise<boolean>;
   /** Resolves "needs_verification" when the Clerk instance requires an emailed code first. */
   createAccount: (email: string, password: string) => Promise<{ status: "complete" | "needs_verification" }>;
   /** Finish a sign-up that required an emailed verification code. */
@@ -581,6 +587,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { signIn: clerkSignIn, setActive: setSignInActive } = useSignIn();
   const { signUp: clerkSignUp, setActive: setSignUpActive } = useSignUp();
   const { signOut: clerkSignOut, isSignedIn: clerkIsSignedIn } = useClerkAuth();
+  const { user: clerkUser } = useUser();
   const { startSSOFlow } = useSSO();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -1763,6 +1770,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, [clerkSignIn, setSignInActive, adoptClerkSession, commitClerkAccount]);
 
+  /**
+   * Back out of onboarding, DELETING the half-made account so the same email is free to sign up
+   * again from scratch. Convex first (its guard refuses if setup actually completed), then the
+   * Clerk user — the credential that would otherwise answer "an account already exists".
+   * Returns false if either half fails, so the UI can offer "finish later" instead of lying.
+   */
+  const abandonSignup = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await createConvexAuthClient().mutation(api.identity.discardUnfinishedAccount, {});
+      if (res && res.deleted === false && res.reason === "setup_complete") return false;
+    } catch {
+      return false; // offline / unreachable — better to keep the account than orphan a Clerk user
+    }
+    try {
+      await clerkUser?.delete();
+    } catch {
+      return false;
+    }
+    await clerkSignOut().catch(() => {});
+    return true;
+  }, [clerkUser, clerkSignOut]);
+
   const signOut = useCallback(async () => {
     // End the Clerk session first; otherwise the persisted token would restore the user on relaunch.
     await clerkSignOut().catch(() => {});
@@ -2888,6 +2917,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         editInsulinLogEntry,
         logout,
         signOut,
+        abandonSignup,
         createAccount,
         signInWithGoogle,
         verifyEmailCode,
