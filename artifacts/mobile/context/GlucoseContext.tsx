@@ -253,6 +253,46 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     });
   }, [liveReadings, liveReadingsActive]);
 
+  // ── LIVE readings for VIEWER sessions — the same real-time treatment the owner gets above.
+  // Access-code sessions (caregiver + kid codes), a nurse email account viewing a child by code,
+  // and a co-guardian viewing a linked patient used to refresh on a 60s setInterval. iOS throttles
+  // (and can suspend) JS timers, so those sessions drifted minutes behind the owner — a caregiver
+  // watching a LOW saw a stale number until the app was re-mounted. A Convex subscription streams
+  // each new reading the moment the ingest cron writes it, with no timer to be throttled.
+  const viewerCode =
+    nurseViewCode ?? (caregiverSession && caregiverCodeKind === "access" ? caregiverCloudCode : null);
+  const codeReadings = useQuery(
+    api.careCircle.glucoseForAccessCode,
+    !authLoading && viewerCode ? { code: viewerCode as string, limit: 300 } : "skip",
+  );
+  useEffect(() => {
+    if (!viewerCode || !codeReadings) return;
+    const next = codeReadings.map(normalizeRemoteEntry);
+    setHistory(next);
+    // An empty result means the code was revoked or is outside its schedule window — drop the
+    // cached copy too, so the readings can't linger on disk for a session that lost access.
+    if (next.length > 0) AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+    else AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
+  }, [codeReadings, viewerCode]);
+
+  const linkViewActive =
+    !authLoading && !!viewingPatientId && !nurseViewCode && !!account?.convexUserId;
+  const linkReadings = useQuery(
+    api.careCircle.glucoseForLink,
+    linkViewActive
+      ? {
+          userId: account!.convexUserId as Id<"users">,
+          passwordHash: account!.passwordHash,
+          patientUserId: viewingPatientId as Id<"users">,
+          limit: 300,
+        }
+      : "skip",
+  );
+  useEffect(() => {
+    if (!linkViewActive || !linkReadings) return;
+    setHistory(linkReadings.map(normalizeRemoteEntry));
+  }, [linkReadings, linkViewActive]);
+
   useEffect(() => {
     if (authLoading) return;
     if (viewingPatientId) return; // co-guardian viewing overlay owns history instead
@@ -347,11 +387,10 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     }
 
     setHistory([]); // don't briefly show the previous patient's / own readings
+    // One-shot for an immediate paint; the reactive subscription above keeps it fresh from here.
     void fetchViewed();
-    const id = setInterval(fetchViewed, 60_000);
     return () => {
       cancelled = true;
-      clearInterval(id);
     };
   }, [viewingPatientId, nurseViewCode]);
 
@@ -401,8 +440,10 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
       }
     }
     void fetchCaregiverGlucose();
-    // New codes are schedule-bound; poll so an out-of-window code stops showing data on its own.
-    const id = caregiverCodeKind === "access" ? setInterval(fetchCaregiverGlucose, 60_000) : null;
+    // Access codes now stream via the subscription above (which also drops data the moment a code
+    // falls outside its schedule window, since the query re-evaluates server-side). Only LEGACY
+    // 6-char codes, which have no reactive query, still need a timer.
+    const id = caregiverCodeKind === "access" ? null : setInterval(fetchCaregiverGlucose, 60_000);
     return () => {
       cancelled = true;
       if (id) clearInterval(id);

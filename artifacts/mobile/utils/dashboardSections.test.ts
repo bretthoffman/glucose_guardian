@@ -127,3 +127,38 @@ describe("availableDashboardSections", () => {
     expect(section?.title).toBe("Doctor Office");
   });
 });
+
+describe("Notifications visibility across identities (each device owns its own alert prefs)", () => {
+  // `isChildMode` is TRUE for every access-code session (childModeEnabled || caregiverSession), so
+  // a bare `!isChildMode` guard hid Notifications from the very sessions it's meant to include.
+  const base = { doctorSession: false, isParent: true, isAdult: false } as const;
+
+  it("SHOWS for a caregiver access-code session (isChildMode true because of the code)", () => {
+    const vis = dashboardSectionVisibility({ ...base, isChildMode: true, caregiverSession: true });
+    expect(vis.showNotifications).toBe(true);
+    // …while the owner-only management sections stay hidden for them.
+    expect(vis.showPatientSections).toBe(false);
+    expect(vis.showAccessManagement).toBe(false);
+  });
+
+  it("SHOWS for a kid access-code session", () => {
+    expect(
+      dashboardSectionVisibility({ ...base, isChildMode: true, caregiverSession: true, isParent: false })
+        .showNotifications,
+    ).toBe(true);
+  });
+
+  it("HIDES only for guardian-device child mode (no access code involved)", () => {
+    expect(
+      dashboardSectionVisibility({ ...base, isChildMode: true, caregiverSession: false }).showNotifications,
+    ).toBe(false);
+  });
+
+  it("SHOWS for a normal guardian and for a doctor session", () => {
+    expect(dashboardSectionVisibility({ ...base, isChildMode: false, caregiverSession: false }).showNotifications).toBe(true);
+    expect(
+      dashboardSectionVisibility({ ...base, isChildMode: false, caregiverSession: false, doctorSession: true })
+        .showNotifications,
+    ).toBe(true);
+  });
+});

@@ -40,20 +40,63 @@ describe("push token registration", () => {
     });
   });
 
-  it("registers an access-code device, and re-registering re-points the same token", async () => {
+  it("keeps a SEPARATE settings row per identity on one device, with only the signed-in one live", async () => {
     const { t, patient } = await setup();
     const { code } = await t.mutation(api.careCircle.createAccessCode, {
       userId: patient, passwordHash: HASH_A, patientUserId: patient, label: "School nurse", kind: "caregiver",
     });
-    await t.mutation(api.push.registerToken, { code, token: "ExponentPushToken[dev]", platform: "ios" });
-    // Same physical device later signs in as the guardian — one row, re-pointed.
+    const TOKEN = "ExponentPushToken[dev]";
+
+    // The caregiver code signs in on this phone and picks its own sound.
+    await t.mutation(api.push.registerToken, { code, token: TOKEN, platform: "ios" });
+    await t.mutation(api.push.setSounds, { token: TOKEN, sounds: { urgent: "siren.wav" } });
+
+    // Same physical device later signs in as the guardian: a NEW row, default settings — the
+    // caregiver's choices must not become the guardian's.
     await t.mutation(api.push.registerToken, {
-      userId: patient, passwordHash: HASH_A, token: "ExponentPushToken[dev]", platform: "ios",
+      userId: patient, passwordHash: HASH_A, token: TOKEN, platform: "ios",
     });
+    expect((await t.query(api.push.getPrefs, { token: TOKEN }))?.sounds).toEqual({});
+    await t.mutation(api.push.setSounds, { token: TOKEN, sounds: { urgent: "chime.wav" } });
+
     const rows = await t.run(async (ctx: any) => await ctx.db.query("pushTokens").collect());
-    expect(rows).toHaveLength(1);
-    expect(rows[0].userId).toBe(patient);
-    expect(rows[0].code).toBeUndefined();
+    expect(rows).toHaveLength(2);
+    // Exactly one row is live — so the device is never double-delivered.
+    expect(rows.filter((r: any) => r.disabledAt == null)).toHaveLength(1);
+    const codeRow = rows.find((r: any) => r.code === code);
+    const userRow = rows.find((r: any) => r.userId === patient);
+    expect(codeRow.sounds).toEqual({ urgent: "siren.wav" }); // preserved, untouched
+    expect(userRow.sounds).toEqual({ urgent: "chime.wav" });
+    expect(codeRow.disabledAt).toBeGreaterThan(0);
+
+    // Signing the caregiver code back in restores ITS settings and parks the guardian's.
+    await t.mutation(api.push.registerToken, { code, token: TOKEN, platform: "ios" });
+    expect((await t.query(api.push.getPrefs, { token: TOKEN }))?.sounds).toEqual({ urgent: "siren.wav" });
+  });
+
+  it("a toggle change on one identity never leaks to the other identity on the same phone", async () => {
+    const { t, patient } = await setup();
+    const { code } = await t.mutation(api.careCircle.createAccessCode, {
+      userId: patient, passwordHash: HASH_A, patientUserId: patient, label: "Sitter", kind: "caregiver",
+    });
+    const TOKEN = "ExponentPushToken[shared]";
+    await t.mutation(api.push.registerToken, { userId: patient, passwordHash: HASH_A, token: TOKEN, platform: "ios" });
+    await t.mutation(api.push.setPrefs, {
+      token: TOKEN,
+      prefs: { glucoseUrgent: true, glucoseHigh: true, glucoseLow: true, riseFast: true, fallFast: true, careLog: true, messages: true, doctor: true },
+    });
+
+    await t.mutation(api.push.registerToken, { code, token: TOKEN, platform: "ios" });
+    await t.mutation(api.push.setPrefs, {
+      token: TOKEN,
+      prefs: { glucoseUrgent: false, glucoseHigh: false, glucoseLow: false, riseFast: false, fallFast: false, careLog: false, messages: false, doctor: false },
+    });
+
+    // Back to the guardian: everything it had is still on.
+    await t.mutation(api.push.registerToken, { userId: patient, passwordHash: HASH_A, token: TOKEN, platform: "ios" });
+    const prefs = (await t.query(api.push.getPrefs, { token: TOKEN }))?.prefs;
+    expect(prefs?.glucoseUrgent).toBe(true);
+    expect(prefs?.careLog).toBe(true);
   });
 
   it("rejects a bad credential", async () => {

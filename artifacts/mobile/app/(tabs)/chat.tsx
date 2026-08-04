@@ -29,6 +29,7 @@ import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGluc
 import { apiUrl } from "@/utils/api-base-url";
 import { downsampleReadingsForContext, formatReadingTimeLabel } from "@/utils/glucoseHistoryContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { resolveChatSpeaker } from "@/utils/chatSpeaker";
 
 interface Message {
   id: string;
@@ -191,14 +192,16 @@ export default function ChatScreen() {
   // caregiver by the patient's name. Order matters: kid code / child mode first (the patient
   // themselves), then caregiver identities (codes, nurse accounts, nurse-in-kid-view), then
   // guardian identities (parent accounts, co-guardians viewing), then adults (own patient). ──
-  const chatSpeaker: { kind: "patient" | "guardian" | "caregiver"; name?: string } =
-    accessCodeRole === "child" || isChildMode
-      ? { kind: "patient" }
-      : nurseViewCode || profile?.accountRole === "caregiver" || caregiverSession
-      ? { kind: "caregiver" }
-      : viewingPatientId || profile?.accountRole === "parent" || fromParent === "true"
-      ? { kind: "guardian", name: parentName ?? undefined }
-      : { kind: "patient" };
+  const chatSpeaker = resolveChatSpeaker({
+    accessCodeRole,
+    caregiverSession,
+    isChildMode,
+    nurseViewCode,
+    accountRole: profile?.accountRole,
+    viewingPatientId,
+    fromParent: fromParent === "true",
+    parentName,
+  });
   const speakingToParent = chatSpeaker.kind !== "patient";
 
   const trend = getEffectiveTrend(history);
@@ -215,7 +218,10 @@ export default function ChatScreen() {
     // Deliberately static: this message can sit in the thread for days, so it must not embed
     // glucose values or trends that go stale — the live reading is always in the header pill.
     if (speakingAsParent) {
-      const who = caregiverSession ? "there" : parentName ?? "there";
+      // A caregiver isn't named in the patient's profile, so greet them by their ROLE and name the
+      // person they're helping — never by the patient's name (that was the "Hey Brett!" bug).
+      if (chatSpeaker.kind === "caregiver") return `Hey there! Need help with ${name}?`;
+      const who = parentName ?? "there";
       return `Hey ${who}! Need help with anything?`;
     }
     return isKidMode ? `Hey ${name}! 👋 Need help with anything? 😊` : `Hey ${name}! Need help with anything?`;

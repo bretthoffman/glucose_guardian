@@ -82,7 +82,7 @@ function splitDateOfBirth(iso?: string): { month: string; day: string; year: str
 
 export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canEditPhoto }: Props) {
   const { colors: c, scheme, preference, setPreference } = useTheme();
-  const { profile, ageYears, updateProfile, isCircleMember, circleOwnerName, signOut } = useAuth();
+  const { profile, ageYears, updateProfile, isCircleMember, circleOwnerName, signOut, caregiverSession, accessCodeRole } = useAuth();
   const [schemeExpanded, setSchemeExpanded] = useState(false);
 
   // Inline account editor (your name + child name + birthday + weight). Same edit gate as the photo.
@@ -177,7 +177,13 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
     router.replace("/auth");
   };
 
-  const firstName = (profile?.childName ?? "").trim().split(/\s+/).filter(Boolean)[0] ?? "";
+  const baseFirstName = (profile?.childName ?? "").trim().split(/\s+/).filter(Boolean)[0] ?? "";
+  // In a CAREGIVER code session `profile` is the patient's, so a bare "Jim" read as though the
+  // caregiver were Jim. Name the relationship instead: "Jim's Caregiver" — matching the Glucose
+  // page header. A kid's own code keeps their plain name.
+  const isCaregiverCodeSession = caregiverSession && accessCodeRole !== "child";
+  const firstName =
+    baseFirstName && isCaregiverCodeSession ? `${baseFirstName}'s Caregiver` : baseFirstName;
   const ageStr = ageLabel(ageYears);
   const typeStr = diabetesLabel(profile?.diabetesType);
   // A caregiver shows their organization (if any) instead of an age/diabetes sub-line.

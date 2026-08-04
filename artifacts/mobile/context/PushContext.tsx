@@ -120,6 +120,8 @@ interface PushContextType {
   registered: boolean;
   /** Kid/caregiver sessions (codes + nurse accounts): Message Alerts are locked ON. */
   messagesLocked: boolean;
+  /** Same identities: Care Activity is locked ON (and its toggle hidden). */
+  careLogLocked: boolean;
   updatePrefs: (patch: Partial<PushPrefs>) => Promise<void>;
   /** This device's chosen alert sounds by group (empty = defaults). */
   sounds: AlertSounds;
@@ -155,6 +157,13 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
   const messagesLocked = caregiverSession || profile?.accountRole === "caregiver";
   const messagesLockedRef = useRef(messagesLocked);
   useEffect(() => { messagesLockedRef.current = messagesLocked; }, [messagesLocked]);
+
+  // Care Activity is LOCKED ON for the same identities — a caregiver watching someone must always
+  // hear when a dose or meal is logged into the record they're responsible for. Locked toggles are
+  // hidden in the UI rather than shown greyed out, so this is enforced here (the backstop).
+  const careLogLocked = messagesLocked;
+  const careLogLockedRef = useRef(careLogLocked);
+  useEffect(() => { careLogLockedRef.current = careLogLocked; }, [careLogLocked]);
 
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<PushPrefs>(DEFAULT_PUSH_PREFS);
@@ -202,8 +211,11 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
           // Self-heal older rows: locked identities force messages ON, and doctor always mirrors
           // messages (its standalone toggle is gone — one switch drives both categories).
           const needsHeal =
-            (messagesLockedRef.current && !loaded.messages) || loaded.doctor !== (messagesLockedRef.current || loaded.messages);
+            (messagesLockedRef.current && !loaded.messages) ||
+            (careLogLockedRef.current && !loaded.careLog) ||
+            loaded.doctor !== (messagesLockedRef.current || loaded.messages);
           if (messagesLockedRef.current) loaded.messages = true;
+          if (careLogLockedRef.current) loaded.careLog = true;
           loaded.doctor = loaded.messages;
           if (needsHeal) void client.mutation(api.push.setPrefs, { token, prefs: loaded }).catch(() => {});
           setPrefs(loaded);
@@ -221,7 +233,12 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
     async (patch: Partial<PushPrefs>) => {
       // The lock wins over any attempt (UI is disabled too — this is the backstop). The doctor
       // category has no toggle of its own — it always mirrors Message Alerts.
-      const next = { ...prefs, ...patch, ...(messagesLockedRef.current ? { messages: true } : {}) };
+      const next = {
+        ...prefs,
+        ...patch,
+        ...(messagesLockedRef.current ? { messages: true } : {}),
+        ...(careLogLockedRef.current ? { careLog: true } : {}),
+      };
       next.doctor = next.messages;
       setPrefs(next); // optimistic so the switch doesn't lag
       if (!pushToken) return;
@@ -254,11 +271,11 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
 
   // Expose the locked view so every consumer renders Message Alerts ON for locked identities;
   // doctor mirrors messages unconditionally (they are one switch in the UI).
-  const base = messagesLocked ? { ...prefs, messages: true } : { ...prefs };
+  const base = { ...prefs, ...(messagesLocked ? { messages: true } : {}), ...(careLogLocked ? { careLog: true } : {}) };
   const effectivePrefs = { ...base, doctor: base.messages };
 
   return (
-    <PushContext.Provider value={{ pushToken, prefs: effectivePrefs, registered, messagesLocked, updatePrefs, sounds, updateSounds, ensureRegistered }}>
+    <PushContext.Provider value={{ pushToken, prefs: effectivePrefs, registered, messagesLocked, careLogLocked, updatePrefs, sounds, updateSounds, ensureRegistered }}>
       {children}
     </PushContext.Provider>
   );

@@ -116,6 +116,16 @@ const MAIN_RING_PULSE_MS = 1750;
 const RING_THICKNESS_RATIO = 0.75;
 
 /**
+ * Shrink the CONTENTS of the gauge by 10% — the reading, "mg/dL", the status badge (text + its
+ * pill), the trend arrow, and the trend pill. Headroom for users running a large system text size:
+ * every one of these is a Text (or sized off one), so iOS multiplies it by the accessibility scale
+ * and the big values were overflowing their containers ("Falling…" truncating, the reading crowding
+ * the ring). Deliberately NOT applied to: the ring diameter, the pulse rings, the "Trend" caption,
+ * or the "Updated …" line — those keep their exact current size.
+ */
+const CONTENT_COMPACT = 0.9;
+
+/**
  * Readings arrive ~every 5 min; if the newest is older than 20 minutes the data is stale, so the
  * outward pulse is hidden and the value reads "--" until a fresh reading lands. The solid ring stays.
  */
@@ -334,17 +344,23 @@ export function GlucoseGauge({
             justifyContent: "center",
           }}
         >
-          <Text style={[styles.value, TYPE.display, { color: c.textPrimary, fontSize: size * 0.27 }]}>
+          <Text style={[styles.value, TYPE.display, { color: c.textPrimary, fontSize: size * 0.27 * CONTENT_COMPACT }]}>
             {isStale ? "--" : value}
           </Text>
-          <Text style={[styles.unit, { color: c.textSecondary, fontSize: size * 0.09 }]}>mg/dL</Text>
+          <Text style={[styles.unit, { color: c.textSecondary, fontSize: size * 0.09 * CONTENT_COMPACT }]}>mg/dL</Text>
           <View
             style={[
               styles.badge,
-              { backgroundColor: withAlpha(status.color, 0.14), borderColor: withAlpha(status.color, 0.4), marginTop: size * 0.04 },
+              {
+                backgroundColor: withAlpha(status.color, 0.14),
+                borderColor: withAlpha(status.color, 0.4),
+                marginTop: size * 0.04 * CONTENT_COMPACT,
+                paddingHorizontal: 12 * CONTENT_COMPACT,
+                paddingVertical: 4 * CONTENT_COMPACT,
+              },
             ]}
           >
-            <Text style={[styles.badgeText, { color: status.color, fontSize: size * 0.08 }]}>{status.label}</Text>
+            <Text style={[styles.badgeText, { color: status.color, fontSize: size * 0.08 * CONTENT_COMPACT }]}>{status.label}</Text>
           </View>
         </View>
       </Pressable>
@@ -367,7 +383,7 @@ export function GlucoseGauge({
           >
             <View style={[styles.trendArrowRow, { transform: [{ rotate: TREND_ROTATE[trend] }] }]}>
               {Array.from({ length: arrows }).map((_, i) => (
-                <Feather key={i} name="arrow-up" size={Math.round(30 * contentScale)} color={trendColor} />
+                <Feather key={i} name="arrow-up" size={Math.round(30 * CONTENT_COMPACT * contentScale)} color={trendColor} />
               ))}
             </View>
             <Text style={[styles.trendCaption, { color: c.textSecondary, fontSize: 11 * mutedScale }]}>Trend</Text>
@@ -377,10 +393,15 @@ export function GlucoseGauge({
                 {
                   backgroundColor: withAlpha(trendColor, 0.14),
                   borderColor: withAlpha(trendColor, 0.4),
+                  paddingHorizontal: 10 * CONTENT_COMPACT,
+                  paddingVertical: 5 * CONTENT_COMPACT,
                 },
               ]}
             >
-              <Text style={[styles.trendPillText, { color: trendColor, fontSize: 12.5 * contentScale }]} numberOfLines={1}>
+              <Text
+                style={[styles.trendPillText, { color: trendColor, fontSize: 12.5 * CONTENT_COMPACT * contentScale }]}
+                numberOfLines={1}
+              >
                 {trendLabel}
               </Text>
             </View>

@@ -38,6 +38,10 @@ export interface DashboardSectionVisibility {
    * its own alert preferences (glucose alerts + per-device push toggles) — only the Emergency Text
    * Alerts toggle inside renders locked to the owner's setting. Hidden only in guardian-device
    * child mode.
+   *
+   * NOTE the subtlety this got wrong once: `isChildMode` is true for EVERY access-code session
+   * (it's `childModeEnabled || caregiverSession`), so a bare `!isChildMode` hid this section from
+   * exactly the sessions it is meant to include. It must key off guardian-device child mode only.
    */
   showNotifications: boolean;
   showDoctorCareTeam: boolean;
@@ -50,7 +54,9 @@ export function dashboardSectionVisibility(role: DashboardRoleFlags): DashboardS
   return {
     // Thresholds / Insulin / Emergency still SHOW for a nurse viewing a child (read-only inherited).
     showPatientSections,
-    showNotifications: !role.isChildMode,
+    // Guardian-device child mode hides it; access-code sessions (kid AND caregiver codes) keep it,
+    // because each device owns its own alert prefs.
+    showNotifications: !(role.isChildMode && !role.caregiverSession),
     // Doctor & Care Team (incl. "Share Report with Doctor") is an owner-only section — hidden for the
     // doctor's own session, any access-code / child-view session, and a nurse viewing a child.
     showDoctorCareTeam: !role.doctorSession && !role.isChildMode && !role.caregiverSession && !viewingChild,

@@ -126,7 +126,7 @@ export default function DashboardScreen() {
     circleOwnerName,
     isCaregiverViewingChild,
   } = useAuth();
-  const { prefs: pushPrefs, registered: pushRegistered, messagesLocked, updatePrefs: updatePushPrefs, sounds: alertSounds, updateSounds: updateAlertSounds, ensureRegistered } = usePush();
+  const { prefs: pushPrefs, registered: pushRegistered, messagesLocked, careLogLocked, updatePrefs: updatePushPrefs, sounds: alertSounds, updateSounds: updateAlertSounds, ensureRegistered } = usePush();
   /** Which alert group the Choose Sound picker is open for (null = closed). */
   const [soundPickerFor, setSoundPickerFor] = useState<
     null | "glucoseHigh" | "glucoseLow" | "riseFast" | "fallFast" | "urgent" | "messages"
@@ -789,6 +789,12 @@ export default function DashboardScreen() {
         )}
 
 
+        {/* Account card — hidden for access-code sessions. In those, `profile` is the PATIENT's
+            profile, so this card read as "you are signed in as <patient>" above a red Sign Out,
+            which looked like it might sign the patient out of their own account (it never did — it
+            only ended the local code session). The Caregiver View banner above already identifies
+            the session and provides Exit, and the page header already names who they're watching. */}
+        {!caregiverSession && (
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.profileTop}>
             <View style={[styles.avatarCircle, { backgroundColor: COLORS.primary + "20" }]}>
@@ -816,6 +822,7 @@ export default function DashboardScreen() {
             <Text style={[styles.logoutBtnText, { color: COLORS.danger }]}>Sign Out</Text>
           </Pressable>
         </View>
+        )}
 
         {(() => {
           // Compact 2-column section grid. Each card opens the matching section's existing content in a
@@ -1029,6 +1036,10 @@ export default function DashboardScreen() {
           {pushRegistered && (
             <>
               <View style={[styles.categoryDivider, { borderTopColor: colors.textMuted + "66" }]} />
+              {/* Care Activity + Message Alerts are FORCED ON for caregiver/kid identities, so
+                  their switches are hidden rather than shown greyed out — a dead switch reads as
+                  broken. PushContext keeps both values true for those identities. */}
+              {!careLogLocked && (
               <ToggleRow
                 label="Care Activity"
                 // Same alert either way — the push fires whenever anyone else in the circle logs
@@ -1042,6 +1053,8 @@ export default function DashboardScreen() {
                 onToggle={(v) => void updatePushPrefs({ careLog: v })}
                 colors={colors}
               />
+              )}
+              {!messagesLocked && (
               <ToggleRow
                 label="Message Alerts"
                 description={
@@ -1058,6 +1071,7 @@ export default function DashboardScreen() {
                 colors={colors}
                 last
               />
+              )}
               <View style={styles.soundBtnRow}>
                 <Pressable
                   accessibilityRole="button"
@@ -1066,19 +1080,25 @@ export default function DashboardScreen() {
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("messages"); }}
                 >
                   <Feather name="music" size={12} color={COLORS.primary} />
-                  <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.messages)}</Text>
+                  <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>
+                    {messagesLocked ? "Message Sound" : "Sound"}: {soundLabelFor(alertSounds.messages)}
+                  </Text>
                 </Pressable>
               </View>
 
             </>
           )}
 
+          {/* Emergency Text Alerts is the OWNER's setting — caregiver/kid identities can't change
+              it, so the whole block (and its divider) is hidden for them rather than shown as a
+              dead switch. Their alerts still follow whatever the guardian has chosen. */}
+          {!(caregiverSession || isCaregiverViewingChild || profile?.accountRole === "caregiver") && (
           <View style={[styles.categoryDivider, { borderTopColor: colors.textMuted + "66" }]} />
-          {/* Kid/caregiver sessions (codes AND nurse email accounts) mirror the OWNER's emergency
-              setting, locked — every other toggle on this page stays the device's own choice. */}
+          )}
           {(() => {
             const emergencyLocked =
               caregiverSession || isCaregiverViewingChild || profile?.accountRole === "caregiver";
+            if (emergencyLocked) return null;
             return (
               <>
                 <ToggleRow

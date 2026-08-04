@@ -326,13 +326,24 @@ export default function HomeScreen() {
     account?.passwordHash,
   ]);
 
-  const libreBannerKind = bannerKindFromSyncStatus({
-    provider: cgmConnection.type,
-    diagnosticCategory: syncStatus?.diagnosticCategory,
-    reconnectRequired: syncStatus?.reconnectRequired,
-    backupMissing,
-    hasStoredCredentials: syncStatus?.hasStoredCredentials,
-  });
+  /**
+   * Identities that only READ the glucose stream and don't own the sensor: email caregiver accounts
+   * and every access-code session (caregiver codes + kid codes). They get no CGM connector chip and
+   * no connection banners — a caregiver can't reconnect someone else's Dexcom/Libre account, so
+   * those prompts are unactionable for them (and their tap target is a setup screen they shouldn't
+   * reach). The patient's own guardian still sees them and can act.
+   */
+  const isCgmViewerOnly = profile?.accountRole === "caregiver" || caregiverSession;
+
+  const libreBannerKind = isCgmViewerOnly
+    ? null
+    : bannerKindFromSyncStatus({
+        provider: cgmConnection.type,
+        diagnosticCategory: syncStatus?.diagnosticCategory,
+        reconnectRequired: syncStatus?.reconnectRequired,
+        backupMissing,
+        hasStoredCredentials: syncStatus?.hasStoredCredentials,
+      });
 
   const deviceLabel = cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre";
 
@@ -512,7 +523,9 @@ export default function HomeScreen() {
           at: now,
           message: msg,
         });
-        if (!silent) {
+        // Same rule as the banner/chip: a caregiver or kid can't reconnect a sensor they don't
+        // own, so don't hand them a "Reconnect" prompt that leads to a setup screen for them.
+        if (!silent && !isCgmViewerOnly) {
           return {
             ok: false,
             manualAlert: {
@@ -629,7 +642,7 @@ export default function HomeScreen() {
       setIsSyncingCGM(false);
       setIsAutoSyncing(false);
     }
-  }, [cgmConnection.type, deviceLabel, account?.convexUserId, account?.passwordHash, bulkAddReadings, alertPrefs, profile?.childName, notifyCgmSyncSuccess]);
+  }, [cgmConnection.type, deviceLabel, account?.convexUserId, account?.passwordHash, bulkAddReadings, alertPrefs, profile?.childName, notifyCgmSyncSuccess, isCgmViewerOnly]);
 
   useEffect(() => {
     if (!isConnected) return;
@@ -957,8 +970,12 @@ export default function HomeScreen() {
               Shows the connected provider (Dexcom/Libre) + new-count/recency, or "Connect CGM" when
               disconnected; taps to the same /cgm-setup destination. Independent of the sync card. */}
           {/* Own-account CGM connector — hidden while viewing a linked patient (the patient's own
-              device owns the sensor; the co-guardian just reads the stream). */}
-          {!isViewingLinkedPatient && (
+              device owns the sensor; the co-guardian just reads the stream), and hidden for every
+              caregiver/kid identity (email caregiver accounts + all access-code sessions): they
+              don't own the sensor, so connecting one isn't theirs to do. Hiding it also hands the
+              full header width back to the title, which for caregivers is the longer
+              "<name>'s Caregiver" and would otherwise wrap to a second line. */}
+          {!isViewingLinkedPatient && !isCgmViewerOnly && (
           <Pressable
             onPress={() => router.push("/cgm-setup")}
             style={[
@@ -1083,7 +1100,7 @@ export default function HomeScreen() {
 
         {/* Pull-to-sync helper — centered in the open header space, above the glucose summary card.
             Page-centered (its own full-width row), not anchored to the greeting or the Dexcom card. */}
-        {isConnected && !isViewingLinkedPatient && (
+        {isConnected && !isViewingLinkedPatient && !isCgmViewerOnly && (
           <View style={styles.syncHintRow}>
             <Text style={[styles.syncHintLine, { color: c.textMuted }]}>Pull down to sync</Text>
             <Text style={[styles.syncHintLine, styles.syncHintSub, { color: c.textMuted }]}>

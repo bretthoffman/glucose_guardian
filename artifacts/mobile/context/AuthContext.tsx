@@ -2377,6 +2377,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // this borrowed view over the device's own account thresholds). Fall back to the owner's
             // defaults so we never leave the previous account's ranges in place.
             setAlertPrefsState((prev) => ({ ...prev, ...DEFAULT_ALERT_PREFS, ...(sessionAlertOverlay(slim?.alertPreferences) ?? {}) }));
+            // Drop any CGM connection left over from the account previously signed in on THIS
+            // device. An access-code session never owns a sensor, and a stale connection made the
+            // caregiver screen behave like the old guardian's (pull-to-sync hint, "reconnect
+            // needed" banner) on a phone that had been signed into the main account.
+            setCGMConnectionState({ type: null });
+            await AsyncStorage.removeItem(CGM_KEY);
             setCaregiverCloudCode(normalized);
             setCaregiverCodeKind("access");
             setAccessCodeRole(resolved.kind);
@@ -2404,6 +2410,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profileRef.current = nextProfile;
         setProfile(nextProfile);
         await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+        // Same leftover-connection cleanup as the access-code path above.
+        setCGMConnectionState({ type: null });
+        await AsyncStorage.removeItem(CGM_KEY);
         setCaregiverCloudCode(normalized);
         setCaregiverCodeKind("legacy");
         setCaregiverSession(true);

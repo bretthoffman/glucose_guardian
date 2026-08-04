@@ -94,7 +94,32 @@ async function resolveOwner(
 
 // ── device registration + preferences ────────────────────────────────────────────────────────
 
-/** Upsert this device's Expo push token. Idempotent: re-registering re-points an existing token. */
+/** All rows for a device token — one per identity that has signed in on it. */
+async function rowsForToken(ctx: QueryCtx | MutationCtx, token: string) {
+  return await ctx.db.query("pushTokens").withIndex("by_token", (q) => q.eq("token", token)).collect();
+}
+
+/**
+ * The row whose settings this device is currently using: the one that isn't disabled. Exactly one
+ * row per token is enabled at a time (registerToken enforces it); the newest wins if data ever
+ * drifted.
+ */
+async function activeRowForToken(ctx: QueryCtx | MutationCtx, token: string) {
+  const rows = (await rowsForToken(ctx, token)).filter((r) => r.disabledAt == null);
+  rows.sort((a, b) => b.updatedAt - a.updatedAt);
+  return rows[0] ?? null;
+}
+
+/**
+ * Upsert this device's Expo push token FOR THE SIGNING-IN IDENTITY.
+ *
+ * One row per (token, identity) — NOT one per token. A phone can host several identities over time
+ * (a guardian account, then a caregiver access code), and each must keep its OWN alert toggles and
+ * sounds: re-pointing a single shared row let a caregiver's sound change overwrite the guardian's,
+ * because prefs/sounds rode along with the row. Every other identity's row on this device is
+ * disabled so only the signed-in one receives pushes (a disabled row is invisible to
+ * `collectTokens`, so the device can never be double-delivered).
+ */
 export const registerToken = mutation({
   args: {
     userId: v.optional(v.id("users")),
@@ -107,17 +132,25 @@ export const registerToken = mutation({
     const owner = await resolveOwner(ctx, args);
     if (!owner) throw new ConvexError("Unauthorized");
     const now = Date.now();
-    const existing = await ctx.db.query("pushTokens").withIndex("by_token", (q) => q.eq("token", args.token)).first();
-    if (existing) {
-      // The same physical device may switch identities (guardian signs out, kid code signs in).
-      await ctx.db.patch(existing._id, {
-        userId: owner.userId,
-        code: owner.code,
+    const rows = await rowsForToken(ctx, args.token);
+    const mine = rows.find((r) =>
+      owner.userId ? r.userId === owner.userId : r.code != null && r.code === owner.code,
+    );
+
+    // Park every OTHER identity's row for this device — their settings are preserved, they just
+    // stop receiving until they sign back in.
+    for (const r of rows) {
+      if (r._id === mine?._id) continue;
+      if (r.disabledAt == null) await ctx.db.patch(r._id, { disabledAt: now, updatedAt: now });
+    }
+
+    if (mine) {
+      await ctx.db.patch(mine._id, {
         platform: args.platform,
         updatedAt: now,
         disabledAt: undefined,
       });
-      return existing._id;
+      return mine._id;
     }
     return await ctx.db.insert("pushTokens", {
       token: args.token,
@@ -131,19 +164,25 @@ export const registerToken = mutation({
   },
 });
 
-/** Stop sending to this device (sign-out). Keeps the row so prefs survive a re-register. */
+/**
+ * Stop sending to this device (sign-out) — every identity's row for it. Rows are KEPT so each
+ * identity's toggles and sounds are still there when it signs back in.
+ */
 export const unregisterToken = mutation({
   args: { token: v.string() },
   handler: async (ctx, args) => {
-    const row = await ctx.db.query("pushTokens").withIndex("by_token", (q) => q.eq("token", args.token)).first();
-    if (row) await ctx.db.patch(row._id, { disabledAt: Date.now(), updatedAt: Date.now() });
+    const now = Date.now();
+    for (const row of await rowsForToken(ctx, args.token)) {
+      if (row.disabledAt == null) await ctx.db.patch(row._id, { disabledAt: now, updatedAt: now });
+    }
   },
 });
 
 export const setPrefs = mutation({
   args: { token: v.string(), prefs: pushPrefsPayload },
   handler: async (ctx, args) => {
-    const row = await ctx.db.query("pushTokens").withIndex("by_token", (q) => q.eq("token", args.token)).first();
+    // The ACTIVE identity's row only — never another identity that shares this phone.
+    const row = await activeRowForToken(ctx, args.token);
     if (!row) throw new ConvexError("This device isn't registered for alerts");
     await ctx.db.patch(row._id, { prefs: args.prefs, updatedAt: Date.now() });
   },
@@ -164,7 +203,7 @@ export const setSounds = mutation({
     }),
   },
   handler: async (ctx, args) => {
-    const row = await ctx.db.query("pushTokens").withIndex("by_token", (q) => q.eq("token", args.token)).first();
+    const row = await activeRowForToken(ctx, args.token);
     if (!row) throw new ConvexError("This device isn't registered for alerts");
     await ctx.db.patch(row._id, { sounds: args.sounds, updatedAt: Date.now() });
   },
@@ -173,8 +212,8 @@ export const setSounds = mutation({
 export const getPrefs = query({
   args: { token: v.string() },
   handler: async (ctx, args) => {
-    const row = await ctx.db.query("pushTokens").withIndex("by_token", (q) => q.eq("token", args.token)).first();
-    if (!row || row.disabledAt != null) return null;
+    const row = await activeRowForToken(ctx, args.token);
+    if (!row) return null;
     return { prefs: row.prefs, platform: row.platform, sounds: row.sounds ?? {} };
   },
 });
@@ -183,9 +222,12 @@ export const getPrefs = query({
 export const disableTokens = internalMutation({
   args: { tokens: v.array(v.string()) },
   handler: async (ctx, args) => {
+    const now = Date.now();
     for (const token of args.tokens) {
-      const row = await ctx.db.query("pushTokens").withIndex("by_token", (q) => q.eq("token", token)).first();
-      if (row) await ctx.db.patch(row._id, { disabledAt: Date.now(), updatedAt: Date.now() });
+      // A dead token is dead for every identity that registered it on that device.
+      for (const row of await rowsForToken(ctx, token)) {
+        if (row.disabledAt == null) await ctx.db.patch(row._id, { disabledAt: now, updatedAt: now });
+      }
     }
   },
 });
