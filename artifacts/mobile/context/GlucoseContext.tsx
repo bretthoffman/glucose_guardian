@@ -49,6 +49,33 @@ const GlucoseContext = createContext<GlucoseContextType | null>(null);
 const STORAGE_KEY = GLUCOSE_HISTORY_STORAGE_KEY;
 const SETTINGS_KEY = GLUCOSE_SETTINGS_STORAGE_KEY;
 
+/**
+ * Serialized read-modify-write for the settings blob.
+ *
+ * Every dose setter used to do its own `getItem` → `setItem`. Saving the Insulin Settings form
+ * fires several of them in the same tick (`saveFormula` + `setDoseSettingsByTime`), so they each
+ * read the SAME pre-save snapshot and the last write clobbered the fields the others had just
+ * written — the saved values then "reverted" the next time settings were read back from storage.
+ * Chaining every write through one promise makes each merge see the previous one's result.
+ */
+let settingsWriteChain: Promise<void> = Promise.resolve();
+function mergeSettings(patch: Record<string, unknown>): Promise<void> {
+  settingsWriteChain = settingsWriteChain
+    .catch(() => {})
+    .then(async () => {
+      const raw = await AsyncStorage.getItem(SETTINGS_KEY);
+      let curr: Record<string, unknown> = {};
+      try {
+        curr = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      } catch {
+        curr = {};
+      }
+      await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...curr, ...patch }));
+    })
+    .catch(() => {});
+  return settingsWriteChain;
+}
+
 /** Key-order-stable fingerprint so the profile-backfill diff can't ping-pong on object ordering. */
 function canonicalDoseSettingsByTime(bt: DoseSettingsByTime | undefined | null): string {
   const n = normalizeDoseSettingsByTime(bt ?? undefined);
@@ -463,21 +490,12 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     if (typeof profile.correctionFactor === "number") setCorrectionFactorState(profile.correctionFactor);
     setDoseSettingsByTimeState(normalizeDoseSettingsByTime(profile.doseSettingsByTime));
     if (isCircleMember) {
-      AsyncStorage.getItem(SETTINGS_KEY)
-        .then((s) => {
-          const curr = s ? JSON.parse(s) : {};
-          return AsyncStorage.setItem(
-            SETTINGS_KEY,
-            JSON.stringify({
-              ...curr,
-              ...(typeof profile.carbRatio === "number" ? { carbRatio: profile.carbRatio } : {}),
-              ...(typeof profile.targetGlucose === "number" ? { targetGlucose: profile.targetGlucose } : {}),
-              ...(typeof profile.correctionFactor === "number" ? { correctionFactor: profile.correctionFactor } : {}),
-              doseSettingsByTime: normalizeDoseSettingsByTime(profile.doseSettingsByTime) ?? null,
-            }),
-          );
-        })
-        .catch(() => {});
+      void mergeSettings({
+        ...(typeof profile.carbRatio === "number" ? { carbRatio: profile.carbRatio } : {}),
+        ...(typeof profile.targetGlucose === "number" ? { targetGlucose: profile.targetGlucose } : {}),
+        ...(typeof profile.correctionFactor === "number" ? { correctionFactor: profile.correctionFactor } : {}),
+        doseSettingsByTime: normalizeDoseSettingsByTime(profile.doseSettingsByTime) ?? null,
+      });
     }
   }, [caregiverSession, caregiverCloudCode, viewingPatientId, isCircleMember, profile?.carbRatio, profile?.targetGlucose, profile?.correctionFactor, profile?.doseSettingsByTime]);
 
@@ -546,58 +564,30 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
 
   const setCarbRatio = useCallback((v: number) => {
     setCarbRatioState(v);
-    AsyncStorage.getItem(SETTINGS_KEY)
-      .then((s) => {
-        const curr = s ? JSON.parse(s) : {};
-        return AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...curr, carbRatio: v }));
-      })
-      .catch(() => {});
+    void mergeSettings({ carbRatio: v });
   }, []);
 
   const setTargetGlucose = useCallback((v: number) => {
     setTargetGlucoseState(v);
-    AsyncStorage.getItem(SETTINGS_KEY)
-      .then((s) => {
-        const curr = s ? JSON.parse(s) : {};
-        return AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...curr, targetGlucose: v }));
-      })
-      .catch(() => {});
+    void mergeSettings({ targetGlucose: v });
   }, []);
 
   const setCorrectionFactor = useCallback((v: number) => {
     setCorrectionFactorState(v);
-    AsyncStorage.getItem(SETTINGS_KEY)
-      .then((s) => {
-        const curr = s ? JSON.parse(s) : {};
-        return AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...curr, correctionFactor: v }));
-      })
-      .catch(() => {});
+    void mergeSettings({ correctionFactor: v });
   }, []);
 
   const setDoseSettingsByTime = useCallback((v: DoseSettingsByTime | undefined) => {
     const normalized = normalizeDoseSettingsByTime(v);
     setDoseSettingsByTimeState(normalized);
-    AsyncStorage.getItem(SETTINGS_KEY)
-      .then((s) => {
-        const curr = s ? JSON.parse(s) : {};
-        return AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...curr, doseSettingsByTime: normalized ?? null }));
-      })
-      .catch(() => {});
+    void mergeSettings({ doseSettingsByTime: normalized ?? null });
   }, []);
 
   const saveFormula = useCallback((cr: number, tg: number, cf: number) => {
     setCarbRatioState(cr);
     setTargetGlucoseState(tg);
     setCorrectionFactorState(cf);
-    AsyncStorage.getItem(SETTINGS_KEY)
-      .then((s) => {
-        const curr = s ? JSON.parse(s) : {};
-        return AsyncStorage.setItem(
-          SETTINGS_KEY,
-          JSON.stringify({ ...curr, carbRatio: cr, targetGlucose: tg, correctionFactor: cf }),
-        );
-      })
-      .catch(() => {});
+    void mergeSettings({ carbRatio: cr, targetGlucose: tg, correctionFactor: cf });
   }, []);
 
   const latestReading = history.length > 0 ? history[history.length - 1] : null;
