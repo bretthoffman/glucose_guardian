@@ -553,6 +553,14 @@ const careShared = defineTable({
 const careFoodLogs = defineTable({
   patientUserId: v.id("users"),
   authorUserId: v.optional(v.id("users")), // absent when authored via an external access code
+  /**
+   * The access code that wrote this entry, when it came from a code session. Without this an
+   * accountless code session had NO identity recorded, so its own device couldn't tell its entries
+   * apart from anyone else's — every screen fell back to the code's label, which reads as broken when
+   * a code happens to be named something like "me". Never displayed; used only to decide whether the
+   * viewing device is the one that wrote the entry.
+   */
+  authorCode: v.optional(v.string()),
   authorName: v.string(),
   clientId: v.string(),
   timestamp: v.string(),
@@ -575,6 +583,14 @@ const careFoodLogs = defineTable({
 const careInsulinLogs = defineTable({
   patientUserId: v.id("users"),
   authorUserId: v.optional(v.id("users")),
+  /**
+   * The access code that wrote this entry, when it came from a code session. Without this an
+   * accountless code session had NO identity recorded, so its own device couldn't tell its entries
+   * apart from anyone else's — every screen fell back to the code's label, which reads as broken when
+   * a code happens to be named something like "me". Never displayed; used only to decide whether the
+   * viewing device is the one that wrote the entry.
+   */
+  authorCode: v.optional(v.string()),
   authorName: v.string(),
   clientId: v.string(),
   timestamp: v.string(),

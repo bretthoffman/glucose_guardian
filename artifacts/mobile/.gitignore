@@ -39,3 +39,9 @@ yarn-error.*
 .vercel
 
 .env
+
+# Stray Convex codegen. Running `convex dev`/`codegen` from this directory generates an EMPTY
+# function set (there are no Convex functions here — they live in the repo-root convex/), and pushing
+# that would wipe the functions on whichever deployment is targeted. Mobile code imports the root
+# codegen via an explicit ../../../convex/_generated path.
+convex/

@@ -3,6 +3,7 @@ import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 import {
   CARB_ABSORPTION_MIN,
   RAPID_DIA_MIN,
+  activeFractionRemaining,
   computeActiveCarbs,
   computeActiveInsulin,
   formatAgeShort,
@@ -120,5 +121,70 @@ describe("formatAgeShort", () => {
     expect(formatAgeShort(32)).toBe("32m");
     expect(formatAgeShort(60)).toBe("1h");
     expect(formatAgeShort(80)).toBe("1h 20m");
+  });
+});
+
+describe("on-board decay bar fill (time-anchored)", () => {
+  const ins = (units: number, minsAgo: number, insulinType?: string) => ({
+    id: `i${minsAgo}`, timestamp: new Date(NOW - minsAgo * 60_000).toISOString(),
+    units, type: "bolus" as const, ...(insulinType ? { insulinType } : {}),
+  });
+  const food = (carbs: number, minsAgo: number, absorption?: "fast" | "medium" | "slow") => ({
+    id: `f${minsAgo}-${carbs}`, timestamp: new Date(NOW - minsAgo * 60_000).toISOString(),
+    foodName: "x", estimatedCarbs: carbs, insulinUnits: 0,
+    confidence: "high" as const, fromPhoto: false, ...(absorption ? { absorption } : {}),
+  });
+  const carbFill = (logs: FoodLogEntry[]) => {
+    const s = computeActiveCarbs(logs, NOW);
+    return activeFractionRemaining(s.remainingMin, s.remainingWindowMin);
+  };
+  const insFill = (logs: InsulinLogEntry[]) => {
+    const s = computeActiveInsulin(logs, NOW);
+    return activeFractionRemaining(s.remainingMin, s.remainingWindowMin);
+  };
+
+  it("is full when just logged and 0 once nothing is in-window", () => {
+    expect(carbFill([food(60, 0)])).toBeCloseTo(1, 2);
+    expect(carbFill([food(60, 999)])).toBe(0);
+    expect(insFill([ins(4, 0)])).toBeCloseTo(1, 2);
+    expect(insFill([ins(4, 999)])).toBe(0);
+  });
+
+  it("drains linearly in TIME, independent of the amount", () => {
+    // Half a 180-min window in ⇒ half full, whether it was 10 g or 200 g.
+    expect(carbFill([food(10, 90)])).toBeCloseTo(0.5, 2);
+    expect(carbFill([food(200, 90)])).toBeCloseTo(0.5, 2);
+  });
+
+  it("REGRESSION: does not jump backward when an earlier entry expires", () => {
+    // The amount-based version measured 17% -> 50% here with nothing new logged.
+    const before = carbFill([food(60, 179), food(30, 89)]);
+    const after = carbFill([food(60, 181), food(30, 91)]);
+    expect(after).toBeLessThan(before); // still draining, never rewinding
+    expect(before - after).toBeLessThan(0.05); // and smoothly, not a leap
+  });
+
+  it("returns to full when a fresh log outlasts everything on board", () => {
+    const halfway = carbFill([food(60, 90)]);
+    expect(halfway).toBeCloseTo(0.5, 2);
+    expect(carbFill([food(60, 90), food(30, 0)])).toBeCloseTo(1, 2);
+  });
+
+  it("anchors to the LAST-finishing entry, not the newest", () => {
+    // A slow 240-min meal logged 30 min ago outlasts a fast 120-min meal logged just now.
+    const f = carbFill([food(40, 30, "slow"), food(20, 0, "fast")]);
+    expect(f).toBeCloseTo((240 - 30) / 240, 2);
+  });
+
+  it("ignores basal insulin when choosing the anchor", () => {
+    // Basal never counts toward IOB, so a long basal dose must not stretch the bar.
+    const s = computeActiveInsulin([{ ...ins(10, 5), type: "basal" as const }, ins(2, 120)], NOW);
+    expect(s.remainingWindowMin).toBe(RAPID_DIA_MIN);
+    expect(s.remainingMin).toBe(RAPID_DIA_MIN - 120);
+  });
+
+  it("is 0 (bar hidden) with nothing on board", () => {
+    expect(carbFill([])).toBe(0);
+    expect(insFill([])).toBe(0);
   });
 });

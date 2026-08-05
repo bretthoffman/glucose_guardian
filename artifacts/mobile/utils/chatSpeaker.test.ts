@@ -58,3 +58,53 @@ describe("resolveChatSpeaker — the AI must never call a caregiver by the patie
     ).toEqual({ kind: "caregiver" });
   });
 });
+
+describe("speaker identity across every account type (audit)", () => {
+  it("GUARDIAN account: the kid's guardian, named", () => {
+    expect(resolveChatSpeaker({ accountRole: "parent", parentName: "Brian" }))
+      .toEqual({ kind: "guardian", name: "Brian" });
+  });
+
+  it("CO-GUARDIAN viewing a linked patient: still a guardian, with THEIR OWN name", () => {
+    // The name passed in must be the signed-in person's own — chat.tsx now sources it from
+    // `ownParentName`, because `profile` is the VIEWED patient's while viewing.
+    expect(resolveChatSpeaker({ viewingPatientId: "p1", parentName: "Dad" }))
+      .toEqual({ kind: "guardian", name: "Dad" });
+  });
+
+  it("ADULT managing their own diabetes: themselves", () => {
+    expect(resolveChatSpeaker({ accountRole: "adult", parentName: null }).kind).toBe("patient");
+  });
+
+  it("KID access code: the patient, so the AI uses the kid's name", () => {
+    expect(resolveChatSpeaker({ accessCodeRole: "child", caregiverSession: true, isChildMode: true }).kind)
+      .toBe("patient");
+  });
+
+  it("CAREGIVER access code: a caregiver, never the patient", () => {
+    // isChildMode is TRUE for every code session — the trap that made this say "patient".
+    expect(resolveChatSpeaker({ accessCodeRole: "caregiver", caregiverSession: true, isChildMode: true }).kind)
+      .toBe("caregiver");
+  });
+
+  it("LEGACY caregiver code (no role recorded): still a caregiver", () => {
+    expect(resolveChatSpeaker({ caregiverSession: true, isChildMode: true }).kind).toBe("caregiver");
+  });
+
+  it("CAREGIVER EMAIL account: a caregiver", () => {
+    expect(resolveChatSpeaker({ accountRole: "caregiver" }).kind).toBe("caregiver");
+  });
+
+  it("CAREGIVER EMAIL account inside a linked kid's view: a caregiver, not that kid's guardian", () => {
+    expect(resolveChatSpeaker({ accountRole: "caregiver", nurseViewCode: "ABCD1234", viewingPatientId: "kid1" }).kind)
+      .toBe("caregiver");
+  });
+
+  it("a kid code wins over every caregiver signal", () => {
+    // Ordering guard: a kid's own device must never be labelled a caregiver.
+    expect(resolveChatSpeaker({
+      accessCodeRole: "child", caregiverSession: true, isChildMode: true,
+      nurseViewCode: "X", accountRole: "caregiver",
+    }).kind).toBe("patient");
+  });
+});

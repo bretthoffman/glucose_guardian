@@ -64,12 +64,42 @@ const INVITE_TTL_MS = 48 * 60 * 60 * 1000;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const CODE_LENGTH = 8;
 
+/**
+ * Access codes are BEARER CREDENTIALS — a code alone grants a caregiver/kid device the patient's
+ * readings and logs, and the doctor code alone gates the two unauthenticated api-server routes
+ * (`/api/doctor/sync`, `/api/doctor/order-decision`). So they must be unpredictable, not merely
+ * random-looking: `Math.random()` is seeded PRNG output, and observing enough issued codes can reveal
+ * the generator state and therefore future codes. 32^8 ≈ 1.1e12 is only meaningful if the draws are
+ * genuinely unpredictable.
+ *
+ * Uses the Web Crypto CSPRNG, with a `Math.random` fallback rather than a throw: failing closed here
+ * would mean a guardian cannot issue a caregiver code at all, which is worse than the old behavior.
+ * The fallback is strictly no weaker than what this did before.
+ *
+ * Rejection sampling keeps the mapping unbiased if CODE_ALPHABET is ever edited to a non-divisor
+ * length (256 is 8× 32 exactly today, so nothing is currently discarded).
+ */
 function randomCode(): string {
+  const limit = Math.floor(256 / CODE_ALPHABET.length) * CODE_ALPHABET.length;
   let code = "";
-  for (let i = 0; i < CODE_LENGTH; i++) {
-    code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+  try {
+    while (code.length < CODE_LENGTH) {
+      const bytes = new Uint8Array(CODE_LENGTH - code.length + 8);
+      crypto.getRandomValues(bytes);
+      for (const b of bytes) {
+        if (code.length >= CODE_LENGTH) break;
+        if (b >= limit) continue;
+        code += CODE_ALPHABET[b % CODE_ALPHABET.length];
+      }
+    }
+    return code;
+  } catch {
+    let fallback = "";
+    for (let i = 0; i < CODE_LENGTH; i++) {
+      fallback += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+    }
+    return fallback;
   }
-  return code;
 }
 
 export function normalizeCareCode(raw: string): string {
@@ -703,6 +733,14 @@ export const updateSharedProfile = mutation({
   handler: async (ctx, args) => {
     const user = await requireUserCompat(ctx, args);
     const { anchor, isOwner } = await circleAnchorFor(ctx, user._id);
+    /**
+     * Owner-only fields are FATAL for the whole patch — deliberately fail-closed.
+     *
+     * A partial write would be worse than a rejection here: the caller would be told the save failed
+     * while some fields had in fact changed. So this stays loud, and the CLIENT is responsible for not
+     * sending owner-locked fields from a member session (see `splitSharedProfilePatch`). This throw is
+     * the backstop for a client bug, not the everyday path.
+     */
     const patch: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(args.patch)) {
       if (value === undefined) continue;
@@ -742,8 +780,15 @@ export const addSharedEmergencyContact = mutation({
     const { anchor } = await circleAnchorFor(ctx, user._id);
     const existing = await getCareSharedRow(ctx, anchor);
     const contacts = existing?.emergencyContacts ?? [];
-    if (contacts.some((c) => c.id === args.contact.id)) return;
-    if (contacts.length >= MAX_EMERGENCY_CONTACTS) return;
+    if (contacts.some((c) => c.id === args.contact.id)) return; // idempotent re-send, not a failure
+    // A bare `return` here reported SUCCESS while silently discarding the contact — for
+    // safety-critical data whose whole purpose is being reachable in an emergency. Fail loudly so the
+    // caller can tell the user; the client also checks the cap first so this is the backstop.
+    if (contacts.length >= MAX_EMERGENCY_CONTACTS) {
+      throw new ConvexError(
+        `You can have at most ${MAX_EMERGENCY_CONTACTS} emergency contacts. Remove one first.`,
+      );
+    }
     const next = [...contacts, args.contact];
     if (existing) await ctx.db.patch(existing._id, { emergencyContacts: next, updatedAt: Date.now() });
     else await ctx.db.insert("careShared", { patientUserId: anchor, emergencyContacts: next, updatedAt: Date.now() });

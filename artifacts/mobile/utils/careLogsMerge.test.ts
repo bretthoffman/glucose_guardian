@@ -52,3 +52,35 @@ describe("mergeCloudLogs", () => {
     expect(mergeCloudLogs(cloud, [], 200, NOW)).toHaveLength(200);
   });
 });
+
+describe("pendingSync protects never-synced entries from being deleted", () => {
+  const old = (mins: number) => `ins_${Date.now() - mins * 60_000}_abc`;
+
+  it("keeps a pending entry no matter how old it is (the lost-bolus bug)", () => {
+    const local = [
+      { id: old(60), timestamp: "2026-08-04T10:00:00.000Z", pendingSync: true },
+    ];
+    const merged = mergeCloudLogs([], local, 500);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].pendingSync).toBe(true);
+  });
+
+  it("still drops a stale local-only entry that is NOT pending, so a remote delete sticks", () => {
+    const local = [{ id: old(60), timestamp: "2026-08-04T10:00:00.000Z" }];
+    expect(mergeCloudLogs([], local, 500)).toHaveLength(0);
+  });
+
+  it("keeps honoring the age grace period for legacy entries with no flag", () => {
+    const local = [{ id: old(1), timestamp: "2026-08-04T10:00:00.000Z" }];
+    expect(mergeCloudLogs([], local, 500)).toHaveLength(1);
+  });
+
+  it("prefers the cloud copy once the entry has synced (no duplicate)", () => {
+    const id = old(60);
+    const cloud = [{ id, timestamp: "2026-08-04T10:00:00.000Z", authorName: "Mom" }];
+    const local = [{ id, timestamp: "2026-08-04T10:00:00.000Z", pendingSync: true }];
+    const merged = mergeCloudLogs(cloud as any, local as any, 500);
+    expect(merged).toHaveLength(1);
+    expect((merged[0] as any).authorName).toBe("Mom");
+  });
+});

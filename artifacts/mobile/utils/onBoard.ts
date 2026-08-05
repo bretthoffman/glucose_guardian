@@ -62,6 +62,14 @@ export interface ActiveInsulinSummary {
   doseCount: number;
   lastDoseUnits: number | null;
   lastDoseAgeMin: number | null;
+  /** Sum of the ORIGINAL units of every dose still inside its window, undecayed. */
+  originalUnits: number;
+  /**
+   * Minutes until the LAST-finishing active dose is done, and that dose's own window. Together they
+   * drive the decay bar — see {@link activeFractionRemaining} for why this is time-based.
+   */
+  remainingMin: number;
+  remainingWindowMin: number;
 }
 
 export interface ActiveCarbsSummary {
@@ -70,6 +78,11 @@ export interface ActiveCarbsSummary {
   entryCount: number;
   lastEntryGrams: number | null;
   lastEntryAgeMin: number | null;
+  /** Undecayed sum of every in-window entry. */
+  originalGrams: number;
+  /** Minutes until the last-finishing meal is absorbed, and that meal's own window. */
+  remainingMin: number;
+  remainingWindowMin: number;
 }
 
 /** DIA in minutes for a logged dose; null = excluded from IOB (basal never counts). */
@@ -100,7 +113,11 @@ export function computeActiveInsulin(
   nowMs: number,
 ): ActiveInsulinSummary {
   let totalUnits = 0;
+  let originalUnits = 0;
   let doseCount = 0;
+  // The dose that finishes LAST decides the bar. Tracked as (minutes left, that dose's window) so the
+  // fraction stays anchored to a single dose's lifetime instead of a moving aggregate.
+  let latest: { remainingMin: number; windowMin: number } | null = null;
   let last: { units: number; ageMin: number } | null = null;
 
   for (const entry of insulinLog) {
@@ -110,7 +127,12 @@ export function computeActiveInsulin(
     const ageMin = entryAgeMin(entry.timestamp, nowMs);
     if (ageMin == null || ageMin >= dia) continue;
     totalUnits += entry.units * remainingInsulinFraction(ageMin, dia);
+    originalUnits += entry.units;
     doseCount++;
+    const leftMin = dia - ageMin;
+    if (latest == null || leftMin > latest.remainingMin) {
+      latest = { remainingMin: leftMin, windowMin: dia };
+    }
     if (last == null || ageMin < last.ageMin) last = { units: entry.units, ageMin };
   }
 
@@ -119,12 +141,17 @@ export function computeActiveInsulin(
     doseCount,
     lastDoseUnits: last?.units ?? null,
     lastDoseAgeMin: last != null ? Math.round(last.ageMin) : null,
+    originalUnits: Math.round(originalUnits * 100) / 100,
+    remainingMin: latest != null ? Math.round(latest.remainingMin) : 0,
+    remainingWindowMin: latest?.windowMin ?? 0,
   };
 }
 
 export function computeActiveCarbs(foodLog: FoodLogEntry[], nowMs: number): ActiveCarbsSummary {
   let totalGrams = 0;
+  let originalGrams = 0;
   let entryCount = 0;
+  let latest: { remainingMin: number; windowMin: number } | null = null;
   let last: { grams: number; ageMin: number } | null = null;
 
   for (const entry of foodLog) {
@@ -133,7 +160,12 @@ export function computeActiveCarbs(foodLog: FoodLogEntry[], nowMs: number): Acti
     const ageMin = entryAgeMin(entry.timestamp, nowMs);
     if (ageMin == null || ageMin >= window) continue;
     totalGrams += entry.estimatedCarbs * (1 - ageMin / window);
+    originalGrams += entry.estimatedCarbs;
     entryCount++;
+    const leftMin = window - ageMin;
+    if (latest == null || leftMin > latest.remainingMin) {
+      latest = { remainingMin: leftMin, windowMin: window };
+    }
     if (last == null || ageMin < last.ageMin) last = { grams: entry.estimatedCarbs, ageMin };
   }
 
@@ -142,6 +174,9 @@ export function computeActiveCarbs(foodLog: FoodLogEntry[], nowMs: number): Acti
     entryCount,
     lastEntryGrams: last?.grams ?? null,
     lastEntryAgeMin: last != null ? Math.round(last.ageMin) : null,
+    originalGrams: Math.round(originalGrams),
+    remainingMin: latest != null ? Math.round(latest.remainingMin) : 0,
+    remainingWindowMin: latest?.windowMin ?? 0,
   };
 }
 
@@ -153,4 +188,26 @@ export function formatAgeShort(ageMin: number | null): string {
   const h = Math.floor(m / 60);
   const rest = m % 60;
   return rest === 0 ? `${h}h` : `${h}h ${rest}m`;
+}
+
+/**
+ * Fill fraction for the on-board decay bars: 1 = fully active (left edge), 0 = nothing left (right).
+ *
+ * TIME-based — pass `remainingMin` over `remainingWindowMin`, both anchored to the single entry that
+ * finishes LAST. An earlier, amount-based version (remaining grams ÷ original grams) had a visible
+ * defect: a nearly-exhausted entry still contributed its FULL original amount to the denominator while
+ * contributing almost nothing to the numerator, so it dragged the fill down and the bar JUMPED BACKWARD
+ * when that entry finally dropped out of the window — with nothing new logged. Measured: 17% → 50%.
+ *
+ * Anchoring to the last-finishing entry fixes that, because an earlier entry expiring doesn't change
+ * which entry finishes last. Behavior with multiple logs:
+ *  - a fresh log that outlasts everything becomes the anchor, so the bar returns to full — correct,
+ *    something fully active was just added;
+ *  - an older log expiring is invisible to the bar, which keeps draining smoothly.
+ *
+ * Returns 0 when nothing is in-window, so callers can use it directly as a "should I render?" test.
+ */
+export function activeFractionRemaining(remaining: number, original: number): number {
+  if (!(original > 0) || !(remaining > 0)) return 0;
+  return Math.min(1, Math.max(0, remaining / original));
 }

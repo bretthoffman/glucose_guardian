@@ -80,7 +80,7 @@ async function resolveActiveAccessCode(ctx: QueryCtx | MutationCtx, rawCode: str
 type Owner = { userId: Id<"users">; code?: undefined } | { userId?: undefined; code: string };
 
 async function resolveOwner(
-  ctx: MutationCtx,
+  ctx: QueryCtx | MutationCtx,
   args: { userId?: Id<"users">; passwordHash?: string; code?: string },
 ): Promise<Owner | null> {
   if (args.code != null) {
@@ -120,6 +120,37 @@ async function activeRowForToken(ctx: QueryCtx | MutationCtx, token: string) {
  * disabled so only the signed-in one receives pushes (a disabled row is invisible to
  * `collectTokens`, so the device can never be double-delivered).
  */
+/**
+ * Ownership check for the per-device settings mutations.
+ *
+ * These used to authenticate on the Expo push TOKEN alone: anyone holding a device's token could read
+ * its alert configuration, retune its sounds, or turn OFF its urgent-low glucose alerts. `registerToken`
+ * already resolves a real owner, so the row knows who it belongs to — nothing was comparing against it.
+ *
+ * ⚠️ PHASE 1 OF 2 — deliberately backward compatible. Clients that predate this change send no
+ * credentials, and rejecting them would break alert toggles for anyone who hasn't picked up the OTA yet
+ * (updates apply on the SECOND launch, so there is a real window). So: when credentials ARE supplied we
+ * verify them strictly; when they are absent we fall back to the old token-only behavior.
+ *
+ * PHASE 2 (do this once the OTA has saturated — days, not months): delete the `hasAuthArgs` fallback
+ * below and make `resolveOwner` mandatory. Until then the hole is narrowed, not closed.
+ *
+ * Exploitability today is low — push tokens are never exposed by any endpoint or client surface — which
+ * is why the compatibility break isn't worth forcing.
+ */
+async function assertOwnsRow(
+  ctx: MutationCtx | QueryCtx,
+  args: { userId?: Id<"users">; passwordHash?: string; code?: string },
+  row: { userId?: Id<"users">; code?: string },
+): Promise<void> {
+  const hasAuthArgs = args.userId != null || args.code != null;
+  if (!hasAuthArgs) return; // legacy client — see PHASE 2 above
+  const owner = await resolveOwner(ctx, args);
+  if (!owner) throw new ConvexError("Unauthorized");
+  const matches = owner.userId ? row.userId === owner.userId : row.code != null && row.code === owner.code;
+  if (!matches) throw new ConvexError("Unauthorized");
+}
+
 export const registerToken = mutation({
   args: {
     userId: v.optional(v.id("users")),
@@ -179,11 +210,18 @@ export const unregisterToken = mutation({
 });
 
 export const setPrefs = mutation({
-  args: { token: v.string(), prefs: pushPrefsPayload },
+  args: {
+    userId: v.optional(v.id("users")),
+    passwordHash: v.optional(v.string()),
+    code: v.optional(v.string()),
+    token: v.string(),
+    prefs: pushPrefsPayload,
+  },
   handler: async (ctx, args) => {
     // The ACTIVE identity's row only — never another identity that shares this phone.
     const row = await activeRowForToken(ctx, args.token);
     if (!row) throw new ConvexError("This device isn't registered for alerts");
+    await assertOwnsRow(ctx, args, row);
     await ctx.db.patch(row._id, { prefs: args.prefs, updatedAt: Date.now() });
   },
 });
@@ -191,6 +229,9 @@ export const setPrefs = mutation({
 /** Per-device custom alert sounds — bundled filenames validated client-side against the app's list. */
 export const setSounds = mutation({
   args: {
+    userId: v.optional(v.id("users")),
+    passwordHash: v.optional(v.string()),
+    code: v.optional(v.string()),
     token: v.string(),
     sounds: v.object({
       glucose: v.optional(v.string()),
@@ -205,15 +246,22 @@ export const setSounds = mutation({
   handler: async (ctx, args) => {
     const row = await activeRowForToken(ctx, args.token);
     if (!row) throw new ConvexError("This device isn't registered for alerts");
+    await assertOwnsRow(ctx, args, row);
     await ctx.db.patch(row._id, { sounds: args.sounds, updatedAt: Date.now() });
   },
 });
 
 export const getPrefs = query({
-  args: { token: v.string() },
+  args: {
+    userId: v.optional(v.id("users")),
+    passwordHash: v.optional(v.string()),
+    code: v.optional(v.string()),
+    token: v.string(),
+  },
   handler: async (ctx, args) => {
     const row = await activeRowForToken(ctx, args.token);
     if (!row) return null;
+    await assertOwnsRow(ctx, args, row);
     return { prefs: row.prefs, platform: row.platform, sounds: row.sounds ?? {} };
   },
 });

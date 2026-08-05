@@ -368,13 +368,60 @@ router.post("/", async (req, res) => {
 
     const completion = await openai.chat.completions.create({
       model: "openai/gpt-5.2",
-      max_completion_tokens: 180,
+      /**
+       * This is a REASONING model, so `max_completion_tokens` is a budget for reasoning tokens PLUS
+       * the visible reply — not a length limit on the reply. At the old value of 180 the reasoning
+       * pass routinely consumed most of it, which produced the two bugs users reported:
+       *   - a reply cut off mid-sentence (budget ran out partway through the content), and
+       *   - "Sorry, I had trouble thinking of a response" (budget gone before ANY content, so
+       *     `message.content` came back empty) — which looked like an outage or a billing problem
+       *     even though OpenRouter was perfectly healthy.
+       * Brevity is enforced by the prompt ("2-3 plain sentences maximum"), NOT by this ceiling, so
+       * raising it gives reasoning room without making answers longer.
+       */
+      max_completion_tokens: 2000,
       messages: chatMessages,
     });
 
-    const reply =
-      completion.choices[0]?.message?.content ??
-      "Sorry, I had trouble thinking of a response. Try again?";
+    const choice = completion.choices[0];
+    let reply = choice?.message?.content?.trim();
+
+    if (!reply) {
+      // Log WHY it was empty — `length` means the budget above still wasn't enough, which is a very
+      // different problem from a refusal or a provider error and shouldn't be guessed at next time.
+      console.error(
+        `Chat empty reply — finish_reason=${choice?.finish_reason ?? "unknown"} ` +
+          `usage=${JSON.stringify(completion.usage ?? {})}`,
+      );
+      /**
+       * ONE retry with a bigger budget before giving up. Raising the ceiling above should make this
+       * path rare, but an empty reply is nondeterministic (it depends how long the reasoning pass
+       * happens to run), and "Sorry, I had trouble thinking of a response" is a genuinely bad thing
+       * for a caregiver to hit while asking about a high reading. A single retry costs one extra call
+       * only in the rare case, and never delays a normal answer.
+       */
+      try {
+        const retry = await openai.chat.completions.create({
+          model: "openai/gpt-5.2",
+          max_completion_tokens: 4000,
+          messages: chatMessages,
+        });
+        reply = retry.choices[0]?.message?.content?.trim();
+        if (!reply) {
+          console.error(
+            `Chat empty reply after retry — finish_reason=${retry.choices[0]?.finish_reason ?? "unknown"}`,
+          );
+        }
+      } catch (retryErr: any) {
+        console.error("Chat retry failed:", retryErr?.message ?? retryErr);
+      }
+    }
+
+    if (!reply) {
+      return res.json({
+        reply: "Sorry, I had trouble thinking of a response. Try again?",
+      });
+    }
 
     return res.json({ reply });
   } catch (err: any) {

@@ -467,9 +467,10 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
       }
     }
     void fetchCaregiverGlucose();
-    // Access codes now stream via the subscription above (which also drops data the moment a code
-    // falls outside its schedule window, since the query re-evaluates server-side). Only LEGACY
-    // 6-char codes, which have no reactive query, still need a timer.
+    // Access codes now stream via the subscription above. Correction to an earlier note here: that
+    // subscription re-fires on DATA changes (a revoked or edited code), but NOT on wall-clock time,
+    // so a schedule window closing is caught by AuthContext's 45s `checkAccess` lock instead. Only
+    // LEGACY 6-char codes, which have no reactive query, still need a timer of their own.
     const id = caregiverCodeKind === "access" ? null : setInterval(fetchCaregiverGlucose, 60_000);
     return () => {
       cancelled = true;

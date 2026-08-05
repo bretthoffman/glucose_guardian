@@ -165,7 +165,34 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
   const careLogLockedRef = useRef(careLogLocked);
   useEffect(() => { careLogLockedRef.current = careLogLocked; }, [careLogLocked]);
 
+  /**
+   * Stop delivering to this device when the last identity signs out.
+   *
+   * `convex/push.ts` has always exported `unregisterToken` "for sign-out" and NOTHING called it, so a
+   * signed-out phone kept receiving the previous account's glucose and message alerts until some other
+   * identity happened to register on it. Rows are only parked (never deleted), so each identity's
+   * toggles and custom sounds are still waiting when it signs back in.
+   *
+   * Keyed on the identity going from present to absent — re-registration for a NEW identity is
+   * already handled by `registerToken`, which parks the other rows itself.
+   */
+  const prevKeyRef = useRef<string | null>(key);
+  useEffect(() => {
+    const prev = prevKeyRef.current;
+    prevKeyRef.current = key;
+    if (prev === null || key !== null) return; // only on present -> absent
+    const token = pushTokenRef.current;
+    if (!token) return;
+    void createConvexAuthClient()
+      .mutation(api.push.unregisterToken, { token })
+      .catch(() => {
+        /* offline — the next identity's registerToken parks this row anyway */
+      });
+  }, [key]);
+
   const [pushToken, setPushToken] = useState<string | null>(null);
+  const pushTokenRef = useRef<string | null>(null);
+  useEffect(() => { pushTokenRef.current = pushToken; }, [pushToken]);
   const [prefs, setPrefs] = useState<PushPrefs>(DEFAULT_PUSH_PREFS);
   const [sounds, setSounds] = useState<AlertSounds>({});
   const [registered, setRegistered] = useState(false);
@@ -204,7 +231,7 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
           token,
           platform: Platform.OS,
         });
-        const remote = await client.query(api.push.getPrefs, { token });
+        const remote = await client.query(api.push.getPrefs, { ...args, token });
         if (cancelled) return;
         if (remote?.prefs) {
           const loaded = normalizePushPrefs(remote.prefs as Partial<PushPrefs> & { glucoseHighLow?: boolean });
@@ -217,7 +244,7 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
           if (messagesLockedRef.current) loaded.messages = true;
           if (careLogLockedRef.current) loaded.careLog = true;
           loaded.doctor = loaded.messages;
-          if (needsHeal) void client.mutation(api.push.setPrefs, { token, prefs: loaded }).catch(() => {});
+          if (needsHeal) void client.mutation(api.push.setPrefs, { ...args, token, prefs: loaded }).catch(() => {});
           setPrefs(loaded);
         }
         if (remote?.sounds) setSounds(remote.sounds as AlertSounds);
@@ -243,7 +270,11 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
       setPrefs(next); // optimistic so the switch doesn't lag
       if (!pushToken) return;
       try {
-        await createConvexAuthClient().mutation(api.push.setPrefs, { token: pushToken, prefs: next });
+        await createConvexAuthClient().mutation(api.push.setPrefs, {
+          ...(ownerArgs(messagingIdentity) ?? {}),
+          token: pushToken,
+          prefs: next,
+        });
       } catch {
         setPrefs(prefs); // roll back on failure so the UI never lies about what the server knows
       }
@@ -261,7 +292,11 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
       setSounds(next); // optimistic
       if (!pushToken) return;
       try {
-        await createConvexAuthClient().mutation(api.push.setSounds, { token: pushToken, sounds: next });
+        await createConvexAuthClient().mutation(api.push.setSounds, {
+          ...(ownerArgs(messagingIdentity) ?? {}),
+          token: pushToken,
+          sounds: next,
+        });
       } catch {
         setSounds(sounds); // roll back so the UI matches what the server knows
       }

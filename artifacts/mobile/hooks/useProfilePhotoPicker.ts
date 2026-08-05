@@ -11,7 +11,7 @@ import { useAuth } from "@/context/AuthContext";
  * can be invoked from the Settings popup's "Update Profile Image" action without duplicating the flow.
  */
 export function useProfilePhotoPicker() {
-  const { updateProfile } = useAuth();
+  const { updateProfile, account } = useAuth();
   const [uploading, setUploading] = useState(false);
 
   async function pickPhoto() {
@@ -40,7 +40,18 @@ export function useProfilePhotoPicker() {
     try {
       const src = result.assets[0].uri;
       const ext = src.split(".").pop() ?? "jpg";
-      const dest = (FileSystem.documentDirectory ?? "") + `profile_photo.${ext}`;
+      /**
+       * ACCOUNT-SCOPED + UNIQUE filename. This used to be a fixed `profile_photo.<ext>`, which meant
+       * two accounts on one phone wrote to the SAME file: whoever picked a photo last overwrote the
+       * other's, and because the stored path was byte-identical, the first account then displayed the
+       * second account's child. That is a PHI mis-association, not a cosmetic bug.
+       *
+       * The timestamp also busts the image cache — reusing a path made a newly picked photo appear
+       * not to change until the app restarted.
+       */
+      const scope = account?.convexUserId ?? "local";
+      const dest =
+        (FileSystem.documentDirectory ?? "") + `profile_photo_${scope}_${Date.now()}.${ext}`;
       await FileSystem.copyAsync({ from: src, to: dest });
       await updateProfile({ profilePhotoUri: dest });
     } catch {

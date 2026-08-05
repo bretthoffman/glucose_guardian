@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -13,7 +14,7 @@ import {
 import Colors, { COLORS } from "@/constants/colors";
 import { useMessages, useThreadMessages, type CareMessage } from "@/context/MessagesContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
-import { useContainerKeyboardInset, useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -67,7 +68,6 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
   const keyboardVisible = useKeyboardVisible();
   // Container-aware inset: on iPad the hosting pageSheet floats above the window bottom, so the
   // raw window overlap over-lifts the input — this variant subtracts the sheet's bottom gap.
-  const { inset: keyboardInset, ref: kbContainerRef, onLayout: onKbContainerLayout } = useContainerKeyboardInset();
 
   const serverCount = serverMessages?.length ?? 0;
   useEffect(() => {
@@ -101,7 +101,10 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
   return (
     // Padded by the exact keyboard overlap (see useKeyboardInset) — replaces the library
     // KeyboardAvoidingView, which mis-measured inside the iPad pageSheet and hid the input.
-    <View ref={kbContainerRef} onLayout={onKbContainerLayout} style={{ flex: 1, paddingBottom: keyboardInset }}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       <FlatList
         ref={flatListRef}
         data={groups}
@@ -183,7 +186,7 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
           <Feather name="send" size={16} color={input.trim() ? "#fff" : colors.textMuted} />
         </Pressable>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

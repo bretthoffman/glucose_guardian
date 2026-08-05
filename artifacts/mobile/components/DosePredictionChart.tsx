@@ -13,11 +13,13 @@
  * The reveal is a background-colored "cover" rectangle sliding left→right over the glucose line, so
  * only the reading line animates — the grid, target, and Now line stay static on top.
  */
+import { Feather } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
   LayoutChangeEvent,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -83,6 +85,8 @@ interface DosePredictionChartProps {
   height?: number;
   /** Fired when the future line finishes drawing in (so callers can re-enable a Predict button). */
   onDrawComplete?: () => void;
+  /** Shows a small dismiss control beside the title when provided. */
+  onDismiss?: () => void;
 }
 
 export default function DosePredictionChart({
@@ -98,6 +102,7 @@ export default function DosePredictionChart({
   colors,
   height = 156,
   onDrawComplete,
+  onDismiss,
 }: DosePredictionChartProps) {
   const onDrawCompleteRef = useRef(onDrawComplete);
   useEffect(() => {
@@ -309,7 +314,20 @@ export default function DosePredictionChart({
 
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.head, { color: colors.textSecondary }]}>PROJECTED GLUCOSE IF DOSED NOW</Text>
+      <View style={styles.headRow}>
+        <Text style={[styles.head, { color: colors.textSecondary }]}>PROJECTED GLUCOSE IF DOSED NOW</Text>
+        {onDismiss && (
+          <Pressable
+            onPress={onDismiss}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Close prediction"
+            style={({ pressed }) => [styles.dismissBtn, { opacity: pressed ? 0.5 : 1 }]}
+          >
+            <Feather name="x" size={15} color={colors.textMuted} />
+          </Pressable>
+        )}
+      </View>
       <View style={styles.chartRow} onLayout={onLayout}>
         <View style={{ width: plotW, height: H }}>
           {plotW > 0 && (
@@ -427,6 +445,8 @@ const styles = StyleSheet.create({
   // The chart lives inside the suggested-dose card now, so the card's own gap spaces it above; gap
   // 10 spaces the chart→x-axis, and the head's marginBottom sets head→400-line.
   wrap: { gap: 10 },
+  headRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dismissBtn: { padding: 4, marginLeft: 8 },
   head: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 },
   chartRow: { flexDirection: "row", alignItems: "flex-start", width: "100%" },
   yAxis: { position: "relative" },

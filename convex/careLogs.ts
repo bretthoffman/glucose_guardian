@@ -90,6 +90,8 @@ async function guardianDisplayName(ctx: QueryCtx | MutationCtx, userId: Id<"user
 
 interface WriteAuth {
   authorUserId?: Id<"users">;
+  /** Set for an ACCOUNTLESS code session — the only identity such a write has. */
+  authorCode?: string;
   authorName: string;
 }
 
@@ -209,6 +211,7 @@ async function upsertFood(
   await ctx.db.insert("careFoodLogs", {
     patientUserId,
     ...(auth.authorUserId ? { authorUserId: auth.authorUserId } : {}),
+    ...(auth.authorCode ? { authorCode: auth.authorCode } : {}),
     authorName: auth.authorName,
     createdAt: Date.now(),
     ...entry,
@@ -261,6 +264,7 @@ async function upsertInsulin(
   await ctx.db.insert("careInsulinLogs", {
     patientUserId,
     ...(auth.authorUserId ? { authorUserId: auth.authorUserId } : {}),
+    ...(auth.authorCode ? { authorCode: auth.authorCode } : {}),
     authorName: auth.authorName,
     createdAt: Date.now(),
     ...entry,
@@ -429,14 +433,40 @@ async function codeAuthorName(
  */
 async function viaCodeWriteAuth(
   ctx: MutationCtx,
-  row: { kind?: "caregiver" | "child"; label: string; patientUserId: Id<"users"> },
+  row: { kind?: "caregiver" | "child"; label: string; code: string; patientUserId: Id<"users"> },
   authorUserId: Id<"users"> | undefined,
   passwordHash: string | undefined,
 ): Promise<WriteAuth> {
-  if (authorUserId && (await userCompat(ctx, { userId: authorUserId, passwordHash }))) {
-    return { authorUserId, authorName: await guardianDisplayName(ctx, authorUserId) };
+  // Credit the VERIFIED caller — never the id the client asked us to credit. `userCompat` resolves
+  // the Clerk identity and IGNORES its `userId` argument, so the old `authorUserId && userCompat(…)`
+  // guard was truthy for any signed-in caller and then wrote whatever `authorUserId` the client
+  // sent. That mis-attributes a log to another account (a device whose cached `convexUserId` has
+  // drifted from its Clerk row credits the wrong person), and the byline on read keys off this
+  // field. Presence of `authorUserId` still signals "a signed-in account is logging through this
+  // code"; its VALUE is no longer trusted.
+  if (authorUserId) {
+    const caller = await userCompat(ctx, { userId: authorUserId, passwordHash });
+    if (caller) {
+      /**
+       * A signed-in caregiver (nurse) account writing through a CAREGIVER code is shown under that
+       * code's LABEL — the guardian issued the code and named it, so "Marcy Hoffman" is what they
+       * recognise, not whatever the nurse happens to have typed into her own profile.
+       *
+       * A CHILD code is the exception: its label/patient name is the KID, so crediting a nurse's
+       * entry that way would attribute her log to the child. There we fall back to the account's own
+       * name. `authorUserId` is kept in both cases, so the nurse's own device still reads "by you"
+       * (and it identifies her exactly — better than the code, which anyone holding it would match).
+       */
+      const authorName =
+        row.kind === "child"
+          ? await guardianDisplayName(ctx, caller._id)
+          : row.label.trim() || (await guardianDisplayName(ctx, caller._id));
+      return { authorUserId: caller._id, authorName };
+    }
   }
-  return { authorName: await codeAuthorName(ctx, row) };
+  // Accountless code session: stamp WHICH code wrote this. The label alone can't identify the writer
+  // (two codes can share a label, and a label like "me" is meaningless to anyone else).
+  return { authorCode: row.code, authorName: await codeAuthorName(ctx, row) };
 }
 
 export const addFoodLogViaCode = mutation({
@@ -492,7 +522,7 @@ function mapFood(
     insulinUnits: number; confidence: "high" | "medium" | "low"; fromPhoto: boolean;
     photoUri?: string; fatGrams?: number; proteinGrams?: number;
     absorption?: "fast" | "medium" | "slow";
-    authorUserId?: string; authorName: string; edited?: boolean;
+    authorUserId?: string; authorCode?: string; authorName: string; edited?: boolean;
   },
   liveNames: Map<string, string>,
 ) {
@@ -510,6 +540,7 @@ function mapFood(
     absorption: row.absorption,
     authorUserId: row.authorUserId,
     authorName: bylineFor(row, liveNames),
+    authorCode: row.authorCode,
     edited: row.edited,
   };
 }
@@ -519,7 +550,7 @@ function mapInsulin(
     clientId: string; timestamp: string; units: number;
     type: "bolus" | "correction" | "manual" | "basal"; note?: string; foodLogId?: string;
     insulinType?: string; recommendedUnits?: number; manualOverride?: boolean;
-    authorUserId?: string; authorName: string; edited?: boolean;
+    authorUserId?: string; authorCode?: string; authorName: string; edited?: boolean;
   },
   liveNames: Map<string, string>,
 ) {
@@ -535,6 +566,7 @@ function mapInsulin(
     manualOverride: row.manualOverride,
     authorUserId: row.authorUserId,
     authorName: bylineFor(row, liveNames),
+    authorCode: row.authorCode,
     edited: row.edited,
   };
 }

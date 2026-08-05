@@ -179,14 +179,20 @@ export default function ChatScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
-  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession, doctorSession, doctorMessages, markDoctorMessagesRead, foodLog, insulinLog, accessCodeRole, accessCodePermissions, viewingPatientId, nurseViewCode } = useAuth();
+  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession, doctorSession, doctorMessages, markDoctorMessagesRead, foodLog, insulinLog, accessCodeRole, accessCodePermissions, viewingPatientId, nurseViewCode, ownParentName } = useAuth();
   // A child/caregiver access-code session only sees the AI chat if the parent enabled it.
   const chatLocked = accessCodeRole != null && !accessCodePermissions?.chat;
   const { prompt, fromParent } = useLocalSearchParams<{ prompt?: string; fromParent?: string }>();
   const promptSentRef = useRef<string | null>(null);
 
   const name = profile?.childName ?? "there";
-  const parentName = profile?.parentName?.trim() || null;
+  /**
+   * The SPEAKER's own name. Must come from `ownParentName`, not `profile.parentName`: `profile` is the
+   * EFFECTIVE profile, so while a co-guardian views a linked patient it is the circle OWNER's profile
+   * — and the assistant then greeted the co-guardian by the owner's name ("Hey Mom!" to Dad). The
+   * patient's own name below still comes from the effective profile, which is correct.
+   */
+  const parentName = ownParentName ?? profile?.parentName?.trim() ?? null;
 
   // ── WHO is typing — so the AI addresses the right person and never calls a guardian or
   // caregiver by the patient's name. Order matters: kid code / child mode first (the patient
@@ -571,13 +577,20 @@ export default function ChatScreen() {
       )}
 
       {/* ── Messages page: thread list ↔ an open thread ── */}
+      {/* presentationStyle is deliberately overFullScreen, NOT pageSheet. A pageSheet is presented in
+          its own view controller whose frame never resizes for the keyboard, so NOTHING inside it can
+          avoid the keyboard on iOS — neither KeyboardAvoidingView nor a window-relative measurement,
+          because both compute against the app's main window. That is why the message input sat under
+          the keyboard through two different fixes. overFullScreen keeps the slide-in but presents in a
+          full-screen window, where normal keyboard handling works; it covers the status bar, so the
+          content carries its own top safe-area inset. */}
       <Modal
         visible={showMessages}
         animationType="slide"
-        presentationStyle="pageSheet"
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowMessages(false)}
       >
-        <View style={[styles.root, { backgroundColor: colors.background }]}>
+        <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top }]}>
           {activeThread === null ? renderThreadList(() => setShowMessages(false)) : renderThreadView(activeThread, false)}
         </View>
       </Modal>

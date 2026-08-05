@@ -70,7 +70,7 @@ export default function LogHistory({
   const [chartCursorActive, setChartCursorActive] = useState(false);
 
   const { targetGlucose, cgmSyncSuccessTick } = useGlucose();
-  const { foodLog, insulinLog, logInsulinDose, alertPrefs, account, caregiverSession, accessCodeRole, profile } = useAuth();
+  const { foodLog, insulinLog, logInsulinDose, alertPrefs, account, caregiverSession, caregiverCloudCode, accessCodeRole, profile } = useAuth();
 
   // Caregivers may view — and with the log grant, add — but NEVER edit or delete logs, regardless
   // of permissions: nurse email accounts (accountRole "caregiver") and every caregiver access-code
@@ -80,6 +80,8 @@ export default function LogHistory({
     profile?.accountRole === "caregiver" || (caregiverSession && accessCodeRole !== "child");
   const confirmLog = useCareLogConfirm();
   const myUserId = account?.convexUserId ?? null;
+  // An access-code session is accountless, so the CODE is this device's only identity for attribution.
+  const myCode = caregiverCloudCode ?? null;
 
   const today = useMemo(() => startOfLocalDay(new Date()), []);
 
@@ -201,6 +203,7 @@ export default function LogHistory({
           foodLog={foodLog}
           insulinLog={insulinLog}
           myUserId={myUserId}
+          myCode={myCode}
           canEditLogs={!isCaregiverViewer}
           onCursorActiveChange={setChartCursorActive}
         />
@@ -322,6 +325,7 @@ function DayView({
   foodLog,
   insulinLog,
   myUserId,
+  myCode,
   canEditLogs,
   onCursorActiveChange,
 }: {
@@ -340,6 +344,7 @@ function DayView({
   foodLog: FoodLogEntry[];
   insulinLog: InsulinLogEntry[];
   myUserId: string | null;
+  myCode: string | null;
   /** False for caregiver viewers — hides the detail popup's Edit/Delete controls. */
   canEditLogs: boolean;
   onCursorActiveChange?: (active: boolean) => void;
@@ -439,7 +444,7 @@ function DayView({
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No food logged for this day.</Text>
       ) : (
         dayFood.map((food) => (
-          <FoodLogRow key={food.id} food={food} colors={colors} myUserId={myUserId} onPress={() => setSelectedLog({ kind: "food", data: food })} />
+          <FoodLogRow key={food.id} food={food} colors={colors} myUserId={myUserId} myCode={myCode} onPress={() => setSelectedLog({ kind: "food", data: food })} />
         ))
       )}
 
@@ -451,7 +456,7 @@ function DayView({
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No insulin logged for this day.</Text>
       ) : (
         dayInsulin.map((insulin) => (
-          <InsulinLogRow key={insulin.id} insulin={insulin} colors={colors} myUserId={myUserId} onPress={() => setSelectedLog({ kind: "insulin", data: insulin })} />
+          <InsulinLogRow key={insulin.id} insulin={insulin} colors={colors} myUserId={myUserId} myCode={myCode} onPress={() => setSelectedLog({ kind: "insulin", data: insulin })} />
         ))
       )}
 
@@ -468,17 +473,31 @@ function DayView({
   );
 }
 
-/** "· by Mom" / "· by you" — omitted for legacy device-local entries with no author. */
+/**
+ * "· by Mom" / "· by you" — omitted for legacy device-local entries with no author.
+ *
+ * Two ways to be the author, because there are two kinds of identity:
+ *  - an ACCOUNT matches on `authorUserId`;
+ *  - an ACCESS-CODE session has no account at all, so it matches on the code that wrote the entry.
+ * Without the second check a caregiver/kid device could never recognise its own entries: every screen
+ * fell back to the code's LABEL, so a code labelled "me" made the caregiver's log and the guardian's
+ * log read identically ("· by me") and looked like attribution was broken. The guardian still sees the
+ * label — which is the point — while the writing device now sees "by you".
+ */
 function authorByline(
-  entry: { authorUserId?: string; authorName?: string },
+  entry: { authorUserId?: string; authorCode?: string; authorName?: string },
   myUserId: string | null,
+  myCode: string | null,
 ): string {
   if (!entry.authorName) return "";
   if (entry.authorUserId && myUserId && entry.authorUserId === myUserId) return " · by you";
+  if (entry.authorCode && myCode && entry.authorCode.toUpperCase() === myCode.toUpperCase()) {
+    return " · by you";
+  }
   return ` · by ${entry.authorName}`;
 }
 
-function FoodLogRow({ food, colors, myUserId, onPress }: { food: FoodLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null; onPress: () => void }) {
+function FoodLogRow({ food, colors, myUserId, myCode, onPress }: { food: FoodLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null; myCode: string | null; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}
@@ -495,14 +514,14 @@ function FoodLogRow({ food, colors, myUserId, onPress }: { food: FoodLogEntry; c
           {food.edited && <Text style={[styles.entryEdited, { color: colors.textMuted }]}>Edited</Text>}
         </View>
         <Text style={[styles.entrySub, { color: colors.textSecondary }]} numberOfLines={1}>
-          {food.estimatedCarbs}g carbs · {food.insulinUnits}u{authorByline(food, myUserId)}
+          {food.estimatedCarbs}g carbs · {food.insulinUnits}u{authorByline(food, myUserId, myCode)}
         </Text>
       </View>
     </Pressable>
   );
 }
 
-function InsulinLogRow({ insulin, colors, myUserId, onPress }: { insulin: InsulinLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null; onPress: () => void }) {
+function InsulinLogRow({ insulin, colors, myUserId, myCode, onPress }: { insulin: InsulinLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null; myCode: string | null; onPress: () => void }) {
   const opt = insulin.insulinType ? findInsulinByChipLabel(insulin.insulinType) : undefined;
   const insulinName = opt?.name ?? insulin.insulinType?.split(" · ")[0];
   const doseAdjusted =
@@ -514,7 +533,7 @@ function InsulinLogRow({ insulin, colors, myUserId, onPress }: { insulin: Insuli
     subParts.push(`Rec ${formatDoseAmount(insulin.recommendedUnits)}u`);
   }
   if (insulin.note) subParts.push(insulin.note);
-  const byline = authorByline(insulin, myUserId).replace(/^ · /, "");
+  const byline = authorByline(insulin, myUserId, myCode).replace(/^ · /, "");
   if (byline) subParts.push(byline);
 
   return (

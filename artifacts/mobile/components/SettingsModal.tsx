@@ -26,6 +26,7 @@ import { router } from "expo-router";
 import { T, withAlpha, type ThemePreference } from "@/constants/theme";
 import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
+import { useGlucose } from "@/context/GlucoseContext";
 
 interface Props {
   visible: boolean;
@@ -82,7 +83,8 @@ function splitDateOfBirth(iso?: string): { month: string; day: string; year: str
 
 export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canEditPhoto }: Props) {
   const { colors: c, scheme, preference, setPreference } = useTheme();
-  const { profile, ageYears, updateProfile, isCircleMember, circleOwnerName, signOut, caregiverSession, accessCodeRole } = useAuth();
+  const { profile, ageYears, updateProfile, isCircleMember, circleOwnerName, logout, caregiverSession, accessCodeRole } = useAuth();
+  const { resetGlucoseData } = useGlucose();
   const [schemeExpanded, setSchemeExpanded] = useState(false);
 
   // Inline account editor (your name + child name + birthday + weight). Same edit gate as the photo.
@@ -173,7 +175,10 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
 
   const handleSignOut = async () => {
     onClose();
-    await signOut();
+    // Full teardown — see the note at dashboard.tsx confirmLogout. `signOut` is reserved for the
+    // onboarding "finish later" flow, which intentionally keeps local state so setup can resume.
+    await logout();
+    resetGlucoseData();
     router.replace("/auth");
   };
 

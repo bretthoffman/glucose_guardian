@@ -104,7 +104,7 @@ export default function DashboardScreen() {
     insulinLog,
     clearInsulinLog,
     updateProfile,
-    signOut,
+    logout,
     emergencyContacts,
     alertPrefs,
     addEmergencyContact,
@@ -253,6 +253,25 @@ export default function DashboardScreen() {
   const inRangePercent = history.length > 0 ? Math.round((inRange / history.length) * 100) : 0;
   const anomalyCount = history.filter((h) => h.anomaly.warning).length;
 
+  /**
+   * Success feedback must depend on the write actually landing. These saves update local state
+   * optimistically and are then overwritten by the 60s hydrate poll, so a failed backend write used
+   * to look exactly like a successful save and silently revert a minute later. Worse for thresholds
+   * specifically: the SERVER keeps evaluating alerts against the old numbers, so a widened urgent-low
+   * would never fire while the UI claimed it was saved.
+   */
+  function reportSaveResult(ok: boolean, what: string) {
+    if (ok) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      return;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert(
+      "Couldn't save",
+      `${what} was changed on this device but couldn't reach the server, so it may revert. Check your connection and try again.`,
+    );
+  }
+
   function saveThresholds() {
     const ul = parseInt(editUrgentLow, 10);
     const lo = parseInt(editLow, 10);
@@ -270,9 +289,10 @@ export default function DashboardScreen() {
       Alert.alert("Out of Range", "Values must be between 40 and 400 mg/dL.");
       return;
     }
-    updateAlertPrefs({ urgentLowThreshold: ul, lowThreshold: lo, highThreshold: hi, urgentHighThreshold: uh });
     setEditingThresholds(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    void updateAlertPrefs({
+      urgentLowThreshold: ul, lowThreshold: lo, highThreshold: hi, urgentHighThreshold: uh,
+    }).then((ok) => reportSaveResult(ok, "Your alert thresholds"));
   }
 
   function saveSettings() {
@@ -312,13 +332,17 @@ export default function DashboardScreen() {
     setDoseSettingsByTime(normalizedByTime);
     // Mirror to the backend profile — this is the copy co-guardians inherit and the doctor portal
     // reads, so the account's live dose math and the shared/synced one can never drift apart.
-    updateProfile({ carbRatio: cr, targetGlucose: tg, correctionFactor: isf, doseSettingsByTime: normalizedByTime });
-    if (doctorSession) {
-      addAccessLogEntry(`Doctor updated dosing: CR=${cr}g/u, Target=${tg}, ISF=${isf}`, "doctor");
-      Alert.alert("Dosing Updated", "New parameters saved and applied immediately. The account holder has been notified in their access log.", [{ text: "OK" }]);
-    }
     setEditing(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    void updateProfile({
+      carbRatio: cr, targetGlucose: tg, correctionFactor: isf, doseSettingsByTime: normalizedByTime,
+    }).then((ok) => {
+      if (ok && doctorSession) {
+        addAccessLogEntry(`Doctor updated dosing: CR=${cr}g/u, Target=${tg}, ISF=${isf}`, "doctor");
+        Alert.alert("Dosing Updated", "New parameters saved and applied immediately. The account holder has been notified in their access log.", [{ text: "OK" }]);
+        return;
+      }
+      reportSaveResult(ok, "Your insulin settings");
+    });
   }
 
   function confirmLogout() {
@@ -326,7 +350,12 @@ export default function DashboardScreen() {
       // Close any open popup before tearing down the session.
       setOpenSection(null);
       setSettingsOpen(false);
-      await signOut();
+      // Full teardown (not `signOut`): clears the account, profile, logs, contacts, glucose cache
+      // and the doctor thread from this device. `signOut` only ends the session and deliberately
+      // leaves local state behind — that's correct for the onboarding "finish later" escape hatch,
+      // but on a real sign-out it leaves the previous guardian's data for the next person.
+      await logout();
+      resetGlucoseData();
       router.replace("/auth");
     };
 
@@ -441,7 +470,16 @@ export default function DashboardScreen() {
       Alert.alert("Missing Info", "Please enter a name and phone number.");
       return;
     }
-    await addEmergencyContact({
+    // The cap is 5 and the pool is shared across the whole circle, so tell the user plainly rather
+    // than letting the add fail with a generic "couldn't save".
+    if (emergencyContacts.length >= 5) {
+      Alert.alert(
+        "Contact list full",
+        "You can have up to 5 emergency contacts. Remove one before adding another.",
+      );
+      return;
+    }
+    const ok = await addEmergencyContact({
       name: newContactName.trim(),
       phone: newContactPhone.trim(),
       relation: newContactRelation.trim() || "Family",
@@ -450,7 +488,7 @@ export default function DashboardScreen() {
     setNewContactPhone("");
     setNewContactRelation("");
     setAddingContact(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    reportSaveResult(ok, "This emergency contact");
   }
 
   async function generateReport() {

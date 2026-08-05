@@ -17,6 +17,9 @@ import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY, QUICK_FOODS_
 import { apiUrl } from "@/utils/api-base-url";
 import type { DoseSettingsByTime } from "@/utils/doseSettings";
 import { mergeCloudLogs } from "@/utils/careLogsMerge";
+import { generateAccessCode } from "@/utils/accessCodeGen";
+import { splitSharedProfilePatch } from "@/utils/sharedProfilePatch";
+import { patchTouchesBackend, rollbackSyncedKeys } from "@/utils/alertPrefsSync";
 import { resolveLogConfirmName } from "@/utils/careLogConfirm";
 import { DEFAULT_QUICK_FOODS, insertQuickFood, parseStoredQuickFoods } from "@/utils/quickFoods";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
@@ -95,6 +98,18 @@ export interface UserProfile {
 
 export interface InsulinLogEntry {
   id: string;
+  /**
+   * The access code that wrote this entry (code sessions only). Lets a caregiver/kid device recognise
+   * its OWN entries — an accountless session has no `authorUserId`, so without this every screen fell
+   * back to the code's label and the writer couldn't be distinguished from anyone else.
+   */
+  authorCode?: string;
+  /**
+   * LOCAL-ONLY: set when the entry is written on-device and cleared once the server acknowledges it.
+   * `mergeCloudLogs` never drops a pending entry, so a dose written offline survives a force-quit
+   * instead of being deleted after two minutes. Never sent to Convex.
+   */
+  pendingSync?: boolean;
   timestamp: string;
   units: number;
   type: "bolus" | "correction" | "manual" | "basal";
@@ -195,6 +210,14 @@ export interface CGMConnection {
 
 export interface FoodLogEntry {
   id: string;
+  /**
+   * The access code that wrote this entry (code sessions only). Lets a caregiver/kid device recognise
+   * its OWN entries — an accountless session has no `authorUserId`, so without this every screen fell
+   * back to the code's label and the writer couldn't be distinguished from anyone else.
+   */
+  authorCode?: string;
+  /** LOCAL-ONLY sync marker — see the note on {@link InsulinLogEntry.pendingSync}. */
+  pendingSync?: boolean;
   timestamp: string;
   foodName: string;
   estimatedCarbs: number;
@@ -248,6 +271,8 @@ export interface AlertPreferences {
 
 export interface AuthContextType {
   profile: UserProfile | null;
+  /** The signed-in person's OWN name, even while viewing someone else's profile. */
+  ownParentName: string | null;
   account: UserAccount | null;
   isLoading: boolean;
   isLoggedIn: boolean;
@@ -262,8 +287,11 @@ export interface AuthContextType {
   doctorSession: boolean;
   isChildMode: boolean;
   setupProfile: (profile: UserProfile) => Promise<void>;
-  updateProfile: (profile: Partial<UserProfile>) => Promise<void>;
+  /** Resolves TRUE only when the change is durable (server accepted, or local-only account). */
+  updateProfile: (profile: Partial<UserProfile>) => Promise<boolean>;
   setCGMConnection: (conn: CGMConnection) => Promise<void>;
+  /** Durable disconnect: resolves FALSE if the server still has the connection (nothing changed). */
+  disconnectCGM: () => Promise<boolean>;
   insulinLog: InsulinLogEntry[];
   addFoodLogEntry: (entry: Omit<FoodLogEntry, "id">) => void;
   clearFoodLog: () => void;
@@ -292,11 +320,13 @@ export interface AuthContextType {
   requestPasswordReset: (email: string) => Promise<boolean>;
   /** Complete the reset with the emailed code + new password; also signs in. */
   resetPassword: (code: string, newPassword: string) => Promise<boolean>;
-  addEmergencyContact: (contact: Omit<EmergencyContact, "id">) => Promise<void>;
+  /** Resolves TRUE only when the contact is durable (shared with the circle). */
+  addEmergencyContact: (contact: Omit<EmergencyContact, "id">) => Promise<boolean>;
   removeEmergencyContact: (id: string) => Promise<void>;
   /** Radio toggle: mark ONE contact as the one-tap emergency text target (null clears all). */
   setPrimaryEmergencyContact: (id: string | null) => Promise<void>;
-  updateAlertPrefs: (prefs: Partial<AlertPreferences>) => Promise<void>;
+  /** Resolves TRUE only when the change is durable. */
+  updateAlertPrefs: (prefs: Partial<AlertPreferences>) => Promise<boolean>;
   setChildMode: (enabled: boolean) => Promise<void>;
   generateCaregiverCode: () => Promise<string>;
   enterCaregiverMode: (code: string) => Promise<boolean>;
@@ -387,12 +417,66 @@ const CARE_MEMBERSHIPS_KEY = "@gluco_guardian_care_memberships";
 const CIRCLE_SHARED_KEY = "@gluco_guardian_circle_shared";
 const DOCTOR_MESSAGES_KEY = "@gluco_guardian_doctor_messages";
 const THERAPY_PROPOSAL_KEY = "@gluco_guardian_therapy_proposal";
+/**
+ * PER-ACCESS-CODE notification settings. Suffixed with the code, so each caregiver/kid code on a
+ * shared phone keeps its OWN switches instead of inheriting the last session's — the same reason
+ * `pushTokens` rows are keyed per (device, identity).
+ *
+ * Only the DEVICE-LOCAL prefs live here (see ALERT_PREFS_CODE_FIELDS). Thresholds are deliberately NOT
+ * included: a code session inherits the owner's clinical ranges read-only, so a caregiver can't set
+ * "low = 55" and miss an alert the guardian would have received.
+ */
+const ALERT_PREFS_CODE_KEY_PREFIX = "@gluco_guardian_alert_prefs_code_";
+
+/** The alert-pref fields an access-code session owns for itself. */
+const ALERT_PREFS_CODE_FIELDS = ["notificationsEnabled", "alertToChatOnOpenEnabled"] as const;
+
+function alertPrefsCodeKey(code: string): string {
+  return ALERT_PREFS_CODE_KEY_PREFIX + code.trim().toUpperCase();
+}
+
+/** Pick just the fields a code session persists for itself. */
+function pickCodeAlertPrefs(prefs: Partial<AlertPreferences>): Partial<AlertPreferences> {
+  const out: Partial<AlertPreferences> = {};
+  for (const k of ALERT_PREFS_CODE_FIELDS) {
+    if (prefs[k] !== undefined) (out as Record<string, unknown>)[k] = prefs[k];
+  }
+  return out;
+}
+
+/** Read a code session's own saved switches (empty when it has never changed one). */
+async function loadCodeAlertPrefs(code: string | null): Promise<Partial<AlertPreferences>> {
+  if (!code) return {};
+  try {
+    const raw = await AsyncStorage.getItem(alertPrefsCodeKey(code));
+    return raw ? pickCodeAlertPrefs(JSON.parse(raw) as Partial<AlertPreferences>) : {};
+  } catch {
+    return {};
+  }
+}
 
 /** Stable empty arrays for co-guardian viewing mode — prevents new [] identities each render. */
 const EMPTY_FOOD_LOG: FoodLogEntry[] = [];
 const EMPTY_INSULIN_LOG: InsulinLogEntry[] = [];
 
 /** Care-circle log payloads: the local entry `id` is the cloud `clientId` (idempotency key). */
+/**
+ * Server acknowledged this entry — drop its `pendingSync` marker so a later remote delete is
+ * respected again. No-op when nothing is pending, so it can't cause a needless re-render/write.
+ */
+function clearPendingMarker<T extends { id: string; pendingSync?: boolean }>(
+  setList: React.Dispatch<React.SetStateAction<T[]>>,
+  id: string,
+  storageKey: string | null,
+) {
+  setList((prev) => {
+    if (!prev.some((e) => e.id === id && e.pendingSync)) return prev;
+    const next = prev.map((e) => (e.id === id ? { ...e, pendingSync: undefined } : e));
+    if (storageKey) AsyncStorage.setItem(storageKey, JSON.stringify(next)).catch(() => {});
+    return next;
+  });
+}
+
 function toFoodEntryPayload(e: FoodLogEntry) {
   return {
     clientId: e.id,
@@ -523,6 +607,9 @@ const SHARED_PROFILE_EDIT_KEYS = [
 
 /** Max Quick Lookup entries (list length stays constant; saving pushes the oldest off). */
 const QUICK_FOODS_MAX = DEFAULT_QUICK_FOODS.length;
+
+/** Mirrors MAX_EMERGENCY_CONTACTS in convex/careCircle.ts — the server throws past this. */
+const MAX_EMERGENCY_CONTACTS_CLIENT = 5;
 
 /** Local profile can be seeded to Convex once if it has the minimum required fields. */
 function isMigratableLocalProfile(p: unknown): p is UserProfile {
@@ -683,7 +770,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { doctorMessagesRef.current = doctorMessages; }, [doctorMessages]);
   useEffect(() => { therapyProposalRef.current = therapyProposal; }, [therapyProposal]);
 
-  const commitProfile = useCallback(async (updated: UserProfile) => {
+  /**
+   * Returns TRUE only when the change is durable — the server accepted it, or this is a local-only
+   * account with no server copy to disagree with. Returns FALSE when the backend write failed.
+   *
+   * This return value is the whole point: the local cache and UI update optimistically, but the 60s
+   * hydrate poll (and the next cold start) overwrite them from the server. So a swallowed failure
+   * presented as a successful save that silently reverted a minute later — indistinguishable, from
+   * the user's side, from the app losing their edit. Callers gate their success feedback on this.
+   */
+  const commitProfile = useCallback(async (updated: UserProfile): Promise<boolean> => {
     lastProfileCommitAtRef.current = Date.now();
     profileRef.current = updated;
     setProfile(updated);
@@ -693,7 +789,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
     const acc = accountRef.current;
-    if (!acc?.convexUserId) return;
+    if (!acc?.convexUserId) return true; // local-only account — nothing to sync, so this IS durable
     try {
       const client = createConvexAuthClient();
       const profilePayload = JSON.parse(JSON.stringify(updated));
@@ -702,8 +798,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         passwordHash: acc.passwordHash,
         profile: profilePayload,
       });
+      return true;
     } catch {
-      /* offline — local cache remains */
+      /* offline or rejected — local cache remains but the server disagrees; tell the caller */
+      return false;
     }
   }, []);
 
@@ -825,12 +923,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   carbRatio: slim.carbRatio,
                   targetGlucose: slim.targetGlucose,
                   correctionFactor: slim.correctionFactor,
+                  // Meal-window overrides MUST come along: without them a caregiver/nurse doses on the
+                  // owner's BASE ratio while the owner's own phone uses the per-window override — a
+                  // silent dosing discrepancy with no UI signal. slimPatientProfile already sends it.
+                  doseSettingsByTime: slim.doseSettingsByTime,
                 };
                 profileRef.current = nextProfile;
                 setProfile(nextProfile);
                 await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
-                // Show the code owner's alert thresholds for this restored session (in memory only).
-                setAlertPrefsState((prev) => ({ ...prev, ...DEFAULT_ALERT_PREFS, ...(sessionAlertOverlay(slim.alertPreferences) ?? {}) }));
+                // Owner's thresholds for this restored session, then THIS code's own saved switches
+                // on top — otherwise DEFAULT_ALERT_PREFS below silently reset them every launch.
+                {
+                  const ownPrefs = await loadCodeAlertPrefs(code);
+                  setAlertPrefsState((prev) => ({
+                    ...prev,
+                    ...DEFAULT_ALERT_PREFS,
+                    ...(sessionAlertOverlay(slim.alertPreferences) ?? {}),
+                    ...ownPrefs,
+                  }));
+                }
               }
             } catch {
               /* keep the AsyncStorage-cached profile */
@@ -1123,6 +1234,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isCircleMember, circleShared, profile]);
 
   const effectiveProfile = isViewingLinkedPatient ? viewedProfile : mergedOwnProfile;
+  /**
+   * The SIGNED-IN person's own name — never the viewed patient's.
+   *
+   * `profile` is the EFFECTIVE profile, which becomes the viewed patient's while a co-guardian is
+   * viewing a linked patient. Anything that needs to know who is *using* the app (the AI chat's
+   * speaker label, for one) must not read `profile.parentName` there: it would resolve to the circle
+   * OWNER, so a co-guardian got addressed by the owner's name. `parentName` is not a shared-overlay
+   * field, so the own profile always carries the right one.
+   */
+  const ownParentName = mergedOwnProfile?.parentName?.trim() || null;
   const effectiveFoodLog = isViewingLinkedPatient ? viewedFoodLog : foodLog;
   const effectiveInsulinLog = isViewingLinkedPatient ? viewedInsulinLog : insulinLog;
   const viewingPatientName = isViewingLinkedPatient ? viewedProfile.childName : null;
@@ -1349,11 +1470,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    // One-shot for an immediate paint; the subscription above keeps it fresh from here.
     void fetchViewedLogs();
-    const id = setInterval(fetchViewedLogs, 60_000);
     return () => {
       cancelled = true;
-      clearInterval(id);
     };
   }, [viewingPatientId, account?.convexUserId, account?.passwordHash]);
 
@@ -1382,11 +1502,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         /* offline — keep prior */
       }
     }
+    // One-shot for an immediate paint; the reactive subscription above owns freshness. Access loss
+    // is covered two ways — see the note there (revocation re-fires the query; a schedule window
+    // closing is caught by the `checkAccess` lock, not by this query).
     void fetchCodeLogs();
-    const id = setInterval(fetchCodeLogs, 60_000);
     return () => {
       cancelled = true;
-      clearInterval(id);
     };
   }, [caregiverCodeKind, caregiverCloudCode]);
 
@@ -1501,18 +1622,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let nextProfile: UserProfile | null = null;
     let appliedAlertPrefs: AlertPreferences | null = null;
     let nextCgm: CGMConnection | null = null;
+    /**
+     * CRITICAL DISTINCTION. `nextProfile === null` used to mean two irreconcilable things:
+     *   (a) the server answered and this account genuinely has NO profile → un-onboarded, correct
+     *       to route into onboarding;
+     *   (b) the query THREW because we're offline → account state is UNKNOWN.
+     * Both fell into the same branch, so an offline sign-in cleared PROFILE_KEY, the router sent the
+     * user to /onboarding, and finishing setup called `patientProfile.replace` — a whole-document
+     * replace — wiping the server's doctor contact fields, caregiver/doctor codes and access log.
+     * A network blip destroyed real data. Tracked separately now.
+     */
+    let profileFetchOk = false;
     try {
       // Identity rides the Clerk token on the shared client — no credentials in the args.
       const remote = await client.query(api.patientProfile.get, {});
+      profileFetchOk = true;
       if (remote) {
         const { alertPreferences: remotePrefs, ...p } = remote as UserProfile & { alertPreferences?: RemoteThresholds };
         nextProfile = p as UserProfile;
         appliedAlertPrefs = { ...DEFAULT_ALERT_PREFS, ...(sessionAlertOverlay(remotePrefs) ?? {}) };
       }
+    } catch {
+      /* offline — state unknown; handled below, never treated as "no profile" */
+    }
+    // Separate try: a CGM fetch failure must not make the PROFILE result look unreachable.
+    try {
       const remoteCgm = await client.query(api.patientCgm.get, {});
       if (remoteCgm) nextCgm = remoteCgm as CGMConnection;
     } catch {
-      /* offline — sign in with an empty profile/CGM; the hydrate poll fills them in later */
+      /* offline — the hydrate poll fills this in later */
+    }
+
+    // Couldn't reach the server: fall back to this device's cached profile rather than declaring the
+    // account un-onboarded. Signing back in offline is the common case and the cache is usually right.
+    let preservedCachedProfile = false;
+    if (!profileFetchOk && !nextProfile) {
+      try {
+        const cached = await AsyncStorage.getItem(PROFILE_KEY);
+        if (cached) {
+          nextProfile = JSON.parse(cached) as UserProfile;
+          preservedCachedProfile = true;
+        }
+      } catch {
+        /* corrupt cache — fall through */
+      }
     }
 
     // Commit in one batch. `setIsSignedIn(true)` goes last so the first render that observes it
@@ -1551,8 +1704,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       INSULIN_LOG_KEY,
       EMERGENCY_CONTACTS_KEY,
     ]);
-    if (nextProfile) await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
-    else await AsyncStorage.removeItem(PROFILE_KEY);
+    if (nextProfile && !preservedCachedProfile) {
+      await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+    } else if (!nextProfile && profileFetchOk) {
+      // The server ANSWERED and there is no profile — genuinely un-onboarded, so clear the cache.
+      await AsyncStorage.removeItem(PROFILE_KEY);
+    }
+    // Implicit third case: offline with a cached profile — leave PROFILE_KEY exactly as it is.
     if (appliedAlertPrefs) await AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(appliedAlertPrefs)).catch(() => {});
     else await AsyncStorage.removeItem(ALERT_PREFS_KEY).catch(() => {});
     if (nextCgm?.type) await AsyncStorage.setItem(CGM_KEY, JSON.stringify(nextCgm));
@@ -1810,12 +1968,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await commitProfile(p);
   }, [commitProfile]);
 
-  const updateProfile = useCallback(async (partial: Partial<UserProfile>) => {
+  /** TRUE when the change is durable. See the note on {@link commitProfile}. */
+  const updateProfile = useCallback(async (partial: Partial<UserProfile>): Promise<boolean> => {
     // A linked co-guardian's shared fields live on the OWNER's account: route those through the
     // circle mutation (optimistically reflected via the overlay) and keep only personal fields on
     // this account's own document. Owner-locked fields are rejected server-side as a backstop.
     const shared = circleSharedRef.current;
     const acc = accountRef.current;
+    let sharedOk = true;
     if (shared && acc?.convexUserId) {
       const sharedPatch: Partial<Pick<UserProfile, (typeof SHARED_PROFILE_EDIT_KEYS)[number]>> = {};
       const personal: Partial<UserProfile> = {};
@@ -1834,26 +1994,83 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         circleSharedRef.current = nextShared;
         setCircleShared(nextShared);
         AsyncStorage.setItem(CIRCLE_SHARED_KEY, JSON.stringify(nextShared)).catch(() => {});
-        createConvexAuthClient()
-          .mutation(api.careCircle.updateSharedProfile, {
-            userId: acc.convexUserId as Id<"users">,
-            passwordHash: acc.passwordHash,
-            patch: sharedPatch,
-          })
-          .catch(() => {
-            /* offline or owner-only field — the next poll re-syncs the authoritative copy */
-          });
+        // The server rejects the WHOLE patch if it contains any owner-locked field, so send only what
+        // this member may actually change. Otherwise one disallowed field discards their legitimate
+        // edits too (and the optimistic overlay above would keep showing a value the server refused).
+        const { sendable, blocked } = splitSharedProfilePatch(sharedPatch, false);
+        if (blocked.length > 0) {
+          // Roll the overlay back for the fields we're not sending, so the UI stops showing them.
+          const rolledBack: CircleShared = { ...nextShared, profile: { ...nextShared.profile } };
+          for (const k of blocked) {
+            (rolledBack.profile as Record<string, unknown>)[k] =
+              (shared.profile as Record<string, unknown>)[k];
+          }
+          circleSharedRef.current = rolledBack;
+          setCircleShared(rolledBack);
+          AsyncStorage.setItem(CIRCLE_SHARED_KEY, JSON.stringify(rolledBack)).catch(() => {});
+          sharedOk = false; // something the caller asked for did not stick
+        }
+        if (Object.keys(sendable).length > 0) {
+          const sentOk = await createConvexAuthClient()
+            .mutation(api.careCircle.updateSharedProfile, {
+              userId: acc.convexUserId as Id<"users">,
+              passwordHash: acc.passwordHash,
+              patch: sendable,
+            })
+            .then(() => true)
+            .catch(() => false);
+          if (!sentOk) sharedOk = false;
+        }
       }
       if (Object.keys(personal).length > 0) {
         const prev = profileRef.current;
-        if (prev) await commitProfile({ ...prev, ...personal });
+        if (prev) return (await commitProfile({ ...prev, ...personal })) && sharedOk;
       }
-      return;
+      return sharedOk;
     }
     const prev = profileRef.current;
-    if (!prev) return;
-    await commitProfile({ ...prev, ...partial });
+    if (!prev) return false;
+    return await commitProfile({ ...prev, ...partial });
   }, [commitProfile]);
+
+  /**
+   * Durable CGM disconnect — SERVER FIRST, local state only on success.
+   *
+   * The old flow cleared local state optimistically and swallowed a failed `patientCgm.clear`. The
+   * result was a lie in the dangerous direction: the app said "Connect CGM" while the server kept the
+   * connection row, so the every-minute ingest cron carried on pulling from the sensor and publishing
+   * readings to caregivers and the doctor portal — and the next sign-in re-hydrated "connected",
+   * silently undoing the user's disconnect.
+   *
+   * Deliberately NOT touched: the server-wins rehydrate that powers auto-relink (an account keeps its
+   * CGM link forever and re-attaches on any device). That behavior is correct and is exactly why a
+   * half-failed disconnect used to come back — the fix is to make the disconnect actually land, not to
+   * weaken the rehydrate.
+   *
+   * `patientCgm.clear` deletes the connection row AND its `cgmSyncState` work-queue rows, so once this
+   * resolves true the cron has genuinely stopped for this patient.
+   */
+  const disconnectCGM = useCallback(async (): Promise<boolean> => {
+    const acc = accountRef.current;
+    if (acc?.convexUserId) {
+      try {
+        await createConvexAuthClient().mutation(api.patientCgm.clear, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+        });
+      } catch {
+        // Still connected server-side. Leave local state alone so the UI keeps telling the truth.
+        return false;
+      }
+    }
+    setCGMConnectionState({ type: null });
+    try {
+      await AsyncStorage.removeItem(CGM_KEY);
+    } catch {
+      /* the server is already clear, which is what the cron reads */
+    }
+    return true;
+  }, []);
 
   const setCGMConnection = useCallback(async (conn: CGMConnection) => {
     await commitCGMConnection(conn);
@@ -1872,6 +2089,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const full: FoodLogEntry = {
       ...entry,
       id,
+      // Marked unsynced until the server acknowledges it below — see `pendingSync`.
+      pendingSync: true,
       ...(acc?.convexUserId ? { authorUserId: acc.convexUserId } : {}),
       authorName: deriveOwnAuthorName(profileRef.current, acc),
     };
@@ -1888,15 +2107,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           authorUserId: acc.convexUserId as Id<"users">,
           passwordHash: acc.passwordHash,
         })
+        .then(() => clearPendingMarker(setViewedFoodLog, id, null))
         .catch(() => {});
       return;
     }
     // Access-code session (a child, or a caregiver granted `log`) writes via the code, not an account.
     if (codeWrite) {
       if (!codeWrite.canLog) return;
+      // Stamp the writing code locally too, so this device reads "by you" immediately rather than
+      // only after the server copy comes back.
+      full.authorCode = codeWrite.code;
       setFoodLog((prev) => [full, ...prev].slice(0, 200));
       createConvexAuthClient()
         .mutation(api.careLogs.addFoodLogViaCode, { code: codeWrite.code, entry: toFoodEntryPayload(full) })
+        .then(() => clearPendingMarker(setFoodLog, id, null))
         .catch(() => {});
       return;
     }
@@ -1918,6 +2142,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           patientUserId: targetPatientId as Id<"users">,
           entry: toFoodEntryPayload(full),
         })
+        .then(() =>
+          viewingPatientIdRef.current
+            ? clearPendingMarker(setViewedFoodLog, id, null)
+            : clearPendingMarker(setFoodLog, id, FOOD_LOG_KEY),
+        )
         .catch(() => {});
     }
   }, []);
@@ -1948,6 +2177,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const full: InsulinLogEntry = {
       ...entry,
       id,
+      // Marked unsynced until the server acknowledges it below — see `pendingSync`.
+      pendingSync: true,
       ...(acc?.convexUserId ? { authorUserId: acc.convexUserId } : {}),
       authorName: deriveOwnAuthorName(profileRef.current, acc),
     };
@@ -1963,14 +2194,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           authorUserId: acc.convexUserId as Id<"users">,
           passwordHash: acc.passwordHash,
         })
+        .then(() => clearPendingMarker(setViewedInsulinLog, id, null))
         .catch(() => {});
       return;
     }
     if (codeWrite) {
       if (!codeWrite.canLog) return;
+      full.authorCode = codeWrite.code;
       setInsulinLog((prev) => [full, ...prev].slice(0, 500));
       createConvexAuthClient()
         .mutation(api.careLogs.addInsulinLogViaCode, { code: codeWrite.code, entry: toInsulinEntryPayload(full) })
+        .then(() => clearPendingMarker(setInsulinLog, id, null))
         .catch(() => {});
       return;
     }
@@ -1992,6 +2226,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           patientUserId: targetPatientId as Id<"users">,
           entry: toInsulinEntryPayload(full),
         })
+        .then(() =>
+          viewingPatientIdRef.current
+            ? clearPendingMarker(setViewedInsulinLog, id, null)
+            : clearPendingMarker(setInsulinLog, id, INSULIN_LOG_KEY),
+        )
         .catch(() => {});
     }
   }, []);
@@ -2155,6 +2394,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setViewedProfile(null);
     setViewedFoodLog([]);
     setViewedInsulinLog([]);
+    // The doctor thread and any pending dose proposal are CLINICAL content belonging to the account
+    // that just left. They were previously the only state with no clearing path at all, so the next
+    // person on the phone was shown the previous guardian's conversation with their doctor — and
+    // could approve an insulin-dose change meant for them.
+    setDoctorMessages([]);
+    doctorMessagesRef.current = [];
+    setTherapyProposal(null);
+    therapyProposalRef.current = null;
+    recentlyDecidedProposalIdRef.current = null;
     await AsyncStorage.multiRemove([
       PROFILE_KEY,
       CGM_KEY,
@@ -2170,18 +2418,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       QUICK_FOODS_STORAGE_KEY,
       GLUCOSE_HISTORY_STORAGE_KEY,
       GLUCOSE_SETTINGS_STORAGE_KEY,
+      DOCTOR_MESSAGES_KEY,
+      THERAPY_PROPOSAL_KEY,
     ]);
   }, [clerkSignOut, clearSessionOverlay]);
 
-  const addEmergencyContact = useCallback(async (contact: Omit<EmergencyContact, "id">) => {
+  /** TRUE when the contact is durable. See the note on {@link commitProfile}. */
+  const addEmergencyContact = useCallback(async (contact: Omit<EmergencyContact, "id">): Promise<boolean> => {
     // A nurse viewing a child sees the child's shared pool read-only — never edits it.
-    if (nurseViewCodeRef.current) return;
+    if (nurseViewCodeRef.current) return false;
     const full: EmergencyContact = {
       ...contact,
       id: `ec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     };
+    // Check the cap BEFORE writing anything. The old code did `.slice(0, 5)`, which quietly dropped
+    // the new contact locally, while the server did the same and still reported success — so a 6th
+    // emergency contact vanished with a success haptic. Refuse up front instead.
+    if (emergencyContactsRef.current.length >= MAX_EMERGENCY_CONTACTS_CLIENT) return false;
     setEmergencyContacts((prev) => {
-      const next = [...prev, full].slice(0, 5);
+      const next = [...prev, full].slice(0, MAX_EMERGENCY_CONTACTS_CLIENT);
       AsyncStorage.setItem(EMERGENCY_CONTACTS_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
@@ -2189,14 +2444,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // (Never from an access-code session — that device is borrowing a view, not the account.)
     const acc = accountRef.current;
     if (acc?.convexUserId && !caregiverSessionRef.current) {
-      createConvexAuthClient()
+      // Emergency contacts are safety-critical: a contact that only exists on this device is one the
+      // other guardians can't see and the alert flow won't have. Report the failure.
+      return await createConvexAuthClient()
         .mutation(api.careCircle.addSharedEmergencyContact, {
           userId: acc.convexUserId as Id<"users">,
           passwordHash: acc.passwordHash,
           contact: full,
         })
-        .catch(() => {});
+        .then(() => true)
+        .catch(() => false);
     }
+    return true;
   }, []);
 
   const removeEmergencyContact = useCallback(async (id: string) => {
@@ -2257,7 +2516,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const updateAlertPrefs = useCallback(async (partial: Partial<AlertPreferences>) => {
+  /** TRUE when the change is durable. See the note on {@link commitProfile}. */
+  const updateAlertPrefs = useCallback(async (partial: Partial<AlertPreferences>): Promise<boolean> => {
     // In an access-code (kid/caregiver) session the thresholds on screen belong to the code owner —
     // this device is only viewing. Update in memory for the current view, but never persist: don't
     // touch this device's local cache and don't write the owner's backend thresholds.
@@ -2265,7 +2525,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Emergency Text Alerts mirror the OWNER's setting in a code session — locked here.
       const { emergencyAlertsEnabled: _locked, ...personal } = partial;
       setAlertPrefsState((prev) => ({ ...prev, ...personal }));
-      return;
+      /**
+       * PERSIST this session's OWN switches, scoped to its code.
+       *
+       * These used to be memory-only, so a caregiver or kid who turned notifications off (or turned
+       * off Send Alerts to Chat) had it silently reset on the next app launch — the restore path
+       * re-applies DEFAULT_ALERT_PREFS plus the owner's overlay. Thresholds are still never written
+       * here: only the device-local fields this session actually owns, under a per-code key so two
+       * codes on one phone don't inherit each other's choices.
+       */
+      const own = pickCodeAlertPrefs(personal);
+      const code = caregiverCloudCodeRef.current;
+      if (Object.keys(own).length > 0 && code) {
+        const merged = { ...(await loadCodeAlertPrefs(code)), ...own };
+        AsyncStorage.setItem(alertPrefsCodeKey(code), JSON.stringify(merged)).catch(() => {});
+      }
+      return true; // thresholds are the owner's — nothing to sync, so this is not a failure
     }
     // A linked co-guardian OR a nurse viewing a child inherits the owner's thresholds read-only: keep
     // personal notification toggles, drop any threshold keys (the UI hides Edit; backstop here), and
@@ -2284,24 +2559,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(next)).catch(() => {});
         return next;
       });
-      return;
+      return true; // personal toggles are device-local by design — nothing to sync
     }
-    setAlertPrefsState((prev) => {
-      const next = { ...prev, ...partial };
-      AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(next)).catch(() => {});
+    // Computed from the ref rather than inside the state updater: the backend write used to be fired
+    // from within `setAlertPrefsState`, which made it impossible to await (and ran a side effect
+    // inside a reducer). Awaiting it is what lets the caller know the thresholds actually stuck —
+    // otherwise the server keeps alarming on the OLD numbers while the UI shows the new ones.
+    const prev = alertPrefsRef.current;
+    const next = { ...prev, ...partial };
+    const applyLocal = (v: AlertPreferences) => {
+      alertPrefsRef.current = v;
+      setAlertPrefsState(v);
+      AsyncStorage.setItem(ALERT_PREFS_KEY, JSON.stringify(v)).catch(() => {});
+    };
+    applyLocal(next); // optimistic so a switch never lags behind the tap
+    const acc = accountRef.current;
+    if (!acc?.convexUserId) return true;
+    // Device-local-only change (e.g. the Send-Alerts-to-Chat switch): nothing for the server to
+    // accept or reject, so don't round-trip and don't let an unrelated failure revert it.
+    if (!patchTouchesBackend(partial)) return true;
+    try {
       // Persist thresholds to the account so any access code it issues carries these ranges.
-      const acc = accountRef.current;
-      if (acc?.convexUserId) {
-        createConvexAuthClient()
-          .mutation(api.patientProfile.setAlertPreferences, {
-            userId: acc.convexUserId as Id<"users">,
-            passwordHash: acc.passwordHash,
-            alertPreferences: thresholdsToBackend(next),
-          })
-          .catch(() => {});
-      }
-      return next;
-    });
+      await createConvexAuthClient().mutation(api.patientProfile.setAlertPreferences, {
+        userId: acc.convexUserId as Id<"users">,
+        passwordHash: acc.passwordHash,
+        alertPreferences: thresholdsToBackend(next),
+      });
+      return true;
+    } catch {
+      /**
+       * ROLL BACK the synced fields. Leaving them applied is the dangerous direction: the push
+       * pipeline keeps evaluating readings against the OLD server thresholds while the screen shows
+       * the new ones, so a widened urgent-low silently never fires. The 60s hydrate poll would revert
+       * the display a minute later anyway — this just makes it immediate and honest.
+       *
+       * Device-local fields in the same patch are KEPT (see rollbackSyncedKeys): they never needed the
+       * server, so a network failure shouldn't undo them.
+       */
+      applyLocal(rollbackSyncedKeys(next, prev));
+      return false;
+    }
   }, []);
 
   const setChildMode = useCallback(async (enabled: boolean) => {
@@ -2319,8 +2616,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const generateCaregiverCode = useCallback(async (): Promise<string> => {
     const prev = profileRef.current;
     if (!prev) return "";
-    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    // Crypto-random, not Math.random — this code is a bearer credential. See utils/accessCodeGen.ts.
+    const code = generateAccessCode();
     const now = new Date().toISOString();
     const entry: AccessLogEntry = { id: `log_${Date.now()}`, timestamp: now, action: "Caregiver code generated", actor: "owner" };
     const updated = {
@@ -2338,9 +2635,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const normalized = normalizeCaregiverInputCode(code);
       if (normalized.length < 6) return false;
 
+      /**
+       * An access-code session is ACCOUNTLESS. If a signed-out account is still lingering (sign-out
+       * historically left it in memory and on disk), it must be dropped before the session starts:
+       * `LogHistory` derives `myUserId` from `account.convexUserId`, so a stale value makes every log
+       * the PREVIOUS guardian wrote render as "· by you" to this caregiver. The cold-start restore
+       * path already does exactly this (see the accountless comment there); the live path did not.
+       *
+       * Guarded on `!isSignedIn` so an owner self-testing their own code keeps their live account.
+       * Called only once a code has actually matched — an invalid code shouldn't clear anything.
+       */
+      const dropStaleSignedOutAccount = () => {
+        if (isSignedIn) return;
+        accountRef.current = null;
+        setAccount(null);
+      };
+
       // 1) Legacy: the owner's own 6-char profile code matches (offline self-test).
       const localStored = profile?.caregiverCode;
       if (localStored && normalizeCaregiverInputCode(localStored) === normalized) {
+        dropStaleSignedOutAccount();
         setCaregiverCloudCode(null);
         setCaregiverCodeKind("legacy");
         setCaregiverSession(true);
@@ -2369,6 +2683,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               carbRatio: slim?.carbRatio,
               targetGlucose: slim?.targetGlucose,
               correctionFactor: slim?.correctionFactor,
+              // See the note in restoreCaregiverCodeSession — the overrides must travel with the base.
+              doseSettingsByTime: slim?.doseSettingsByTime,
             };
             profileRef.current = nextProfile;
             setProfile(nextProfile);
@@ -2376,13 +2692,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Adopt the code owner's alert thresholds for this session (in memory only — never write
             // this borrowed view over the device's own account thresholds). Fall back to the owner's
             // defaults so we never leave the previous account's ranges in place.
-            setAlertPrefsState((prev) => ({ ...prev, ...DEFAULT_ALERT_PREFS, ...(sessionAlertOverlay(slim?.alertPreferences) ?? {}) }));
+            {
+              // Same as the restore path: the owner's thresholds, then this code's own switches.
+              const ownPrefs = await loadCodeAlertPrefs(normalized);
+              setAlertPrefsState((prev) => ({
+                ...prev,
+                ...DEFAULT_ALERT_PREFS,
+                ...(sessionAlertOverlay(slim?.alertPreferences) ?? {}),
+                ...ownPrefs,
+              }));
+            }
             // Drop any CGM connection left over from the account previously signed in on THIS
             // device. An access-code session never owns a sensor, and a stale connection made the
             // caregiver screen behave like the old guardian's (pull-to-sync hint, "reconnect
             // needed" banner) on a phone that had been signed into the main account.
             setCGMConnectionState({ type: null });
             await AsyncStorage.removeItem(CGM_KEY);
+            dropStaleSignedOutAccount();
             setCaregiverCloudCode(normalized);
             setCaregiverCodeKind("access");
             setAccessCodeRole(resolved.kind);
@@ -2413,6 +2739,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Same leftover-connection cleanup as the access-code path above.
         setCGMConnectionState({ type: null });
         await AsyncStorage.removeItem(CGM_KEY);
+        dropStaleSignedOutAccount();
         setCaregiverCloudCode(normalized);
         setCaregiverCodeKind("legacy");
         setCaregiverSession(true);
@@ -2463,8 +2790,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (circleSharedRef.current) return circleSharedRef.current.profile.doctorCode ?? "";
     const prev = profileRef.current;
     if (!prev) return "";
-    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    // Crypto-random, not Math.random — this code is a bearer credential. See utils/accessCodeGen.ts.
+    const code = generateAccessCode();
     const now = new Date().toISOString();
     const entry: AccessLogEntry = { id: `log_${Date.now()}`, timestamp: now, action: "Doctor code generated", actor: "owner" };
     const updated = {
@@ -2549,6 +2876,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         carbRatio: slim.carbRatio,
         targetGlucose: slim.targetGlucose,
         correctionFactor: slim.correctionFactor,
+        // A co-guardian must dose on the SAME math as the owner, overrides included.
+        doseSettingsByTime: slim.doseSettingsByTime,
       };
       setViewedFoodLog([]);
       setViewedInsulinLog([]);
@@ -2586,6 +2915,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           childName?: string; diabetesType?: "type1" | "type2" | "other"; dateOfBirth?: string;
           weightLbs?: number; insulinTypes?: string[]; profilePhotoUri?: string;
           carbRatio?: number; targetGlucose?: number; correctionFactor?: number;
+          // `profileForAccessCode` spreads `slimPatientProfile`, which has always returned this —
+          // it was only missing from this hand-written cast, so the nurse view silently lost the
+          // child's meal-window dose overrides.
+          doseSettingsByTime?: DoseSettingsByTime;
           alertPreferences?: RemoteThresholds;
           emergencyContacts?: EmergencyContact[];
         } | null;
@@ -2599,6 +2932,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           carbRatio: s?.carbRatio,
           targetGlucose: s?.targetGlucose,
           correctionFactor: s?.correctionFactor,
+          // A nurse dosing this child must use the child's meal-window overrides too.
+          doseSettingsByTime: s?.doseSettingsByTime,
         };
         setViewedFoodLog([]);
         setViewedInsulinLog([]);
@@ -2765,6 +3100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           carbRatio: currentProfile.carbRatio,
           targetGlucose: currentProfile.targetGlucose,
           correctionFactor: currentProfile.correctionFactor,
+          // The doctor reviews dosing decisions — sending only base ratios hid the meal-window
+          // overrides the patient is actually dosing on.
+          doseSettingsByTime: currentProfile.doseSettingsByTime,
         },
         glucoseReadings: glucoseReadings.slice(-300),
         insulinLog: currentInsulinLog.slice(0, 100),
@@ -2870,7 +3208,119 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.setItem(INSULIN_LOG_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
+
+    // RETRY unsynced writes. A fresh cloud snapshot that still doesn't contain a `pendingSync` entry
+    // proves that entry never landed — the mutation died with the app before the in-memory queue
+    // drained. `upsertFood`/`upsertInsulin` are idempotent on `clientId`, so re-sending cannot
+    // duplicate; on success the marker clears and the entry becomes a normal cloud-backed row.
+    // Without this, preserving the entry locally would keep it off the server forever.
+    const acc = accountRef.current;
+    const target = circleAnchorRef.current ?? acc?.convexUserId ?? null;
+    if (!acc?.convexUserId || !target) return;
+    const client = createConvexAuthClient();
+    const cloudFoodIds = new Set((liveLogs.foodLog as FoodLogEntry[]).map((e) => e.id));
+    const cloudInsulinIds = new Set((liveLogs.insulinLog as InsulinLogEntry[]).map((e) => e.id));
+    for (const e of foodLogRef.current) {
+      if (!e.pendingSync || cloudFoodIds.has(e.id)) continue;
+      client
+        .mutation(api.careLogs.addFoodLog, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          patientUserId: target as Id<"users">,
+          entry: toFoodEntryPayload(e),
+        })
+        .then(() => clearPendingMarker(setFoodLog, e.id, FOOD_LOG_KEY))
+        .catch(() => {
+          /* still offline / not permitted — stays pending and is retried on the next snapshot */
+        });
+    }
+    for (const e of insulinLogRef.current) {
+      if (!e.pendingSync || cloudInsulinIds.has(e.id)) continue;
+      client
+        .mutation(api.careLogs.addInsulinLog, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          patientUserId: target as Id<"users">,
+          entry: toInsulinEntryPayload(e),
+        })
+        .then(() => clearPendingMarker(setInsulinLog, e.id, INSULIN_LOG_KEY))
+        .catch(() => {
+          /* see above */
+        });
+    }
   }, [liveLogs]);
+
+  // ── LIVE logs for VIEWER sessions — the same real-time treatment the owner gets above.
+  // Access-code sessions and a nurse/co-guardian viewing a patient used to refresh on 60s
+  // setInterval timers. iOS throttles (and can suspend) JS timers, so those sessions drifted behind
+  // the owner: a caregiver could be minutes stale on insulin and food entries, which matters for
+  // dose stacking, not just freshness. Same fix that already worked for glucose readings.
+  const codeLogsCode = caregiverCodeKind === "access" ? caregiverCloudCode : null;
+  const codeLogs = useQuery(
+    api.careLogs.listLogsViaCode,
+    !isLoading && codeLogsCode ? { code: codeLogsCode as string } : "skip",
+  );
+  useEffect(() => {
+    if (!codeLogsCode || codeLogs === undefined) return;
+    // null = this code no longer grants view-logs. Show nothing rather than the last cached pool.
+    // NOTE on what the subscription does and does not catch: Convex invalidates on DATA changes, not
+    // wall-clock time. A REVOCATION or permission edit is a row write, so it re-fires this query
+    // immediately. A schedule WINDOW closing is pure time and does NOT — that case is owned by the
+    // 45s `checkAccess` watcher below, which raises `accessLock` and blocks the whole tab UI via
+    // AccessLockScreen. Both paths are needed; neither replaces the other.
+    if (codeLogs === null) {
+      setFoodLog([]);
+      setInsulinLog([]);
+      return;
+    }
+    setFoodLog((prev) => mergeCloudLogs(codeLogs.foodLog as FoodLogEntry[], prev, 200));
+    setInsulinLog((prev) => mergeCloudLogs(codeLogs.insulinLog as InsulinLogEntry[], prev, 500));
+
+    // Retry unsynced writes made in this code session — closes the gap left by the pendingSync work,
+    // which could preserve a caregiver's entry locally but had no subscription to retry it on.
+    const write = codeWriteRef.current;
+    if (!write?.canLog) return;
+    const client = createConvexAuthClient();
+    const cloudFoodIds = new Set((codeLogs.foodLog as FoodLogEntry[]).map((e) => e.id));
+    const cloudInsulinIds = new Set((codeLogs.insulinLog as InsulinLogEntry[]).map((e) => e.id));
+    for (const e of foodLogRef.current) {
+      if (!e.pendingSync || cloudFoodIds.has(e.id)) continue;
+      client
+        .mutation(api.careLogs.addFoodLogViaCode, { code: write.code, entry: toFoodEntryPayload(e) })
+        .then(() => clearPendingMarker(setFoodLog, e.id, null))
+        .catch(() => {});
+    }
+    for (const e of insulinLogRef.current) {
+      if (!e.pendingSync || cloudInsulinIds.has(e.id)) continue;
+      client
+        .mutation(api.careLogs.addInsulinLogViaCode, { code: write.code, entry: toInsulinEntryPayload(e) })
+        .then(() => clearPendingMarker(setInsulinLog, e.id, null))
+        .catch(() => {});
+    }
+  }, [codeLogs, codeLogsCode]);
+
+  // A nurse views a child through the child's access code; a co-guardian through their account link.
+  const viewLogsViaCode = viewingPatientId ? nurseViewCode : null;
+  const viewedCodeLogs = useQuery(
+    api.careLogs.listLogsViaCode,
+    !isLoading && viewLogsViaCode ? { code: viewLogsViaCode } : "skip",
+  );
+  const viewedLinkLogs = useQuery(
+    api.careLogs.listLogs,
+    !isLoading && viewingPatientId && !nurseViewCode && account?.convexUserId
+      ? {
+          userId: account.convexUserId as Id<"users">,
+          passwordHash: account.passwordHash,
+          patientUserId: viewingPatientId as Id<"users">,
+        }
+      : "skip",
+  );
+  useEffect(() => {
+    const remote = viewedCodeLogs ?? viewedLinkLogs;
+    if (!viewingPatientId || !remote) return;
+    setViewedFoodLog((prev) => mergeCloudLogs(remote.foodLog as FoodLogEntry[], prev, 200));
+    setViewedInsulinLog((prev) => mergeCloudLogs(remote.insulinLog as InsulinLogEntry[], prev, 500));
+  }, [viewedCodeLogs, viewedLinkLogs, viewingPatientId]);
 
   const messagingIdentity: MessagingIdentity = useMemo(() => {
     // A code session (accountless access code, or a nurse viewing via a code) messages AS the code.
@@ -2895,6 +3345,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         profile: effectiveProfile,
+        ownParentName,
         account,
         isLoading,
         isLoggedIn: !!effectiveProfile,
@@ -2916,6 +3367,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setupProfile,
         updateProfile,
         setCGMConnection,
+        disconnectCGM,
         addFoodLogEntry,
         clearFoodLog,
         logInsulinDose,

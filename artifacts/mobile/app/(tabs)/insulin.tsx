@@ -47,7 +47,7 @@ import DosePredictionChart from "@/components/DosePredictionChart";
 import { runPrediction, type PredictionResult, type StrengthLabel } from "@/utils/predictionClient";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import InsulinTypePicker from "@/components/InsulinTypePicker";
-import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
+import { activeFractionRemaining, computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import {
   defaultInsulinChipLabel,
   findInsulinByChipLabel,
@@ -268,6 +268,21 @@ export default function InsulinScreen() {
     () => computeActiveCarbs(foodLog ?? [], Date.now()),
     [foodLog, clockTick],
   );
+  /**
+   * Fill for the on-board bars. 0 hides the bar entirely, so a card with nothing carried over looks
+   * exactly as it did before. `clockTick` already drives the memos above, so both bars drain on their
+   * own without a dedicated timer.
+   *
+   * These read the SAME summaries the dose math consumes, so the bar can never disagree with the
+   * "Active Carbs / Active Insulin" figures in the breakdown below — and because `foodLog`/
+   * `insulinLog` come from `useAuth()` (which serves the VIEWED patient's pooled logs for a
+   * co-guardian, access code, or nurse viewing a linked profile), the bars appear for every linked
+   * identity with no extra wiring.
+   */
+  const activeCarbsFraction = activeFractionRemaining(activeCarbs.remainingMin, activeCarbs.remainingWindowMin);
+  const activeInsulinFraction = activeFractionRemaining(activeInsulin.remainingMin, activeInsulin.remainingWindowMin);
+  /** The strip is all-or-nothing: either side being active brings BOTH bars in. */
+  const showOnBoard = activeCarbsFraction > 0 || activeInsulinFraction > 0;
 
   /** Most recent logged basal dose — the titration baseline. Log is stored newest-first. */
   const lastBasalEntry = useMemo(() => {
@@ -517,6 +532,21 @@ export default function InsulinScreen() {
     (predictedInputs.bg !== (doseBg?.n ?? null) ||
       predictedInputs.carbs !== carbInput ||
       predictedInputs.dose !== roundToQuarterUnits(effectiveDose));
+  /**
+   * Close the prediction and put the card back exactly as it was before Predict was tapped.
+   *
+   * Clearing `prediction` (not just hiding the graph) is what reverts the button label to "Predict" —
+   * it reads `prediction?.ok ? "Predict Again" : "Predict"` — and re-enables the button, since
+   * `predictDisabled` below blocks a repeat only while an identical result is on screen. Clearing the
+   * input snapshot too keeps `predictionStale` honest for the next run.
+   */
+  const dismissPrediction = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowPrediction(false);
+    setPrediction(null);
+    setPredictedInputs(null);
+  }, []);
+
   // Predict is blocked while computing, while drawing, and while an IDENTICAL prediction is on screen.
   // An unavailable result leaves it enabled so it can be retried.
   const predictDisabled =
@@ -893,9 +923,6 @@ export default function InsulinScreen() {
                 </Pressable>
               )}
             </View>
-            <View style={[styles.targetPill, { backgroundColor: colors.backgroundTertiary }]}>
-              <Text style={[styles.targetPillText, { color: colors.textSecondary }]}>Target: {targetGlucose} mg/dL</Text>
-            </View>
           </View>
         </View>
         )}
@@ -904,6 +931,31 @@ export default function InsulinScreen() {
           <DoseWarningsList warnings={dose.warnings} />
         )}
       </View>
+
+      {/* ── What's still on board — its own strip between the inputs and the breakdown. Shown as a
+          PAIR: if either carbs or insulin is active, both bars appear (the empty one reads "0 g",
+          which is information too — it says nothing is pending on that side). When neither is active
+          the whole strip is absent and the page looks exactly as it did before. ── */}
+      {!isBasalMode && showOnBoard && (
+        <View key="on-board" style={styles.onBoardStrip}>
+          <View style={styles.onBoardCell}>
+            <OnBoardBar
+              fraction={activeCarbsFraction}
+              label={`${activeCarbs.totalGrams} g carbs still active`}
+              color={COLORS.warning}
+              colors={colors}
+            />
+          </View>
+          <View style={styles.onBoardCell}>
+            <OnBoardBar
+              fraction={activeInsulinFraction}
+              label={`${fmtU(activeInsulin.totalUnits)} insulin still active`}
+              color={CARD_PURPLE}
+              colors={colors}
+            />
+          </View>
+        </View>
+      )}
 
       {!isBasalMode && dose && doseBg && (
         <>
@@ -1068,6 +1120,7 @@ export default function InsulinScreen() {
                       highThreshold={alertPrefs.highThreshold}
                       urgentHighThreshold={alertPrefs.urgentHighThreshold}
                       nowMs={nowMs}
+                      onDismiss={dismissPrediction}
                       redrawKey={`run-${predictRunRef.current}`}
                       colors={colors}
                       onDrawComplete={() => setDrawing(false)}
@@ -1274,6 +1327,66 @@ const STRENGTH_META: Record<StrengthLabel, { text: string; color: string }> = {
 };
 
 /** The reference-strength readout under the prediction chart (combines the chosen matches' confidence). */
+/**
+ * On-board decay bar — one for active carbs, one for active insulin.
+ *
+ * Fills from the LEFT (fully active) toward the RIGHT (nothing left), using
+ * `activeFractionRemaining`, which is amount-based rather than time-based so it composes correctly
+ * when several logs overlap (see the note on that helper). The amount sits inside the bar and the
+ * plain-language remainder goes underneath, matching the muted caption style used elsewhere on this
+ * screen.
+ *
+ * Renders NOTHING when there is nothing on board — the caller checks the same fraction, so the card
+ * looks exactly as it did before whenever the calculator isn't carrying anything over.
+ */
+function OnBoardBar({
+  fraction,
+  label,
+  color,
+  colors,
+}: {
+  fraction: number;
+  /** Full text shown INSIDE the bar, e.g. "24 g carbs still active". */
+  label: string;
+  color: string;
+  colors: (typeof Colors)["light"];
+}) {
+  // Visibility is the CALLER's decision now — the two bars show and hide as a pair, so this renders
+  // whatever it is given, including a genuinely empty bar for the side with nothing on board.
+  const pct =
+    fraction > 0
+      ? // Keep a sliver visible at the very end of a window so the bar never reads as empty while
+        // the calculator is still deducting something.
+        Math.max(6, Math.min(100, Math.round(fraction * 100)))
+      : 0;
+  return (
+    <View
+      style={[
+        styles.onBoardTrack,
+        // Faint outline so the UNFILLED remainder is still legible as part of the bar rather than
+        // blending into the card. Same grey as the caption line this replaced.
+        { backgroundColor: colors.backgroundTertiary, borderColor: withAlpha(colors.textMuted, 0.45) },
+      ]}
+    >
+      <View style={[styles.onBoardFill, { width: `${pct}%`, backgroundColor: color + "2E" }]} />
+      {/* Leading edge. Deliberately a LIGHTER tint than the label: the edge sweeps right-to-left
+          across the text as the bar drains, and at full saturation the two identical colors merged
+          into an unreadable smudge where they overlapped. */}
+      <View style={[styles.onBoardFillEdge, { left: `${pct}%`, backgroundColor: withAlpha(color, 0.5) }]} />
+      {/* Half-width cells leave little room for "0.99 u insulin still active", so allow the label to
+          shrink a little rather than clip — truncation would hide the number, which is the point. */}
+      <Text
+        style={[styles.onBoardAmount, { color }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 function PredictionStrength({
   result,
   colors,
@@ -1296,6 +1409,15 @@ function PredictionStrength({
     </View>
   );
 }
+
+/**
+ * The dose card's bottom margin. Named because the on-board strip has to CANCEL part of it: the strip
+ * sits between the card and the "HOW YOUR DOSE IS CALCULATED" head, so without this the gap above the
+ * bars was the card margin PLUS the strip margin (32) against just the strip margin below (12).
+ */
+const DOSE_CARD_GAP = 20;
+/** Symmetric breathing room around the on-board strip. */
+const ON_BOARD_GAP = T.space.md;
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
@@ -1374,7 +1496,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: "700" },
   emptySub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20 },
 
-  doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 20, gap: 10 },
+  doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: DOSE_CARD_GAP, gap: 10 },
   doseInputRow: { flexDirection: "row", gap: 12, paddingVertical: 2 },
   doseInputGroup: { flex: 1, alignItems: "center", gap: 5 },
   doseInputHead: { flexDirection: "row", alignItems: "center", gap: 6 },
@@ -1383,8 +1505,24 @@ const styles = StyleSheet.create({
   doseBigInput: { fontSize: 20, fontWeight: "700", textAlign: "center", minWidth: 30, padding: 0 },
   doseUnit: { fontSize: 12, fontWeight: "500" },
   doseHint: { fontSize: 12, fontWeight: "500", marginTop: 1 },
-  targetPill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10, marginTop: 4 },
-  targetPillText: { fontSize: 12, fontWeight: "600" },
+  // Laid out as a ROW so each bar sits under the column it belongs to — carbs left, insulin right,
+  // mirroring the CARBS | CURRENT BG split in the card above.
+  onBoardStrip: {
+    flexDirection: "row", gap: 10, paddingHorizontal: T.space.md,
+    // Negative on purpose: pull up against the card's own bottom margin so the space ABOVE the bars
+    // equals the space below them. When the strip isn't rendered the card's margin stands alone, so
+    // the layout without bars is untouched.
+    marginTop: ON_BOARD_GAP - DOSE_CARD_GAP,
+    marginBottom: ON_BOARD_GAP,
+  },
+  onBoardCell: { flex: 1 },
+  onBoardTrack: {
+    height: 22, borderRadius: 11, overflow: "hidden", position: "relative", justifyContent: "center",
+    borderWidth: 1, width: "100%",
+  },
+  onBoardFill: { position: "absolute", left: 0, top: 0, bottom: 0 },
+  onBoardFillEdge: { position: "absolute", top: 0, bottom: 0, width: 2, marginLeft: -2 },
+  onBoardAmount: { fontSize: 10, fontWeight: "800", paddingHorizontal: 8, letterSpacing: 0.1 },
   doseInput: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontWeight: "700", textAlign: "center" },
   doseInputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.18)", marginVertical: 2 },
   liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },

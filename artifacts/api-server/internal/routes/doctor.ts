@@ -22,6 +22,7 @@ import {
   requireDoctorPatientLink,
 } from "../doctor-auth.js";
 import { answerDoctorQuestion, isAssistantConfigured } from "../doctor-assistant.js";
+import { limitCodeAttempts } from "../code-rate-limit";
 
 const router: IRouter = Router();
 
@@ -708,7 +709,7 @@ router.post("/login", (req, res) => {
   })();
 });
 
-router.post("/sync", (req, res) => {
+router.post("/sync", limitCodeAttempts, (req, res) => {
   void (async () => {
     try {
       const body = req.body as PatientSnapshot;
@@ -1272,7 +1273,7 @@ router.post(
 
 // Caregiver app records its decision on the pending proposal. App-facing (gated by the access
 // code in the body, like /sync) — not a doctor-authed route.
-router.post("/order-decision", (req, res) => {
+router.post("/order-decision", limitCodeAttempts, (req, res) => {
   void (async () => {
     try {
       const { accessCode, proposalId, status } = req.body as {

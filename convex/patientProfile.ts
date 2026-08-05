@@ -159,6 +159,29 @@ export const replace = mutation({
       // `replace` overwrites the whole doc and the profile payload carries no thresholds — carry the
       // account's existing alert thresholds forward so a profile save never wipes them.
       alertPreferences: existing?.alertPreferences,
+      /**
+       * Same carry-forward, extended to the SERVER-GENERATED / append-only fields. These are minted
+       * by the app (access codes) or accumulated (the access log) — a client never deliberately
+       * clears them through a profile save, so their absence from the payload means "not included",
+       * never "delete this".
+       *
+       * Why this backstop exists: a client that reaches onboarding with an empty profile — e.g. an
+       * offline sign-in that couldn't tell "no profile" from "couldn't reach the server" — would
+       * otherwise replace the document and silently destroy the account's live caregiver code, doctor
+       * code and entire access log. The client side of that is fixed too, but a whole-document
+       * replace should not be one bug away from data loss.
+       *
+       * NOT carried forward: doctorName / doctorEmail / doctorPhone / doctorInstitution. Those are
+       * user-editable, so a user clearing one must actually clear it.
+       */
+      caregiverCode: args.profile.caregiverCode ?? existing?.caregiverCode,
+      caregiverCodeIssuedAt: args.profile.caregiverCodeIssuedAt ?? existing?.caregiverCodeIssuedAt,
+      doctorCode: args.profile.doctorCode ?? existing?.doctorCode,
+      doctorCodeIssuedAt: args.profile.doctorCodeIssuedAt ?? existing?.doctorCodeIssuedAt,
+      accessLog:
+        args.profile.accessLog && args.profile.accessLog.length > 0
+          ? args.profile.accessLog
+          : existing?.accessLog,
       updatedAt: now,
     };
     if (existing) {

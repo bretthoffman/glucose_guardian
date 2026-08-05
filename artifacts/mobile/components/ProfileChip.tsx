@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -37,6 +37,7 @@ function ageLabel(ageYears: number | null): string {
 
 export default function ProfileChip({ colors, canEdit, onPress, uploading = false }: Props) {
   const { profile, ageYears } = useAuth();
+  const [photoFailed, setPhotoFailed] = useState(false);
 
   const name = profile?.childName ?? "";
   const initials = name
@@ -47,6 +48,8 @@ export default function ProfileChip({ colors, canEdit, onPress, uploading = fals
     .join("");
 
   const photoUri = profile?.profilePhotoUri ?? null;
+  // Give a newly picked photo another chance after a previous URI failed to load.
+  useEffect(() => { setPhotoFailed(false); }, [photoUri]);
   const age = ageLabel(ageYears);
   const type = diabetesLabel(profile?.diabetesType);
 
@@ -62,8 +65,18 @@ export default function ProfileChip({ colors, canEdit, onPress, uploading = fals
           <View style={[styles.circle, { backgroundColor: colors.backgroundTertiary }]}>
             <ActivityIndicator size="small" color={COLORS.primary} />
           </View>
-        ) : photoUri ? (
-          <Image source={{ uri: photoUri }} style={styles.circle} />
+        ) : photoUri && !photoFailed ? (
+          /**
+           * `profilePhotoUri` is a LOCAL `file://` path that gets shared to the circle, so on any other
+           * device (and after a reinstall, which changes the container UUID) the file doesn't exist.
+           * Committing to <Image> whenever the string is truthy meant the initials fallback could never
+           * run and a co-guardian/nurse saw a permanently blank circle. Fall back on load failure.
+           */
+          <Image
+            source={{ uri: photoUri }}
+            style={styles.circle}
+            onError={() => setPhotoFailed(true)}
+          />
         ) : (
           <View style={[styles.circle, { backgroundColor: COLORS.primary + "22" }]}>
             {initials ? (

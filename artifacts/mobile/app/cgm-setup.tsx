@@ -51,7 +51,7 @@ export default function CGMSetupScreen() {
   const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { cgmConnection, setCGMConnection, account } = useAuth();
+  const { cgmConnection, setCGMConnection, disconnectCGM, account } = useAuth();
 
   const [selectedType, setSelectedType] = useState<CGMType>(
     (cgmConnection.type as CGMType) ?? "dexcom"
@@ -161,21 +161,40 @@ export default function CGMSetupScreen() {
           style: "destructive",
           onPress: async () => {
             setIsDisconnecting(true);
+            // Remember the provider BEFORE anything is cleared — the credential mutation below is
+            // provider-specific, and reading `cgmConnection.type` after the disconnect would be null
+            // and silently clear the wrong provider's secrets.
+            const provider = cgmConnection.type;
             try {
+              // ORDER MATTERS. The connection row goes first, and only if it actually clears do we
+              // touch the stored credentials. The reverse order (what this used to do) could delete
+              // the credentials and then fail to clear the connection — leaving the account
+              // "connected" server-side with no credentials, which breaks auto-relink AND leaves the
+              // ingest cron erroring against a sensor it can no longer authenticate to.
+              const cleared = await disconnectCGM();
+              if (!cleared) {
+                Alert.alert(
+                  "Couldn't disconnect",
+                  "Your CGM is still connected — we couldn't reach the server. Your stored credentials were left untouched. Check your connection and try again.",
+                );
+                return;
+              }
               if (account?.convexUserId) {
                 // Cleared directly via the Clerk identity (same reasoning as saveMyCredentials).
+                // Provider-aware: Dexcom and Libre secrets live in separate tables and must never be
+                // crossed. Safe to be best-effort now — the connection (and its cron work-queue rows)
+                // is already gone, so nothing is polling with these.
                 try {
                   const client = createConvexAuthClient();
-                  if (cgmConnection.type === "dexcom") {
+                  if (provider === "dexcom") {
                     await client.mutation(api.patientDexcomSecrets.clearMyCredentials, {});
-                  } else {
+                  } else if (provider === "libre") {
                     await client.mutation(api.patientLibreSecrets.clearMyCredentials, {});
                   }
                 } catch {
-                  /* non-fatal — local disconnect still proceeds */
+                  /* non-fatal — the sensor is already unlinked and no longer being polled */
                 }
               }
-              await setCGMConnection({ type: null });
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               router.back();
             } finally {

@@ -234,3 +234,43 @@ describe("glucose alert evaluation (server-side, app closed)", () => {
     await t.finishInProgressScheduledFunctions();
   });
 });
+
+describe("per-device alert settings can't be changed by someone else's credentials", () => {
+  it("rejects a setPrefs call whose credentials don't own the device row", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.mutation(api.auth.register, { email: "own@example.com", passwordHash: "h1" });
+    const other = await t.mutation(api.auth.register, { email: "oth@example.com", passwordHash: "h2" });
+
+    await t.mutation(api.push.registerToken, {
+      userId: owner, passwordHash: "h1", token: "ExponentPushToken[dev1]", platform: "ios",
+    });
+
+    // The other account holds the token but does not own the row.
+    await expect(
+      t.mutation(api.push.setPrefs, {
+        userId: other, passwordHash: "h2",
+        token: "ExponentPushToken[dev1]",
+        prefs: { glucoseUrgent: false, glucoseHigh: false, glucoseLow: false, riseFast: false, fallFast: false, careLog: false, messages: false, doctor: false },
+      }),
+    ).rejects.toThrow();
+
+    // The urgent-low toggle is untouched.
+    const got = await t.query(api.push.getPrefs, { userId: owner, passwordHash: "h1", token: "ExponentPushToken[dev1]" });
+    expect(got?.prefs.glucoseUrgent).toBe(true);
+  });
+
+  it("still allows the real owner through", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.mutation(api.auth.register, { email: "own2@example.com", passwordHash: "h3" });
+    await t.mutation(api.push.registerToken, {
+      userId: owner, passwordHash: "h3", token: "ExponentPushToken[dev2]", platform: "ios",
+    });
+    await t.mutation(api.push.setPrefs, {
+      userId: owner, passwordHash: "h3",
+      token: "ExponentPushToken[dev2]",
+      prefs: { glucoseUrgent: true, glucoseHigh: false, glucoseLow: true, riseFast: true, fallFast: true, careLog: true, messages: true, doctor: true },
+    });
+    const got = await t.query(api.push.getPrefs, { userId: owner, passwordHash: "h3", token: "ExponentPushToken[dev2]" });
+    expect(got?.prefs.glucoseHigh).toBe(false);
+  });
+});

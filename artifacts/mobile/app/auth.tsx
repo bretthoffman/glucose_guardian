@@ -40,7 +40,13 @@ export default function AuthScreen() {
   const { createAccount, signIn, signInWithGoogle, verifyEmailCode, requestPasswordReset, resetPassword, account, isLoading, enterCaregiverMode, enterDoctorMode } = useAuth();
   const { resetGlucoseData } = useGlucose();
 
-  const [mode, setMode] = useState<Mode>(account ? "signin" : "create");
+  /**
+   * Always open on Sign In. This used to key off whether a cached account was on the device, but
+   * sign-out now clears that (so the previous user's email isn't left on screen for the next person),
+   * which meant every sign-out landed on Create Account. Returning users vastly outnumber new ones on
+   * an installed app, and switching is a single tap on the toggle above.
+   */
+  const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState(account?.email ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -65,6 +71,10 @@ export default function AuthScreen() {
     try {
       const ok = await enterCaregiverMode(code);
       if (ok) {
+        // The signed-out account's readings/dose settings are still live in GlucoseContext (logout
+        // clears their storage keys but not another context's memory). Drop them before an access
+        // code takes over, or the caregiver briefly sees the previous patient's graph.
+        resetGlucoseData();
         router.replace("/(tabs)");
       } else {
         setCaregiverError("Invalid, expired, or out-of-schedule code. Ask the account owner for a caregiver code.");
@@ -77,7 +87,9 @@ export default function AuthScreen() {
   const [doctorCode, setDoctorCode] = useState("");
   const [doctorError, setDoctorError] = useState("");
 
-  const slideAnim = useRef(new Animated.Value(account ? 1 : 0)).current;
+  // Starts at 1 to match `mode`'s "signin" default — otherwise the pill sits under Create Account on
+  // first paint while the Sign In form is showing, then slides across for no reason.
+  const slideAnim = useRef(new Animated.Value(1)).current;
   const passwordRef = useRef<TextInput>(null);
   const confirmRef = useRef<TextInput>(null);
 
