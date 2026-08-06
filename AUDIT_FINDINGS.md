@@ -185,12 +185,13 @@ for doctor auth.
 - (d) Not done — a guardian-side shared secret would require a coordinated app + server change and a
       migration for existing doctor codes. With (a)+(b)+(c) the practical risk is much lower.
 
-**⛔ BLOCKED ON BRETT — these are Vercel-side and I do not touch Vercel:**
-1. Deploy the api-server so the CORS allowlist and the rate limiter take effect (code changes above
-   are in the repo but **not live** until then).
-2. Set `DOCTOR_PORTAL_ORIGINS` to the portal's exact origin, e.g.
-   `https://glucose-guardian-doctor-portal.vercel.app` (plus any custom domain, comma-separated).
-   Until set, CORS stays open.
+**Vercel status (Brett deployed the api-server 2026-08-05):**
+1. ✅ **DEPLOYED** — the CORS allowlist and the per-IP rate limiter on `/sync` + `/order-decision` are
+   now live, along with the AI-chat token-budget fix (see §4.1 below).
+2. ⛔ **STILL OPEN — `DOCTOR_PORTAL_ORIGINS` is not set** (as far as I know; I don't read Vercel).
+   Until it is, `app.ts` logs a loud boot warning and **allows all browser origins**, which is the
+   fail-open branch — so the CORS half of this finding is deployed but INERT. Set it to the portal's
+   exact origin(s), comma-separated, then redeploy.
 
 ---
 
@@ -751,7 +752,47 @@ introduced, but it remains worth fixing.
 
 ---
 
-## Part 4 — Suggested order of work
+## Part 4 — AI chat audit (2026-08-05)
+
+### ✅ 4.1 Truncated replies + "Sorry, I had trouble thinking of a response" [FIXED — Vercel deployed]
+
+One cause for both. `artifacts/api-server/internal/routes/chat.ts` called `openai/gpt-5.2` with
+`max_completion_tokens: 180`. That model is a **reasoning** model, so the value is a budget for
+reasoning tokens PLUS visible output — not a reply-length cap. Long reasoning passes therefore produced
+either a reply cut off mid-sentence, or empty `message.content`, which the client rendered as the
+"trouble thinking" fallback. Looked exactly like an outage or a billing failure while OpenRouter was
+healthy, which is why it went unexplained for so long.
+
+- Budget raised to **2000**. Replies do NOT get longer — brevity is enforced by the prompt
+  ("KEEP IT SHORT: 2–3 plain sentences maximum", `chat.ts:260`), never by this ceiling.
+- **One retry at 4000** if content still comes back empty. Empty replies are nondeterministic, and a
+  caregiver asking about a high reading is the worst moment to get a shrug. Costs an extra call only
+  on that rare path.
+- Logs `finish_reason` + token usage on an empty reply, so a recurrence is diagnosable rather than
+  guessed at.
+
+### ✅ 4.2 A co-guardian was addressed by the circle OWNER's name [FIXED, OTA]
+
+`useAuth().profile` is the EFFECTIVE profile, which becomes the **viewed patient's** while a
+co-guardian views a linked patient — so `profile.parentName` resolved to the circle owner. Dad viewing
+Bella (owned by Mom) was greeted "Hey Mom!" and described to the model as *"Mom, Bella's guardian."*
+
+Fix: new `ownParentName` on AuthContext — the signed-in person's own name, unaffected by whose profile
+is being viewed (`parentName` is not a shared-overlay field, so the own profile always has the right
+one). `chat.tsx` uses it for the SPEAKER while the PATIENT's name still comes from the effective
+profile. That split is the fix.
+
+### ✅ 4.3 Speaker resolution audited across all identities [VERIFIED, 9 new tests]
+
+`utils/chatSpeaker.test.ts` (17 total) now pins every case Brett specified: guardian → "Brian, Bella's
+guardian"; adult → their own name; kid code → the kid's name; caregiver code → "Bella's caregiver";
+legacy code with no role → caregiver; caregiver email account → caregiver; caregiver email inside a
+linked kid's view → that kid's caregiver. Plus an ordering guard that a kid's own code can never be
+classified as a caregiver even when every caregiver signal is set simultaneously.
+
+---
+
+## Part 5 — Suggested order of work
 
 1. **§2.1** — simulator repro of the keyboard (you asked to start here; it's also the cheapest to confirm)
 2. **§2.3 + §3.1 + §2.4** — one change: make `signOut` do a full teardown, null the account in

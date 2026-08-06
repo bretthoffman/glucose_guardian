@@ -115,8 +115,36 @@ const keyValue = (key: string) => key.slice(5); // strip "user:" / "code:"
 /** Canonical thread id: the two endpoint keys sorted so either side computes the same value. */
 const threadKeyOf = (a: string, b: string) => [a, b].sort().join("|");
 
-function endpointKind(key: string, codes: AccessCodeRow[]): "guardian" | "child" | "caregiver" {
-  if (isGuardianKey(key)) return "guardian";
+export type EndpointRole = "guardian" | "co-guardian" | "child" | "caregiver" | "adult";
+
+/**
+ * The ROLE of an endpoint, for the little qualifier beside a name in the thread list.
+ *
+ * Three cases the old three-value version couldn't express:
+ *  - an ADULT managing their own diabetes is not anyone's guardian, and needs no qualifier at all —
+ *    they're the person the app is about, which is self-evident;
+ *  - once a circle holds more than one guardian they are CO-guardians, and both should say so;
+ *  - a caregiver EMAIL account is a caregiver, same as a caregiver code.
+ *
+ * `guardianCount` is the circle's owner plus its active co-guardians, so this flips to "co-guardian"
+ * the moment a second guardian joins and back to "guardian" if they leave — no stored state.
+ */
+async function endpointRole(
+  ctx: QueryCtx | MutationCtx,
+  key: string,
+  codes: AccessCodeRow[],
+  guardianCount: number,
+): Promise<EndpointRole> {
+  if (isGuardianKey(key)) {
+    const profile = await ctx.db
+      .query("patientProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", keyValue(key) as Id<"users">))
+      .unique();
+    // A caregiver (nurse) EMAIL account is a caregiver, not a guardian.
+    if (profile?.accountRole === "caregiver") return "caregiver";
+    if (profile?.accountRole === "adult") return "adult";
+    return guardianCount > 1 ? "co-guardian" : "guardian";
+  }
   const row = codes.find((c) => c.code === keyValue(key));
   return (row?.kind ?? "caregiver") === "child" ? "child" : "caregiver";
 }
@@ -222,7 +250,7 @@ export const listThreads = query({
       unreadTotal += unread;
       threads.push({
         threadKey,
-        otherKind: endpointKind(other, codes),
+        otherKind: await endpointRole(ctx, other, codes, guardianIds.length),
         otherName: await endpointName(ctx, viewer.patientUserId, other, codes),
         lastText: last?.text ?? null,
         lastAt: last?.createdAt ?? null,

@@ -369,6 +369,17 @@ function DayView({
     [insulinLog, bounds.startMs, bounds.endMs],
   );
 
+  /**
+   * Same entries, NEWEST FIRST, for the two lists. The most recent log is what someone opens this page
+   * to see — scrolling to the bottom of a busy day to find it was backwards.
+   *
+   * Deliberately a separate ordering rather than flipping `filterFoodLogsForDay`: that util's
+   * chronological contract also feeds `dayMarkers` below, and a "logs for this day" helper returning
+   * reverse-chronological would be a surprising thing for the next caller to inherit.
+   */
+  const dayFoodNewestFirst = useMemo(() => [...dayFood].reverse(), [dayFood]);
+  const dayInsulinNewestFirst = useMemo(() => [...dayInsulin].reverse(), [dayInsulin]);
+
   /** This day's logs as baseline markers for the graph — insulin first (it wins the on-line spot).
    *  Each marker carries its log's id so tapping the icon opens the same detail popup as the row. */
   const dayMarkers = useMemo<ChartEventMarker[]>(
@@ -443,7 +454,7 @@ function DayView({
       {dayFood.length === 0 ? (
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No food logged for this day.</Text>
       ) : (
-        dayFood.map((food) => (
+        dayFoodNewestFirst.map((food) => (
           <FoodLogRow key={food.id} food={food} colors={colors} myUserId={myUserId} myCode={myCode} onPress={() => setSelectedLog({ kind: "food", data: food })} />
         ))
       )}
@@ -455,7 +466,7 @@ function DayView({
       {dayInsulin.length === 0 ? (
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No insulin logged for this day.</Text>
       ) : (
-        dayInsulin.map((insulin) => (
+        dayInsulinNewestFirst.map((insulin) => (
           <InsulinLogRow key={insulin.id} insulin={insulin} colors={colors} myUserId={myUserId} myCode={myCode} onPress={() => setSelectedLog({ kind: "insulin", data: insulin })} />
         ))
       )}

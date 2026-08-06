@@ -504,13 +504,25 @@ export const addInsulinLogViaCode = mutation({
 
 // ─── reads ───────────────────────────────────────────────────────────────────────────────────
 
-/** Prefer the author's CURRENT guardian name (re-derived on read) over the row's stored snapshot. */
+/**
+ * Prefer the author's CURRENT name (re-derived on read) over the row's stored snapshot — for accounts
+ * AND for access codes.
+ *
+ * The code case matters because a code's label is now editable: renaming "me" to "Marcy" has to fix
+ * every byline she has already written, not just future ones. Falls back to the stored snapshot when
+ * the code has since been retired, so history doesn't lose its author.
+ */
 function bylineFor(
-  row: { authorUserId?: string; authorName: string },
+  row: { authorUserId?: string; authorCode?: string; authorName: string },
   liveNames: Map<string, string>,
+  liveCodeNames?: Map<string, string>,
 ): string {
   if (row.authorUserId) {
     const live = liveNames.get(row.authorUserId);
+    if (live) return live;
+  }
+  if (row.authorCode && liveCodeNames) {
+    const live = liveCodeNames.get(row.authorCode);
     if (live) return live;
   }
   return row.authorName;
@@ -525,6 +537,7 @@ function mapFood(
     authorUserId?: string; authorCode?: string; authorName: string; edited?: boolean;
   },
   liveNames: Map<string, string>,
+  liveCodeNames?: Map<string, string>,
 ) {
   return {
     id: row.clientId,
@@ -539,7 +552,7 @@ function mapFood(
     proteinGrams: row.proteinGrams,
     absorption: row.absorption,
     authorUserId: row.authorUserId,
-    authorName: bylineFor(row, liveNames),
+    authorName: bylineFor(row, liveNames, liveCodeNames),
     authorCode: row.authorCode,
     edited: row.edited,
   };
@@ -553,6 +566,7 @@ function mapInsulin(
     authorUserId?: string; authorCode?: string; authorName: string; edited?: boolean;
   },
   liveNames: Map<string, string>,
+  liveCodeNames?: Map<string, string>,
 ) {
   return {
     id: row.clientId,
@@ -565,7 +579,7 @@ function mapInsulin(
     recommendedUnits: row.recommendedUnits,
     manualOverride: row.manualOverride,
     authorUserId: row.authorUserId,
-    authorName: bylineFor(row, liveNames),
+    authorName: bylineFor(row, liveNames, liveCodeNames),
     authorCode: row.authorCode,
     edited: row.edited,
   };
@@ -595,9 +609,28 @@ async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
   for (const id of authorIds) {
     liveNames.set(id, await guardianDisplayName(ctx, id as Id<"users">));
   }
+  // Same treatment for code-written rows: resolve each code's CURRENT label so a rename reaches the
+  // bylines it has already written. Child codes stay credited to the patient, matching the write path.
+  const authorCodes = new Set<string>();
+  for (const r of food) if (r.authorCode) authorCodes.add(r.authorCode);
+  for (const r of insulin) if (r.authorCode) authorCodes.add(r.authorCode);
+  const liveCodeNames = new Map<string, string>();
+  for (const code of authorCodes) {
+    const row = await ctx.db
+      .query("careAccessCodes")
+      .withIndex("by_code", (q) => q.eq("code", code))
+      .first();
+    if (!row) continue; // retired code — keep the stored snapshot so history keeps an author
+    liveCodeNames.set(
+      code,
+      (row.kind ?? "caregiver") === "child"
+        ? await patientDisplayName(ctx, row.patientUserId)
+        : row.label,
+    );
+  }
   return {
-    foodLog: food.map((r) => mapFood(r, liveNames)),
-    insulinLog: insulin.map((r) => mapInsulin(r, liveNames)),
+    foodLog: food.map((r) => mapFood(r, liveNames, liveCodeNames)),
+    insulinLog: insulin.map((r) => mapInsulin(r, liveNames, liveCodeNames)),
   };
 }
 

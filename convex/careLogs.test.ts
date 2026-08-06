@@ -282,3 +282,61 @@ describe("attribution across every identity type", () => {
     await t.finishInProgressScheduledFunctions();
   });
 });
+
+describe("renaming an access code updates bylines it already wrote", () => {
+  it("re-derives the byline from the code's CURRENT label", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.mutation(api.auth.register, { email: "rn@x.com", passwordHash: "hr" });
+    await t.mutation(api.patientProfile.replace, {
+      userId: owner, passwordHash: "hr",
+      profile: { childName: "Bella", parentName: "Mom", diabetesType: "type1", dateOfBirth: "2014-01-01" },
+    });
+    const { code } = await t.mutation(api.careCircle.createAccessCode, {
+      userId: owner, passwordHash: "hr", patientUserId: owner, label: "me", kind: "caregiver",
+      permissions: { viewReadings: true, viewLogs: true, log: true, useCalculator: false, chat: false },
+    });
+    await t.mutation(api.careLogs.addFoodLogViaCode, {
+      code,
+      entry: { clientId: "r1", timestamp: new Date().toISOString(), foodName: "Apple", estimatedCarbs: 25, insulinUnits: 1, confidence: "high", fromPhoto: false },
+    });
+
+    const before = await t.query(api.careLogs.listLogs, { userId: owner, passwordHash: "hr", patientUserId: owner });
+    expect(before!.foodLog[0].authorName).toBe("me");
+
+    // Rename the code — the entry was written under the OLD label.
+    const row = await t.run(async (ctx: any) =>
+      await ctx.db.query("careAccessCodes").withIndex("by_code", (q: any) => q.eq("code", code)).first(),
+    );
+    await t.mutation(api.careCircle.updateAccessCode, {
+      userId: owner, passwordHash: "hr", codeId: row._id, label: "Marcy",
+    });
+
+    const after = await t.query(api.careLogs.listLogs, { userId: owner, passwordHash: "hr", patientUserId: owner });
+    expect(after!.foodLog[0].authorName).toBe("Marcy");
+    await t.finishInProgressScheduledFunctions();
+  });
+
+  it("keeps the stored snapshot once a code is retired, so history keeps an author", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.mutation(api.auth.register, { email: "rt@x.com", passwordHash: "ht" });
+    await t.mutation(api.patientProfile.replace, {
+      userId: owner, passwordHash: "ht",
+      profile: { childName: "Bella", parentName: "Mom", diabetesType: "type1", dateOfBirth: "2014-01-01" },
+    });
+    const { code } = await t.mutation(api.careCircle.createAccessCode, {
+      userId: owner, passwordHash: "ht", patientUserId: owner, label: "Sitter", kind: "caregiver",
+      permissions: { viewReadings: true, viewLogs: true, log: true, useCalculator: false, chat: false },
+    });
+    await t.mutation(api.careLogs.addFoodLogViaCode, {
+      code,
+      entry: { clientId: "r2", timestamp: new Date().toISOString(), foodName: "Toast", estimatedCarbs: 20, insulinUnits: 1, confidence: "high", fromPhoto: false },
+    });
+    await t.run(async (ctx: any) => {
+      const r = await ctx.db.query("careAccessCodes").withIndex("by_code", (q: any) => q.eq("code", code)).first();
+      await ctx.db.delete(r._id);
+    });
+    const after = await t.query(api.careLogs.listLogs, { userId: owner, passwordHash: "ht", patientUserId: owner });
+    expect(after!.foodLog[0].authorName).toBe("Sitter");
+    await t.finishInProgressScheduledFunctions();
+  });
+});

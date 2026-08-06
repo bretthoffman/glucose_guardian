@@ -79,7 +79,12 @@ export const ALERT_SOUND_OPTIONS: {
   label: string;
   group: "default" | "alarms" | "tones";
 }[] = [
-  { file: undefined, label: "Default", group: "default" },
+  /**
+   * No bundled file ⇒ the notification arrives SILENT. It was labelled "Default", which read as
+   * "the app's normal sound" and left people thinking their alerts were broken. This is also the
+   * starting point for every category until someone picks a sound.
+   */
+  { file: undefined, label: "Silent", group: "default" },
   // ── Alarms — insistent, hard to miss ──
   { file: "emergency.wav", label: "Emergency", group: "alarms" },
   { file: "critical.wav", label: "Critical", group: "alarms" },
@@ -97,6 +102,15 @@ export const ALERT_SOUND_OPTIONS: {
   { file: "shortalarm.wav", label: "Short Alarm", group: "alarms" },
   { file: "urgent.wav", label: "Urgent", group: "alarms" },
   { file: "pulse.wav", label: "Pulse", group: "alarms" },
+  { file: "uprising.wav", label: "Uprising", group: "alarms" },
+  { file: "weatherwarn.wav", label: "Weather Warning", group: "alarms" },
+  { file: "lowfuel.wav", label: "Low Fuel", group: "alarms" },
+  { file: "alertmain.wav", label: "Alert Main", group: "alarms" },
+  { file: "lowbattery.wav", label: "Low Battery", group: "alarms" },
+  { file: "actionneeded.wav", label: "Action Needed", group: "alarms" },
+  { file: "warningalert.wav", label: "Warning Alert", group: "alarms" },
+  { file: "warningnotify.wav", label: "Warning Notify", group: "alarms" },
+  { file: "alerte.wav", label: "Alerte", group: "alarms" },
   // ── Tones — friendlier chimes and dings ──
   { file: "ding.wav", label: "Ding", group: "tones" },
   { file: "happybells.wav", label: "Happy Bells", group: "tones" },
@@ -110,6 +124,19 @@ export const ALERT_SOUND_OPTIONS: {
   { file: "chime.wav", label: "Chime", group: "tones" },
   { file: "bell.wav", label: "Bell", group: "tones" },
   { file: "soft.wav", label: "Soft", group: "tones" },
+  { file: "alerted.wav", label: "Alerted", group: "tones" },
+  { file: "incoming.wav", label: "Incoming", group: "tones" },
+  { file: "newmessage.wav", label: "New Message", group: "tones" },
+  { file: "messagealert.wav", label: "Message Alert", group: "tones" },
+  { file: "digital.wav", label: "Digital", group: "tones" },
+  { file: "echo.wav", label: "Echo", group: "tones" },
+  { file: "softbell.wav", label: "Soft Bell", group: "tones" },
+  { file: "notify1.wav", label: "Notify 1", group: "tones" },
+  { file: "notify2.wav", label: "Notify 2", group: "tones" },
+  { file: "notify3.wav", label: "Notify 3", group: "tones" },
+  { file: "notify4.wav", label: "Notify 4", group: "tones" },
+  { file: "notify5.wav", label: "Notify 5", group: "tones" },
+  { file: "notify6.wav", label: "Notify 6", group: "tones" },
 ];
 
 interface PushContextType {

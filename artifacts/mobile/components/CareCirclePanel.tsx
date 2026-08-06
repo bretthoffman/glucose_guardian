@@ -33,6 +33,7 @@ import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import { useQuery } from "convex/react";
 import { convexErrorMessage } from "@/utils/convexError";
 import { formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
+import { applyPermissionChange } from "@/utils/carePermissions";
 
 type AccessState = { state: "ok" | "before_window" | "outside_window" | "disabled"; nextStartMs?: number };
 
@@ -174,6 +175,85 @@ function AccessChip({ accessState, colors }: { accessState: AccessState; colors:
   );
 }
 
+/**
+ * Tap-to-rename for an access code's label.
+ *
+ * The label is the code's identity everywhere it appears — the byline on logs it writes, the name in
+ * the Messages thread list, the row in this panel — so it needs to be fixable in place. It was
+ * previously set once at creation and never editable, which is how three codes ended up named "me"
+ * and made log attribution look broken.
+ *
+ * Commits on blur (and on submit): tapping away is the natural "done" gesture for an inline field, and
+ * an explicit Save button beside a single text input would be noise. An empty or unchanged value is
+ * discarded rather than saved, so a stray tap can't wipe a code's name.
+ */
+function EditableCodeLabel({
+  label,
+  colors,
+  disabled,
+  onSave,
+}: {
+  label: string;
+  colors: (typeof Colors)["light"];
+  disabled?: boolean;
+  onSave: (next: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(label);
+
+  // A rename that lands from elsewhere (another device, another guardian) shouldn't be masked by a
+  // stale draft while this row isn't being edited.
+  useEffect(() => {
+    if (!editing) setDraft(label);
+  }, [label, editing]);
+
+  function commit() {
+    setEditing(false);
+    const next = draft.trim();
+    if (!next || next === label) {
+      setDraft(label);
+      return;
+    }
+    onSave(next);
+  }
+
+  if (!editing) {
+    return (
+      <Pressable
+        disabled={disabled}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          setEditing(true);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={`Rename ${label}`}
+        style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+      >
+        <Text style={[styles.memberName, { color: colors.text }]} numberOfLines={1}>{label}</Text>
+        {!disabled && <Feather name="edit-2" size={11} color={colors.textMuted} />}
+      </Pressable>
+    );
+  }
+
+  return (
+    <TextInput
+      value={draft}
+      onChangeText={setDraft}
+      onBlur={commit}
+      onSubmitEditing={commit}
+      autoFocus
+      returnKeyType="done"
+      maxLength={40}
+      selectTextOnFocus
+      style={[
+        styles.memberName,
+        styles.labelEditInput,
+        { color: colors.text, borderColor: COLORS.primary, backgroundColor: colors.backgroundTertiary },
+      ]}
+    />
+  );
+}
+
 const PERMISSION_ROWS: { key: keyof CarePermissions; label: string; deviceRow: boolean }[] = [
   { key: "viewReadings", label: "View glucose readings", deviceRow: false },
   { key: "viewLogs", label: "View food & insulin logs", deviceRow: false },
@@ -205,7 +285,10 @@ function PermissionToggles({
             value={value[row.key]}
             disabled={disabled}
             trackColor={{ true: COLORS.primary }}
-            onValueChange={(on) => onChange({ ...value, [row.key]: on })}
+            /* Add logs can't be granted without View logs — see applyPermissionChange. Both editors
+               (co-guardian links and access codes) and the kid-device rows route through here, so the
+               rule holds everywhere the toggles appear. */
+            onValueChange={(on) => onChange(applyPermissionChange(value, row.key, on))}
           />
         </View>
       ))}
@@ -585,7 +668,22 @@ export default function CareCirclePanel({
                 <View key={String(c.codeId)} style={[styles.memberRow, { borderColor: colors.border, flexDirection: "column", alignItems: "stretch", gap: 10 }]}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={[styles.memberName, { color: colors.text }]} numberOfLines={1}>{c.label}</Text>
+                      {/* Child codes are renameable too — same commit-on-blur behavior. */}
+                      <EditableCodeLabel
+                        label={c.label}
+                        colors={colors}
+                        disabled={busy || !isAdmin}
+                        onSave={(next) =>
+                          runAction(async (client, userId, passwordHash) => {
+                            await client.mutation(api.careCircle.updateAccessCode, {
+                              userId,
+                              passwordHash,
+                              codeId: c.codeId,
+                              label: next,
+                            });
+                          })
+                        }
+                      />
                       <Text style={[styles.codeText, { color: COLORS.primary }]}>{c.code}</Text>
                     </View>
                     <AccessChip accessState={c.accessState} colors={colors} />
@@ -797,7 +895,21 @@ export default function CareCirclePanel({
                 <View key={String(c.codeId)} style={[styles.memberRow, { borderColor: colors.border, flexDirection: "column", alignItems: "stretch", gap: 8 }]}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={[styles.memberName, { color: colors.text }]} numberOfLines={1}>{c.label}</Text>
+                      <EditableCodeLabel
+                        label={c.label}
+                        colors={colors}
+                        disabled={busy || !isAdmin}
+                        onSave={(next) =>
+                          runAction(async (client, userId, passwordHash) => {
+                            await client.mutation(api.careCircle.updateAccessCode, {
+                              userId,
+                              passwordHash,
+                              codeId: c.codeId,
+                              label: next,
+                            });
+                          })
+                        }
+                      />
                       <Text style={[styles.codeText, { color: COLORS.primary }]}>{c.code}</Text>
                       <Text style={[styles.sectionSub, { color: colors.textMuted }]}>{describeAccess(c.access)}</Text>
                     </View>
@@ -1163,6 +1275,7 @@ const styles = StyleSheet.create({
   timeInput: { flex: 1, borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, fontWeight: "600", textAlign: "center" },
   editorHint: { fontSize: 11, fontWeight: "400" },
 
+  labelEditInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
   labelInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
   joinRow: { flexDirection: "row", gap: 8, alignItems: "center" },
   joinInput: { flex: 1, borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 15, fontWeight: "700", letterSpacing: 2, textAlign: "center" },

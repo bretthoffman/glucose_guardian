@@ -27,6 +27,7 @@ import { T, withAlpha, type ThemePreference } from "@/constants/theme";
 import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
+import UpdateDiagnostics from "@/components/UpdateDiagnostics";
 
 interface Props {
   visible: boolean;
@@ -538,6 +539,11 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
               <Feather name="chevron-right" size={18} color={c.textMuted} />
             </Pressable>
           ) : null}
+
+          {/* Which JS bundle is actually running, plus a manual update check. Visible to EVERY
+              identity on purpose: the device that got stuck on its built-in bundle was a nurse-mode
+              phone, and a caregiver can't be asked to reinstall from TestFlight to find out. */}
+          <UpdateDiagnostics colors={c} />
         </Pressable>
         </KeyboardAvoidingView>
       </Pressable>

@@ -507,3 +507,53 @@ describe("access-code inheritance contract (what a caregiver's view reads from t
     expect(slim?.emergencyContacts?.map((c) => c.name)).toEqual(["Grandma"]);
   });
 });
+
+describe("Add logs cannot be granted without View logs", () => {
+  it("drops `log` when an access code is created with viewLogs off", async () => {
+    const { t, patient } = await setup();
+    const { code } = await t.mutation(api.careCircle.createAccessCode, {
+      userId: patient, passwordHash: HASH_A, patientUserId: patient,
+      label: "Babysitter", kind: "caregiver",
+      // A stale client could still send this combination.
+      permissions: { viewReadings: true, viewLogs: false, log: true, useCalculator: false, chat: false },
+    });
+    const row = await t.run(async (ctx: any) =>
+      await ctx.db.query("careAccessCodes").withIndex("by_code", (q: any) => q.eq("code", code)).first(),
+    );
+    expect(row.permissions.log).toBe(false);
+    // Fails by REMOVING write access, never by widening what can be seen.
+    expect(row.permissions.viewLogs).toBe(false);
+  });
+
+  it("drops `log` when an access code is updated into the bad combination", async () => {
+    const { t, patient } = await setup();
+    const { code } = await t.mutation(api.careCircle.createAccessCode, {
+      userId: patient, passwordHash: HASH_A, patientUserId: patient,
+      label: "Teacher", kind: "caregiver",
+      permissions: { viewReadings: true, viewLogs: true, log: true, useCalculator: false, chat: false },
+    });
+    const created = await t.run(async (ctx: any) =>
+      await ctx.db.query("careAccessCodes").withIndex("by_code", (q: any) => q.eq("code", code)).first(),
+    );
+    await t.mutation(api.careCircle.updateAccessCode, {
+      userId: patient, passwordHash: HASH_A, codeId: created._id,
+      permissions: { viewReadings: true, viewLogs: false, log: true, useCalculator: false, chat: false },
+    });
+    const row = await t.run(async (ctx: any) => await ctx.db.get(created._id));
+    expect(row.permissions.log).toBe(false);
+  });
+
+  it("leaves a valid read-only grant untouched", async () => {
+    const { t, patient } = await setup();
+    const { code } = await t.mutation(api.careCircle.createAccessCode, {
+      userId: patient, passwordHash: HASH_A, patientUserId: patient,
+      label: "Grandma", kind: "caregiver",
+      permissions: { viewReadings: true, viewLogs: true, log: false, useCalculator: false, chat: false },
+    });
+    const row = await t.run(async (ctx: any) =>
+      await ctx.db.query("careAccessCodes").withIndex("by_code", (q: any) => q.eq("code", code)).first(),
+    );
+    expect(row.permissions.viewLogs).toBe(true);
+    expect(row.permissions.log).toBe(false);
+  });
+});

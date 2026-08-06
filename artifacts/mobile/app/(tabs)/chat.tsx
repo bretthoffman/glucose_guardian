@@ -30,6 +30,7 @@ import { apiUrl } from "@/utils/api-base-url";
 import { downsampleReadingsForContext, formatReadingTimeLabel } from "@/utils/glucoseHistoryContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { resolveChatSpeaker } from "@/utils/chatSpeaker";
+import { threadRoleLabel } from "@/utils/threadRoleLabel";
 
 interface Message {
   id: string;
@@ -421,6 +422,8 @@ export default function ChatScreen() {
     preview: string;
     time: number | null;
     unread: boolean;
+    /** Qualifier beside the name ("Guardian", "Caregiver", …). Null for the Doctor row and adults. */
+    role: string | null;
     icon: React.ComponentProps<typeof Feather>["name"];
     open: () => void;
   }[] = [];
@@ -433,6 +436,7 @@ export default function ChatScreen() {
         : "No messages yet",
       time: lastDoctorMsg ? Date.parse(lastDoctorMsg.timestamp) : null,
       unread: unreadDoctorCount > 0,
+      role: null, // "Doctor" is already the name
       icon: "activity",
       open: () => { markDoctorMessagesRead(); setActiveThread({ kind: "doctor" }); },
     });
@@ -444,7 +448,13 @@ export default function ChatScreen() {
       preview: th.lastText ? `${th.lastFromMe ? "You: " : ""}${th.lastText}` : "No messages yet",
       time: th.lastAt,
       unread: th.unread > 0,
-      icon: th.otherKind === "guardian" ? "user" : th.otherKind === "child" ? "smile" : "briefcase",
+      role: threadRoleLabel(th.otherKind),
+      icon:
+        th.otherKind === "child"
+          ? "smile"
+          : th.otherKind === "caregiver"
+          ? "briefcase"
+          : "user",
       open: () => { void markCareRead(th.threadKey); setActiveThread({ kind: "care", threadKey: th.threadKey, name: th.otherName }); },
     });
   }
@@ -487,6 +497,9 @@ export default function ChatScreen() {
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[styles.threadName, { color: colors.text }, row.unread && styles.threadUnread]} numberOfLines={1}>
                   {row.name}
+                  {row.role ? (
+                    <Text style={[styles.threadRole, { color: colors.textMuted }]}>{`  ${row.role}`}</Text>
+                  ) : null}
                 </Text>
                 <Text
                   style={[styles.threadPreview, { color: row.unread ? colors.text : colors.textMuted }, row.unread && styles.threadUnread]}
@@ -863,6 +876,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   threadName: { fontSize: 15, fontWeight: "500", marginBottom: 2 },
+  // Nested inside the name so it sits on the same baseline; smaller, muted and italic so it reads as
+  // a qualifier rather than part of the person's name.
+  threadRole: { fontSize: 12, fontWeight: "500", fontStyle: "italic" },
   threadPreview: { fontSize: 13 },
   threadUnread: { fontWeight: "700" },
   threadMeta: { alignItems: "flex-end", gap: 6 },

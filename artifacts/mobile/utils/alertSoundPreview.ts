@@ -40,7 +40,7 @@ const SOUND_ASSETS: Record<string, number> = {
 let audioModeReady = false;
 let current: AudioPlayer | null = null;
 
-/** Play one bundled sound (no-op for "Default" — the system sound can't be played by apps). */
+/** Play one bundled sound (no-op for "Silent", which has no file to play). */
 export function playAlertSoundPreview(file: string | undefined): void {
   if (!file || !(file in SOUND_ASSETS)) return;
   try {

@@ -132,7 +132,9 @@ export default function DashboardScreen() {
     null | "glucoseHigh" | "glucoseLow" | "riseFast" | "fallFast" | "urgent" | "messages"
   >(null);
   const soundLabelFor = (file: string | undefined) =>
-    ALERT_SOUND_OPTIONS.find((o) => o.file === file)?.label ?? "Default";
+    // Falls back to "Silent" to match the option's own label — an unrecognised file (e.g. a sound
+    // chosen on a newer build than this one) plays nothing, so that is the honest word for it.
+    ALERT_SOUND_OPTIONS.find((o) => o.file === file)?.label ?? "Silent";
   // A nurse viewing a child inherits settings read-only — treat edit gating like a co-guardian member.
   const settingsReadOnly = isCircleMember || isCaregiverViewingChild;
 
@@ -343,6 +345,33 @@ export default function DashboardScreen() {
       }
       reportSaveResult(ok, "Your insulin settings");
     });
+  }
+
+  /**
+   * Confirm before ending an access-code session. The Exit button sits in the banner at the very top
+   * of the Dashboard, right under the thumb, and leaving is not a small thing: the code has to be
+   * re-entered to get back in, and a caregiver mid-shift who taps it by accident loses sight of the
+   * person they're watching until someone re-shares it.
+   */
+  function confirmExitCaregiver() {
+    const doExit = () => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      exitCaregiverMode();
+    };
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && window.confirm("Exit this caregiver session? You'll need the access code to get back in.")) {
+        doExit();
+      }
+      return;
+    }
+    Alert.alert(
+      "Exit caregiver view?",
+      "You'll need the access code again to come back.",
+      [
+        { text: "Stay", style: "cancel" },
+        { text: "Exit", style: "destructive", onPress: doExit },
+      ],
+    );
   }
 
   function confirmLogout() {
@@ -725,7 +754,7 @@ export default function DashboardScreen() {
             </View>
             <Pressable
               style={[styles.modeBannerBtn, { backgroundColor: COLORS.accent + "20" }]}
-              onPress={() => { exitCaregiverMode(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+              onPress={confirmExitCaregiver}
             >
               <Feather name="log-out" size={13} color={COLORS.accent} />
               <Text style={[styles.modeBannerBtnText, { color: COLORS.accent }]}>Exit</Text>

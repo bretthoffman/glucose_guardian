@@ -101,6 +101,14 @@ export default function ProfileChip({ colors, canEdit, onPress, uploading = fals
           <Text style={[styles.typeLine, { color: COLORS.accent }]}>{type}</Text>
         ) : null}
       </View>
+
+      {/* Settings affordance. The whole chip has always opened Settings, but nothing said so — the
+          camera badge on the avatar reads as "change photo", which made the chip look like a photo
+          control rather than a way in. Shown for EVERY identity, since every one of them has a
+          Settings screen (a caregiver's just has fewer rows). */}
+      <View style={[styles.gear, { backgroundColor: COLORS.primary + "14" }]}>
+        <Feather name="settings" size={13} color={COLORS.primary} />
+      </View>
     </Pressable>
   );
 }
@@ -113,6 +121,13 @@ const styles = StyleSheet.create({
   },
   photoWrap: {
     position: "relative",
+  },
+  gear: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   circle: {
     width: 46,

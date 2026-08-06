@@ -140,7 +140,9 @@ describe("careMessages: co-guardian ↔ co-guardian", () => {
     expect(dadThreads.threads).toHaveLength(1);
     expect(momThreads.threads[0].otherName).toBe("Dad"); // each sees the OTHER guardian's name
     expect(dadThreads.threads[0].otherName).toBe("Mom");
-    expect(momThreads.threads[0].otherKind).toBe("guardian");
+    // Two guardians are in this circle, so each is a CO-guardian — the role now distinguishes that
+    // from a lone guardian (it drives the qualifier beside the name in the Messages list).
+    expect(momThreads.threads[0].otherKind).toBe("co-guardian");
     // Same canonical thread from both ends.
     expect(momThreads.threads[0].threadKey).toBe(dadThreads.threads[0].threadKey);
   });

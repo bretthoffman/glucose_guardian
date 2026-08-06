@@ -54,6 +54,19 @@ const careAccessPayload = v.union(
   }),
 );
 
+/**
+ * `log` (Add logs) is meaningless without `viewLogs`: writing an entry you can't then see gives no
+ * confirmation it landed and no way to spot a duplicate or a mistake. The client enforces this while
+ * the toggles are being set (`utils/carePermissions.ts`), and this is the boundary backstop — a stale
+ * app, or a grant created before the rule existed, must not be able to persist the combination.
+ *
+ * Drops `log` rather than granting `viewLogs`: silently widening what someone can SEE is the wrong
+ * direction to fail.
+ */
+function normalizePermissions(p: CarePermissions): CarePermissions {
+  return p.log && !p.viewLogs ? { ...p, log: false } : p;
+}
+
 // ─── shared helpers ──────────────────────────────────────────────────────────────────────────
 
 const MAX_CO_GUARDIANS = 3;
@@ -456,7 +469,10 @@ export const setLinkPermissions = mutation({
     const link = await ctx.db.get(args.linkId);
     if (!link || link.status !== "active") throw new ConvexError("Link not found");
     if (!(await isCircleAdmin(ctx, link.patientUserId, user._id))) throw new ConvexError("Not allowed");
-    await ctx.db.patch(args.linkId, { permissions: args.permissions, updatedAt: Date.now() });
+    await ctx.db.patch(args.linkId, {
+      permissions: normalizePermissions(args.permissions as CarePermissions),
+      updatedAt: Date.now(),
+    });
   },
 });
 
@@ -502,7 +518,7 @@ export const createAccessCode = mutation({
       code,
       label,
       kind,
-      permissions: args.permissions ?? { ...defaultPermissions },
+      permissions: normalizePermissions((args.permissions ?? { ...defaultPermissions }) as CarePermissions),
       access: args.access ?? { mode: "always" },
       status: "active",
       createdAt: now,
@@ -527,7 +543,9 @@ export const updateAccessCode = mutation({
     if (!(await isCircleAdmin(ctx, row.patientUserId, user._id))) throw new ConvexError("Not allowed");
     await ctx.db.patch(args.codeId, {
       ...(args.label != null && args.label.trim() ? { label: args.label.trim() } : {}),
-      ...(args.permissions ? { permissions: args.permissions } : {}),
+      ...(args.permissions
+        ? { permissions: normalizePermissions(args.permissions as CarePermissions) }
+        : {}),
       ...(args.access ? { access: args.access } : {}),
       updatedAt: Date.now(),
     });

@@ -341,12 +341,34 @@ export default function AuthScreen() {
               <Text style={[styles.label, { color: subtextColor }]}>Password</Text>
               <View style={[styles.inputWrap, { backgroundColor: inputBg, borderColor }]}>
                 <Feather name="lock" size={16} color={subtextColor} style={styles.inputIcon} />
+                {/**
+                 * The placeholder is rendered as our OWN <Text>, not via the `placeholder` prop.
+                 * iOS gives a `secureTextEntry` field a different font — sized for the masked dots —
+                 * and the native placeholder inherits that tracking, so "Your password" came out
+                 * noticeably wider-spaced than "you@example.com" right next to it. Drawing it
+                 * ourselves reuses `styles.input` verbatim, so the two fields match exactly.
+                 *
+                 * Deliberately NOT fixed by toggling `secureTextEntry` off while empty: on iOS
+                 * flipping that prop as the first character lands can discard the keystroke, and
+                 * silently eating a character of someone's password is far worse than wide tracking.
+                 */}
+                {password.length === 0 && (
+                  <Text
+                    pointerEvents="none"
+                    style={[
+                      styles.input,
+                      styles.passwordPlaceholder,
+                      { color: "rgba(255,255,255,0.25)" },
+                    ]}
+                  >
+                    {mode === "create" ? "Min. 6 characters" : "Your password"}
+                  </Text>
+                )}
                 <TextInput
                   ref={passwordRef}
                   style={[styles.input, { color: textColor }]}
                   value={password}
                   onChangeText={setPassword}
-                  placeholder={mode === "create" ? "Min. 6 characters" : "Your password"}
                   placeholderTextColor="rgba(255,255,255,0.25)"
                   secureTextEntry={!showPassword}
                   returnKeyType={mode === "create" ? "next" : "done"}
@@ -370,12 +392,24 @@ export default function AuthScreen() {
                 <Text style={[styles.label, { color: subtextColor }]}>Confirm Password</Text>
                 <View style={[styles.inputWrap, { backgroundColor: inputBg, borderColor }]}>
                   <Feather name="lock" size={16} color={subtextColor} style={styles.inputIcon} />
+                  {/* Same custom placeholder as the Password field above — see the note there. */}
+                  {confirmPassword.length === 0 && (
+                    <Text
+                      pointerEvents="none"
+                      style={[
+                        styles.input,
+                        styles.passwordPlaceholder,
+                        { color: "rgba(255,255,255,0.25)" },
+                      ]}
+                    >
+                      Re-enter password
+                    </Text>
+                  )}
                   <TextInput
                     ref={confirmRef}
                     style={[styles.input, { color: textColor }]}
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
-                    placeholder="Re-enter password"
                     placeholderTextColor="rgba(255,255,255,0.25)"
                     secureTextEntry={!showPassword}
                     returnKeyType="done"
@@ -770,6 +804,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "400",
   },
+  // Sits over the secure field's text origin: inputWrap's 14pt padding + the 16pt icon + its 10pt
+  // margin. `flex: 1` from styles.input is neutralised so the absolute box doesn't stretch.
+  passwordPlaceholder: { position: "absolute", left: 40, flex: 0 },
   eyeBtn: { padding: 4 },
 
   googleBtn: {

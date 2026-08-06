@@ -45,3 +45,38 @@ keeps a single 1.2 s whoop cycle, and continuous alarms (`siren`, `alertalarm`) 
 | flute.wav | Uplifting flute notification | 2317 |
 
 Source URL pattern: `https://assets.mixkit.co/active_storage/sfx/<id>/<id>.wav`
+
+## Batch 2 — added 2026-08-06
+
+Supplied by Brett in `new sound effect/` at the repo root. 17 of the 22 arrived as **mp3**, which iOS
+does NOT accept for notification sounds, so every file was re-encoded to 16-bit PCM 44.1 kHz WAV
+(matching batch 1) with `ffmpeg -c:a pcm_s16le -ar 44100`. All are under 3 s, well inside iOS's 30 s
+limit. Original filenames kept here for provenance — several name their source (Freesound, Pixabay
+contributors, Tunetank, SoundJay, ElevenLabs).
+
+| Bundled file | Picker label | Bucket | Original filename |
+|---|---|---|---|
+| uprising.wav | Uprising | alarms | `420506__jfrecords__uprising1.wav` |
+| weatherwarn.wav | Weather Warning | alarms | `49053354-weather-warning-313219.mp3` |
+| lowfuel.wav | Low Fuel | alarms | `ALRMElec-Helicopter_low_fuel_-Elevenlabs.wav` |
+| alertmain.wav | Alert Main | alarms | `soundjay_alert_main-01.mp3` |
+| lowbattery.wav | Low Battery | alarms | `kave_msri-low-battery-alert-sfx-345413.mp3` |
+| actionneeded.wav | Action Needed | alarms | `tunetank.com_notification-action-needed-alert-(double).wav` |
+| warningalert.wav | Warning Alert | alarms | `universfield-warning-alert-132471.mp3` |
+| warningnotify.wav | Warning Notify | alarms | `universfield-warning-notification-199277.mp3` |
+| alerte.wav | Alerte | alarms | `alexis_gaming_cam-alerte-346112.mp3` |
+| alerted.wav | Alerted | tones | `Alerted Notification.wav` |
+| incoming.wav | Incoming | tones | `Incoming Message2.mp3` |
+| newmessage.wav | New Message | tones | `Tomasz_Redman_New-Message-Alert_Main_3sec.mp3` |
+| messagealert.wav | Message Alert | tones | `liecio-message-alert-190042.mp3` |
+| digital.wav | Digital | tones | `soynoviembre-short-digital-notification-alert-440353.mp3` |
+| echo.wav | Echo | tones | `tunetank.com_game-echo-message-alert.wav` |
+| softbell.wav | Soft Bell | tones | `universfield-soft-bell-ding-485895.mp3` |
+| notify1.wav | Notify 1 | tones | `universfield-new-notification-08-352461.mp3` |
+| notify2.wav | Notify 2 | tones | `universfield-new-notification-09-352705.mp3` |
+| notify3.wav | Notify 3 | tones | `universfield-new-notification-010-352755.mp3` |
+| notify4.wav | Notify 4 | tones | `universfield-new-notification-013-363676.mp3` |
+| notify5.wav | Notify 5 | tones | `universfield-new-notification-015-363677.mp3` |
+| notify6.wav | Notify 6 | tones | `universfield-new-notification-022-370046.mp3` |
+
+**Licensing:** verify redistribution terms for each source before App Store submission.

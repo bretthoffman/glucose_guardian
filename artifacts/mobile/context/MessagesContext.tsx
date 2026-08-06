@@ -8,7 +8,12 @@ import { useAuth, type MessagingIdentity } from "@/context/AuthContext";
 export interface CareThread {
   threadKey: string;
   otherName: string;
-  otherKind: "guardian" | "child" | "caregiver";
+  /**
+   * Role qualifier shown beside the name. "adult" deliberately renders NOTHING — a person managing
+   * their own diabetes needs no explanation. "co-guardian" appears for every guardian once a circle
+   * holds more than one, and reverts to "guardian" if they leave (derived per request, never stored).
+   */
+  otherKind: "guardian" | "co-guardian" | "child" | "caregiver" | "adult";
   lastText: string | null;
   lastAt: number | null;
   lastFromMe: boolean;
