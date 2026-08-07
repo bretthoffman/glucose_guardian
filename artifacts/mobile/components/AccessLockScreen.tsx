@@ -6,7 +6,7 @@
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useThemeColors } from "@/context/ThemeContext";
@@ -29,6 +29,7 @@ export default function AccessLockScreen() {
     exitCaregiverMode,
     viewingPatientName,
     profile,
+    isSignedIn,
   } = useAuth();
 
   if (!accessLock) return null;
@@ -52,13 +53,42 @@ export default function AccessLockScreen() {
       ? `Your scheduled access to ${who} data is closed right now. It reopens ${fmtNext(accessLock.nextStartMs)}.`
       : `Your scheduled access to ${who} data is closed right now.`;
 
-  const onExit = () => {
+  /**
+   * An ACCOUNTLESS access-code session — someone who typed a code, with no account of their own.
+   *
+   * This is the only session type for which leaving is effectively irreversible: they can't sign back
+   * in, they need the owner to re-share the code. A caregiver EMAIL account reaches this screen through
+   * the `isViewingLinkedPatient` branch instead ("Back to my account"), which just drops the kid view
+   * and leaves them signed in — so it is deliberately untouched. `!isSignedIn` makes the distinction
+   * explicit rather than relying on branch order.
+   */
+  const isAccessCodeSession = caregiverSession && !isViewingLinkedPatient && !isSignedIn;
+
+  const doExit = () => {
     if (isViewingLinkedPatient) {
       exitViewingMode();
     } else if (caregiverSession) {
       exitCaregiverMode();
       router.replace("/auth");
     }
+  };
+
+  /**
+   * Confirm for access-code sessions only. The old single "Exit" button sat where a "dismiss" button
+   * normally goes on a blocking screen, so it read as "close this message" — but it ended the session,
+   * and a caregiver who tapped it while merely outside their window was locked out until the owner
+   * re-shared the code. Waiting for the window to reopen is the common case; leaving is the rare one.
+   */
+  const confirmLogout = () => {
+    const msg = "You are about to log out of your access code. Are you sure?";
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && window.confirm(msg)) doExit();
+      return;
+    }
+    Alert.alert("Log out?", msg, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Log out", style: "destructive", onPress: doExit },
+    ]);
   };
 
   return (
@@ -68,12 +98,29 @@ export default function AccessLockScreen() {
       </View>
       <Text style={[styles.title, { color: c.textPrimary }]}>{title}</Text>
       <Text style={[styles.body, { color: c.textSecondary }]}>{body}</Text>
-      <Pressable
-        style={({ pressed }) => [styles.btn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
-        onPress={onExit}
-      >
-        <Text style={styles.btnText}>{isViewingLinkedPatient ? "Back to my account" : "Exit"}</Text>
-      </Pressable>
+      {/* Access-code sessions get NO primary action here — being outside the window is temporary, so
+          the screen should not offer a one-tap way to lose access. Logging out moves to the corner,
+          behind a confirmation. */}
+      {!isAccessCodeSession && (
+        <Pressable
+          style={({ pressed }) => [styles.btn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
+          onPress={doExit}
+        >
+          <Text style={styles.btnText}>{isViewingLinkedPatient ? "Back to my account" : "Exit"}</Text>
+        </Pressable>
+      )}
+      {isAccessCodeSession && (
+        <Pressable
+          style={({ pressed }) => [styles.logoutTopRight, { top: insets.top + 12, opacity: pressed ? 0.6 : 1 }]}
+          onPress={confirmLogout}
+          accessibilityRole="button"
+          accessibilityLabel="Log out of this access code"
+          hitSlop={8}
+        >
+          <Feather name="log-out" size={13} color={c.textSecondary} />
+          <Text style={[styles.logoutTopRightText, { color: c.textSecondary }]}>Logout</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -92,4 +139,9 @@ const styles = StyleSheet.create({
   body: { fontSize: 15, fontWeight: "400", textAlign: "center", lineHeight: 22 },
   btn: { marginTop: 10, paddingHorizontal: 28, paddingVertical: 14, borderRadius: 14 },
   btnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  logoutTopRight: {
+    position: "absolute", right: 20, flexDirection: "row", alignItems: "center", gap: 5,
+    paddingVertical: 6, paddingHorizontal: 8,
+  },
+  logoutTopRightText: { fontSize: 13, fontWeight: "600" },
 });

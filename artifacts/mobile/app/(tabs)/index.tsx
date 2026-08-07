@@ -51,6 +51,8 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+/** Matches GlucoseGauge's STALE_READING_MS — past this, label from the reading, not the sync. */
+const STALE_READING_LABEL_MS = 20 * 60 * 1000;
 /** Visual pull threshold — aligned with iOS RefreshControl release distance (~72pt). */
 const PULL_REFRESH_THRESHOLD = 72;
 
@@ -172,7 +174,7 @@ export default function HomeScreen() {
   const padScale = isPadPortrait ? 1.4 : 1;
   const c = useThemeColors();
   const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose, notifyCgmSyncSuccess } = useGlucose();
-  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession, isMinor, foodLog, insulinLog, isViewingLinkedPatient, viewingPatientName, exitViewingMode, accessCodeRole } = useAuth();
+  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession, isMinor, foodLog, insulinLog, isViewingLinkedPatient, viewingPatientName, exitViewingMode, accessCodeRole, sessionExpired, signOut } = useAuth();
 
   // ── Tapped-alert popup: notification taps land HERE with the alert text + a ready-made chat
   // prompt. Nothing is auto-sent — the popup offers Dismiss / Send to chat, it is gated by the
@@ -414,11 +416,23 @@ export default function HomeScreen() {
   // Guardian devices label freshness from their own sync state; caregiver/viewing sessions never
   // run a sync, so they fall back to the newest reading's age — same wording, updates as readings
   // stream in, and gives caregivers the "when did data last arrive" line guardians already have.
-  const updatedLabel = (lastSyncResult || lastSyncTime)
+  /**
+   * Age of the DATA, not of the last attempt.
+   *
+   * This preferred the sync timestamp, so a sync that ran and returned nothing — exactly what happens
+   * when stored CGM credentials stop working — still printed "Updated just now" above a value reading
+   * "--". It described our polling, which nobody cares about, and implied fresh data that did not
+   * exist. When the newest reading is older than the staleness cutoff, the reading's own age is the
+   * honest number; the sync time is only meaningful while data is actually arriving.
+   */
+  const newestReadingMs = latestReading ? new Date(latestReading.timestamp).getTime() : null;
+  const readingIsStale =
+    newestReadingMs == null || Date.now() - newestReadingMs > STALE_READING_LABEL_MS;
+  const updatedLabel = (!readingIsStale && (lastSyncResult || lastSyncTime))
     ? `Updated ${formatLastSync(lastSyncResult?.at ?? lastSyncTime).toLowerCase()}`
     : latestReading
     ? `Updated ${formatLastSync(new Date(latestReading.timestamp)).toLowerCase()}`
-    : undefined;
+    : "No readings yet";
 
   const performSync = useCallback(async (silent: boolean): Promise<PerformSyncOutcome> => {
     if (isSyncingRef.current || !cgmConnection.type) return { ok: false, manualAlert: null };
@@ -1044,7 +1058,36 @@ export default function HomeScreen() {
           </Pressable>
         )}
 
-        {libreBannerKind && libreBannerKind !== "backup_missing" && libreBannerMessage && (
+        {/* Sign-in-again banner. Placed ABOVE the CGM banner and suppressing it, because a dead session
+            makes the CGM look broken: readings can't load and the diagnostic can't refresh, so the app
+            was blaming Dexcom for what is actually an auth problem. Signing in again is the fix. */}
+        {sessionExpired && (
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              Alert.alert(
+                "Please sign in again",
+                "Your session has expired — this usually happens after changing your password. Your data is safe, but readings won't update and changes won't save until you sign in again.",
+                [
+                  { text: "Later", style: "cancel" },
+                  { text: "Sign in", onPress: () => { void signOut().then(() => router.replace("/auth")); } },
+                ],
+              );
+            }}
+            style={[styles.banner, { backgroundColor: T.color.coral + "1A", borderColor: T.color.coral + "55" }]}
+          >
+            <Feather name="alert-circle" size={16} color={T.color.coral} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.bannerTitle, { color: T.color.coral }]}>Please sign in again</Text>
+              <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>
+                Your session expired, so readings won't update and changes won't save. Tap to sign in.
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={18} color={c.textMuted} />
+          </Pressable>
+        )}
+
+        {!sessionExpired && libreBannerKind && libreBannerKind !== "backup_missing" && libreBannerMessage && (
           <Pressable
             onPress={() => {
               if (libreBannerKind === "reconnect_required" || libreBannerKind === "sharing_not_enabled") {

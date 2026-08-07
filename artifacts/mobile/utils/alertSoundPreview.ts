@@ -35,6 +35,34 @@ const SOUND_ASSETS: Record<string, number> = {
   "marimba.wav": require("../assets/sounds/marimba.wav"),
   "guitar.wav": require("../assets/sounds/guitar.wav"),
   "flute.wav": require("../assets/sounds/flute.wav"),
+  // ── Batch 2 (2026-08-06). EVERY bundled sound must be listed here as well as in app.json's
+  // expo-notifications `sounds` array — they feed two DIFFERENT paths and missing one is silent:
+  //   app.json  → the file iOS plays for a real push (needs a native build)
+  //   this map  → the in-app tap-to-hear preview (`file in SOUND_ASSETS` bails out otherwise)
+  // The 22 sounds below were registered in app.json but not here, so every one previewed silent.
+  // `require` must be a static literal path for Metro to bundle the asset — no loops.
+  "uprising.wav": require("../assets/sounds/uprising.wav"),
+  "weatherwarn.wav": require("../assets/sounds/weatherwarn.wav"),
+  "lowfuel.wav": require("../assets/sounds/lowfuel.wav"),
+  "alertmain.wav": require("../assets/sounds/alertmain.wav"),
+  "lowbattery.wav": require("../assets/sounds/lowbattery.wav"),
+  "actionneeded.wav": require("../assets/sounds/actionneeded.wav"),
+  "warningalert.wav": require("../assets/sounds/warningalert.wav"),
+  "warningnotify.wav": require("../assets/sounds/warningnotify.wav"),
+  "alerte.wav": require("../assets/sounds/alerte.wav"),
+  "alerted.wav": require("../assets/sounds/alerted.wav"),
+  "incoming.wav": require("../assets/sounds/incoming.wav"),
+  "newmessage.wav": require("../assets/sounds/newmessage.wav"),
+  "messagealert.wav": require("../assets/sounds/messagealert.wav"),
+  "digital.wav": require("../assets/sounds/digital.wav"),
+  "echo.wav": require("../assets/sounds/echo.wav"),
+  "softbell.wav": require("../assets/sounds/softbell.wav"),
+  "notify1.wav": require("../assets/sounds/notify1.wav"),
+  "notify2.wav": require("../assets/sounds/notify2.wav"),
+  "notify3.wav": require("../assets/sounds/notify3.wav"),
+  "notify4.wav": require("../assets/sounds/notify4.wav"),
+  "notify5.wav": require("../assets/sounds/notify5.wav"),
+  "notify6.wav": require("../assets/sounds/notify6.wav"),
 };
 
 let audioModeReady = false;

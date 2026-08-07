@@ -171,11 +171,15 @@ export default function CGMSetupScreen() {
               // the credentials and then fail to clear the connection — leaving the account
               // "connected" server-side with no credentials, which breaks auto-relink AND leaves the
               // ingest cron erroring against a sensor it can no longer authenticate to.
-              const cleared = await disconnectCGM();
-              if (!cleared) {
+              const res = await disconnectCGM();
+              if (!res.ok) {
+                // Say which problem it actually is. "Check your connection" is useless — and actively
+                // misleading — when the real cause is a session the server rejected.
                 Alert.alert(
                   "Couldn't disconnect",
-                  "Your CGM is still connected — we couldn't reach the server. Your stored credentials were left untouched. Check your connection and try again.",
+                  res.reason === "unauthorized"
+                    ? "Your CGM is still connected — the server didn't accept this session. This can happen after a password change. Sign out and sign back in, then try again. Your stored credentials were left untouched."
+                    : "Your CGM is still connected — we couldn't reach the server. Your stored credentials were left untouched. Check your connection and try again.",
                 );
                 return;
               }

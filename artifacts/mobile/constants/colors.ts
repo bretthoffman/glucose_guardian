@@ -31,6 +31,8 @@ export const COLORS = {
     normal: "#1FD18A",
     high: "#FF9F1C",
     veryHigh: "#FF5B57",
+    /** No current reading — deliberately grey, so an absent value can never read as "in range". */
+    stale: "#9AA5B1",
   },
 };
 

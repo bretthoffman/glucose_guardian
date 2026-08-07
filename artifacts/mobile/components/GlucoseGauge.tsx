@@ -146,7 +146,6 @@ export function GlucoseGauge({
   mutedTextScale,
 }: Props) {
   const mutedScale = mutedTextScale ?? contentScale;
-  const status = getGlucoseStatus(value, lowThreshold, highThreshold);
   const c = useThemeColors();
 
   // Re-evaluate staleness on a self-tick so the pulse/value flip even when no new reading renders.
@@ -158,6 +157,21 @@ export function GlucoseGauge({
   const latestTimestamp =
     recentReadings && recentReadings.length > 0 ? recentReadings[recentReadings.length - 1].timestamp : null;
   const isStale = latestTimestamp != null && Date.now() - new Date(latestTimestamp).getTime() > STALE_READING_MS;
+  /** No readings at all is not "fresh" — it's the most stale state there is. */
+  const hasNoReadings = !recentReadings || recentReadings.length === 0;
+  const noCurrentValue = isStale || hasNoReadings;
+
+  /**
+   * With no CURRENT reading the gauge must not assert a range.
+   *
+   * It used to compute the status from `value` regardless, so a stale reading still coloured the ring
+   * green and printed "In Range" beside a number reading "--". On a screen whose whole job is telling
+   * someone whether they're safe right now, that is the worst possible direction to be wrong: a
+   * caregiver glancing over sees green and moves on, when in fact no data has arrived for hours.
+   */
+  const status = noCurrentValue
+    ? { label: "No data", color: COLORS.glucose.stale, bg: "transparent" }
+    : getGlucoseStatus(value, lowThreshold, highThreshold);
 
   /** Only taps whose touch point lies inside the circle count — the corners of the square do not. */
   const handleGaugePress = (e: GestureResponderEvent) => {
@@ -290,7 +304,7 @@ export function GlucoseGauge({
             color alpha × animated opacity (0.65 → 0): D9/88 puts the pulse at ~55% effective
             opacity at its brightest — size, speed, and fade curve unchanged. Hidden when stale
             (no reading in >20 min), so a live pulse always means fresh data. */}
-        {!isStale && (
+        {!noCurrentValue && (
           <>
             <Animated.View
               style={{
@@ -345,7 +359,7 @@ export function GlucoseGauge({
           }}
         >
           <Text style={[styles.value, TYPE.display, { color: c.textPrimary, fontSize: size * 0.27 * CONTENT_COMPACT }]}>
-            {isStale ? "--" : value}
+            {noCurrentValue ? "--" : value}
           </Text>
           <Text style={[styles.unit, { color: c.textSecondary, fontSize: size * 0.09 * CONTENT_COMPACT }]}>mg/dL</Text>
           <View

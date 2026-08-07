@@ -199,6 +199,11 @@ export interface CircleShared {
   profile: CircleSharedProfile;
 }
 
+/** Outcome of {@link AuthContextType.disconnectCGM}. */
+export type DisconnectResult =
+  | { ok: true }
+  | { ok: false; reason: "unauthorized" | "network" };
+
 export interface CGMConnection {
   type: "dexcom" | "libre" | null;
   sessionId?: string;
@@ -273,6 +278,11 @@ export interface AuthContextType {
   profile: UserProfile | null;
   /** The signed-in person's OWN name, even while viewing someone else's profile. */
   ownParentName: string | null;
+  /**
+   * TRUE when this device still thinks it is signed in but the auth session is gone (typically a
+   * password change elsewhere). Reads and writes will silently fail until the user signs in again.
+   */
+  sessionExpired: boolean;
   account: UserAccount | null;
   isLoading: boolean;
   isLoggedIn: boolean;
@@ -290,8 +300,11 @@ export interface AuthContextType {
   /** Resolves TRUE only when the change is durable (server accepted, or local-only account). */
   updateProfile: (profile: Partial<UserProfile>) => Promise<boolean>;
   setCGMConnection: (conn: CGMConnection) => Promise<void>;
-  /** Durable disconnect: resolves FALSE if the server still has the connection (nothing changed). */
-  disconnectCGM: () => Promise<boolean>;
+  /**
+   * Durable disconnect. `ok: false` means the server still has the connection and nothing changed;
+   * `reason` distinguishes a rejected session from an unreachable one so the message can be accurate.
+   */
+  disconnectCGM: () => Promise<DisconnectResult>;
   insulinLog: InsulinLogEntry[];
   addFoodLogEntry: (entry: Omit<FoodLogEntry, "id">) => void;
   clearFoodLog: () => void;
@@ -2050,7 +2063,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * `patientCgm.clear` deletes the connection row AND its `cgmSyncState` work-queue rows, so once this
    * resolves true the cron has genuinely stopped for this patient.
    */
-  const disconnectCGM = useCallback(async (): Promise<boolean> => {
+  const disconnectCGM = useCallback(async (): Promise<DisconnectResult> => {
     const acc = accountRef.current;
     if (acc?.convexUserId) {
       try {
@@ -2058,9 +2071,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           userId: acc.convexUserId as Id<"users">,
           passwordHash: acc.passwordHash,
         });
-      } catch {
-        // Still connected server-side. Leave local state alone so the UI keeps telling the truth.
-        return false;
+      } catch (e) {
+        /**
+         * Still connected server-side, so local state is left alone — but WHY it failed matters and
+         * used to be thrown away. Reporting every failure as "couldn't reach the server" sent someone
+         * chasing their wifi when the real problem was a rejected session: after a password reset the
+         * Clerk token can be invalid, `userCompat` then resolves no user, and `patientCgm.clear`
+         * throws Unauthorized. Signing out and back in fixes that; checking the wifi never will.
+         */
+        const msg = e instanceof Error ? e.message : String(e);
+        const unauthorized = /unauthorized|not signed in|authenticate/i.test(msg);
+        return { ok: false, reason: unauthorized ? "unauthorized" : "network" };
       }
     }
     setCGMConnectionState({ type: null });
@@ -2069,8 +2090,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* the server is already clear, which is what the cron reads */
     }
-    return true;
+    return { ok: true };
   }, []);
+
+  /**
+   * DEAD-SESSION DETECTION.
+   *
+   * Clerk invalidates a session when the password is changed elsewhere. Nothing in the app noticed:
+   * `userCompat` returns NULL for an unauthenticated caller rather than throwing, so every query came
+   * back empty and every mutation quietly did nothing. The screen kept showing the cached profile and
+   * name, so the app looked signed in while:
+   *   - no glucose readings could load (the subscription resolved to nothing),
+   *   - Disconnect CGM failed with "Unauthorized",
+   *   - and settings saves silently didn't stick.
+   * Meanwhile the server-side ingest cron carried on with its own credentials, so alerts kept
+   * arriving — which made it look like a CGM fault rather than an auth one.
+   *
+   * Clerk itself knows its session is gone, so `clerkIsSignedIn` flipping false while WE still think
+   * we're signed in is the reliable signal. Surfaced as state rather than acted on automatically: a
+   * forced sign-out would be a hostile surprise, and Clerk reports `false` briefly during its own
+   * startup, so a grace period avoids false alarms on a cold launch.
+   */
+  const [sessionExpired, setSessionExpired] = useState(false);
+  useEffect(() => {
+    if (!isSignedIn || isLoading) {
+      setSessionExpired(false);
+      return;
+    }
+    if (clerkIsSignedIn !== false) {
+      setSessionExpired(false);
+      return;
+    }
+    // Clerk says signed out while we think we're signed in — confirm it persists before alarming.
+    const t = setTimeout(() => setSessionExpired(true), 8000);
+    return () => clearTimeout(t);
+  }, [clerkIsSignedIn, isSignedIn, isLoading]);
 
   const setCGMConnection = useCallback(async (conn: CGMConnection) => {
     await commitCGMConnection(conn);
@@ -3346,6 +3400,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         profile: effectiveProfile,
         ownParentName,
+        sessionExpired,
         account,
         isLoading,
         isLoggedIn: !!effectiveProfile,
