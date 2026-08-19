@@ -86,7 +86,7 @@ export default function FoodScreen() {
   const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { carbRatio, targetGlucose, correctionFactor, latestReading, history, cgmSyncSuccessTick } = useGlucose();
+  const { carbRatio, targetGlucose, correctionFactor, latestReading, history } = useGlucose();
   const { addFoodLogEntry, isMinor, quickFoods, saveQuickFood } = useAuth();
   const confirmLog = useCareLogConfirm();
 
@@ -101,10 +101,14 @@ export default function FoodScreen() {
   const [logged, setLogged] = useState(false);
   const [editedCarbs, setEditedCarbs] = useState<string>("");
 
-  // ── "Calculate Insulin" popup — its button stays green until the next successful CGM sync ──
+  // ── "Calculate Insulin" popup — once THIS analyzed meal's insulin is taken, its button stays
+  // "Insulin Taken" until a NEW analysis replaces the meal (both analyze paths reset it). It used
+  // to re-arm on the next successful CGM sync (~minutes): the same meal card then re-opened the
+  // calculator pre-filled with the same carbs, and since carb insulin is never IOB-reduced it
+  // recommended the ENTIRE meal dose again — an insulin-stacking path. A meal that was dosed
+  // stays dosed; more food means a new analysis or the main calculator. ──
   const [insulinCalcVisible, setInsulinCalcVisible] = useState(false);
-  const [insulinTakenAtTick, setInsulinTakenAtTick] = useState<number | null>(null);
-  const insulinTaken = insulinTakenAtTick !== null && insulinTakenAtTick === cgmSyncSuccessTick;
+  const [insulinTaken, setInsulinTaken] = useState(false);
 
   // ── Quick Lookup chips now live in AuthContext: one mutual list for the whole care circle
   // (an add by any co-guardian shows up on every guardian's Food tab within a poll). ──
@@ -163,7 +167,7 @@ export default function FoodScreen() {
     setGuidance(null);
     setPhotoUri(null);
     setLogged(false);
-    setInsulinTakenAtTick(null);
+    setInsulinTaken(false);
     setSavedToQuick(false);
     try {
       const res = await fetch(apiUrl("/api/food/estimate"), {
@@ -231,7 +235,7 @@ export default function FoodScreen() {
     setGuidance(null);
     setQuery("");
     setLogged(false);
-    setInsulinTakenAtTick(null);
+    setInsulinTaken(false);
     setSavedToQuick(false);
     setError("");
     setIsAnalyzingPhoto(true);
@@ -679,7 +683,7 @@ export default function FoodScreen() {
         colors={colors}
         onLogged={() => {
           setInsulinCalcVisible(false);
-          setInsulinTakenAtTick(cgmSyncSuccessTick);
+          setInsulinTaken(true);
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }}
       />

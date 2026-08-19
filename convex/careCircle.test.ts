@@ -557,3 +557,64 @@ describe("Add logs cannot be granted without View logs", () => {
     expect(row.permissions.log).toBe(false);
   });
 });
+
+describe("doctor code: a co-guardian may create one, never replace one", () => {
+  async function linked() {
+    const { t, patient, member } = await setup();
+    const { code } = await t.mutation(api.careCircle.createInvite, { userId: patient, passwordHash: HASH_A, patientUserId: patient });
+    await t.mutation(api.careCircle.redeemInvite, { userId: member, passwordHash: HASH_B, code });
+    return { t, patient, member };
+  }
+
+  it("writes the code to the OWNER's row, so the whole circle inherits it", async () => {
+    const { t, patient, member } = await linked();
+    const res = await t.mutation(api.careCircle.createDoctorCodeAsMember, {
+      userId: member,
+      passwordHash: HASH_B,
+      code: "ABC23456",
+    });
+    expect(res.created).toBe(true);
+    expect(res.code).toBe("ABC23456");
+
+    // The owner's row is the one every circle device reads.
+    const ownerCtx = await t.query(api.careCircle.circleContext, { userId: patient, passwordHash: HASH_A });
+    expect(ownerCtx?.isOwner).toBe(true);
+    const memberCtx = await t.query(api.careCircle.circleContext, { userId: member, passwordHash: HASH_B });
+    expect(memberCtx?.isOwner).toBe(false);
+    expect((memberCtx?.shared as { doctorCode?: string } | null)?.doctorCode).toBe("ABC23456");
+  });
+
+  it("REFUSES to replace an existing code — rotation stays owner-only", async () => {
+    const { t, patient, member } = await linked();
+    await t.mutation(api.careCircle.createDoctorCodeAsMember, { userId: member, passwordHash: HASH_B, code: "FIRST234" });
+    const second = await t.mutation(api.careCircle.createDoctorCodeAsMember, {
+      userId: member,
+      passwordHash: HASH_B,
+      code: "SECOND34",
+    });
+    expect(second.created).toBe(false);
+    expect(second.code).toBe("FIRST234"); // the original survives
+
+    const memberCtx = await t.query(api.careCircle.circleContext, { userId: member, passwordHash: HASH_B });
+    expect((memberCtx?.shared as { doctorCode?: string } | null)?.doctorCode).toBe("FIRST234");
+    void patient;
+  });
+
+  it("rejects an owner calling it (owners write their own row) and a bad code shape", async () => {
+    const { t, patient, member } = await linked();
+    await expect(
+      t.mutation(api.careCircle.createDoctorCodeAsMember, { userId: patient, passwordHash: HASH_A, code: "ABC23456" }),
+    ).rejects.toThrow();
+    await expect(
+      t.mutation(api.careCircle.createDoctorCodeAsMember, { userId: member, passwordHash: HASH_B, code: "no" }),
+    ).rejects.toThrow();
+  });
+
+  it("records in the owner's access log that a co-guardian minted it", async () => {
+    const { t, patient, member } = await linked();
+    await t.mutation(api.careCircle.createDoctorCodeAsMember, { userId: member, passwordHash: HASH_B, code: "ABC23456" });
+    const prof = await t.query(api.patientProfile.get, { userId: patient, passwordHash: HASH_A });
+    const log = (prof?.accessLog ?? []) as { action: string; actor: string }[];
+    expect(log.some((e) => e.action.includes("co-guardian") && e.actor === "caregiver")).toBe(true);
+  });
+});

@@ -57,6 +57,10 @@ export interface DoseExplainInput {
   /** Credit actually subtracted from the correction (after any effectiveness discount). */
   iobCredit: number;
   iobDiscounted: boolean;
+  /** Correction units held at 0 because a recent bolus hasn't had time to act (0 = no hold). */
+  correctionHeldUnits?: number;
+  /** Minutes until that hold lifts. */
+  correctionHoldRemainingMin?: number;
   /** Correction portion after trend + credit (what actually lands in the dose). */
   correctionApplied: number;
   subTotal: number;
@@ -123,6 +127,11 @@ export function doseCardExplanation(key: DoseCardKey, d: DoseExplainInput): Dose
       if (d.iobCredit > 0.001) {
         lines.push(
           `Active insulin then reduces this correction — see the Active Insulin card for that part.`,
+        );
+      }
+      if ((d.correctionHeldUnits ?? 0) > 0.001) {
+        lines.push(
+          `A recent dose is still taking effect, so the rest of this correction (${u(d.correctionHeldUnits ?? 0)}) is ON HOLD for about ${Math.max(1, Math.round(d.correctionHoldRemainingMin ?? 0))} more minutes. Insulin needs time to work — glucose usually doesn't turn for 30–45 minutes after a dose, and correcting again before then stacks insulin that all lands at once later.`,
         );
       }
       return { title: "Correct High BG", lines };
@@ -209,13 +218,21 @@ export function doseCardExplanation(key: DoseCardKey, d: DoseExplainInput): Dose
 
     case "dose": {
       const parts: string[] = [];
+      const held = (d.correctionHeldUnits ?? 0) > 0.001;
       const corrCard = d.correctionInsulin + d.resistanceBump + d.trendAdjustment;
-      if (Math.abs(corrCard) >= 0.005) parts.push(`${u(corrCard)} to correct`);
+      // While the hold is active the correction contributes 0 to the sum — listing it (or the
+      // credit that was consumed inside it) would print an equation that doesn't produce subTotal.
+      if (!held && Math.abs(corrCard) >= 0.005) parts.push(`${u(corrCard)} to correct`);
       if (d.carbInsulin > 0) parts.push(`${u(d.carbInsulin)} for carbs`);
       if (d.uncoveredCarbInsulin > 0.001) parts.push(`${u(d.uncoveredCarbInsulin)} for uncovered active carbs`);
-      if (d.iobCredit > 0.001) parts.push(`minus the ${u(d.iobCredit)} active-insulin credit`);
+      if (!held && d.iobCredit > 0.001) parts.push(`minus the ${u(d.iobCredit)} active-insulin credit`);
       const math = parts.length > 0 ? parts.join(", ") : "the pieces above";
       const lines = [`Your suggested Dose combines everything above.`, `That's ${math} = ${u(d.subTotal)}.`];
+      if (held) {
+        lines.push(
+          `The correction is on hold for about ${Math.max(1, Math.round(d.correctionHoldRemainingMin ?? 0))} more minutes while your recent dose takes effect, so it adds nothing right now — see the Correct High BG card.`,
+        );
+      }
       if (Math.abs(d.patternDelta) >= 0.005) {
         const dir = d.patternDelta > 0 ? "up" : "down";
         const pct = Math.round(Math.abs(d.patternFactor - 1) * 100);

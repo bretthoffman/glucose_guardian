@@ -293,3 +293,174 @@ describe("computeDose pattern factor + safety cap", () => {
     expect(computeDose({ ...BASE, weightLbs: 400 }).maxDoseCap).toBe(15);
   });
 });
+
+/**
+ * The insulin-stacking report (2026-08-19): taking the exact recommended dose and reopening the
+ * calculator minutes later produced ANOTHER recommendation — small, but repeatable, which is how
+ * a caregiver following the number blindly stacks doses that all land at once later. Three leaks:
+ * post-dose BG drift + trend converting insulin lag into "need", the effectiveness discount firing
+ * on brand-new insulin, and (UI-level) the carb field surviving the log. These pin the math half.
+ */
+describe("post-bolus correction hold (anti-stacking)", () => {
+  // BG 180 → target 120 at ISF 40 recommends 1.5u. The user takes it. Five minutes later BG has
+  // crept to 188 and reads "rising": without the hold this recommended ~1u MORE.
+  it("recommends 0 right after the recommended dose, even with BG drifting up", () => {
+    const dose = computeDose({
+      carbs: 0,
+      currentBG: 188,
+      targetBG: 120,
+      carbRatio: 15,
+      correctionFactor: 40,
+      trend: "rising",
+      activeInsulinUnits: 1.5, // the dose just taken, barely decayed
+      prePeakIobUnits: 1.5,
+      correctionHoldRemainingMin: 40,
+      newestBolusAgeMin: 5,
+    });
+    expect(dose.totalDose).toBe(0);
+    expect(dose.correctionApplied).toBe(0);
+    expect(dose.correctionHeldUnits).toBeGreaterThan(0);
+    expect(dose.correctionHoldRemainingMin).toBe(40);
+    const msg = dose.warnings.map((w) => w.message).join(" ");
+    expect(msg).toContain("still taking effect");
+    expect(msg).toContain("recheck");
+  });
+
+  it("never holds carb insulin — new food doses in full during the hold", () => {
+    const dose = computeDose({
+      carbs: 30,
+      currentBG: 188,
+      targetBG: 120,
+      carbRatio: 15,
+      correctionFactor: 40,
+      trend: "rising",
+      activeInsulinUnits: 1.5,
+      prePeakIobUnits: 1.5,
+      correctionHoldRemainingMin: 40,
+      newestBolusAgeMin: 5,
+    });
+    expect(dose.carbInsulin).toBe(2); // 30 ÷ 15, untouched
+    expect(dose.correctionApplied).toBe(0);
+    expect(dose.totalDose).toBe(2);
+  });
+
+  it("does not report iobCovers for a HELD correction (held ≠ covered)", () => {
+    const dose = computeDose({
+      carbs: 0,
+      currentBG: 200, // correction 2.0 > credit 1.5 — NOT covered, held
+      targetBG: 120,
+      carbRatio: 15,
+      correctionFactor: 40,
+      trend: "stable",
+      activeInsulinUnits: 1.5,
+      prePeakIobUnits: 1.5,
+      correctionHoldRemainingMin: 30,
+      newestBolusAgeMin: 15,
+    });
+    expect(dose.correctionHeldUnits).toBeCloseTo(0.5, 2);
+    const msg = dose.warnings.map((w) => w.message).join(" ");
+    expect(msg).not.toContain("already covers");
+    expect(msg).toContain("on hold");
+  });
+
+  it("expires: the same inputs with the hold over recommend the real shortfall", () => {
+    const dose = computeDose({
+      carbs: 0,
+      currentBG: 200,
+      targetBG: 120,
+      carbRatio: 15,
+      correctionFactor: 40,
+      trend: "stable",
+      activeInsulinUnits: 1.2, // decayed by now
+      prePeakIobUnits: 0,
+      correctionHoldRemainingMin: 0,
+      newestBolusAgeMin: 50,
+    });
+    expect(dose.correctionHeldUnits).toBe(0);
+    expect(dose.correctionApplied).toBeCloseTo(0.8, 2); // 2.0 − 1.2
+    expect(dose.totalDose).toBe(1); // rounded to ½
+  });
+
+  it("folds the hold note into the high-BG warning instead of stacking a second one", () => {
+    const dose = computeDose({
+      carbs: 0,
+      currentBG: 260,
+      targetBG: 120,
+      carbRatio: 15,
+      correctionFactor: 40,
+      trend: "stable",
+      activeInsulinUnits: 3.4,
+      prePeakIobUnits: 3.4,
+      correctionHoldRemainingMin: 35,
+      newestBolusAgeMin: 10,
+    });
+    expect(dose.warnings).toHaveLength(1);
+    expect(dose.warnings[0].message).toContain("Glucose is high");
+    expect(dose.warnings[0].message).toContain("still taking effect");
+    expect(dose.totalDose).toBe(0);
+  });
+
+  it("is ignored for basal insulin (its math is already suppressed)", () => {
+    const dose = computeDose({
+      carbs: 0,
+      currentBG: 180,
+      targetBG: 120,
+      carbRatio: 15,
+      correctionFactor: 40,
+      trend: "stable",
+      insulinKind: "long",
+      activeInsulinUnits: 2,
+      prePeakIobUnits: 2,
+      correctionHoldRemainingMin: 30,
+      newestBolusAgeMin: 10,
+    });
+    expect(dose.correctionHeldUnits).toBe(0);
+    expect(dose.basalSuppressed).toBe(true);
+  });
+});
+
+describe("IOB effectiveness discount respects insulin age", () => {
+  const HIGH_FLAT = {
+    carbs: 0,
+    currentBG: 260,
+    targetBG: 120,
+    carbRatio: 15,
+    correctionFactor: 40,
+    trend: "stable",
+    bgDelta45Min: 0, // high and NOT falling — the discount's trigger
+  };
+
+  it("never discounts insulin that has not reached its activity peak", () => {
+    // 50 min old rapid dose: past the 45-min hold, before the 72-min peak. The old code halved
+    // this credit ("demonstrably not landing") about insulin that hasn't peaked — re-recommending
+    // right after the hold lifted.
+    const dose = computeDose({
+      ...HIGH_FLAT,
+      activeInsulinUnits: 3.0,
+      prePeakIobUnits: 3.0,
+      correctionHoldRemainingMin: 0,
+      newestBolusAgeMin: 50,
+    });
+    expect(dose.iobDiscounted).toBe(false);
+    expect(dose.iobCredit).toBe(3.0); // full credit
+  });
+
+  it("still discounts the portion that is past peak and provably not landing", () => {
+    // 4u on board: 1.5u pre-peak (protected), 2.5u older. Credit = 1.5 + 2.5×0.5 = 2.75.
+    const dose = computeDose({
+      ...HIGH_FLAT,
+      activeInsulinUnits: 4.0,
+      prePeakIobUnits: 1.5,
+      correctionHoldRemainingMin: 0,
+      newestBolusAgeMin: 60,
+    });
+    expect(dose.iobDiscounted).toBe(true);
+    expect(dose.iobCredit).toBeCloseTo(2.75, 2);
+  });
+
+  it("keeps the legacy full-discount behavior when the caller passes no age info", () => {
+    const dose = computeDose({ ...HIGH_FLAT, activeInsulinUnits: 4.0 });
+    expect(dose.iobDiscounted).toBe(true);
+    expect(dose.iobCredit).toBe(2.0); // 4 × 0.5, as before
+  });
+});

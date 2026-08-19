@@ -1060,14 +1060,21 @@ export default function HomeScreen() {
 
         {/* Sign-in-again banner. Placed ABOVE the CGM banner and suppressing it, because a dead session
             makes the CGM look broken: readings can't load and the diagnostic can't refresh, so the app
-            was blaming Dexcom for what is actually an auth problem. Signing in again is the fix. */}
+            was blaming Dexcom for what is actually an auth problem. Signing in again is the fix.
+
+            The copy deliberately does NOT name a cause. It used to say "this usually happens after
+            changing your password", which is a guess this component cannot support: `sessionExpired`
+            only observes that Clerk reports signed-out while we believe otherwise, and a failed
+            client fetch on a cold start produces exactly the same signal as a real expiry. Users who
+            had not touched their password were told they had, which sent at least one support
+            conversation chasing the wrong thing. Describe the OBSERVABLE state and the remedy only. */}
         {sessionExpired && (
           <Pressable
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               Alert.alert(
-                "Please sign in again",
-                "Your session has expired — this usually happens after changing your password. Your data is safe, but readings won't update and changes won't save until you sign in again.",
+                "Sign in to keep syncing",
+                "This device lost its connection to your account. Your data is safe and nothing has been lost \u2014 but readings won't update and changes won't save until you sign in again.",
                 [
                   { text: "Later", style: "cancel" },
                   { text: "Sign in", onPress: () => { void signOut().then(() => router.replace("/auth")); } },
@@ -1078,9 +1085,9 @@ export default function HomeScreen() {
           >
             <Feather name="alert-circle" size={16} color={T.color.coral} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.bannerTitle, { color: T.color.coral }]}>Please sign in again</Text>
+              <Text style={[styles.bannerTitle, { color: T.color.coral }]}>Sign in to keep syncing</Text>
               <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>
-                Your session expired, so readings won't update and changes won't save. Tap to sign in.
+                This device lost its connection to your account. Readings won't update until you sign in.
               </Text>
             </View>
             <Feather name="chevron-right" size={18} color={c.textMuted} />

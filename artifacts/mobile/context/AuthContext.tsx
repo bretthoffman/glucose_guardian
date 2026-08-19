@@ -278,6 +278,8 @@ export interface AuthContextType {
   profile: UserProfile | null;
   /** The signed-in person's OWN name, even while viewing someone else's profile. */
   ownParentName: string | null;
+  /** The server's confirmed circle role, or NULL while it is still unknown. */
+  circleRole: "owner" | "member" | null;
   /**
    * TRUE when this device still thinks it is signed in but the auth session is gone (typically a
    * password change elsewhere). Reads and writes will silently fail until the user signs in again.
@@ -407,7 +409,7 @@ export interface AuthContextType {
   /** Identity for cross-account messaging (careMessages); null when this session can't message. */
   messagingIdentity: MessagingIdentity;
   /** Non-null when the active caregiver/co-guardian session is outside its schedule or removed. */
-  accessLock: { reason: "outside_window" | "disabled" | "revoked"; nextStartMs?: number } | null;
+  accessLock: { reason: "outside_window" | "disabled" | "revoked" | "readings_off"; nextStartMs?: number } | null;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -664,8 +666,34 @@ function normalizeCaregiverInputCode(code: string): string {
 /** Max wait for Convex `getUser` during cold start — avoids hanging boot if network stalls. */
 const CONVEX_SESSION_RESTORE_MS = 10_000;
 
-async function restoreConvexBackedSession(acc: UserAccount): Promise<boolean> {
-  if (!acc.convexUserId) return true;
+/**
+ * Outcome of the cold-start session probe.
+ *
+ * The distinction between "gone" and "unknown" is the whole point. This used to return a bare boolean,
+ * so a timeout, an offline launch, a not-yet-connected websocket and a genuinely deleted account all
+ * collapsed into the same `false` — and the caller responded by deleting SESSION_KEY, silently and
+ * permanently signing the user out because their train went into a tunnel.
+ *
+ * "gone" is only ever a RESOLVED null from the server. Everything that merely failed to answer is
+ * "unknown", and unknown must not destroy anything.
+ */
+type SessionProbe = "alive" | "gone" | "unknown";
+
+/**
+ * Note what this probe can and cannot see: `api.auth.getUser` (convex/auth.ts) takes a client-supplied
+ * userId and performs NO auth check, so it answers "does this row exist", not "is this session valid".
+ * It can never detect an expired session — only a deleted account. And the only place a `users` row is
+ * ever deleted is `discardUnfinishedAccount` (convex/identity.ts), which early-returns once a
+ * patientProfiles row exists. So for any real, set-up account a negative is almost always the network.
+ *
+ * Do NOT "improve" this by making it authenticated. At cold start the Convex client frequently has no
+ * Clerk token attached yet — this file already documents that below, and works around it with a 400ms
+ * delay plus an 8-attempt retry loop just to get `identity.ensureUser` through. An authenticated probe
+ * with no such retry would read as "gone" routinely, converting a harmless false negative into a
+ * guaranteed forced logout during any token hiccup.
+ */
+async function restoreConvexBackedSession(acc: UserAccount): Promise<SessionProbe> {
+  if (!acc.convexUserId) return "alive";
   try {
     const client = createConvexAuthClient();
     const stillThere = await Promise.race([
@@ -676,9 +704,11 @@ async function restoreConvexBackedSession(acc: UserAccount): Promise<boolean> {
         setTimeout(() => reject(new Error("convex session restore timeout")), CONVEX_SESSION_RESTORE_MS);
       }),
     ]);
-    return !!stillThere;
+    // A resolved answer. Null means the server really has no such row.
+    return stillThere ? "alive" : "gone";
   } catch {
-    return false;
+    // Timeout, offline, transport error — we learned nothing. Never treat this as a negative.
+    return "unknown";
   }
 }
 
@@ -711,6 +741,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [careMemberships, setCareMemberships] = useState<CareMembership[]>([]);
   /** Owner-settings inheritance for a linked co-guardian (null when solo / circle owner). */
   const [circleShared, setCircleShared] = useState<CircleShared | null>(null);
+  /**
+   * The server's verdict on this account's place in a care circle. NULL means "not answered yet".
+   *
+   * This exists because `isCircleMember` cannot express uncertainty: it is `circleShared != null`, and
+   * `circleShared` is null for a confirmed owner, for an unanswered `circleContext`, AND for a member
+   * whose owner has no profile row to share. All three read as "owner" to anything that tests
+   * `!isCircleMember`. Owner-only behaviour must therefore test `circleRole === "owner"` — a positive
+   * confirmation — rather than the absence of member-ness. That distinction is what kept the
+   * dose-settings backfill from writing to the wrong profile.
+   */
+  const [circleRole, setCircleRole] = useState<"owner" | "member" | null>(null);
   /** Bumped to force an immediate circle re-hydrate (e.g. right after joining/leaving a circle). */
   const [hydrateNonce, setHydrateNonce] = useState(0);
   /** Quick Lookup meals — hydrated from the circle pool for cloud accounts. */
@@ -724,7 +765,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /** The viewed child's shared emergency contacts, inherited read-only while a nurse views them. */
   const [viewedEmergencyContacts, setViewedEmergencyContacts] = useState<EmergencyContact[]>([]);
   /** Set when the current "someone else's data" session falls outside its schedule / is removed. */
-  const [accessLock, setAccessLock] = useState<{ reason: "outside_window" | "disabled" | "revoked"; nextStartMs?: number } | null>(null);
+  const [accessLock, setAccessLock] = useState<{ reason: "outside_window" | "disabled" | "revoked" | "readings_off"; nextStartMs?: number } | null>(null);
   const [doctorMessages, setDoctorMessages] = useState<DoctorMessage[]>([]);
   const [therapyProposal, setTherapyProposal] = useState<TherapyProposal | null>(null);
 
@@ -911,10 +952,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return;
           }
           if (resolved) {
-            if (!resolved.permissions.viewReadings) {
-              await clearAndBounce();
-              return;
-            }
+            /**
+             * A permission-only change is NOT a revocation. Turning off "View glucose readings" used
+             * to run `clearAndBounce()`, which deleted the stored code — so an owner toggling one
+             * switch permanently destroyed the caregiver's session, and the only recovery was for the
+             * owner to re-share the code. Revocation (`resolved === null`, handled above) is the sole
+             * thing that should erase a code.
+             *
+             * The session is kept and a lock is raised instead. Exposure is unchanged: the server
+             * already returns [] for a viewReadings:false code (careCircle.glucoseForAccessCode /
+             * listForDayRangeForAccessCode) and the lock screen covers the UI outright, which also
+             * stops the device's cached history from rendering behind an empty state.
+             */
+            const readingsOff = !resolved.permissions.viewReadings;
             // Refresh the patient's slim profile (out-of-window is fine — accessLock handles it).
             // Timeout-guarded like the sibling boot queries so a stalled network can't hang boot.
             try {
@@ -964,6 +1014,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setAccessCodeRole(resolved.kind);
             setAccessCodePermissions(resolved.permissions);
             setCaregiverSession(true);
+            if (readingsOff) setAccessLock({ reason: "readings_off" });
             await AsyncStorage.setItem(
               CAREGIVER_CODE_KEY,
               JSON.stringify({ code, kind: "access", role: resolved.kind, permissions: resolved.permissions }),
@@ -983,6 +1034,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAccessCodeRole(role);
         setAccessCodePermissions(parsed.permissions ?? null);
         setCaregiverSession(true);
+        // Offline, so the cached grant is the best evidence available. If it says readings are off,
+        // lock now rather than rendering this device's stale cached history unguarded until the
+        // watcher's first successful round-trip.
+        if (parsed.permissions && !parsed.permissions.viewReadings) setAccessLock({ reason: "readings_off" });
         return;
       }
 
@@ -1117,9 +1172,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setAccount(acc);
           if (storedSession === "true") {
             if (acc.convexUserId) {
-              const ok = await restoreConvexBackedSession(acc);
+              const probe = await restoreConvexBackedSession(acc);
               if (cancelled) return;
-              if (ok) {
+              /**
+               * "unknown" restores the session optimistically, exactly like "alive".
+               *
+               * Deleting SESSION_KEY is reserved for a server that positively said the account is gone.
+               * Restoring on an unproven negative is the safe direction: the account is real, the
+               * device already holds their data, and if the session truly is dead every query simply
+               * returns empty and the sign-in banner appears — recoverable, and visible. The old
+               * behaviour was neither: it dropped the user at the sign-in screen with no explanation.
+               *
+               * This mirrors what the access-code restore path below already does on a network failure
+               * (it falls through to a cached optimistic restore rather than wiping), so the two boot
+               * paths now agree instead of handling offline in opposite ways.
+               */
+              if (probe !== "gone") {
                 setIsSignedIn(true);
                 signedInRestored = true;
                 const client = createConvexAuthClient();
@@ -1193,6 +1261,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   /* offline: keep AsyncStorage-hydrated profile and CGM */
                 }
               } else {
+                // Positively gone: the server resolved and had no such account.
                 await AsyncStorage.removeItem(SESSION_KEY);
               }
             } else {
@@ -1237,13 +1306,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const mergedOwnProfile = useMemo(() => {
     if (!isCircleMember || !circleShared) return profile;
     const overlay: Partial<UserProfile> = {};
-    for (const key of [...SHARED_PROFILE_EDIT_KEYS, "doctorCode", "doctorCodeIssuedAt"] as const) {
+    for (const key of SHARED_PROFILE_EDIT_KEYS) {
       const value = circleShared.profile[key as keyof CircleSharedProfile];
       if (value !== undefined && value !== null) (overlay as Record<string, unknown>)[key] = value;
     }
     const base: UserProfile =
       profile ?? ({ childName: "", diabetesType: "type1", dateOfBirth: "" } as UserProfile);
-    return { ...base, ...overlay };
+    /**
+     * The doctor code is the CIRCLE's credential, and it is assigned UNCONDITIONALLY — including when
+     * the circle has none. It cannot go through the loop above, because that skips null/undefined and
+     * would let the value fall through from `base`, i.e. from the member's OWN profile row.
+     *
+     * That fall-through was a live PHI leak, not a cosmetic bug. `redeemInvite` (convex/careCircle.ts)
+     * never clears a joiner's own `doctorCode`, so anyone who ran their own account before joining a
+     * circle keeps a stale code on their row. With the circle owner's code absent, that private code
+     * rendered on the Doctor Office card as the circle's "Active code" — with a Share button, and with
+     * Revoke hidden because members don't get it. Worse, the dashboard auto-syncs to the doctor portal
+     * keyed on `profile.doctorCode`, so the CIRCLE's glucose data was being pushed to a thread
+     * addressed by the member's old personal code — reachable by whichever doctor once held it.
+     *
+     * Absent must therefore mean absent: the member then sees "ask the owner to generate it", which is
+     * the truth. Do not "simplify" this back into the loop.
+     */
+    return {
+      ...base,
+      ...overlay,
+      doctorCode: circleShared.profile.doctorCode ?? undefined,
+      doctorCodeIssuedAt: circleShared.profile.doctorCodeIssuedAt ?? undefined,
+    };
   }, [isCircleMember, circleShared, profile]);
 
   const effectiveProfile = isViewingLinkedPatient ? viewedProfile : mergedOwnProfile;
@@ -1339,6 +1429,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setCircleShared(null);
               AsyncStorage.removeItem(CIRCLE_SHARED_KEY).catch(() => {});
             }
+            // Trust the server's own verdict, not the presence of shared data: a member whose owner
+            // has no profile row yields `shared: null` and would otherwise look like an owner.
+            setCircleRole(circle.isOwner ? "owner" : "member");
             if (Array.isArray(circle.quickFoods)) {
               const pool = (circle.quickFoods as string[]).slice(0, QUICK_FOODS_MAX);
               const next = pool.length > 0 ? pool : DEFAULT_QUICK_FOODS;
@@ -1545,7 +1638,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (!resolved) setAccessLock({ reason: "revoked" });
           else if (resolved.accessState.state !== "ok") {
             setAccessLock({ reason: resolved.accessState.state === "disabled" ? "disabled" : "outside_window", nextStartMs: resolved.accessState.nextStartMs });
-          } else setAccessLock(null);
+          }
+          // MUST come before the clear below. This effect re-runs on the restore's own
+          // setCaregiverCloudCode/setCaregiverCodeKind, so without a permission check here the
+          // `else` would immediately wipe the lock the restore just raised — and, being the live
+          // 45s poll, it is also what turns the lock off the moment the owner grants readings back.
+          else if (!resolved.permissions.viewReadings) setAccessLock({ reason: "readings_off" });
+          else setAccessLock(null);
         } else {
           const rows = (await client.query(api.careCircle.myMemberships, {
             userId: account!.convexUserId as Id<"users">,
@@ -1691,6 +1790,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setDoctorSession(false);
     setCareMemberships([]);
     setCircleShared(null);
+    setCircleRole(null);
     circleSharedRef.current = null;
     setQuickFoods(DEFAULT_QUICK_FOODS);
     setFoodLog([]);
@@ -1842,6 +1942,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setDoctorSession(false);
     setCareMemberships([]);
     setCircleShared(null);
+    setCircleRole(null);
     circleSharedRef.current = null;
     setQuickFoods(DEFAULT_QUICK_FOODS);
     setAccount(acc);
@@ -1972,6 +2073,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setDoctorSession(false);
     setCareMemberships([]);
     setCircleShared(null);
+    setCircleRole(null);
     circleSharedRef.current = null;
     clearSessionOverlay();
     await AsyncStorage.multiRemove([SESSION_KEY, CAREGIVER_CODE_KEY, CARE_MEMBERSHIPS_KEY, CIRCLE_SHARED_KEY]);
@@ -2442,6 +2544,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setDoctorSession(false);
     setCareMemberships([]);
     setCircleShared(null);
+    setCircleRole(null);
     circleSharedRef.current = null;
     setQuickFoods(DEFAULT_QUICK_FOODS);
     setViewingPatientId(null);
@@ -2724,7 +2827,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const resolved = await client.query(api.careCircle.resolveAccessCode, { code: normalized });
           if (resolved) {
-            if (!resolved.permissions.viewReadings) return false;
+            /**
+             * Login must agree with the cold-start restore. Returning false here renders the auth
+             * screen's "Invalid, expired, or out-of-schedule code" — which is wrong and unhelpful for
+             * a code that is perfectly valid and merely has readings switched off. Let the session in
+             * and lock it, so the caregiver is told what is actually happening and regains access the
+             * moment the owner flips the switch back.
+             */
+            const readingsOff = !resolved.permissions.viewReadings;
             if (resolved.accessState.state !== "ok") return false;
             const slim = await client.query(api.careCircle.profileForAccessCode, { code: normalized });
             const nextProfile: UserProfile = {
@@ -2768,6 +2878,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setAccessCodeRole(resolved.kind);
             setAccessCodePermissions(resolved.permissions);
             setCaregiverSession(true);
+            if (readingsOff) setAccessLock({ reason: "readings_off" });
             // Persist so this access-code session survives app restarts (no re-typing the code).
             await AsyncStorage.setItem(
               CAREGIVER_CODE_KEY,
@@ -2839,9 +2950,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isSignedIn]);
 
   const generateDoctorCode = useCallback(async (): Promise<string> => {
-    // Only the circle owner rotates the shared doctor code — a member device returns the
-    // inherited one untouched (the UI hides the buttons; this is the backstop).
-    if (circleSharedRef.current) return circleSharedRef.current.profile.doctorCode ?? "";
+    /**
+     * A co-guardian may CREATE the circle's code when there is none, but never replace one.
+     *
+     * Create-only is the whole grant. Rotation stays owner-only, so a member cannot cut a doctor off
+     * mid-treatment or silently swap a code the owner already handed out — while a doctor can still be
+     * onboarded without waiting on the owner. The server enforces both halves independently
+     * (`careCircle.createDoctorCodeAsMember` refuses when a code already exists and refuses owners);
+     * this is not the boundary.
+     *
+     * A member must NOT fall through to the owner path below: `commitProfile` writes the member's own
+     * `patientProfiles` row, which nobody in the circle reads — the code would appear to work on this
+     * device and be invisible to everyone else.
+     */
+    if (circleSharedRef.current) {
+      const inherited = circleSharedRef.current.profile.doctorCode;
+      if (inherited) return inherited; // already exists — rotation is owner-only
+      const acc = accountRef.current;
+      if (!acc?.convexUserId) return "";
+      try {
+        const client = createConvexAuthClient();
+        const res = (await client.mutation(api.careCircle.createDoctorCodeAsMember, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          code: generateAccessCode(),
+        })) as { code: string; created: boolean };
+        // Reflect it immediately so the card doesn't sit on "ask the owner" until the next poll.
+        if (res?.code) {
+          const shared = circleSharedRef.current;
+          if (shared) {
+            const next: CircleShared = {
+              ...shared,
+              profile: { ...shared.profile, doctorCode: res.code, doctorCodeIssuedAt: new Date().toISOString() },
+            };
+            circleSharedRef.current = next;
+            setCircleShared(next);
+            AsyncStorage.setItem(CIRCLE_SHARED_KEY, JSON.stringify(next)).catch(() => {});
+          }
+        }
+        return res?.code ?? "";
+      } catch {
+        return "";
+      }
+    }
     const prev = profileRef.current;
     if (!prev) return "";
     // Crypto-random, not Math.random — this code is a bearer credential. See utils/accessCodeGen.ts.
@@ -3400,6 +3551,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         profile: effectiveProfile,
         ownParentName,
+        circleRole,
         sessionExpired,
         account,
         isLoading,

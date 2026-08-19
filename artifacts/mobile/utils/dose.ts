@@ -45,6 +45,15 @@ export interface DoseBreakdown {
   maxDoseCap: number;
   /** True when the suggestion hit the safety cap. */
   cappedAtMax: boolean;
+  /**
+   * Correction units ZEROED by the post-bolus hold (0 when no hold applied). While a recent bolus
+   * is still in its onset lag, a correction shortfall beyond the IOB credit is held rather than
+   * dosed — glucose can't yet show what that insulin will do, so "more correction" 10 minutes
+   * after a full dose is stacking, not need. Carbs are never held.
+   */
+  correctionHeldUnits: number;
+  /** Minutes until the hold lifts (0 when none) — echoed from utils/onBoard for UI copy. */
+  correctionHoldRemainingMin: number;
 }
 
 export type InsulinKind = "rapid" | "regular" | "intermediate" | "long" | "ultra-long" | "premixed";
@@ -124,6 +133,12 @@ export interface DoseWarningContext {
   iobCovers: boolean;
   iobUnits: number;
   iobDiscounted: boolean;
+  /** Correction units held back because a recent bolus hasn't had time to act (0 = no hold). */
+  correctionHeldUnits?: number;
+  /** Minutes until the hold lifts — only meaningful when correctionHeldUnits > 0. */
+  holdRemainingMin?: number;
+  /** Age of the newest counted bolus, minutes — only for hold copy. */
+  newestBolusAgeMin?: number | null;
   cappedAtMax: boolean;
   maxDoseCap: number;
   targetBG: number;
@@ -141,6 +156,16 @@ const mkWarn = (level: "warning" | "info", message: string): DoseWarning => ({ l
  */
 export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
   const { isFalling } = ctx;
+  const held = (ctx.correctionHeldUnits ?? 0) > 0.001;
+  const heldAge =
+    ctx.newestBolusAgeMin != null && ctx.newestBolusAgeMin >= 1
+      ? `${Math.round(ctx.newestBolusAgeMin)} min ago`
+      : "just now";
+  const heldWait = Math.max(1, Math.round(ctx.holdRemainingMin ?? 0));
+  /** Folded into the high/spike warnings so the single-warning rule holds. */
+  const heldNote = held
+    ? ` Insulin given ${heldAge} is still taking effect, so no extra correction is suggested yet — recheck in about ${heldWait} min.`
+    : "";
 
   // Basal insulin: the meal/correction premise doesn't apply — fold in any acute glucose caution.
   if (ctx.basalSuppressed) {
@@ -170,24 +195,25 @@ export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
     const ketones = ctx.isVeryHighBG
       ? " Check for ketones — corrections can be less effective this high, so the suggestion includes a small extra correction."
       : "";
-    const siteCheck = ctx.iobDiscounted
-      ? " Earlier insulin doesn't appear to be lowering glucose, so only part of it is credited — consider checking the injection site or pen."
-      : "";
+    const siteCheck =
+      ctx.iobDiscounted && !held
+        ? " Earlier insulin doesn't appear to be lowering glucose, so only part of it is credited — consider checking the injection site or pen."
+        : "";
     if (ctx.isSpike) {
       return mkWarn(
         "warning",
-        `Glucose is high after a sharp rise (${ctx.previousBG} → ${ctx.currentBG} mg/dL). Verify with a finger stick before dosing, then monitor closely.${ketones}${siteCheck}`,
+        `Glucose is high after a sharp rise (${ctx.previousBG} → ${ctx.currentBG} mg/dL). Verify with a finger stick before dosing, then monitor closely.${ketones}${siteCheck}${heldNote}`,
       );
     }
     if (isFalling) {
       return mkWarn(
         "warning",
-        `Glucose is high but already falling. Verify with a finger stick and monitor closely after dosing.${ketones}${siteCheck}`,
+        `Glucose is high but already falling. Verify with a finger stick and monitor closely after dosing.${ketones}${siteCheck}${heldNote}`,
       );
     }
     return mkWarn(
       "warning",
-      `Glucose is high. Verify with a finger stick if possible and monitor closely.${ketones}${siteCheck}`,
+      `Glucose is high. Verify with a finger stick if possible and monitor closely.${ketones}${siteCheck}${heldNote}`,
     );
   }
 
@@ -195,7 +221,7 @@ export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
   if (ctx.isSpike) {
     return mkWarn(
       "warning",
-      `Unusual spike detected (${ctx.previousBG} → ${ctx.currentBG} mg/dL). Verify with a finger stick before dosing.`,
+      `Unusual spike detected (${ctx.previousBG} → ${ctx.currentBG} mg/dL). Verify with a finger stick before dosing.${heldNote}`,
     );
   }
 
@@ -218,6 +244,14 @@ export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
     return mkWarn(
       "warning",
       "Glucose is falling, so a trend adjustment is applied — monitor closely after dosing.",
+    );
+  }
+
+  // A recent dose is still in its onset lag — the correction is held so doses don't stack.
+  if (held) {
+    return mkWarn(
+      "info",
+      `Insulin given ${heldAge} is still taking effect. To avoid stacking doses, the ${Math.round((ctx.correctionHeldUnits ?? 0) * 100) / 100}u correction is on hold — recheck in about ${heldWait} min. Carbs are still covered in full.`,
     );
   }
 
@@ -266,6 +300,19 @@ export function computeDose(params: {
   insulinKind?: InsulinKind;
   /** Insulin-on-board from recent logged doses (see utils/onBoard) — credits the correction. */
   activeInsulinUnits?: number;
+  /**
+   * The portion of activeInsulinUnits from doses that have NOT reached their activity peak yet
+   * (see utils/onBoard). Exempt from the effectiveness discount — insulin that hasn't peaked has
+   * had no fair chance to move glucose, so "it isn't working" can't be said about it.
+   */
+  prePeakIobUnits?: number;
+  /**
+   * Minutes until the post-bolus correction hold lifts (see utils/onBoard); > 0 means a recent
+   * bolus is still in its onset lag and any correction beyond the IOB credit is HELD, not dosed.
+   */
+  correctionHoldRemainingMin?: number;
+  /** Age of the newest counted bolus, minutes — used only in the hold's warning copy. */
+  newestBolusAgeMin?: number | null;
   /** Carbs-on-board from recent food logs, in grams — balanced against insulin-on-board. */
   activeCarbsGrams?: number;
   /** Glucose change over roughly the last 45 min (mg/dL) — powers the IOB-effectiveness check. */
@@ -278,6 +325,7 @@ export function computeDose(params: {
   const {
     carbs, currentBG, targetBG, carbRatio, correctionFactor, trend, previousBG, insulinKind,
     activeInsulinUnits: activeInsulinParam, activeCarbsGrams, bgDelta45Min, weightLbs,
+    prePeakIobUnits, correctionHoldRemainingMin, newestBolusAgeMin,
   } = params;
 
   const basalSuppressed = insulinKind != null && BASAL_KINDS.includes(insulinKind);
@@ -341,9 +389,20 @@ export function computeDose(params: {
       let credit = netInFlight;
       // Effectiveness check: high glucose that is NOT falling despite in-flight insulin means that
       // insulin demonstrably isn't landing — credit only half of it (and say so in the warning).
+      //
+      // Only insulin PAST its activity peak can be judged this way. The check used to halve the
+      // whole credit, including a dose 10 minutes old — which cannot possibly have moved glucose
+      // yet — so it recommended re-correcting right after a full correction was taken: the exact
+      // stacking it exists to prevent. The pre-peak portion is now always credited in full (and
+      // COB is implicitly netted against the older portion first, which errs toward MORE credit,
+      // i.e. less insulin — the safe direction).
       if (isHighBG && bgDelta45Min != null && bgDelta45Min > -EFFECTIVENESS_MIN_FALL_MGDL) {
-        credit *= IOB_EFFECTIVENESS_DISCOUNT;
-        iobDiscounted = true;
+        const protectedCredit = Math.min(credit, Math.max(0, prePeakIobUnits ?? 0));
+        const discountable = credit - protectedCredit;
+        if (discountable > 0) {
+          credit = protectedCredit + discountable * IOB_EFFECTIVENESS_DISCOUNT;
+          iobDiscounted = true;
+        }
       }
       iobCredit = Math.min(credit, correctionPlusTrend);
     } else if (netInFlight < 0) {
@@ -351,7 +410,21 @@ export function computeDose(params: {
     }
   }
 
-  const correctionApplied = Math.max(0, correctionPlusTrend - iobCredit);
+  const correctionAfterCredit = Math.max(0, correctionPlusTrend - iobCredit);
+
+  // ── Post-bolus hold: while a recent bolus is inside its onset lag (utils/onBoard sets the
+  // window per insulin speed — 45 min for rapid), any correction the IOB credit does NOT cover is
+  // held at zero instead of dosed. Glucose can't yet reflect what that insulin will do: the CGM
+  // still shows the pre-dose rise, so the "shortfall" is an artifact of insulin's lag, not need.
+  // Without this, taking the exact recommended dose and reopening the calculator minutes later
+  // produced a fresh small recommendation — repeatedly, which is how caregivers stack insulin.
+  // Carbs are NEVER held: new food is real need, and uncovered-carb top-ups still flow. ──
+  const holdRemainingMin =
+    !basalSuppressed && correctionHoldRemainingMin != null && correctionHoldRemainingMin > 0
+      ? Math.ceil(correctionHoldRemainingMin)
+      : 0;
+  const correctionHeldUnits = holdRemainingMin > 0 ? correctionAfterCredit : 0;
+  const correctionApplied = holdRemainingMin > 0 ? 0 : correctionAfterCredit;
   const subTotal = Math.max(0, carbInsulin + uncoveredCarbInsulin + correctionApplied);
 
   // ── Pattern tuning: a visible, bounded multiplier learned from how this family's logged doses
@@ -377,9 +450,14 @@ export function computeDose(params: {
     isVeryHighBG,
     isSpike: isSpikeDetected,
     isFalling: !basalSuppressed && (trend === "rapidly_falling" || trend === "falling"),
-    iobCovers: iobCredit > 0 && correctionPlusTrend > 0 && correctionApplied === 0,
+    // Pre-hold value on purpose: a held correction is NOT "covered by IOB", and saying so would
+    // tell a caregiver the insulin already handles it when it may not.
+    iobCovers: iobCredit > 0 && correctionPlusTrend > 0 && correctionAfterCredit === 0,
     iobUnits,
     iobDiscounted,
+    correctionHeldUnits,
+    holdRemainingMin,
+    newestBolusAgeMin,
     cappedAtMax,
     maxDoseCap,
     targetBG,
@@ -418,5 +496,7 @@ export function computeDose(params: {
     patternDelta: r2(patternDelta),
     maxDoseCap,
     cappedAtMax,
+    correctionHeldUnits: r2(correctionHeldUnits),
+    correctionHoldRemainingMin: holdRemainingMin,
   };
 }

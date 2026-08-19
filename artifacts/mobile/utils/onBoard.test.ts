@@ -188,3 +188,38 @@ describe("on-board decay bar fill (time-anchored)", () => {
     expect(insFill([])).toBe(0);
   });
 });
+
+describe("pre-peak split + correction hold window", () => {
+  const now = Date.now();
+  const at = (minAgo: number) => new Date(now - minAgo * 60_000).toISOString();
+  const bolus = (units: number, minAgo: number, insulinType?: string) =>
+    ({ id: `t${minAgo}`, timestamp: at(minAgo), units, type: "bolus", insulinType } as never);
+
+  it("a 10-min-old rapid dose is fully pre-peak with ~35 min of hold left", () => {
+    const s = computeActiveInsulin([bolus(1.5, 10)], now);
+    expect(s.prePeakUnits).toBe(s.totalUnits);
+    expect(s.correctionHoldRemainingMin).toBe(35); // ceil(240×0.1875 − 10)
+  });
+
+  it("a dose past its peak contributes nothing pre-peak and no hold", () => {
+    const s = computeActiveInsulin([bolus(2, 100)], now); // rapid peak = 72 min
+    expect(s.totalUnits).toBeGreaterThan(0);
+    expect(s.prePeakUnits).toBe(0);
+    expect(s.correctionHoldRemainingMin).toBe(0);
+  });
+
+  it("the strictest dose's own clock wins the hold", () => {
+    // Rapid at 50 min: its 45-min hold expired. A second rapid at 20 min: 25 min left.
+    const s = computeActiveInsulin([bolus(2, 50), bolus(1, 20)], now);
+    expect(s.correctionHoldRemainingMin).toBe(25);
+  });
+
+  it("basal never creates a hold", () => {
+    const s = computeActiveInsulin(
+      [{ id: "b", timestamp: at(5), units: 10, type: "basal" } as never],
+      now,
+    );
+    expect(s.correctionHoldRemainingMin).toBe(0);
+    expect(s.prePeakUnits).toBe(0);
+  });
+});

@@ -2010,28 +2010,43 @@ export default function DashboardScreen() {
             <View style={styles.accessSectionHeader}>
               <Feather name="activity" size={14} color="#6366F1" />
               <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Doctor Code</Text>
-              <Text style={[styles.accessSectionBadge, { backgroundColor: "#6366F1" + "18", color: "#6366F1" }]}>Full edit access</Text>
+              {/* "Grants full edit", not "Full edit access". This badge describes what the CODE gives
+                  the DOCTOR, but sitting in a section whose controls are owner-only it read as the
+                  viewer's own permission level — so a co-guardian saw "Full edit access" and then no
+                  buttons, which looks like a broken screen rather than a deliberate restriction. */}
+              <Text style={[styles.accessSectionBadge, { backgroundColor: "#6366F1" + "18", color: "#6366F1" }]}>Grants full edit</Text>
             </View>
             <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
               Share with your verified doctor or endocrinologist. They can update carb ratios and correction factors.
             </Text>
             {!profile?.doctorCode ? (
-              isCircleMember ? (
+              <>
+              {/* A co-guardian may CREATE the circle's code when there is none — the doctor should not
+                  have to wait on the owner. Replacing one is still owner-only, so the Revoke control
+                  below stays hidden for members. Both halves are enforced server-side in
+                  careCircle.createDoctorCodeAsMember; this is only the presentation. */}
+              {isCircleMember && (
                 <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
-                  Your care circle shares one doctor code. Ask {circleOwnerName || "the circle owner"} to generate it.
+                  Your care circle shares one doctor code. You can create it — after that, only{" "}
+                  {circleOwnerName || "the circle owner"} can replace it.
                 </Text>
-              ) : (
+              )}
               <Pressable
                 style={({ pressed }) => [styles.outlineBtn, { borderColor: "#6366F1" + "50", backgroundColor: "#6366F1" + "08", opacity: pressed ? 0.8 : 1 }]}
                 onPress={async () => {
                   const code = await generateDoctorCode();
+                  if (!code) {
+                    // The member path is a server round-trip, so unlike the owner path it can fail.
+                    Alert.alert("Couldn't create the code", "Check your connection and try again.", [{ text: "OK" }]);
+                    return;
+                  }
                   Alert.alert("Doctor Code Created", `Your doctor code is:\n\n${code}\n\nShare this ONLY with your verified doctor. They enter it on the login screen to access editing rights.`, [{ text: "OK" }]);
                 }}
               >
                 <Feather name="plus" size={14} color="#6366F1" />
                 <Text style={[styles.outlineBtnText, { color: "#6366F1" }]}>Generate Doctor Code</Text>
               </Pressable>
-              )
+              </>
             ) : (
               <View style={[styles.caregiverCodeDisplay, { backgroundColor: "#6366F1" + "0A", borderColor: "#6366F1" + "30" }]}>
                 <View style={{ flex: 1 }}>

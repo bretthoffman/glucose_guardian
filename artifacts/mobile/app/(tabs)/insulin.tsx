@@ -405,6 +405,9 @@ export default function InsulinScreen() {
       previousBG: prev,
       insulinKind: selectedInsulinOption?.type,
       activeInsulinUnits: activeInsulin.totalUnits,
+      prePeakIobUnits: activeInsulin.prePeakUnits,
+      correctionHoldRemainingMin: activeInsulin.correctionHoldRemainingMin,
+      newestBolusAgeMin: activeInsulin.lastDoseAgeMin,
       activeCarbsGrams: activeCarbs.totalGrams,
       bgDelta45Min,
       weightLbs: profile?.weightLbs,
@@ -420,10 +423,34 @@ export default function InsulinScreen() {
     if (!dose) return [];
     const carbsNum = parseFloat(carbInput) || 0;
     return [
-      { key: "correction", label: "Correct BG", color: CARD_BLUE, value: dose.correctionInsulin + dose.resistanceBump + dose.trendAdjustment, sub: doseBg ? `${doseBg.label} mg/dL` : "—", icon: "trending-up" },
+      {
+        key: "correction",
+        label: "Correct BG",
+        color: CARD_BLUE,
+        // While the post-bolus hold is active the correction contributes NOTHING to the dose, and
+        // the card says so — a full correction figure over a 0u suggestion reads as a broken sum.
+        value: dose.correctionHeldUnits > 0 ? 0 : dose.correctionInsulin + dose.resistanceBump + dose.trendAdjustment,
+        sub: dose.correctionHeldUnits > 0 ? `on hold ~${dose.correctionHoldRemainingMin}m` : doseBg ? `${doseBg.label} mg/dL` : "—",
+        icon: "trending-up",
+      },
       { key: "carb", label: "Carb Dose", color: COLORS.success, value: dose.carbInsulin, sub: `${carbsNum} g`, icon: "coffee" },
-      { key: "activeCarbs", label: "Active Carbs", color: COLORS.warning, value: dose.uncoveredCarbInsulin, sub: `${activeCarbs.totalGrams} g`, icon: "clock" },
-      { key: "activeInsulin", label: "Active Insulin", color: CARD_PURPLE, value: -dose.iobCredit, sub: fmtU(dose.activeInsulinUnits), icon: "droplet" },
+      /**
+       * These two show their FULL standalone contribution, not the netted remainder.
+       *
+       * The calculator nets them against each other internally (`netInFlight = iobUnits -
+       * activeCarbInsulin`), so only ONE of `uncoveredCarbInsulin` / `iobCredit` is ever non-zero —
+       * which is correct math but made the row unreadable: logging 3 u of insulin on top of 25 g of
+       * carbs flipped Active Carbs from 1.67 u to 0 u and put a NEGATIVE -0.58 u under a "−" operator
+       * that already means subtraction. Showing each side's real amount (1.67 u of carbs on board, 3 u
+       * of insulin on board) matches the equation printed above the cards and keeps the minus sign
+       * doing exactly one job.
+       *
+       * `dose.activeCarbInsulin` and `dose.activeInsulinUnits` are the un-netted values the calculator
+       * already computes and returns. NOTHING about the dose math changes — `subTotal` still uses the
+       * netted figures, so the suggested dose is byte-for-byte what it was.
+       */
+      { key: "activeCarbs", label: "Active Carbs", color: COLORS.warning, value: dose.activeCarbInsulin, sub: `${activeCarbs.totalGrams} g`, icon: "clock" },
+      { key: "activeInsulin", label: "Active Insulin", color: CARD_PURPLE, value: dose.activeInsulinUnits, sub: fmtU(dose.activeInsulinUnits), icon: "droplet" },
     ];
   }, [dose, doseBg, carbInput, activeCarbs]);
 
@@ -451,6 +478,8 @@ export default function InsulinScreen() {
     activeInsulinAgeMin: activeInsulin.lastDoseAgeMin,
     iobCredit: dose?.iobCredit ?? 0,
     iobDiscounted: dose?.iobDiscounted ?? false,
+    correctionHeldUnits: dose?.correctionHeldUnits ?? 0,
+    correctionHoldRemainingMin: dose?.correctionHoldRemainingMin ?? 0,
     correctionApplied: dose?.correctionApplied ?? 0,
     subTotal: dose?.subTotal ?? 0,
     patternFactor: dose?.patternFactor ?? 1,
@@ -650,6 +679,19 @@ export default function InsulinScreen() {
           recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
           manualOverride: wasManual,
         });
+        /**
+         * The dose for these carbs is now GIVEN, so the field must not survive to the next
+         * calculation. It used to: carb insulin is (correctly) never reduced by IOB, so coming
+         * back to the calculator with the grams still typed re-recommended the entire meal
+         * portion minutes after it was dosed — the single biggest insulin-stacking path.
+         * (Deliberately NOT auto-logged as food: families who log meals on the Food page would
+         * then have the same carbs counted twice in COB, inflating the next dose instead.)
+         */
+        if (!isBasalMode) {
+          carbDraftRef.current = null;
+          setCarbDraft(null);
+          setCarbInput("");
+        }
         setDoseLoggedAtTick(cgmSyncSuccessTick);
         triggerLogPlusOne();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -942,6 +984,7 @@ export default function InsulinScreen() {
             <OnBoardBar
               fraction={activeCarbsFraction}
               label={`${activeCarbs.totalGrams} g carbs still active`}
+              windowMin={activeCarbs.remainingWindowMin}
               color={COLORS.warning}
               colors={colors}
             />
@@ -950,6 +993,7 @@ export default function InsulinScreen() {
             <OnBoardBar
               fraction={activeInsulinFraction}
               label={`${fmtU(activeInsulin.totalUnits)} insulin still active`}
+              windowMin={activeInsulin.remainingWindowMin}
               color={CARD_PURPLE}
               colors={colors}
             />
@@ -1342,12 +1386,19 @@ const STRENGTH_META: Record<StrengthLabel, { text: string; color: string }> = {
 function OnBoardBar({
   fraction,
   label,
+  windowMin,
   color,
   colors,
 }: {
   fraction: number;
   /** Full text shown INSIDE the bar, e.g. "24 g carbs still active". */
   label: string;
+  /**
+   * Total span the bar represents, in minutes — the carb absorption window or insulin DIA of whichever
+   * entry finishes last. Labels the whole bar and places the third-marks, so it reads as "3h of carbs,
+   * two-thirds still to go" rather than an unlabelled proportion.
+   */
+  windowMin: number;
   color: string;
   colors: (typeof Colors)["light"];
 }) {
@@ -1359,7 +1410,19 @@ function OnBoardBar({
         // the calculator is still deducting something.
         Math.max(6, Math.min(100, Math.round(fraction * 100)))
       : 0;
+  // The track's own border grey/alpha — the label and ticks are chrome, not data, so they must not
+  // compete with the amount for attention.
+  const chrome = withAlpha(colors.textMuted, 0.45);
+  const hours = windowMin / 60;
+  const hoursLabel = hours > 0 ? `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h` : null;
+
   return (
+    <View style={styles.onBoardCellInner}>
+      {hoursLabel && (
+        <Text style={[styles.onBoardWindowLabel, { color: chrome }]} numberOfLines={1}>
+          {hoursLabel}
+        </Text>
+      )}
     <View
       style={[
         styles.onBoardTrack,
@@ -1383,6 +1446,16 @@ function OnBoardBar({
       >
         {label}
       </Text>
+      {/* Thirds of the WINDOW, drawn as short ticks biting in from the top and bottom edges rather
+          than full-height rules — a line across the bar would read as a boundary in the data. Drawn
+          after the fill so they stay visible on both the filled and the empty side. */}
+      {[1 / 3, 2 / 3].map((at) => (
+        <React.Fragment key={at}>
+          <View style={[styles.onBoardTickTop, { left: `${at * 100}%`, backgroundColor: chrome }]} />
+          <View style={[styles.onBoardTickBottom, { left: `${at * 100}%`, backgroundColor: chrome }]} />
+        </React.Fragment>
+      ))}
+    </View>
     </View>
   );
 }
@@ -1516,6 +1589,28 @@ const styles = StyleSheet.create({
     marginBottom: ON_BOARD_GAP,
   },
   onBoardCell: { flex: 1 },
+  onBoardCellInner: { width: "100%", position: "relative" },
+  /**
+   * Hugs the bar's upper-right corner, tilted, per the mockup.
+   *
+   * ABSOLUTE on purpose, and the two reasons are linked. In normal flow this was a full-width Text with
+   * `textAlign: "right"`, so `rotate` pivoted around the whole ROW's centre rather than around the
+   * glyphs — which slid "3h" toward the middle of the bar instead of its right end. Absolute + no width
+   * makes the box wrap the text, so it rotates about itself. It also stops the label adding height to
+   * the cell, which the strip's negative top margin was pulling up into the card above.
+   */
+  onBoardWindowLabel: {
+    position: "absolute",
+    right: 3,
+    top: -9,
+    fontSize: 9,
+    fontWeight: "600",
+    fontStyle: "italic",
+    // Clockwise, so the tilt follows the bar's rounded right end rather than leaning against it.
+    transform: [{ rotate: "18deg" }],
+  },
+  onBoardTickTop: { position: "absolute", top: 0, width: 1, height: 4, marginLeft: -0.5 },
+  onBoardTickBottom: { position: "absolute", bottom: 0, width: 1, height: 4, marginLeft: -0.5 },
   onBoardTrack: {
     height: 22, borderRadius: 11, overflow: "hidden", position: "relative", justifyContent: "center",
     borderWidth: 1, width: "100%",

@@ -25,6 +25,21 @@ export const CARB_ABSORPTION_SLOW_MIN = 240;
 /** Fraction of DIA at which insulin activity peaks in the bilinear model. */
 const ACTIVITY_PEAK_FRACTION = 0.3;
 
+/**
+ * Post-bolus CORRECTION HOLD window, as a fraction of the dose's DIA: 0.1875 × DIA = 45 min for
+ * rapid (4 h), ~68 min for regular (6 h) — about 62% of the way to the activity peak.
+ *
+ * Glucose responds to a bolus with a LAG: onset ~15 min, visible turn usually 30–60 min in. During
+ * that lag the IOB model is right that almost nothing has been delivered yet — but the CGM keeps
+ * showing the pre-dose rise, so a correction recomputed from the current reading grows while the
+ * credit stays flat, and the calculator drips out "0.5 u more" suggestions minutes after a full
+ * dose was taken. A caregiver following those blindly stacks doses that all land at once later.
+ * While any counted bolus is younger than its hold window, new corrections are held at zero
+ * (carbs still dose — new food is real need). Clinical guidance waits 2–3 h between corrections;
+ * this hold is deliberately shorter, just long enough for the CGM to show the dose landing.
+ */
+const CORRECTION_HOLD_FRACTION = 0.1875;
+
 export type CarbAbsorptionSpeed = "fast" | "medium" | "slow";
 
 /** COB window in minutes for a meal's absorption speed (medium when unknown). */
@@ -70,6 +85,17 @@ export interface ActiveInsulinSummary {
    */
   remainingMin: number;
   remainingWindowMin: number;
+  /**
+   * Decayed units from doses that have NOT yet reached their own activity peak (age < 0.3 × DIA).
+   * This portion can never be judged "ineffective" by the high-and-not-falling discount in
+   * utils/dose — insulin that hasn't peaked yet has had no fair chance to move glucose.
+   */
+  prePeakUnits: number;
+  /**
+   * Minutes until the post-bolus correction hold lifts (0 = no hold). The max across counted doses
+   * of (CORRECTION_HOLD_FRACTION × DIA − age): positive while ANY bolus is still in its onset lag.
+   */
+  correctionHoldRemainingMin: number;
 }
 
 export interface ActiveCarbsSummary {
@@ -115,6 +141,8 @@ export function computeActiveInsulin(
   let totalUnits = 0;
   let originalUnits = 0;
   let doseCount = 0;
+  let prePeakUnits = 0;
+  let holdRemainingMin = 0;
   // The dose that finishes LAST decides the bar. Tracked as (minutes left, that dose's window) so the
   // fraction stays anchored to a single dose's lifetime instead of a moving aggregate.
   let latest: { remainingMin: number; windowMin: number } | null = null;
@@ -126,7 +154,11 @@ export function computeActiveInsulin(
     if (dia == null) continue;
     const ageMin = entryAgeMin(entry.timestamp, nowMs);
     if (ageMin == null || ageMin >= dia) continue;
-    totalUnits += entry.units * remainingInsulinFraction(ageMin, dia);
+    const remaining = entry.units * remainingInsulinFraction(ageMin, dia);
+    totalUnits += remaining;
+    if (ageMin < dia * ACTIVITY_PEAK_FRACTION) prePeakUnits += remaining;
+    // Each dose's hold runs on ITS OWN clock (a slower insulin holds longer); the strictest wins.
+    holdRemainingMin = Math.max(holdRemainingMin, dia * CORRECTION_HOLD_FRACTION - ageMin);
     originalUnits += entry.units;
     doseCount++;
     const leftMin = dia - ageMin;
@@ -144,6 +176,8 @@ export function computeActiveInsulin(
     originalUnits: Math.round(originalUnits * 100) / 100,
     remainingMin: latest != null ? Math.round(latest.remainingMin) : 0,
     remainingWindowMin: latest?.windowMin ?? 0,
+    prePeakUnits: Math.round(prePeakUnits * 100) / 100,
+    correctionHoldRemainingMin: Math.ceil(Math.max(0, holdRemainingMin)),
   };
 }
 

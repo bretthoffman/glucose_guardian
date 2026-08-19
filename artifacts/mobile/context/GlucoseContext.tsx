@@ -135,13 +135,25 @@ function parseLocalHistory(raw: string | null): GlucoseEntry[] {
 }
 
 export function GlucoseProvider({ children }: { children: React.ReactNode }) {
-  const { account, isSignedIn, isLoading: authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind, viewingPatientId, nurseViewCode, profile, isCircleMember, updateProfile } = useAuth();
+  const { account, isSignedIn, isLoading: authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind, viewingPatientId, nurseViewCode, profile, isCircleMember, circleRole, updateProfile } = useAuth();
   const [history, setHistory] = useState<GlucoseEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [carbRatio, setCarbRatioState] = useState(15);
   const [targetGlucose, setTargetGlucoseState] = useState(120);
   const [correctionFactor, setCorrectionFactorState] = useState(50);
   const [doseSettingsByTime, setDoseSettingsByTimeState] = useState<DoseSettingsByTime | undefined>(undefined);
+  /**
+   * TRUE only once the dose values above came from somewhere REAL — this device's saved settings, or
+   * a user edit. FALSE while they are still the placeholder 15/120/50 that `useState` starts with.
+   *
+   * This exists because the backfill below writes local values UP to the server, and the placeholders
+   * are indistinguishable from a deliberate setting once they are in state. Sign-in deletes
+   * SETTINGS_KEY unconditionally (AuthContext `commitClerkAccount`), the loader then finds no key and
+   * falls to the placeholders, and the backfill dutifully replaced a real carbRatio of 8 with 15 —
+   * on the OWNER's profile, which every co-guardian, access code and the doctor portal inherit. Both
+   * halves shipped weeks apart and sat dormant until someone signed out and back in.
+   */
+  const settingsFromStorage = useRef(false);
   const [cgmSyncSuccessTick, setCgmSyncSuccessTick] = useState(0);
 
   const notifyCgmSyncSuccess = useCallback(() => {
@@ -199,6 +211,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
           if (s.targetGlucose) setTargetGlucoseState(s.targetGlucose);
           if (s.correctionFactor) setCorrectionFactorState(s.correctionFactor);
           if (s.doseSettingsByTime) setDoseSettingsByTimeState(normalizeDoseSettingsByTime(s.doseSettingsByTime));
+          settingsFromStorage.current = true;
         }
       } catch {}
       setIsLoading(false);
@@ -221,20 +234,56 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
           if (typeof s.targetGlucose === "number") setTargetGlucoseState(s.targetGlucose);
           if (typeof s.correctionFactor === "number") setCorrectionFactorState(s.correctionFactor);
           setDoseSettingsByTimeState(normalizeDoseSettingsByTime(s.doseSettingsByTime as DoseSettingsByTime | undefined));
+          settingsFromStorage.current = true;
         } catch {
-          /* ignore */
+          /* corrupt cache — treat as absent, i.e. NOT a real source */
+          settingsFromStorage.current = false;
         }
       } else {
         setCarbRatioState(15);
         setTargetGlucoseState(120);
         setCorrectionFactorState(50);
         setDoseSettingsByTimeState(undefined);
+        // Placeholders, not settings. The backfill must not treat these as something to publish.
+        settingsFromStorage.current = false;
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [authLoading, account?.convexUserId, isSignedIn, viewingPatientId]);
+
+  /**
+   * Seed local dose math FROM THE PROFILE when this device has no saved settings of its own.
+   *
+   * The other half of the defaults bug. Sign-in deletes SETTINGS_KEY, so the loader above falls to
+   * 15/120/50 — and for an OWNER nothing ever re-seeded from their profile, because the only
+   * profile→local path is gated on `caregiverSession || viewingPatientId || isCircleMember`. So even
+   * with the backfill now blocked, an owner's calculator would still quietly run on default math after
+   * every sign-in: `insulin.tsx` reads these GlucoseContext locals, never `profile`.
+   *
+   * A separate effect rather than an else-branch, because the profile often arrives AFTER the settings
+   * loader has run — seeding inline would lose that race on most sign-ins.
+   *
+   * `settingsFromStorage` is deliberately left FALSE: these values came from the server, so there is
+   * nothing to publish back, and a partially-populated profile must not let the backfill push defaults
+   * for whichever fields were missing.
+   */
+  useEffect(() => {
+    if (authLoading || isLoading) return;
+    if (settingsFromStorage.current) return; // a real local source wins — never clobber a user edit
+    if (viewingPatientId || nurseViewCode || caregiverSession || isCircleMember) return; // viewer paths own this
+    if (!isSignedIn || !profile) return;
+    if (typeof profile.carbRatio === "number") setCarbRatioState(profile.carbRatio);
+    if (typeof profile.targetGlucose === "number") setTargetGlucoseState(profile.targetGlucose);
+    if (typeof profile.correctionFactor === "number") setCorrectionFactorState(profile.correctionFactor);
+    if (profile.doseSettingsByTime !== undefined) {
+      setDoseSettingsByTimeState(normalizeDoseSettingsByTime(profile.doseSettingsByTime));
+    }
+  }, [
+    authLoading, isLoading, isSignedIn, profile, viewingPatientId, nurseViewCode, caregiverSession,
+    isCircleMember,
+  ]);
 
   // ── Backfill: mirror the guardian's OWN dose settings to their backend profile whenever the
   // device-local values differ from it. Historically dose settings only lived in AsyncStorage
@@ -244,6 +293,22 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
   // an access-code session, or a co-guardian member who inherits rather than owns these). ──
   useEffect(() => {
     if (authLoading || isLoading) return; // wait until local settings have loaded
+    /**
+     * NEVER publish placeholders. Without this the backfill cannot tell "this device has no saved
+     * settings yet" from "this user really does dose at 15 g/u", and it overwrote real dose math with
+     * defaults after every sign-in — deleting per-meal overrides outright, since
+     * `patientProfile.replace` is a whole-document replace that does not carry those fields forward.
+     * Losing the backfill on a device with nothing real to contribute is exactly the correct outcome.
+     */
+    if (!settingsFromStorage.current) return;
+    /**
+     * Require POSITIVE confirmation of ownership. `!isCircleMember` is not the same claim: it is also
+     * true while `circleContext` is still in flight, after it fails, and for a member whose owner has
+     * no profile row to share. In each of those the backfill would stamp this device's values onto a
+     * row it does not own — the member-side variant of the same corruption. If the role never
+     * resolves the migration simply never runs, which is the safe direction to fail.
+     */
+    if (circleRole !== "owner") return;
     if (viewingPatientId || nurseViewCode || caregiverSession || isCircleMember) return;
     if (!isSignedIn || !account?.convexUserId || !profile) return;
     if (profile.accountRole === "caregiver") return; // nurse accounts have no dose settings of their own
@@ -256,7 +321,7 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
       void updateProfile({ carbRatio, targetGlucose, correctionFactor, doseSettingsByTime });
     }
   }, [
-    authLoading, isLoading, viewingPatientId, nurseViewCode, caregiverSession, isCircleMember,
+    authLoading, isLoading, viewingPatientId, nurseViewCode, caregiverSession, isCircleMember, circleRole,
     isSignedIn, account?.convexUserId, profile, carbRatio, targetGlucose, correctionFactor, doseSettingsByTime, updateProfile,
   ]);
 
@@ -560,31 +625,40 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
     setTargetGlucoseState(120);
     setCorrectionFactorState(50);
     setDoseSettingsByTimeState(undefined);
+    settingsFromStorage.current = false;
     AsyncStorage.multiRemove([STORAGE_KEY, SETTINGS_KEY]).catch(() => {});
   }, []);
 
   const setCarbRatio = useCallback((v: number) => {
+    // A user-entered value is a REAL source, same as a loaded cache — mark it so the backfill may
+    // publish it. Without this, editing settings on a device whose cache was just wiped would leave
+    // the change unpublished until the next app launch re-read it from storage.
+    settingsFromStorage.current = true;
     setCarbRatioState(v);
     void mergeSettings({ carbRatio: v });
   }, []);
 
   const setTargetGlucose = useCallback((v: number) => {
+    settingsFromStorage.current = true;
     setTargetGlucoseState(v);
     void mergeSettings({ targetGlucose: v });
   }, []);
 
   const setCorrectionFactor = useCallback((v: number) => {
+    settingsFromStorage.current = true;
     setCorrectionFactorState(v);
     void mergeSettings({ correctionFactor: v });
   }, []);
 
   const setDoseSettingsByTime = useCallback((v: DoseSettingsByTime | undefined) => {
+    settingsFromStorage.current = true;
     const normalized = normalizeDoseSettingsByTime(v);
     setDoseSettingsByTimeState(normalized);
     void mergeSettings({ doseSettingsByTime: normalized ?? null });
   }, []);
 
   const saveFormula = useCallback((cr: number, tg: number, cf: number) => {
+    settingsFromStorage.current = true;
     setCarbRatioState(cr);
     setTargetGlucoseState(tg);
     setCorrectionFactorState(cf);

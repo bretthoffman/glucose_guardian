@@ -42,6 +42,8 @@ export default function AccessLockScreen() {
       ? "Access removed"
       : accessLock.reason === "disabled"
       ? "Access turned off"
+      : accessLock.reason === "readings_off"
+      ? "Glucose readings are off"
       : "Outside your access window";
 
   const body =
@@ -49,6 +51,11 @@ export default function AccessLockScreen() {
       ? `Your access to ${who} data has been removed by the account owner.`
       : accessLock.reason === "disabled"
       ? `Your access to ${who} data is currently turned off. The account owner can re-enable it.`
+      : accessLock.reason === "readings_off"
+      // Distinct from "revoked": the code is still valid and still saved on this device, so this
+      // screen clears by itself once the owner flips the switch back. Say so — otherwise it reads
+      // as a removal and the caregiver asks for a replacement code they do not need.
+      ? `The account owner has turned off glucose readings for your access code. Your code still works \u2014 this will clear as soon as they turn readings back on.`
       : accessLock.nextStartMs != null
       ? `Your scheduled access to ${who} data is closed right now. It reopens ${fmtNext(accessLock.nextStartMs)}.`
       : `Your scheduled access to ${who} data is closed right now.`;
