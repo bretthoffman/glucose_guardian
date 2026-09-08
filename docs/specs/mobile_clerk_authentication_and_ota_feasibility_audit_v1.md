@@ -594,7 +594,7 @@ Confirm in [Clerk Dashboard](https://dashboard.clerk.com) for instance `next-osp
 | Password requirements | **Password** settings (align with mobile min 6 or tighten with UX update) |
 | Sign-up fields | **User & Authentication** |
 | Account linking behavior | **Account linking** — verified email only |
-| Session lifetime | **Sessions** |
+| Session lifetime | **Sessions** — READ 2026-08-26 via `clerk config pull --keys session_settings` (instance `next-osprey-15`, app_3CLzIMs1mti5CBQEM9y9Ha7WNKy): `maximum_lifetime` **enabled at 604800s = 7 days**, `inactivity_timeout` disabled, multi-session disabled. This is the root cause of the recurring mid-run session deaths (readings blank, sync "unauthorized", weekly-ish per device): sessions hard-expire 7 days after sign-in regardless of activity. Note the CLI trap: `--keys session` (singular) returns the 60-second JWT lifetime, not this. |
 | Allowed redirect URLs | **Native applications** / **Paths** — add `mobile://` redirect URIs |
 | Email templates | **Customization → Emails** (reset code template) |
 | Sender name/domain | **Email** settings |

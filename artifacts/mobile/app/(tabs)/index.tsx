@@ -26,6 +26,11 @@ import { GlucoseGauge } from "@/components/GlucoseGauge";
 import { isFastTrend, mapDexcomTrend, trendFromDiff, type TrendInfo } from "@/utils/trend";
 import { bannerKindFromSyncStatus, cgmDiagnosticMessage } from "@/utils/cgmDiagnosticMessages";
 import { CGMChart } from "@/components/CGMChart";
+import LogDetailModal, { type SelectedLog } from "@/components/LogDetailModal";
+import { canEditExistingLogs } from "@/utils/logEditPermission";
+import type { ChartEventMarker, PositionedChartMarker } from "@/utils/chartEventMarkers";
+import Colors from "@/constants/colors";
+import { useTheme } from "@/context/ThemeContext";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import InsightsRecommendations from "@/components/InsightsRecommendations";
 import { ReadingCard } from "@/components/ReadingCard";
@@ -63,7 +68,9 @@ type SyncResultStatus =
   | "error"
   | "no_shared_patient"
   | "connected_no_data"
-  | "sharing_not_enabled";
+  | "sharing_not_enabled"
+  /** The APP's session died mid-run — the CGM side is fine; only signing in fixes it. */
+  | "app_signin";
 
 type SyncResult = {
   status: SyncResultStatus;
@@ -158,6 +165,8 @@ function syncResultLabel(
       return `Sharing off · ${when}`;
     case "session_expired":
       return `Session expired · ${when}`;
+    case "app_signin":
+      return `Sign in needed · ${when}`;
     case "error":
       return `Sync failed · ${when}`;
   }
@@ -174,7 +183,7 @@ export default function HomeScreen() {
   const padScale = isPadPortrait ? 1.4 : 1;
   const c = useThemeColors();
   const { history, latestReading, bulkAddReadings, clearHistory, targetGlucose, notifyCgmSyncSuccess } = useGlucose();
-  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession, isMinor, foodLog, insulinLog, isViewingLinkedPatient, viewingPatientName, exitViewingMode, accessCodeRole, sessionExpired, signOut } = useAuth();
+  const { profile, cgmConnection, emergencyContacts, alertPrefs, account, caregiverSession, isMinor, foodLog, insulinLog, isViewingLinkedPatient, viewingPatientName, exitViewingMode, accessCodeRole, accessCodePermissions, sessionExpired, signOut } = useAuth();
 
   // ── Tapped-alert popup: notification taps land HERE with the alert text + a ready-made chat
   // prompt. Nothing is auto-sent — the popup offers Dismiss / Send to chat, it is gated by the
@@ -210,6 +219,44 @@ export default function HomeScreen() {
   // ── Popups opened from the glucose gauge: circle → recent readings, trend pill → insights ──
   const [recentReadingsVisible, setRecentReadingsVisible] = useState(false);
   const [insightsVisible, setInsightsVisible] = useState(false);
+
+  // ── Log markers on the trend chart + the tapped log's detail popup — the SAME marker system,
+  // detail modal, and edit gate the Log page uses (CGMChart renders and windows the icons itself,
+  // so style/coloring match by construction). `foodLog`/`insulinLog` already serve the VIEWED
+  // patient's pooled logs for a co-guardian / access code / nurse view, so no extra wiring. ──
+  const { scheme: homeScheme } = useTheme();
+  const modalColors = homeScheme === "dark" ? Colors.dark : Colors.light;
+  const [homeSelectedLog, setHomeSelectedLog] = useState<SelectedLog | null>(null);
+  const homeChartMarkers = useMemo<ChartEventMarker[]>(
+    () => [
+      ...(insulinLog ?? []).map((i) => ({ timestamp: i.timestamp, kind: "insulin" as const, id: i.id })),
+      ...(foodLog ?? []).map((f) => ({ timestamp: f.timestamp, kind: "food" as const, id: f.id })),
+    ],
+    [insulinLog, foodLog],
+  );
+  const openHomeMarkerLog = useCallback(
+    (marker: PositionedChartMarker) => {
+      if (!marker.id) return;
+      if (marker.kind === "insulin") {
+        const hit = (insulinLog ?? []).find((i) => i.id === marker.id);
+        if (hit) setHomeSelectedLog({ kind: "insulin", data: hit });
+      } else {
+        const hit = (foodLog ?? []).find((f) => f.id === marker.id);
+        if (hit) setHomeSelectedLog({ kind: "food", data: hit });
+      }
+    },
+    [insulinLog, foodLog],
+  );
+  // Same rule as the Log page — one definition, so the two surfaces can't drift.
+  const canEditHomeLogs = canEditExistingLogs({
+    isCaregiverAccount: profile?.accountRole === "caregiver",
+    caregiverSession,
+    accessCodeRole,
+    canAddLogs: !!accessCodePermissions?.log,
+  });
+  // The Insulin screen only offers its Log tab when the session's grant allows it — the shortcut
+  // button follows the same rule so it never lands somewhere it can't go.
+  const canOpenLogsTab = accessCodeRole == null || !!accessCodePermissions?.log;
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const [backupMissing, setBackupMissing] = useState(false);
@@ -525,8 +572,42 @@ export default function HomeScreen() {
         hasStoredCredentials: result.status !== "no_credentials",
       });
 
+      /**
+       * "unauthorized" is the APP failing to authenticate — a dead Clerk session — NOT the CGM.
+       * The server stamps it with the generic invalid_credentials category, and treating that at
+       * face value produced the worst support loop this app has had: the banner said the DEXCOM
+       * password was wrong, the alert routed to /cgm-setup, the user re-entered perfectly valid
+       * credentials, and the save silently failed on the same dead session. Meanwhile the server
+       * cron kept ingesting fine the whole time. The ONLY fix is signing back in, so that is the
+       * only thing this path may suggest. The stored category is substituted for the same reason:
+       * syncStatus outlives this call and drives the banner.
+       */
+      if (result.status === "unauthorized") {
+        setSyncStatus({
+          diagnosticCategory: "app_unauthorized",
+          messageKey: "cgm.diagnostic.app_unauthorized",
+          reconnectRequired: false,
+          hasStoredCredentials: true,
+        });
+        const appMsg = cgmDiagnosticMessage("cgm.diagnostic.app_unauthorized", cgmConnection.type);
+        setLastSyncResult({ status: "app_signin", at: now, message: appMsg });
+        if (!silent && !isCgmViewerOnly) {
+          return {
+            ok: false,
+            manualAlert: {
+              title: "Sign in to keep syncing",
+              message: appMsg,
+              buttons: [
+                { text: "Sign in", onPress: () => { void signOut().then(() => router.replace("/auth")); } },
+                { text: "Later", style: "cancel" },
+              ],
+            },
+          };
+        }
+        return { ok: false, manualAlert: null };
+      }
+
       if (
-        result.status === "unauthorized" ||
         result.status === "needs_reconnect" ||
         result.status === "no_credentials" ||
         result.status === "sharing_not_enabled"
@@ -1097,6 +1178,14 @@ export default function HomeScreen() {
         {!sessionExpired && libreBannerKind && libreBannerKind !== "backup_missing" && libreBannerMessage && (
           <Pressable
             onPress={() => {
+              if (libreBannerKind === "app_auth") {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                Alert.alert("Sign in to keep syncing", libreBannerMessage ?? "", [
+                  { text: "Later", style: "cancel" },
+                  { text: "Sign in", onPress: () => { void signOut().then(() => router.replace("/auth")); } },
+                ]);
+                return;
+              }
               if (libreBannerKind === "reconnect_required" || libreBannerKind === "sharing_not_enabled") {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 router.push("/cgm-setup");
@@ -1106,26 +1195,26 @@ export default function HomeScreen() {
               styles.banner,
               {
                 backgroundColor: withAlpha(
-                  libreBannerKind === "connected_no_data" ? T.color.emerald : T.color.amber,
+                  libreBannerKind === "connected_no_data" ? T.color.emerald : libreBannerKind === "app_auth" ? T.color.coral : T.color.amber,
                   0.12,
                 ),
                 borderColor: withAlpha(
-                  libreBannerKind === "connected_no_data" ? T.color.emerald : T.color.amber,
+                  libreBannerKind === "connected_no_data" ? T.color.emerald : libreBannerKind === "app_auth" ? T.color.coral : T.color.amber,
                   0.4,
                 ),
               },
             ]}
           >
             <Feather
-              name={libreBannerKind === "connected_no_data" ? "check-circle" : "info"}
+              name={libreBannerKind === "connected_no_data" ? "check-circle" : libreBannerKind === "app_auth" ? "alert-circle" : "info"}
               size={16}
-              color={libreBannerKind === "connected_no_data" ? T.color.emerald : T.color.amber}
+              color={libreBannerKind === "connected_no_data" ? T.color.emerald : libreBannerKind === "app_auth" ? T.color.coral : T.color.amber}
             />
             <View style={{ flex: 1 }}>
               <Text
                 style={[
                   styles.bannerTitle,
-                  { color: libreBannerKind === "connected_no_data" ? T.color.emerald : T.color.amber },
+                  { color: libreBannerKind === "connected_no_data" ? T.color.emerald : libreBannerKind === "app_auth" ? T.color.coral : T.color.amber },
                 ]}
               >
                 {/* The first three states are LibreLinkUp-only (see bannerKindFromSyncStatus);
@@ -1138,11 +1227,13 @@ export default function HomeScreen() {
                       ? "LibreLinkUp sharing required"
                       : libreBannerKind === "provider_unavailable"
                         ? `${deviceLabel} temporarily unavailable`
-                        : `${deviceLabel} reconnect needed`}
+                        : libreBannerKind === "app_auth"
+                          ? "Sign in to keep syncing"
+                          : `${deviceLabel} reconnect needed`}
               </Text>
               <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>{libreBannerMessage}</Text>
             </View>
-            {(libreBannerKind === "reconnect_required" || libreBannerKind === "sharing_not_enabled") && (
+            {(libreBannerKind === "reconnect_required" || libreBannerKind === "sharing_not_enabled" || libreBannerKind === "app_auth") && (
               <Feather name="chevron-right" size={18} color={c.textMuted} />
             )}
           </Pressable>
@@ -1189,6 +1280,23 @@ export default function HomeScreen() {
                 setInsightsVisible(true);
               }}
             />
+            {canOpenLogsTab && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open the logs page"
+                hitSlop={8}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  // `t` is a nonce so a second tap re-triggers the insulin screen's param effect
+                  // even though expo-router keeps the previous params around.
+                  router.push({ pathname: "/(tabs)/insulin", params: { tab: "log", t: String(Date.now()) } });
+                }}
+                style={({ pressed }) => [styles.logsShortcut, { borderColor: c.border, opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Feather name="list" size={11} color={c.textSecondary} />
+                <Text style={[styles.logsShortcutText, { color: c.textSecondary }]}>Logs</Text>
+              </Pressable>
+            )}
           </Surface>
         ) : (
           <Surface style={styles.section}>
@@ -1273,11 +1381,24 @@ export default function HomeScreen() {
               highThreshold={alertPrefs.highThreshold}
               urgentHighThreshold={alertPrefs.urgentHighThreshold}
               onCursorActiveChange={setChartCursorActive}
+              eventMarkers={homeChartMarkers}
+              onEventMarkerPress={openHomeMarkerLog}
             />
           </Surface>
         )}
 
       </Animated.ScrollView>
+
+      {/* Tapped chart marker → the same log detail popup (view / edit / delete) as the Log page. */}
+      {homeSelectedLog && (
+        <LogDetailModal
+          key={homeSelectedLog.data.id}
+          entry={homeSelectedLog}
+          colors={modalColors}
+          canEdit={canEditHomeLogs}
+          onClose={() => setHomeSelectedLog(null)}
+        />
+      )}
 
       {/* ── Recent Readings popup — opened by tapping inside the gauge circle ── */}
       <DashboardSectionModal
@@ -1388,6 +1509,14 @@ const styles = StyleSheet.create({
   bannerTitle: { fontSize: 13, fontWeight: T.font.bold, marginBottom: 2 },
   bannerMessage: { fontSize: 12, fontWeight: T.font.regular, lineHeight: 17 },
 
+  /** Tiny bottom-right shortcut on the glucose card — quiet outline pill, muted like the card's
+      secondary text, absolute so the centered gauge layout is untouched. */
+  logsShortcut: {
+    position: "absolute", right: 12, bottom: 10,
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, borderWidth: 1,
+  },
+  logsShortcutText: { fontSize: 11, fontWeight: "600" },
   emptyGauge: { alignItems: "center", gap: 8, paddingVertical: 24 },
   emptyGaugeText: { fontSize: 16, fontWeight: T.font.semibold },
   emptyGaugeSub: { fontSize: 12.5, fontWeight: T.font.regular, textAlign: "center" },

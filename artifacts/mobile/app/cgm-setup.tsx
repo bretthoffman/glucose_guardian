@@ -32,18 +32,32 @@ type CGMType = "dexcom" | "libre";
  * from the server-side ingestion cron. Resolves true once stored, false if every attempt failed.
  */
 /** Run a credential write with a couple of retries (network blips, token-attach races). */
-async function withCredentialRetry(op: () => Promise<unknown>): Promise<boolean> {
+/**
+ * "unauthorized" is split out because it is the one failure retrying can never mend and silence
+ * actively harms: when the APP's session is dead, the user has just watched their Dexcom login
+ * SUCCEED (that goes through the api-server, no app auth) — then this save quietly failed, the
+ * screen celebrated, and the home banner went on blaming their Dexcom password. They re-entered
+ * valid credentials into that black hole repeatedly. An auth failure must surface as "sign in
+ * again", immediately, not as a background nudge.
+ */
+async function withCredentialRetry(
+  op: () => Promise<unknown>,
+): Promise<"saved" | "unauthorized" | "failed"> {
   const delaysMs = [0, 1000, 2500];
+  let sawUnauthorized = false;
   for (const delay of delaysMs) {
     if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
     try {
       await op();
-      return true;
-    } catch {
+      return "saved";
+    } catch (err) {
+      const data = (err as { data?: unknown })?.data;
+      const text = `${typeof data === "string" ? data : ""} ${(err as Error)?.message ?? ""}`;
+      if (/unauthorized|not signed in/i.test(text)) sawUnauthorized = true;
       /* fall through and retry */
     }
   }
-  return false;
+  return sawUnauthorized ? "unauthorized" : "failed";
 }
 
 export default function CGMSetupScreen() {
@@ -51,7 +65,7 @@ export default function CGMSetupScreen() {
   const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
-  const { cgmConnection, setCGMConnection, disconnectCGM, account } = useAuth();
+  const { cgmConnection, setCGMConnection, disconnectCGM, account, signOut } = useAuth();
 
   const [selectedType, setSelectedType] = useState<CGMType>(
     (cgmConnection.type as CGMType) ?? "dexcom"
@@ -113,13 +127,13 @@ export default function CGMSetupScreen() {
         connectedAt: new Date().toISOString(),
       });
 
-      let credentialsBackedUp = true;
+      let backupResult: "saved" | "unauthorized" | "failed" = "saved";
       if (account?.convexUserId) {
         // Saved DIRECTLY to Convex under the signed-in Clerk identity. The old api-server hop
         // authenticated by passwordHash pass-through, which Clerk accounts don't have — it silently
         // failed and left ingestion stuck on "no_credentials".
         const client = createConvexAuthClient();
-        credentialsBackedUp = await withCredentialRetry(() =>
+        backupResult = await withCredentialRetry(() =>
           selectedType === "dexcom"
             ? client.mutation(api.patientDexcomSecrets.saveMyCredentials, {
                 dexcomUsername: username.trim(),
@@ -132,7 +146,22 @@ export default function CGMSetupScreen() {
                 libreApiBase: data.apiBase,
               }),
         );
-        if (!credentialsBackedUp) {
+        if (backupResult === "unauthorized") {
+          // Tell the truth NOW, on this screen: their CGM credentials just verified fine, and the
+          // save failed only because the app session is dead. Without this alert they leave on a
+          // success haptic and the home banner keeps sending them back here.
+          setIsConnecting(false);
+          Alert.alert(
+            "Sign in to finish reconnecting",
+            `Your ${selectedType === "dexcom" ? "Dexcom" : "Libre"} credentials were verified, but this device is signed out of your Glucose Guardian account, so they couldn't be saved for background syncing. Sign in again and readings will resume — you won't need to re-enter your CGM details.`,
+            [
+              { text: "Later", style: "cancel", onPress: () => router.replace("/(tabs)") },
+              { text: "Sign in", onPress: () => { void signOut().then(() => router.replace("/auth")); } },
+            ],
+          );
+          return;
+        }
+        if (backupResult === "failed") {
           // Connection is still live; the home screen surfaces a non-blocking banner (driven by the
           // actual Convex credential state) that nudges a reconnect until the backup succeeds.
           console.warn(

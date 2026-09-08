@@ -68,3 +68,22 @@ describe("bannerKindFromSyncStatus — which provider sees which banner", () => 
       .toBeNull();
   });
 });
+
+describe("app-session-death is never presented as a CGM credential problem", () => {
+  it("maps app_unauthorized to the app_auth banner, not reconnect_required", () => {
+    expect(
+      bannerKindFromSyncStatus({
+        provider: "dexcom",
+        diagnosticCategory: "app_unauthorized",
+        reconnectRequired: true, // even if the server claims a reconnect is needed
+      }),
+    ).toBe("app_auth");
+  });
+
+  it("has truthful copy that names the app account, not the CGM password", () => {
+    const msg = cgmDiagnosticMessage("cgm.diagnostic.app_unauthorized", "dexcom");
+    expect(msg).toContain("signed out of your account");
+    expect(msg).toContain("Dexcom connection and credentials are fine");
+    expect(msg).not.toMatch(/stored .* credentials/i);
+  });
+});

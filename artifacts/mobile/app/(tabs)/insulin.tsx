@@ -1,7 +1,7 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -116,12 +116,25 @@ function OpCard({
       ]}
     >
       {/* Title in the same muted grey as the section header; only the VALUE carries the piece's
-          color. The third row shows the live input feeding this piece. */}
-      <Text style={[styles.opLabel, { color: colors.textSecondary, fontSize: 9.5 * scale, lineHeight: 12 * scale }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{def.label}</Text>
-      <Text style={[styles.opValue, { color: def.color, fontSize: 15 * scale }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+          color. The third row shows the live input feeding this piece.
+
+          Sizing rules, learned the hard way (labels randomly rendered near-unreadably tiny on SOME
+          devices):
+          - NO explicit lineHeight together with adjustsFontSizeToFit. On iOS that combination is a
+            long-standing RN defect: the fit pass measures against the lineHeight box, shrinks PAST
+            minimumFontScale, and the tiny size can stick across re-layouts.
+          - maxFontSizeMultiplier caps the device's accessibility text-size setting. Uncapped, a
+            phone at 1.3× overflowed the card and engaged autoshrink on that phone only — which is
+            why the bug looked different per device.
+          - alignSelf:"stretch" gives the text the card's real width up front; without it the first
+            measure can happen at ~0 width, and Android (where minimumFontScale is NOT supported)
+            commits an arbitrarily tiny size.
+          adjustsFontSizeToFit stays as the graceful fallback for genuinely narrow screens. */}
+      <Text style={[styles.opLabel, { color: colors.textSecondary, fontSize: 9.5 * scale }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} maxFontSizeMultiplier={1.15}>{def.label}</Text>
+      <Text style={[styles.opValue, { color: def.color, fontSize: 15 * scale }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} maxFontSizeMultiplier={1.15}>
         {fmtU(def.value)}
       </Text>
-      <Text style={[styles.opSub, { color: colors.textSecondary, fontSize: 9.5 * scale, lineHeight: 12 * scale }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+      <Text style={[styles.opSub, { color: colors.textSecondary, fontSize: 9.5 * scale }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} maxFontSizeMultiplier={1.15}>
         {def.sub}
       </Text>
     </Pressable>
@@ -149,6 +162,13 @@ export default function InsulinScreen() {
   ];
 
   const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
+  // Deep link from the home page's "Logs" shortcut: /(tabs)/insulin?tab=log. The `t` nonce makes a
+  // repeat tap re-run this even though expo-router keeps the previous params; `effectiveTab` below
+  // still guards availability, so a session without the log grant just lands on its allowed tab.
+  const linkParams = useLocalSearchParams<{ tab?: string; t?: string }>();
+  useEffect(() => {
+    if (linkParams.tab === "log") setScreenTab("log");
+  }, [linkParams.tab, linkParams.t]);
   // The tab actually shown: fall back to the first allowed tab when the stored one isn't available
   // (e.g. calculator grant off → default to Log; log grant off → only Dose).
   const effectiveTab: ScreenTab = availableTabs.includes(screenTab) ? screenTab : (availableTabs[0] ?? "predict");
@@ -1020,7 +1040,7 @@ export default function InsulinScreen() {
               {opCards.map((c, i) => (
                 <React.Fragment key={c.key}>
                   {i > 0 && (
-                    <Text style={[styles.opSymbol, { color: colors.textMuted, fontSize: 14 * calcScale, width: 12 * calcScale }]}>{OP_SYMBOLS[i - 1]}</Text>
+                    <Text style={[styles.opSymbol, { color: colors.textMuted, fontSize: 14 * calcScale, width: 12 * calcScale }]} maxFontSizeMultiplier={1.15}>{OP_SYMBOLS[i - 1]}</Text>
                   )}
                   <OpCard
                     def={c}
@@ -1443,6 +1463,7 @@ function OnBoardBar({
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.75}
+        maxFontSizeMultiplier={1.15}
       >
         {label}
       </Text>
@@ -1545,10 +1566,12 @@ const styles = StyleSheet.create({
   // aspectRatio 1 makes each card a square (height follows the flex-computed width); content is
   // centered vertically now that the card is taller.
   opCard: { flex: 1, minWidth: 0, aspectRatio: 1, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", gap: 5 },
-  opLabel: { fontSize: 9.5, fontWeight: "700", textAlign: "center", lineHeight: 12 },
-  opValue: { fontSize: 15, fontWeight: "800", textAlign: "center" },
+  // No lineHeight here on purpose, and alignSelf:"stretch" is load-bearing — see the sizing
+  // comment in OpCard before touching either.
+  opLabel: { fontSize: 9.5, fontWeight: "700", textAlign: "center", alignSelf: "stretch" },
+  opValue: { fontSize: 15, fontWeight: "800", textAlign: "center", alignSelf: "stretch" },
   /** Third row inside each piece: the live input value, title-grey and smaller than the value. */
-  opSub: { fontSize: 9.5, fontWeight: "600", textAlign: "center", lineHeight: 12 },
+  opSub: { fontSize: 9.5, fontWeight: "600", textAlign: "center", alignSelf: "stretch" },
   calcNote: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, borderRadius: 10, marginTop: 10 },
   calcNoteText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 17 },
 

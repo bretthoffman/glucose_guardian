@@ -14,6 +14,7 @@ import { withAlpha } from "@/constants/theme";
 import { useAuth, type FoodLogEntry, type InsulinLogEntry } from "@/context/AuthContext";
 import { INSULIN_TYPE_LABEL, findInsulinByChipLabel } from "@/constants/insulin";
 import { formatDoseAmount } from "@/utils/doseOverride";
+import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
 import { startOfLocalDay } from "@/utils/localDayBoundaries";
 import { useTheme } from "@/context/ThemeContext";
@@ -40,6 +41,13 @@ export default function LogDetailModal({
   const insets = useSafeAreaInsets();
   const { scheme } = useTheme();
   const { deleteFoodLogEntry, deleteInsulinLogEntry, editFoodLogEntry, editInsulinLogEntry } = useAuth();
+  /**
+   * Caregivers now reach Edit/Delete when their code carries the "Add logs" grant, so these commits
+   * fall under the same name-checked confirmation as every other caregiver write ("You are about to
+   * write a log into X's profile"). Without it, editing someone else's medical record would be the
+   * one caregiver write that commits silently. No-ops for guardians, co-guardians and child codes.
+   */
+  const confirmLog = useCareLogConfirm();
 
   const [editing, setEditing] = useState(false);
   // Edit-field text (initialised on entering edit mode).
@@ -71,7 +79,9 @@ export default function LogDetailModal({
     setEditing(false); // discard — nothing was applied
   };
 
-  const saveEdit = () => {
+  const saveEdit = () => confirmLog(() => commitEdit());
+
+  const commitEdit = () => {
     const parsedTime = parseTimeInputText(timeText);
     const newTimestamp =
       parsedTime != null
@@ -107,12 +117,13 @@ export default function LogDetailModal({
         {
           text: "Yes, delete",
           style: "destructive",
-          onPress: () => {
-            if (entry.kind === "food") deleteFoodLogEntry(entry.data.id);
-            else deleteInsulinLogEntry(entry.data.id);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            onClose();
-          },
+          onPress: () =>
+            confirmLog(() => {
+              if (entry.kind === "food") deleteFoodLogEntry(entry.data.id);
+              else deleteInsulinLogEntry(entry.data.id);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+              onClose();
+            }),
         },
       ],
     );

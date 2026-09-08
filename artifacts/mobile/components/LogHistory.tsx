@@ -17,6 +17,7 @@ import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import InsulinTypePicker from "@/components/InsulinTypePicker";
 import LogFoodModal from "@/components/LogFoodModal";
 import LogDetailModal, { type SelectedLog } from "@/components/LogDetailModal";
+import { canEditExistingLogs } from "@/utils/logEditPermission";
 import type { ChartEventMarker } from "@/utils/chartEventMarkers";
 import {
   INSULIN_TYPE_LABEL,
@@ -70,14 +71,16 @@ export default function LogHistory({
   const [chartCursorActive, setChartCursorActive] = useState(false);
 
   const { targetGlucose, cgmSyncSuccessTick } = useGlucose();
-  const { foodLog, insulinLog, logInsulinDose, alertPrefs, account, caregiverSession, caregiverCloudCode, accessCodeRole, profile } = useAuth();
+  const { foodLog, insulinLog, logInsulinDose, alertPrefs, account, caregiverSession, caregiverCloudCode, accessCodeRole, accessCodePermissions, profile } = useAuth();
 
-  // Caregivers may view — and with the log grant, add — but NEVER edit or delete logs, regardless
-  // of permissions: nurse email accounts (accountRole "caregiver") and every caregiver access-code
-  // session (new-style codes carry accessCodeRole "caregiver"; legacy codes have none). A child
-  // code is the kid's own device and keeps today's behavior; guardians/co-guardians are unaffected.
-  const isCaregiverViewer =
-    profile?.accountRole === "caregiver" || (caregiverSession && accessCodeRole !== "child");
+  // Edit/delete rights — see utils/logEditPermission for the rule and why the "Add logs" grant is
+  // the gate for both caregiver identities. Guardians, co-guardians and child codes always may.
+  const canEditLogs = canEditExistingLogs({
+    isCaregiverAccount: profile?.accountRole === "caregiver",
+    caregiverSession,
+    accessCodeRole,
+    canAddLogs: !!accessCodePermissions?.log,
+  });
   const confirmLog = useCareLogConfirm();
   const myUserId = account?.convexUserId ?? null;
   // An access-code session is accountless, so the CODE is this device's only identity for attribution.
@@ -204,7 +207,7 @@ export default function LogHistory({
           insulinLog={insulinLog}
           myUserId={myUserId}
           myCode={myCode}
-          canEditLogs={!isCaregiverViewer}
+          canEditLogs={canEditLogs}
           onCursorActiveChange={setChartCursorActive}
         />
       </ScrollView>

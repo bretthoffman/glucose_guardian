@@ -37,6 +37,16 @@ const MESSAGES: Record<string, string> = {
     "Libre account connected, but no shared patient was found. Use a LibreLinkUp follower account, enable sharing from the sensor wearer's Libre app, and accept the invitation.",
   "cgm.diagnostic.sharing_not_enabled":
     "LibreLinkUp sharing is not enabled for this account. Enable sharing in the LibreLink app, then reconnect.",
+  /**
+   * NOT a CGM problem: the APP's own session died, so the sync call couldn't authenticate. The
+   * server's expedited sync reports this as status "unauthorized" but stamps the generic
+   * invalid_credentials category — which told users their DEXCOM password was wrong, sent them to
+   * re-enter perfectly valid CGM credentials, and the save then failed on the same dead session.
+   * The client substitutes this key when it sees status "unauthorized" so the copy tells the truth:
+   * the only fix is signing back in to the app.
+   */
+  "cgm.diagnostic.app_unauthorized":
+    "This device is signed out of your account, so syncing is paused. Your {p} connection and credentials are fine \u2014 sign in again to resume.",
 };
 
 export function cgmDiagnosticMessage(messageKey: string, provider?: CgmProvider | null): string {
@@ -52,6 +62,8 @@ export type CgmSyncBannerKind =
   | "sharing_not_enabled"
   | "reconnect_required"
   | "provider_unavailable"
+  /** The APP session is dead (not the CGM) — rendered as the sign-in banner, never "reconnect". */
+  | "app_auth"
   | null;
 
 export function bannerKindFromSyncStatus(args: {
@@ -65,6 +77,10 @@ export function bannerKindFromSyncStatus(args: {
   // Sharing/follower states are LibreLinkUp-only; the rest apply to any provider, so a Dexcom
   // account gets its reconnect + outage banners too instead of silently showing nothing.
   switch (args.diagnosticCategory) {
+    // Must be checked before anything credential-flavored: sending someone whose APP session died
+    // to the CGM reconnect screen is a dead end (the credential save fails on the same dead session).
+    case "app_unauthorized":
+      return "app_auth";
     case "no_shared_patient":
       return args.provider === "libre" ? "no_shared_patient" : null;
     case "connected_no_data":
