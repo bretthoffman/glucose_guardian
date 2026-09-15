@@ -479,8 +479,8 @@ export function CGMChart({
                 onPress={() => handleRangePress(r)}
                 hitSlop={6}
               >
-                {active && <AccentShade color={c.chartControlActive} radius={T.radius.pill - 4} />}
-                <Text style={[styles.segText, { color: active ? c.chartControlActiveText : c.textMuted }]}>{r}</Text>
+                {active && <AccentShade color={c.chartRangeActive} radius={T.radius.pill - 4} />}
+                <Text style={[styles.segText, { color: active ? c.chartRangeActiveText : c.textMuted }]}>{r}</Text>
               </Pressable>
             );
           })}
@@ -795,8 +795,9 @@ const makeStyles = (c: ThemeColors) => StyleSheet.create({
     borderRadius: T.radius.pill - 4,
     alignItems: "center",
   },
+  // Neutral (lighter slate / white) rather than violet — see `chartRangeActive` in constants/theme.
   segTabActive: {
-    backgroundColor: c.chartControlActive,
+    backgroundColor: c.chartRangeActive,
   },
   segText: { fontSize: 12.5, fontWeight: T.font.semibold, letterSpacing: 0.2 },
 

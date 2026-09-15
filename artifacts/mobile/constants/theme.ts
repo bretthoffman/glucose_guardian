@@ -47,6 +47,11 @@ export const T = {
     chartControlTrack: "#22324C",
     chartControlActive: "#7557F6",
     chartControlActiveText: "#F7F9FC",
+    // The chart's OWN range toggle (3H/6H/12H/24H) selects in a lighter slate, not violet — on the
+    // Glucose page it would otherwise be the only purple thing on the screen. Other segmented
+    // toggles keep `chartControlActive`.
+    chartRangeActive: "#46597C",
+    chartRangeActiveText: "#F7F9FC",
     // Shading endpoints for CONTROLS — toggle tracks and secondary buttons — bracketing the track
     // color, so a control reads as its own small lit surface (see components/Shade ControlShade).
     controlTop: "#293C5A",
@@ -135,6 +140,9 @@ export const lightColors: ThemeColors = {
   chartControlTrack: "rgba(30, 55, 100, 0.06)",
   chartControlActive: "#7557F6",
   chartControlActiveText: "#FFFFFF",
+  // Light mode: the selected range is a white pill on the soft grey track (iOS-segmented-control feel).
+  chartRangeActive: "#FFFFFF",
+  chartRangeActiveText: "#16233D",
   controlTop: "#F7F9FD",
   controlBottom: "#E9EEF7",
 };

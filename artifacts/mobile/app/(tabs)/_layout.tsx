@@ -29,31 +29,12 @@ const TAB_META: Record<string, { label: string; icon: IconName }> = {
   dashboard: { label: "Dashboard", icon: "chart-bar" },
 };
 
-/** Lighter body tone for the selected icon — a lavender step up from `violetActive`, same hue family. */
-const TAB_ICON_BODY = "#8F9BFF";
-
 /**
- * The SELECTED tab's icon, rendered two-tone: a lighter body with a deeper base. It is TWO copies of
- * the same glyph at the SAME size and position — so they register perfectly on every silhouette —
- * with the second copy clipped to the lower part of the box. That is what makes it work on the thin
- * needle and the asymmetric fork/knife as well as the droplet: nothing is scaled or offset, so it can
- * never read as a smaller icon pasted on top. (An earlier version stacked a scaled-down copy plus a
- * highlight; the scaled copy sat off-center on the thin glyphs and the highlight was noise.)
- * Only the focused tab renders this; unfocused tabs stay a single muted glyph.
+ * The selected tab's icon color — a lavender step up from `violetActive`, same hue family. ONE flat
+ * color: the two-tone treatment (a deeper second layer on the lower part of the glyph, and before
+ * that a third highlight layer) has been removed — neither read well on the small glyphs.
  */
-function LayeredIcon({ name, size }: { name: IconName; size: number }) {
-  // Where the deeper tone begins, measured from the top of the glyph box.
-  const split = Math.round(size * 0.55);
-  return (
-    <View style={{ width: size, height: size }}>
-      <MaterialCommunityIcons name={name} size={size} color={TAB_ICON_BODY} style={{ position: "absolute", left: 0, top: 0 }} />
-      <View style={{ position: "absolute", left: 0, top: split, width: size, height: size - split, overflow: "hidden" }}>
-        {/* Same glyph, same size, shifted up by exactly `split` so it lines up with the copy above. */}
-        <MaterialCommunityIcons name={name} size={size} color={T.color.violet} style={{ position: "absolute", left: 0, top: -split }} />
-      </View>
-    </View>
-  );
-}
+const TAB_ICON_BODY = "#8F9BFF";
 
 /**
  * Dark-clinical floating tab bar matching the redesign reference. VISUAL ONLY: route set, order, the
@@ -118,11 +99,7 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
                   how long its label is. */}
               <View style={[styles.slot, focused && styles.slotActive]}>
                 <View style={styles.iconWrap}>
-                  {focused ? (
-                    <LayeredIcon name={meta.icon} size={TAB_ICON_SIZE} />
-                  ) : (
-                    <MaterialCommunityIcons name={meta.icon} size={TAB_ICON_SIZE} color={color} />
-                  )}
+                  <MaterialCommunityIcons name={meta.icon} size={TAB_ICON_SIZE} color={focused ? TAB_ICON_BODY : color} />
                   {route.name === "chat" && hasUnreadDoctorChat && (
                     <View style={styles.chatAlertBadge}>
                       <Text style={styles.chatAlertBadgeText}>!</Text>
