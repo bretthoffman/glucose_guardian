@@ -16,6 +16,8 @@ import { CGMChart } from "@/components/CGMChart";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import InsulinTypePicker from "@/components/InsulinTypePicker";
 import LogFoodModal from "@/components/LogFoodModal";
+import { AccentShade, CardShade, ControlShade } from "@/components/Shade";
+import CalendarPicker from "@/components/CalendarPicker";
 import LogDetailModal, { type SelectedLog } from "@/components/LogDetailModal";
 import { canEditExistingLogs } from "@/utils/logEditPermission";
 import type { ChartEventMarker } from "@/utils/chartEventMarkers";
@@ -160,46 +162,16 @@ export default function LogHistory({
         scrollEnabled={!chartCursorActive}
         {...NO_AUTO_CONTENT_INSETS}
       >
-        <View style={styles.logInsulinRow}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Log insulin"
-            style={({ pressed }) => [
-              styles.logInsulinBtn,
-              {
-                backgroundColor: logBtnGreen ? COLORS.success : COLORS.primary,
-                opacity: pressed ? 0.8 : 1,
-              },
-            ]}
-            onPress={openLogModal}
-          >
-            <Feather name={logBtnGreen ? "check" : "plus"} size={12} color="#fff" />
-            <Text style={styles.logInsulinBtnText}>Log Insulin</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Log food"
-            style={({ pressed }) => [
-              styles.logInsulinBtn,
-              {
-                backgroundColor: foodBtnGreen ? COLORS.success : COLORS.primary,
-                opacity: pressed ? 0.8 : 1,
-              },
-            ]}
-            onPress={() => {
-              setFoodModalVisible(true);
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            }}
-          >
-            <Feather name={foodBtnGreen ? "check" : "plus"} size={12} color="#fff" />
-            <Text style={styles.logInsulinBtnText}>Log Food</Text>
-          </Pressable>
-        </View>
         <DayView
           day={selectedDay}
           dayOffset={dayOffset}
           onPrev={() => setDayOffset((p) => p + 1)}
           onNext={() => setDayOffset((p) => Math.max(0, p - 1))}
+          onPickDate={(d) => {
+            // Whole local days between today and the picked day; never into the future.
+            const picked = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+            setDayOffset(Math.max(0, Math.round((today.getTime() - picked.getTime()) / 86_400_000)));
+          }}
           colors={colors}
           targetGlucose={targetGlucose}
           alertPrefs={alertPrefs}
@@ -209,6 +181,12 @@ export default function LogHistory({
           myCode={myCode}
           canEditLogs={canEditLogs}
           onCursorActiveChange={setChartCursorActive}
+          onAddInsulin={openLogModal}
+          onAddFood={() => {
+            setFoodModalVisible(true);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }}
+          addJustLogged={logBtnGreen || foodBtnGreen}
         />
       </ScrollView>
 
@@ -293,6 +271,7 @@ export default function LogHistory({
               ]}
               onPress={handleLogInsulin}
             >
+              {canLog && <AccentShade radius={10} />}
               <Feather name="check" size={14} color={canLog ? "#fff" : colors.textMuted} />
               <Text style={[styles.logSubmitBtnText, { color: canLog ? "#fff" : colors.textMuted }]}>Log</Text>
             </Pressable>
@@ -322,6 +301,7 @@ function DayView({
   dayOffset,
   onPrev,
   onNext,
+  onPickDate,
   colors,
   targetGlucose,
   alertPrefs,
@@ -331,11 +311,16 @@ function DayView({
   myCode,
   canEditLogs,
   onCursorActiveChange,
+  onAddInsulin,
+  onAddFood,
+  addJustLogged,
 }: {
   day: Date;
   dayOffset: number;
   onPrev: () => void;
   onNext: () => void;
+  /** A date chosen on the calendar — the page switches to it at once. */
+  onPickDate: (day: Date) => void;
   colors: (typeof Colors)["light"];
   targetGlucose: number;
   alertPrefs: {
@@ -351,10 +336,17 @@ function DayView({
   /** False for caregiver viewers — hides the detail popup's Edit/Delete controls. */
   canEditLogs: boolean;
   onCursorActiveChange?: (active: boolean) => void;
+  /** Open the Log Insulin / Log Food popups (each logs to the day being viewed). */
+  onAddInsulin: () => void;
+  onAddFood: () => void;
+  /** True right after an entry was added, until the next successful CGM sync — the button reads "Added". */
+  addJustLogged: boolean;
 }) {
   const isToday = dayOffset === 0;
   const label = isToday ? "Today" : dayOffset === 1 ? "Yesterday" : fmtDateFull(day);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState<SelectedLog | null>(null);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   const { readings, status, bounds, retry } = useDayGlucoseReadings({
     enabled: true,
@@ -373,15 +365,20 @@ function DayView({
   );
 
   /**
-   * Same entries, NEWEST FIRST, for the two lists. The most recent log is what someone opens this page
-   * to see — scrolling to the bottom of a busy day to find it was backwards.
-   *
-   * Deliberately a separate ordering rather than flipping `filterFoodLogsForDay`: that util's
-   * chronological contract also feeds `dayMarkers` below, and a "logs for this day" helper returning
-   * reverse-chronological would be a surprising thing for the next caller to inherit.
+   * Food and insulin merged into ONE list, NEWEST FIRST — the most recent log is what someone opens
+   * this page to see, so scrolling to the bottom of a busy day to find it was backwards. Deliberately
+   * a separate ordering rather than flipping the day filters: their chronological contract also feeds
+   * `dayMarkers` below, and a "logs for this day" helper returning reverse-chronological would be a
+   * surprising thing for the next caller to inherit.
    */
-  const dayFoodNewestFirst = useMemo(() => [...dayFood].reverse(), [dayFood]);
-  const dayInsulinNewestFirst = useMemo(() => [...dayInsulin].reverse(), [dayInsulin]);
+  const dayEvents = useMemo<DayEvent[]>(
+    () =>
+      [
+        ...dayFood.map((f) => ({ kind: "food" as const, ts: new Date(f.timestamp).getTime(), data: f })),
+        ...dayInsulin.map((i) => ({ kind: "insulin" as const, ts: new Date(i.timestamp).getTime(), data: i })),
+      ].sort((a, b) => b.ts - a.ts),
+    [dayFood, dayInsulin],
+  );
 
   /** This day's logs as baseline markers for the graph — insulin first (it wins the on-line spot).
    *  Each marker carries its log's id so tapping the icon opens the same detail popup as the row. */
@@ -406,6 +403,43 @@ function DayView({
 
   return (
     <View style={{ gap: 16 }}>
+      {addMenuOpen && (
+        <Pressable
+          style={[StyleSheet.absoluteFill, { zIndex: 5 }]}
+          onPress={() => setAddMenuOpen(false)}
+          accessibilityLabel="Close the add menu"
+        />
+      )}
+      {/* Calendar shortcut — its own row above the day arrows, at the right. Control-styled (not
+          purple): it is a way to move, not a primary action. */}
+      <View style={styles.calendarRow}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.calendarBtn,
+            { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
+          ]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setCalendarOpen(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Pick a date"
+          hitSlop={6}
+        >
+          <ControlShade radius={10} />
+          <Feather name="calendar" size={16} color={colors.textSecondary} />
+        </Pressable>
+      </View>
+      <CalendarPicker
+        visible={calendarOpen}
+        selected={day}
+        onSelect={(d) => {
+          setCalendarOpen(false);
+          onPickDate(d);
+        }}
+        onClose={() => setCalendarOpen(false)}
+        colors={colors}
+      />
       <View style={styles.dayNav}>
         <Pressable style={styles.navBtn} onPress={onPrev}>
           <Feather name="chevron-left" size={20} color={colors.text} />
@@ -446,32 +480,90 @@ function DayView({
             eventMarkers={dayMarkers}
             onEventMarkerPress={openMarkerLog}
             enablePinchZoom
+            // The page scroll pads 16; the digits end 8 from the PAGE edge and the plot takes the rest.
+            hostPaddingRight={16}
           />
         )}
       </View>
 
-      <View style={styles.logSectionTitleRow}>
-        <Text style={[styles.logSectionTitle, { color: colors.text }]}>Food Log</Text>
-        <MaterialCommunityIcons name="silverware-fork-knife" size={18} color={colors.textMuted} />
+      {/* ── Event Log: the day's food AND insulin entries as one newest-first list (see dayEvents).
+          The header carries the "Add Entry" control that replaced the two buttons that used to sit at
+          the top of the page; it drops a small two-item menu below itself. ── */}
+      {/* The date IS the section's title ("Today, Sep 15, 2026") — sized as a heading, not a banner —
+          sitting on one line with the Add Entry button. No "Event Log" wordmark above it. */}
+      <View style={styles.eventHeader}>
+        <Text style={[styles.eventDate, { color: colors.textSecondary }]} numberOfLines={1}>
+          {fmtEventDate(day, dayOffset)}
+        </Text>
+        <View style={styles.addWrap}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add an entry"
+            accessibilityState={{ expanded: addMenuOpen }}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setAddMenuOpen((o) => !o);
+            }}
+            style={({ pressed }) => [
+              styles.addBtn,
+              addJustLogged
+                ? { backgroundColor: COLORS.success + "26", borderColor: COLORS.success }
+                : { backgroundColor: COLORS.primary + "26", borderColor: COLORS.primary },
+              { opacity: pressed ? 0.8 : 1 },
+            ]}
+          >
+            <Feather name={addJustLogged ? "check" : "plus"} size={15} color={colors.text} />
+            <Text style={[styles.addBtnText, { color: colors.text }]}>{addJustLogged ? "Added" : "Add Entry"}</Text>
+          </Pressable>
+          {addMenuOpen && (
+            <View style={[styles.addMenu, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <CardShade radius={12} />
+              <Pressable
+                accessibilityRole="menuitem"
+                style={({ pressed }) => [styles.addMenuItem, { borderBottomColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  setAddMenuOpen(false);
+                  onAddInsulin();
+                }}
+              >
+                <MaterialCommunityIcons name="needle" size={18} color={COLORS.primary} />
+                <Text style={[styles.addMenuText, { color: colors.text }]}>Insulin Log</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="menuitem"
+                style={({ pressed }) => [styles.addMenuItem, { borderBottomWidth: 0, opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  setAddMenuOpen(false);
+                  onAddFood();
+                }}
+              >
+                <MaterialCommunityIcons name="silverware-fork-knife" size={18} color={COLORS.accent} />
+                <Text style={[styles.addMenuText, { color: colors.text }]}>Food Log</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
       </View>
-      {dayFood.length === 0 ? (
-        <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No food logged for this day.</Text>
-      ) : (
-        dayFoodNewestFirst.map((food) => (
-          <FoodLogRow key={food.id} food={food} colors={colors} myUserId={myUserId} myCode={myCode} onPress={() => setSelectedLog({ kind: "food", data: food })} />
-        ))
-      )}
 
-      <View style={[styles.logSectionTitleRow, { marginTop: T.space.sm }]}>
-        <Text style={[styles.logSectionTitle, { color: colors.text }]}>Insulin Log</Text>
-        <MaterialCommunityIcons name="needle" size={18} color={colors.textMuted} />
-      </View>
-      {dayInsulin.length === 0 ? (
-        <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No insulin logged for this day.</Text>
+      {dayEvents.length === 0 ? (
+        <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No entries logged for this day.</Text>
       ) : (
-        dayInsulinNewestFirst.map((insulin) => (
-          <InsulinLogRow key={insulin.id} insulin={insulin} colors={colors} myUserId={myUserId} myCode={myCode} onPress={() => setSelectedLog({ kind: "insulin", data: insulin })} />
-        ))
+        <View style={[styles.eventList, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <CardShade radius={16} />
+          {dayEvents.map((ev, i) => (
+            <EventRow
+              key={ev.data.id}
+              event={ev}
+              last={i === dayEvents.length - 1}
+              colors={colors}
+              myUserId={myUserId}
+              myCode={myCode}
+              onPress={() =>
+                setSelectedLog(ev.kind === "food" ? { kind: "food", data: ev.data } : { kind: "insulin", data: ev.data })
+              }
+            />
+          ))}
+        </View>
       )}
 
       {selectedLog && (
@@ -511,71 +603,94 @@ function authorByline(
   return ` · by ${entry.authorName}`;
 }
 
-function FoodLogRow({ food, colors, myUserId, myCode, onPress }: { food: FoodLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null; myCode: string | null; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={({ pressed }) => [styles.entryRow, { backgroundColor: colors.card, borderColor: COLORS.accent + "40", opacity: pressed ? 0.7 : 1 }]}
-    >
-      <View style={[styles.entryIcon, { backgroundColor: COLORS.accent + "18" }]}>
-        <Text style={{ fontSize: 16 }}>🍽️</Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <View style={styles.entryTitleRow}>
-          <Text style={[styles.entryTitle, { color: colors.text }]} numberOfLines={1}>{food.foodName}</Text>
-          <Text style={[styles.entryTimeInline, { color: colors.textSecondary }]}>{fmtTime(food.timestamp)}</Text>
-          {food.edited && <Text style={[styles.entryEdited, { color: colors.textMuted }]}>Edited</Text>}
-        </View>
-        <Text style={[styles.entrySub, { color: colors.textSecondary }]} numberOfLines={1}>
-          {food.estimatedCarbs}g carbs · {food.insulinUnits}u{authorByline(food, myUserId, myCode)}
-        </Text>
-      </View>
-    </Pressable>
-  );
+type DayEvent =
+  | { kind: "food"; ts: number; data: FoodLogEntry }
+  | { kind: "insulin"; ts: number; data: InsulinLogEntry };
+
+/** "Today, Sep 14, 2026" / "Yesterday, Sep 13, 2026" / "Sat, Sep 12, 2026" — under the Event Log title. */
+function fmtEventDate(d: Date, dayOffset: number): string {
+  const date = d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  const lead = dayOffset === 0 ? "Today" : dayOffset === 1 ? "Yesterday" : d.toLocaleDateString([], { weekday: "short" });
+  return `${lead}, ${date}`;
 }
 
-function InsulinLogRow({ insulin, colors, myUserId, myCode, onPress }: { insulin: InsulinLogEntry; colors: (typeof Colors)["light"]; myUserId: string | null; myCode: string | null; onPress: () => void }) {
-  const opt = insulin.insulinType ? findInsulinByChipLabel(insulin.insulinType) : undefined;
-  const insulinName = opt?.name ?? insulin.insulinType?.split(" · ")[0];
-  const doseAdjusted =
-    insulin.recommendedUnits != null && !doseAmountsEqual(insulin.units, insulin.recommendedUnits);
-
-  const subParts: string[] = [];
-  if (opt) subParts.push(INSULIN_TYPE_LABEL[opt.type]);
-  if (insulin.recommendedUnits != null) {
-    subParts.push(`Rec ${formatDoseAmount(insulin.recommendedUnits)}u`);
+/**
+ * One Event Log row: time · icon · title/subtitle · chevron. The time left the title line for its own
+ * column; everything else about the entry reads on the sub line, so the description ("… · by X") is
+ * never squeezed by a right-hand value. `right` is kept for a kind that wants one; neither does today.
+ */
+function EventRow({
+  event,
+  last,
+  colors,
+  myUserId,
+  myCode,
+  onPress,
+}: {
+  event: DayEvent;
+  last: boolean;
+  colors: (typeof Colors)["light"];
+  myUserId: string | null;
+  myCode: string | null;
+  onPress: () => void;
+}) {
+  const isFood = event.kind === "food";
+  let title: string;
+  let sub: string;
+  let right: string | null = null;
+  let adjusted = false;
+  let edited = false;
+  if (event.kind === "food") {
+    const f = event.data;
+    title = f.foodName;
+    // A food entry is about the food: its carbs, and who logged it. The dose the calculator paired
+    // with it is an insulin fact, not a food fact — it lives in the detail popup, not on this line.
+    sub = `${f.estimatedCarbs} g carbs${authorByline(f, myUserId, myCode)}`;
+    edited = !!f.edited;
+  } else {
+    const ins = event.data;
+    const opt = ins.insulinType ? findInsulinByChipLabel(ins.insulinType) : undefined;
+    const insulinName = opt?.name ?? ins.insulinType?.split(" · ")[0];
+    adjusted = ins.recommendedUnits != null && !doseAmountsEqual(ins.units, ins.recommendedUnits);
+    const parts: string[] = [`${formatDoseAmount(ins.units)}u · ${insulinName ?? ins.type}`];
+    if (opt) parts.push(INSULIN_TYPE_LABEL[opt.type]);
+    if (ins.recommendedUnits != null) parts.push(`Rec ${formatDoseAmount(ins.recommendedUnits)}u`);
+    if (ins.note) parts.push(ins.note);
+    const byline = authorByline(ins, myUserId, myCode).replace(/^ · /, "");
+    if (byline) parts.push(byline);
+    title = "Insulin";
+    sub = parts.join(" · ");
+    edited = !!ins.edited;
   }
-  if (insulin.note) subParts.push(insulin.note);
-  const byline = authorByline(insulin, myUserId, myCode).replace(/^ · /, "");
-  if (byline) subParts.push(byline);
-
+  const accent = isFood ? COLORS.accent : COLORS.primary;
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      style={({ pressed }) => [styles.entryRow, { backgroundColor: colors.card, borderColor: COLORS.primary + "40", opacity: pressed ? 0.7 : 1 }]}
+      style={({ pressed }) => [
+        styles.eventRow,
+        !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+        { opacity: pressed ? 0.7 : 1 },
+      ]}
     >
-      <View style={[styles.entryIcon, { backgroundColor: COLORS.primary + "18" }]}>
-        <Text style={{ fontSize: 16 }}>💉</Text>
+      <Text style={[styles.eventTime, { color: colors.textSecondary }]}>{fmtTime(event.data.timestamp)}</Text>
+      <View style={[styles.eventIcon, { backgroundColor: accent + "22" }]}>
+        <MaterialCommunityIcons name={isFood ? "silverware-fork-knife" : "needle"} size={17} color={accent} />
       </View>
-      <View style={{ flex: 1 }}>
-        <View style={styles.entryTitleRow}>
-          <Text style={[styles.entryTitle, { color: colors.text }]} numberOfLines={1}>
-            {formatDoseAmount(insulin.units)}u · {insulinName ?? insulin.type}
-          </Text>
-          {doseAdjusted && (
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={styles.eventTitleRow}>
+          <Text style={[styles.eventRowTitle, { color: colors.text }]} numberOfLines={1}>{title}</Text>
+          {adjusted && (
             <View style={[styles.adjustedTag, { backgroundColor: COLORS.warning + "20" }]}>
               <Text style={[styles.adjustedTagText, { color: COLORS.warning }]}>ADJUSTED</Text>
             </View>
           )}
-          <Text style={[styles.entryTimeInline, { color: colors.textSecondary }]}>{fmtTime(insulin.timestamp)}</Text>
-          {insulin.edited && <Text style={[styles.entryEdited, { color: colors.textMuted }]}>Edited</Text>}
+          {edited && <Text style={[styles.entryEdited, { color: colors.textMuted }]}>Edited</Text>}
         </View>
-        <Text style={[styles.entrySub, { color: colors.textSecondary }]} numberOfLines={1}>
-          {subParts.join(" · ")}
-        </Text>
+        <Text style={[styles.eventSub, { color: colors.textSecondary }]} numberOfLines={1}>{sub}</Text>
       </View>
+      {right ? <Text style={[styles.eventRight, { color: colors.textSecondary }]}>{right}</Text> : null}
+      <Feather name="chevron-right" size={18} color={colors.textMuted} />
     </Pressable>
   );
 }
@@ -584,6 +699,8 @@ const styles = StyleSheet.create({
   /** Bottom padding clears the floating tab bar so a full day of logs can scroll into view. */
   scroll: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 140 },
 
+  calendarRow: { flexDirection: "row", justifyContent: "flex-end", marginBottom: -6 },
+  calendarBtn: { width: 34, height: 34, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   dayNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   navBtn: { padding: 8 },
   dayLabel: { fontSize: 18, fontWeight: "700" },
@@ -603,49 +720,46 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
   },
-  logSectionTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: T.space.md,
-    marginBottom: T.space.sm,
-  },
-  logSectionTitle: { fontSize: 18, fontWeight: "700" },
   logEmptyText: {
     fontSize: 14,
     fontWeight: "400",
     marginBottom: T.space.sm,
   },
 
-  entryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  entryIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  entryTitle: { fontSize: 14, fontWeight: "600", flexShrink: 1 },
-  entryTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   // Time on the top row — same smaller/faded look it used to have on the bottom sub-line.
-  entryTimeInline: { fontSize: 12, fontWeight: "400", flexShrink: 0 },
-  entryEdited: { fontSize: 12, fontWeight: "400", fontStyle: "italic", flexShrink: 0 },
-  entrySub: { fontSize: 12, fontWeight: "400", marginTop: 1 },
+  entryEdited: { fontSize: 11, fontWeight: "400", fontStyle: "italic", flexShrink: 0 },
   emptySub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20 },
   adjustedTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  adjustedTagText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.6 },
+  adjustedTagText: { fontSize: 8.5, fontWeight: "700", letterSpacing: 0.6 },
 
-  logInsulinRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
-  logInsulinBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 9,
+
+  /** Event Log header + the Add Entry dropdown. zIndex keeps the open menu above the rows AND the
+      tap-to-close layer underneath it. */
+  eventHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: T.space.md, zIndex: 10 },
+  /** Stand-in section title: a heading weight at a size between the row text and a page title. */
+  eventDate: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: "600" },
+  addWrap: { position: "relative", zIndex: 10 },
+  addBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 12, borderWidth: 1.5 },
+  addBtnText: { fontSize: 14, fontWeight: "700" },
+  addMenu: {
+    position: "absolute", top: 46, right: 0, minWidth: 176,
+    borderRadius: 12, borderWidth: 1, overflow: "hidden", zIndex: 20, elevation: 12,
   },
-  logInsulinBtnText: { fontSize: 12, fontWeight: "700", color: "#fff" },
+  addMenuItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  addMenuText: { fontSize: 14, fontWeight: "600" },
+  /** The merged list: one bordered window, rows divided by hairlines (see EventRow). */
+  eventList: { borderRadius: 16, borderWidth: 1, overflow: "hidden" },
+  // Tight rows: 8pt above and below, so a row is barely taller than its 36pt icon disc. With the
+  // smaller text the old 13pt was reading as a band of empty space at the top and bottom of each log.
+  eventRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8, paddingHorizontal: 12 },
+  // Row text is one step smaller across the board (time/title/sub/right/tags) — the rows read as a
+  // list, not as a stack of headlines. The time column narrows with its font so nothing else moves.
+  eventTime: { width: 58, fontSize: 11.5, fontWeight: "500" },
+  eventIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  eventTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  eventRowTitle: { fontSize: 13.5, fontWeight: "600", flexShrink: 1 },
+  eventSub: { fontSize: 11.5, fontWeight: "400", marginTop: 2 },
+  eventRight: { fontSize: 11.5, fontWeight: "500", flexShrink: 0 },
 
   logModalCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
   logModalTitle: { fontSize: 18, fontWeight: "700" },

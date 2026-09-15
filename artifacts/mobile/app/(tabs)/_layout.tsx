@@ -18,6 +18,9 @@ type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>["tab
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 
+/** Glyph size for every tab; the label stays 10.5, so the icon reads slightly larger than it. */
+const TAB_ICON_SIZE = 24;
+
 const TAB_META: Record<string, { label: string; icon: IconName }> = {
   index: { label: "Glucose", icon: "water" },
   insulin: { label: "Insulin", icon: "needle" },
@@ -25,6 +28,32 @@ const TAB_META: Record<string, { label: string; icon: IconName }> = {
   chat: { label: "Chat", icon: "message-text-outline" },
   dashboard: { label: "Dashboard", icon: "chart-bar" },
 };
+
+/** Lighter body tone for the selected icon — a lavender step up from `violetActive`, same hue family. */
+const TAB_ICON_BODY = "#8F9BFF";
+
+/**
+ * The SELECTED tab's icon, rendered two-tone: a lighter body with a deeper base. It is TWO copies of
+ * the same glyph at the SAME size and position — so they register perfectly on every silhouette —
+ * with the second copy clipped to the lower part of the box. That is what makes it work on the thin
+ * needle and the asymmetric fork/knife as well as the droplet: nothing is scaled or offset, so it can
+ * never read as a smaller icon pasted on top. (An earlier version stacked a scaled-down copy plus a
+ * highlight; the scaled copy sat off-center on the thin glyphs and the highlight was noise.)
+ * Only the focused tab renders this; unfocused tabs stay a single muted glyph.
+ */
+function LayeredIcon({ name, size }: { name: IconName; size: number }) {
+  // Where the deeper tone begins, measured from the top of the glyph box.
+  const split = Math.round(size * 0.55);
+  return (
+    <View style={{ width: size, height: size }}>
+      <MaterialCommunityIcons name={name} size={size} color={TAB_ICON_BODY} style={{ position: "absolute", left: 0, top: 0 }} />
+      <View style={{ position: "absolute", left: 0, top: split, width: size, height: size - split, overflow: "hidden" }}>
+        {/* Same glyph, same size, shifted up by exactly `split` so it lines up with the copy above. */}
+        <MaterialCommunityIcons name={name} size={size} color={T.color.violet} style={{ position: "absolute", left: 0, top: -split }} />
+      </View>
+    </View>
+  );
+}
 
 /**
  * Dark-clinical floating tab bar matching the redesign reference. VISUAL ONLY: route set, order, the
@@ -84,17 +113,36 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
               accessibilityLabel={meta.label}
               hitSlop={6}
             >
-              <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
-                <MaterialCommunityIcons name={meta.icon} size={22} color={color} />
-                {route.name === "chat" && hasUnreadDoctorChat && (
-                  <View style={styles.chatAlertBadge}>
-                    <Text style={styles.chatAlertBadgeText}>!</Text>
-                  </View>
-                )}
+              {/* The highlight hugs icon + label TOGETHER, so a selected tab reads as one unit. It lives
+                  inside the flex:1 Pressable, so every tab keeps an equal full-slot tap target no matter
+                  how long its label is. */}
+              <View style={[styles.slot, focused && styles.slotActive]}>
+                <View style={styles.iconWrap}>
+                  {focused ? (
+                    <LayeredIcon name={meta.icon} size={TAB_ICON_SIZE} />
+                  ) : (
+                    <MaterialCommunityIcons name={meta.icon} size={TAB_ICON_SIZE} color={color} />
+                  )}
+                  {route.name === "chat" && hasUnreadDoctorChat && (
+                    <View style={styles.chatAlertBadge}>
+                      <Text style={styles.chatAlertBadgeText}>!</Text>
+                    </View>
+                  )}
+                </View>
+                {/* Never "Gluco…": a truncated tab name is useless. Large accessibility text is capped at
+                    1.2× (it stays larger than default, just not slot-breaking), and shrink-to-fit is
+                    the backstop on narrow phones — the word gets smaller, it never gets cut off. No
+                    lineHeight on this style, so the iOS shrink-past-minimum bug can't trigger. */}
+                <Text
+                  style={[styles.label, { color }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                  maxFontSizeMultiplier={1.2}
+                >
+                  {meta.label}
+                </Text>
               </View>
-              <Text style={[styles.label, { color }]} numberOfLines={1}>
-                {meta.label}
-              </Text>
             </Pressable>
           );
         })}
@@ -149,29 +197,30 @@ const makeStyles = (c: ThemeColors, isDark: boolean) => StyleSheet.create({
     borderRadius: T.radius.nav,
     borderWidth: 1,
     borderColor: c.border,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
+    // Tight: the selected slot's own padding provides the breathing room, so the bar adds little.
+    paddingVertical: 6,
+    paddingHorizontal: 6,
     shadowColor: "#000",
     shadowOpacity: isDark ? 0.4 : 0.12,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 12 },
     elevation: 12,
   },
-  item: { flex: 1, alignItems: "center", gap: 4, paddingVertical: 2 },
+  // 2px between neighbours so two highlights never touch; the rest of the slot is the label's.
+  item: { flex: 1, paddingHorizontal: 2 },
+  /** Highlight around icon + label; spans the slot so long labels ("Dashboard") get the full width. */
+  slot: { alignSelf: "stretch", alignItems: "center", gap: 3, paddingVertical: 5, paddingHorizontal: 4, borderRadius: 14 },
+  slotActive: { backgroundColor: withAlpha(T.color.violet, 0.16) },
   iconWrap: {
-    width: 44,
-    height: 30,
-    borderRadius: 12,
+    width: 28,
+    height: 26,
     alignItems: "center",
     justifyContent: "center",
   },
-  iconWrapActive: {
-    backgroundColor: withAlpha(T.color.violet, 0.16),
-  },
   chatAlertBadge: {
     position: "absolute",
-    top: -2,
-    right: 2,
+    top: -5,
+    right: -8,
     minWidth: 16,
     height: 16,
     borderRadius: 8,

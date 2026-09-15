@@ -36,6 +36,7 @@ import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import { SettingsModal } from "@/components/SettingsModal";
 import AccessCodeScanner from "@/components/AccessCodeScanner";
+import { ScreenShade } from "@/components/Shade";
 
 interface Kid {
   code: string;
@@ -201,6 +202,8 @@ export default function NurseMenu() {
 
   return (
     <View style={[styles.overlay, { backgroundColor: colors.background, paddingTop: insets.top + 12 }]}>
+      {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
+      <ScreenShade />
       {/* Header */}
       <View style={styles.header}>
         <View style={{ flex: 1 }}>

@@ -17,6 +17,7 @@ import { useAuth } from "@/context/AuthContext";
 import type { DoctorMessage } from "@/context/AuthContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { AccentShade, ControlShade } from "@/components/Shade";
 
 function fmtTime(iso: string): string {
   const d = new Date(iso);
@@ -162,6 +163,8 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
                           : { backgroundColor: colors.backgroundTertiary, borderBottomLeftRadius: 4, borderColor: colors.border, borderWidth: 1 },
                       ]}
                     >
+                      {/* Same shading as the AI chat bubbles: accent on mine (in whichever color it is), control on theirs. */}
+                      {isMine ? <AccentShade color={isDoctor ? "#6366F1" : COLORS.primary} radius={0} /> : <ControlShade radius={0} />}
                       <Text style={[styles.bubbleText, { color: isMine ? "#fff" : colors.text }]}>
                         {msg.text}
                       </Text>
@@ -204,6 +207,7 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
           onPress={send}
           disabled={!input.trim()}
         >
+          {input.trim() ? <AccentShade color={isDoctor ? "#6366F1" : COLORS.primary} radius={20} /> : null}
           <Feather name="send" size={16} color={input.trim() ? "#fff" : colors.textMuted} />
         </Pressable>
       </View>
@@ -249,6 +253,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 18,
+    overflow: "hidden", // the shade takes the bubble's exact shape, tail corner included
   },
   bubbleText: { fontSize: 14, fontWeight: "400", lineHeight: 20 },
   timeLabel: { fontSize: 10, fontWeight: "400", marginTop: 3, marginHorizontal: 4 },

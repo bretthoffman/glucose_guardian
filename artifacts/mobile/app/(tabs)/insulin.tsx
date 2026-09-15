@@ -26,6 +26,7 @@ import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { glucoseColor } from "@/components/CGMChart";
 import { computeDose } from "@/utils/dose";
+import { AccentShade, CardShade, ControlShade, TintShade } from "@/components/Shade";
 import { effectiveDoseSettings } from "@/utils/doseSettings";
 import { computePatternTuning, patternFactorForNow } from "@/utils/doseTuning";
 import type { DoseBreakdown } from "@/utils/dose";
@@ -57,6 +58,7 @@ import {
 } from "@/constants/insulin";
 import { DOSE_INSULIN_TYPE_STORAGE_KEY } from "@/constants/storage-keys";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { ScreenShade } from "@/components/Shade";
 
 type ScreenTab = "predict" | "log";
 
@@ -106,7 +108,7 @@ function OpCard({
       style={({ pressed }) => [
         styles.opCard,
         {
-          // The unified window (calcUnified) carries the single purple outline; each piece is
+          // The unified window (calcUnified) carries the single outline; each piece is
           // borderless and identified by its color through the tinted label/value text. Selection
           // shows as a soft pill tint of the piece's own color.
           backgroundColor: selected ? withAlpha(def.color, 0.14) : "transparent",
@@ -754,6 +756,7 @@ export default function InsulinScreen() {
       ]}
       onPress={handleTookDose}
     >
+      <AccentShade color={doseJustLogged ? COLORS.success : COLORS.primary} radius={11} />
       <Feather name={doseJustLogged ? "check-circle" : "check"} size={13} color="#fff" />
       <Text style={styles.tookDoseBtnText}>
         {doseJustLogged ? "Dose Logged" : "I Just Took This Dose"}
@@ -763,6 +766,8 @@ export default function InsulinScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
+      <ScreenShade />
       {/* ── Header ── */}
       <TabGlucoseHeaderShell
         borderBottomColor={colors.border}
@@ -771,6 +776,7 @@ export default function InsulinScreen() {
         <TabGlucoseHeaderRow
           left={
             <View style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
+              <ControlShade radius={12} />
               {availableTabs.map((t) => (
                 <Pressable
                   key={t}
@@ -778,24 +784,22 @@ export default function InsulinScreen() {
                   accessibilityState={{ selected: effectiveTab === t }}
                   style={[
                     styles.screenToggleBtn,
-                    effectiveTab === t && {
-                      backgroundColor: colors.card,
-                      shadowColor: "#000",
-                      shadowOpacity: 0.08,
-                      shadowRadius: 4,
-                      shadowOffset: { width: 0, height: 1 },
-                    },
+                    // Selected = violet on white, the same language as the chart's 3H/6H/12H/24H
+                    // toggle. (It used to be a card-colored pill, which on the lit track would read
+                    // as a dark hole.)
+                    effectiveTab === t && { backgroundColor: COLORS.primary },
                   ]}
                   onPress={() => {
                     setScreenTab(t);
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   }}
                 >
+                  {effectiveTab === t && <AccentShade radius={10} />}
                   <Text
                     numberOfLines={1}
                     style={[
                       styles.screenToggleText,
-                      { color: effectiveTab === t ? COLORS.primary : colors.textSecondary },
+                      { color: effectiveTab === t ? "#fff" : colors.textSecondary },
                     ]}
                   >
                     {t === "predict" ? "💉 Dose" : "📋 Log"}
@@ -876,6 +880,7 @@ export default function InsulinScreen() {
             setInsulinModalVisible(true);
           }}
         >
+          <ControlShade radius={12} />
           <Feather name="droplet" size={13} color={COLORS.primary} />
           <Text numberOfLines={1} style={[styles.insulinDropdownText, { color: colors.text }]}>
             {selectedInsulinOption ? `Insulin: ${selectedInsulinOption.name}` : "Select insulin"}
@@ -885,6 +890,7 @@ export default function InsulinScreen() {
       </View>
 
       <View style={[styles.doseCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <CardShade radius={16} />
         {isBasalMode ? (
           /* ── Basal mode: carbs/BG inputs don't apply — show time + live glucose instead ── */
           <View style={styles.doseInputRow}>
@@ -899,7 +905,7 @@ export default function InsulinScreen() {
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>Current Glucose</Text>
                 {latest && (
-                  <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}>
+                  <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}><TintShade color={COLORS.success} radius={6} />
                     <Text style={[styles.liveTagText, { color: COLORS.success }]}>LIVE</Text>
                   </View>
                 )}
@@ -948,7 +954,7 @@ export default function InsulinScreen() {
               <Feather name="droplet" size={14} color={COLORS.primary} />
               <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>CURRENT BG</Text>
               {latest && !bgManual && bgDraft == null && (
-                <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}>
+                <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}><TintShade color={COLORS.success} radius={6} />
                   <Text style={[styles.liveTagText, { color: COLORS.success }]}>LIVE</Text>
                 </View>
               )}
@@ -1034,8 +1040,9 @@ export default function InsulinScreen() {
               wrap the explanation. Each piece stays individually tappable and works as before. ── */}
           <View
             key="calc-window"
-            style={[styles.calcUnified, { backgroundColor: colors.card, borderColor: withAlpha(CARD_PURPLE, 0.55) }]}
+            style={[styles.calcUnified, { backgroundColor: colors.card, borderColor: colors.border }]}
           >
+            <CardShade radius={14} />
             <View style={styles.opCardsRow}>
               {opCards.map((c, i) => (
                 <React.Fragment key={c.key}>
@@ -1104,10 +1111,8 @@ export default function InsulinScreen() {
             </View>
           )}
 
-          {/* Divider above the suggested-dose window (the window sits below it). */}
-          <View key="divider" style={[styles.sectionDivider, { borderTopColor: colors.border }]} />
-
           <View key="suggest" style={[styles.suggestCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <CardShade radius={16} />
             {/* Suggested Dose + editable badge */}
             <View style={styles.suggestTotalRow}>
               <View style={styles.doseTotalLabelWrap}>
@@ -1148,6 +1153,7 @@ export default function InsulinScreen() {
                 ]}
                 onPress={runPredict}
               >
+                <AccentShade radius={11} />
                 {predicting || drawing ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
@@ -1318,6 +1324,7 @@ export default function InsulinScreen() {
 
       {history.length === 0 && (
         <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <CardShade radius={16} />
           <Text style={styles.emptyIcon}>📊</Text>
           <Text style={[styles.emptyTitle, { color: colors.text }]}>No readings yet</Text>
           <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
@@ -1328,7 +1335,8 @@ export default function InsulinScreen() {
         </View>
       )}
 
-      <View style={[styles.disclaimer, { backgroundColor: colors.backgroundTertiary }]}>
+      <View style={[styles.disclaimer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <CardShade radius={12} />
         <Feather name="info" size={14} color={colors.textMuted} />
         <Text style={[styles.disclaimerText, { color: colors.textMuted }]}>
           This app provides estimates only and does not replace medical advice. Always follow your doctor's instructions.
@@ -1434,15 +1442,10 @@ function OnBoardBar({
   // compete with the amount for attention.
   const chrome = withAlpha(colors.textMuted, 0.45);
   const hours = windowMin / 60;
-  const hoursLabel = hours > 0 ? `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h` : null;
+  const hoursLabel = hours > 0 ? `${Number.isInteger(hours) ? hours : hours.toFixed(1)}H` : null;
 
   return (
     <View style={styles.onBoardCellInner}>
-      {hoursLabel && (
-        <Text style={[styles.onBoardWindowLabel, { color: chrome }]} numberOfLines={1}>
-          {hoursLabel}
-        </Text>
-      )}
     <View
       style={[
         styles.onBoardTrack,
@@ -1467,6 +1470,14 @@ function OnBoardBar({
       >
         {label}
       </Text>
+      {/* The window length ("6H") sits INSIDE the bar at its right end, italic and upright — it is
+          chrome, so it takes the same grey as the ticks. Being a flow sibling after the amount means
+          the amount shrinks to fit the space that is left, never runs under this label. */}
+      {hoursLabel && (
+        <Text style={[styles.onBoardWindowLabel, { color: chrome }]} numberOfLines={1} maxFontSizeMultiplier={1.15}>
+          {hoursLabel}
+        </Text>
+      )}
       {/* Thirds of the WINDOW, drawn as short ticks biting in from the top and bottom edges rather
           than full-height rules — a line across the bar would read as a boundary in the data. Drawn
           after the fill so they stay visible on both the filled and the empty side. */}
@@ -1505,20 +1516,20 @@ function PredictionStrength({
 }
 
 /**
- * The dose card's bottom margin. Named because the on-board strip has to CANCEL part of it: the strip
- * sits between the card and the "HOW YOUR DOSE IS CALCULATED" head, so without this the gap above the
- * bars was the card margin PLUS the strip margin (32) against just the strip margin below (12).
+ * THE one vertical gap between sections on the Dose tab — the same 16 that sits between the suggested
+ * dose window and the disclaimer. Every section below the dose card owns its TOP margin of this size
+ * and nothing owns a bottom margin, so whatever renders (the on-board bars, the calc head, the
+ * window, the suggestion, the empty state, the disclaimer) is always exactly this far from whatever
+ * came before it. No negative-margin cancelling, no gap that depends on which sections are showing.
  */
-const DOSE_CARD_GAP = 20;
-/** Symmetric breathing room around the on-board strip. */
-const ON_BOARD_GAP = T.space.md;
+const SECTION_GAP = 16;
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
   // iPad: cap + center the content column so it doesn't stretch across a 13" screen. No-op on phones.
   scroll: { paddingHorizontal: 20, paddingTop: 10, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
 
-  screenHeader: { paddingBottom: 10, borderBottomWidth: 1 },
+  screenHeader: { paddingBottom: 10,},
   screenToggle: {
     flexDirection: "row",
     flexShrink: 1,
@@ -1555,12 +1566,12 @@ const styles = StyleSheet.create({
   insulinDropdownText: { fontSize: 12.5, fontWeight: "600", flexShrink: 1 },
 
   // ── "How your dose is calculated" op cards ──
-  // Vertical margins zeroed here: the 10px reference gaps above/below this label come from
-  // doseCard.marginBottom (above) and opCardsRow.marginTop (below), keeping them symmetric.
-  calcHeadRow: { marginTop: 0, marginBottom: 0 },
+  // The head is a section of its own: SECTION_GAP above it (from whatever precedes — the dose card or
+  // the on-board bars) and SECTION_GAP below it (calcUnified's top margin).
+  calcHeadRow: { marginTop: SECTION_GAP, marginBottom: 0 },
   calcHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
   /** The single purple-outlined window housing the four pieces + the opened explanation. */
-  calcUnified: { marginTop: 20, borderWidth: 1.5, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 8 },
+  calcUnified: { marginTop: SECTION_GAP, borderWidth: 1.5, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 8 },
   opCardsRow: { flexDirection: "row", alignItems: "flex-start", gap: 2 },
   opSymbol: { fontSize: 14, fontWeight: "800", alignSelf: "center", width: 12, textAlign: "center" },
   // aspectRatio 1 makes each card a square (height follows the flex-computed width); content is
@@ -1583,16 +1594,18 @@ const styles = StyleSheet.create({
   breakdownTitle: { fontSize: 17, fontWeight: "800" },
   breakdownLine: { fontSize: 13.5, fontWeight: "400", lineHeight: 20 },
 
-  disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 14, borderRadius: 12, marginTop: 20 },
+  disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 14, borderRadius: 12, borderWidth: 1, marginTop: SECTION_GAP },
   disclaimerText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 18 },
 
 
-  emptyCard: { borderRadius: 16, borderWidth: 1, padding: 28, alignItems: "center", gap: 10, marginTop: 10 },
+  emptyCard: { borderRadius: 16, borderWidth: 1, padding: 28, alignItems: "center", gap: 10, marginTop: SECTION_GAP },
   emptyIcon: { fontSize: 40 },
   emptyTitle: { fontSize: 18, fontWeight: "700" },
   emptySub: { fontSize: 14, fontWeight: "400", textAlign: "center", lineHeight: 20 },
 
-  doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: DOSE_CARD_GAP, gap: 10 },
+  // No bottom margin: the section after it (bars, calc head, or the disclaimer in basal mode) brings
+  // its own SECTION_GAP, so the space under the card is the same in every state.
+  doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 10 },
   doseInputRow: { flexDirection: "row", gap: 12, paddingVertical: 2 },
   doseInputGroup: { flex: 1, alignItems: "center", gap: 5 },
   doseInputHead: { flexDirection: "row", alignItems: "center", gap: 6 },
@@ -1605,42 +1618,35 @@ const styles = StyleSheet.create({
   // mirroring the CARBS | CURRENT BG split in the card above.
   onBoardStrip: {
     flexDirection: "row", gap: 10, paddingHorizontal: T.space.md,
-    // Negative on purpose: pull up against the card's own bottom margin so the space ABOVE the bars
-    // equals the space below them. When the strip isn't rendered the card's margin stands alone, so
-    // the layout without bars is untouched.
-    marginTop: ON_BOARD_GAP - DOSE_CARD_GAP,
-    marginBottom: ON_BOARD_GAP,
+    // SECTION_GAP above (its own margin) and SECTION_GAP below (the calc head's). When the strip isn't
+    // rendered the calc head's own margin stands alone, so the layout without bars is identical.
+    marginTop: SECTION_GAP,
   },
   onBoardCell: { flex: 1 },
   onBoardCellInner: { width: "100%", position: "relative" },
   /**
-   * Hugs the bar's upper-right corner, tilted, per the mockup.
-   *
-   * ABSOLUTE on purpose, and the two reasons are linked. In normal flow this was a full-width Text with
-   * `textAlign: "right"`, so `rotate` pivoted around the whole ROW's centre rather than around the
-   * glyphs — which slid "3h" toward the middle of the bar instead of its right end. Absolute + no width
-   * makes the box wrap the text, so it rotates about itself. It also stops the label adding height to
-   * the cell, which the strip's negative top margin was pulling up into the card above.
+   * The window length, e.g. "6H": inside the bar at its right end, italic, upright. It used to sit
+   * tilted above the bar's corner; now it is the trailing item of the track's row, so it adds no
+   * height to the cell and the amount label simply gets the width that remains.
    */
   onBoardWindowLabel: {
-    position: "absolute",
-    right: 3,
-    top: -9,
     fontSize: 9,
     fontWeight: "600",
     fontStyle: "italic",
-    // Clockwise, so the tilt follows the bar's rounded right end rather than leaning against it.
-    transform: [{ rotate: "18deg" }],
+    paddingLeft: 2,
+    paddingRight: 8,
   },
   onBoardTickTop: { position: "absolute", top: 0, width: 1, height: 4, marginLeft: -0.5 },
   onBoardTickBottom: { position: "absolute", bottom: 0, width: 1, height: 4, marginLeft: -0.5 },
   onBoardTrack: {
-    height: 22, borderRadius: 11, overflow: "hidden", position: "relative", justifyContent: "center",
+    height: 22, borderRadius: 11, overflow: "hidden", position: "relative",
+    // A row: the amount on the left takes what is left after the window label at the right end.
+    flexDirection: "row", alignItems: "center",
     borderWidth: 1, width: "100%",
   },
   onBoardFill: { position: "absolute", left: 0, top: 0, bottom: 0 },
   onBoardFillEdge: { position: "absolute", top: 0, bottom: 0, width: 2, marginLeft: -2 },
-  onBoardAmount: { fontSize: 10, fontWeight: "800", paddingHorizontal: 8, letterSpacing: 0.1 },
+  onBoardAmount: { flex: 1, minWidth: 0, fontSize: 10, fontWeight: "800", paddingHorizontal: 8, letterSpacing: 0.1 },
   doseInput: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontWeight: "700", textAlign: "center" },
   doseInputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.18)", marginVertical: 2 },
   liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
@@ -1659,8 +1665,10 @@ const styles = StyleSheet.create({
 
   // ── Suggested-dose window (wraps the dose result, the See Calculation / See Prediction toggles,
   //    and whatever they reveal). Same surface as the carbs/BG card. ──
-  sectionDivider: { borderTopWidth: 1, marginTop: 20, marginBottom: 18 },
-  suggestCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 20, gap: 14 },
+  // Sits one card-gap below the calc window (the divider that used to separate them is gone).
+  // No bottom margin: the disclaimer below owns that gap, so it's the SAME 16px whether the
+  // prediction graph is open (it grows this card from the inside) or not.
+  suggestCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginTop: SECTION_GAP, gap: 14 },
   // baseline so "SUGGESTED DOSE" stays in line with the dose value in the pill, regardless of the
   // "Tap to edit" / recommended-dose line that sits below the pill.
   suggestTotalRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 10 },

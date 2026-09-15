@@ -22,6 +22,7 @@ import { useAuth } from "@/context/AuthContext";
 import { apiUrl } from "@/utils/api-base-url";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
 
 type CGMType = "dexcom" | "libre";
 
@@ -244,6 +245,8 @@ export default function CGMSetupScreen() {
       style={[styles.root, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
+      {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
+      <ScreenShade />
       <ScrollView
         {...NO_AUTO_CONTENT_INSETS}
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPadding + 40 }]}
@@ -258,6 +261,7 @@ export default function CGMSetupScreen() {
                 { backgroundColor: COLORS.success + "15", borderColor: COLORS.success + "40" },
               ]}
             >
+              <TintShade color={COLORS.success} radius={14} />
               <Feather name="check-circle" size={20} color={COLORS.success} />
               <Text style={[styles.connectedTitle, { color: COLORS.success }]}>
                 {cgmConnection.type === "dexcom" ? "Dexcom" : "FreeStyle Libre"} Connected
@@ -278,13 +282,14 @@ export default function CGMSetupScreen() {
                 styles.disconnectBtn,
                 {
                   borderColor: COLORS.danger + "60",
-                  backgroundColor: colors.card,
+                  backgroundColor: colors.backgroundTertiary,
                   opacity: pressed ? 0.8 : 1,
                 },
               ]}
               onPress={disconnect}
               disabled={isDisconnecting}
             >
+              <ControlShade radius={12} />
               {isDisconnecting ? (
                 <ActivityIndicator color={COLORS.danger} size="small" />
               ) : (
@@ -321,6 +326,8 @@ export default function CGMSetupScreen() {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               }}
             >
+              {/* Window shade when idle; the selected card is purple-tinted, so it shades in purple. */}
+              {selectedType === type ? <TintShade color={COLORS.primary} radius={14} /> : <CardShade radius={14} />}
               <Feather
                 name="activity"
                 size={24}
@@ -343,6 +350,7 @@ export default function CGMSetupScreen() {
 
         {selectedType === "dexcom" && (
           <View style={[styles.requirementsBox, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+            <ControlShade radius={14} />
             <Text style={[styles.requirementsTitle, { color: colors.text }]}>Before you connect:</Text>
             <View style={styles.requirementRow}>
               <Text style={[styles.requirementBullet, { color: COLORS.primary }]}>1.</Text>
@@ -365,6 +373,7 @@ export default function CGMSetupScreen() {
             { backgroundColor: colors.card, borderColor: colors.border },
           ]}
         >
+          <CardShade radius={16} />
           <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
             {selectedType === "dexcom" ? "Dexcom Username" : "LibreLink Email"}
           </Text>
@@ -433,6 +442,7 @@ export default function CGMSetupScreen() {
             { backgroundColor: COLORS.primary + "10", borderColor: COLORS.primary + "30" },
           ]}
         >
+          <TintShade color={COLORS.primary} radius={12} from={0.12} />
           <Feather name="lock" size={14} color={COLORS.primary} />
           <Text style={[styles.infoText, { color: colors.textSecondary }]}>
             {selectedType === "dexcom"
@@ -449,6 +459,7 @@ export default function CGMSetupScreen() {
           onPress={connect}
           disabled={isConnecting}
         >
+          <AccentShade radius={16} />
           {isConnecting ? (
             <ActivityIndicator color="#fff" size="small" />
           ) : (

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   availableDashboardSections,
+  dashboardGroups,
   dashboardSectionVisibility,
   type DashboardRoleFlags,
 } from "./dashboardSections";
@@ -23,6 +24,9 @@ describe("dashboardSectionVisibility", () => {
       showNotifications: true,
       showDoctorCareTeam: true,
       showAccessManagement: true,
+      showActivityLog: false, // no entries yet
+      showDownloadLogs: false,
+      showChildView: true,
     });
   });
 
@@ -68,47 +72,85 @@ describe("dashboardSectionVisibility", () => {
     expect(vis.showDoctorCareTeam).toBe(false);
     expect(vis.showAccessManagement).toBe(false);
     expect(keys({ ...patientParent, caregiverViewingChild: true })).toEqual([
+      "insulin",
+      "summary",
       "notifications",
       "thresholds",
       "emergency",
-      "insulin",
     ]);
+    // …and a nurse never could enable Child View, so the switch is not offered either.
+    expect(vis.showChildView).toBe(false);
+  });
+
+  it("offers the Activity Log row only once there are entries, and never in guardian-device child mode", () => {
+    expect(dashboardSectionVisibility(patientParent).showActivityLog).toBe(false);
+    expect(dashboardSectionVisibility({ ...patientParent, hasLogEntries: true }).showActivityLog).toBe(true);
+    expect(
+      dashboardSectionVisibility({ ...patientParent, hasLogEntries: true, isChildMode: true }).showActivityLog,
+    ).toBe(false);
+    // An access-code session with entries keeps it (the old inline card's exact rule).
+    expect(
+      dashboardSectionVisibility({ ...patientParent, hasLogEntries: true, isChildMode: true, caregiverSession: true })
+        .showActivityLog,
+    ).toBe(true);
+  });
+
+  it("keeps the Child View switch for the parent while child mode is ON, so it can be turned off", () => {
+    expect(dashboardSectionVisibility({ ...patientParent, isChildMode: true }).showChildView).toBe(true);
+    expect(dashboardSectionVisibility({ ...patientParent, caregiverSession: true }).showChildView).toBe(false);
+    expect(dashboardSectionVisibility({ ...patientParent, isParent: false, isAdult: true }).showChildView).toBe(false);
   });
 });
 
 describe("availableDashboardSections", () => {
-  it("returns all six cards in authoritative grid order for a regular patient", () => {
+  it("returns every row in on-screen order for a regular patient", () => {
     expect(keys(patientParent)).toEqual([
+      "insulin",
+      "summary",
       "notifications",
       "thresholds",
       "emergency",
-      "insulin",
-      "doctor",
       "careCircle",
+      "doctor",
+      "doctorCode",
+      "childView",
     ]);
+  });
+
+  it("slots the Activity Log between Insulin Settings and Glucose Summary once there are entries", () => {
+    expect(keys({ ...patientParent, hasLogEntries: true }).slice(0, 3)).toEqual(["insulin", "activity", "summary"]);
   });
 
   it("returns only Notifications in a caregiver session (device-own alert prefs; emergency locked inside)", () => {
     expect(keys({ ...patientParent, caregiverSession: true })).toEqual(["notifications"]);
   });
 
-  it("returns no management cards in child view", () => {
-    expect(keys({ ...patientParent, isChildMode: true })).toEqual([]);
+  it("leaves only the Child View switch in child view (so it can be turned off)", () => {
+    expect(keys({ ...patientParent, isChildMode: true })).toEqual(["childView"]);
   });
 
-  it("returns the four patient sections (no doctor/care circle) in doctor mode", () => {
+  it("in doctor mode adds Download Patient Logs and drops Doctor Office / Doctor Code / Care Circle", () => {
     expect(keys({ ...patientParent, doctorSession: true })).toEqual([
+      "insulin",
+      "summary",
+      "downloadLogs",
       "notifications",
       "thresholds",
       "emergency",
-      "insulin",
+      "childView",
     ]);
   });
 
-  it("omits Care Circle for a non-owner patient, yielding an odd count", () => {
-    const k = keys({ ...patientParent, isParent: false, isAdult: false });
-    expect(k).toEqual(["notifications", "thresholds", "emergency", "insulin", "doctor"]);
-    expect(k.length % 2).toBe(1); // last lone card stays in the left column (right slot empty)
+  it("omits Care Circle and the Child View switch for a non-owner patient", () => {
+    expect(keys({ ...patientParent, isParent: false, isAdult: false })).toEqual([
+      "insulin",
+      "summary",
+      "notifications",
+      "thresholds",
+      "emergency",
+      "doctor",
+      "doctorCode",
+    ]);
   });
 
   it("provides a human title for every returned card", () => {
@@ -125,6 +167,35 @@ describe("availableDashboardSections", () => {
   it("labels the doctor section Doctor Office", () => {
     const section = availableDashboardSections(patientParent).find((s) => s.key === "doctor");
     expect(section?.title).toBe("Doctor Office");
+  });
+});
+
+describe("dashboardGroups", () => {
+  it("renders four titled groups for a regular patient, in order", () => {
+    expect(dashboardGroups(patientParent).map((g) => g.title)).toEqual([
+      "Glucose & Dosing",
+      "Alerts & Notifications",
+      "Care Team",
+      "Child Safety",
+    ]);
+  });
+
+  it("drops a group entirely when none of its rows apply", () => {
+    // A caregiver code session sees only Notifications — so only its group survives.
+    const groups = dashboardGroups({ ...patientParent, caregiverSession: true });
+    expect(groups.map((g) => g.title)).toEqual(["Alerts & Notifications"]);
+    expect(groups[0]!.rows.map((r) => r.key)).toEqual(["notifications"]);
+  });
+
+  it("never emits an empty group", () => {
+    const roles: DashboardRoleFlags[] = [
+      patientParent,
+      { ...patientParent, isChildMode: true },
+      { ...patientParent, doctorSession: true },
+      { ...patientParent, caregiverSession: true, isChildMode: true },
+      { ...patientParent, isParent: false, isAdult: false },
+    ];
+    for (const role of roles) for (const g of dashboardGroups(role)) expect(g.rows.length).toBeGreaterThan(0);
   });
 });
 

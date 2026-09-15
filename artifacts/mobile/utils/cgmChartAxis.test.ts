@@ -1,23 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { T } from "../constants/theme";
-import {
-  CHART_AXIS_LABEL_HEIGHT,
-  NEUTRAL_GRID_100_VALUE,
-  NEUTRAL_GRID_200_VALUE,
-  buildAxisLabelSpecs,
-  chartLabelTopForValue,
-  chartValueToY,
-  chartYPct,
-  clampTargetGlucose,
-  DOT_MODE_READING_RADIUS,
-  DOT_MODE_READING_RADIUS_BASE,
-  DOT_MODE_READING_STROKE,
-  DOT_MODE_READING_STROKE_BASE,
-  formatGlucoseAxisLabel,
-  resolveAxisLabelPositions,
-  shouldShowNeutral100Label,
-  shouldShowNeutral200Label,
-} from "./cgmChartAxis";
+import { CHART_AXIS_LABEL_HEIGHT, NEUTRAL_GRID_100_VALUE, NEUTRAL_GRID_200_VALUE, buildAxisLabelSpecs, chartLabelTopForValue, chartValueToY, chartYPct, clampTargetGlucose, DOT_MODE_READING_RADIUS, DOT_MODE_READING_RADIUS_BASE, DOT_MODE_READING_STROKE, DOT_MODE_READING_STROKE_BASE, formatGlucoseAxisLabel, resolveAxisLabelPositions, shouldShowNeutral100Label, shouldShowNeutral200Label, fittedDash } from "./cgmChartAxis";
 import {
   DEFAULT_GRAPH_DISPLAY_MODE,
   parseGraphDisplayMode,
@@ -167,5 +150,33 @@ describe("dot mode marker sizing", () => {
   it("scales ordinary reading dots to 60% of the prior radius", () => {
     expect(DOT_MODE_READING_RADIUS).toBeCloseTo(DOT_MODE_READING_RADIUS_BASE * 0.6, 5);
     expect(DOT_MODE_READING_STROKE).toBeCloseTo(DOT_MODE_READING_STROKE_BASE * 0.6, 5);
+  });
+});
+
+describe("fittedDash — threshold dashes start AND end on a full dash", () => {
+  const dashesEndFlush = (width: number, dash: number, gap: number) => {
+    const [d, g] = fittedDash(width, dash, gap).split(" ").map(Number);
+    // Walk the repeating pattern and record where the last dash that FITS ENTIRELY inside the width
+    // ends. For a flush fit that edge must coincide with the width — a partial trailing dash would
+    // leave it a gap-length short, which is exactly the half-cut dash this exists to prevent.
+    let x = 0, lastFullDashEnd = 0;
+    while (x + d <= width + 0.05) { lastFullDashEnd = x + d; x += d + g; }
+    return { d, g, lastFullDashEnd };
+  };
+  it("keeps the requested dash length and only stretches the gap", () => {
+    const { d, g } = dashesEndFlush(300, 5, 6);
+    expect(d).toBe(5);
+    expect(g).toBeGreaterThan(4);
+    expect(g).toBeLessThan(8);
+  });
+  it("lands the final dash flush on the edge for a range of plot widths (any device, any text scale)", () => {
+    for (const width of [60, 187, 250, 301.5, 343, 512, 700]) {
+      const { lastFullDashEnd } = dashesEndFlush(width, 5, 6);
+      expect(Math.abs(lastFullDashEnd - width)).toBeLessThan(0.05);
+    }
+  });
+  it("never produces a negative gap on a tiny plot", () => {
+    const [, g] = fittedDash(12, 5, 6).split(" ").map(Number);
+    expect(g).toBeGreaterThanOrEqual(0.5);
   });
 });

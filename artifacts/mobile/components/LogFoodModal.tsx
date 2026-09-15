@@ -26,6 +26,7 @@ import { useGlucose } from "@/context/GlucoseContext";
 import { apiUrl } from "@/utils/api-base-url";
 import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
 import { DEFAULT_QUICK_FOODS, parseStoredQuickFoods } from "@/utils/quickFoods";
+import { CardShade } from "@/components/Shade";
 
 interface FoodLookupResult {
   foodName: string;
@@ -141,6 +142,7 @@ export default function LogFoodModal({
   return (
     <DashboardSectionModal visible={visible} onClose={onClose} accessibilityLabel="Log food">
       <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <CardShade radius={16} />
         <Text style={[styles.title, { color: colors.text }]}>Log Food</Text>
         <Text style={[styles.sub, { color: colors.textSecondary }]}>
           Look up a meal and log it to the day shown below.

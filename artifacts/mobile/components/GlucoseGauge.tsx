@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, View, type GestureResponderEvent } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
-import { T, TYPE, withAlpha } from "@/constants/theme";
+import { T, TYPE, withAlpha, mixHex } from "@/constants/theme";
 import { useThemeColors } from "@/context/ThemeContext";
 import { trendArrowCount, trendGaugeLabel, type TrendInfo } from "@/utils/trend";
+import { Shade, TintShade } from "@/components/Shade";
 
 export type GlucoseTrend =
   | "rapidly_rising"
@@ -35,7 +36,7 @@ interface Props {
    */
   contentScale?: number;
   /**
-   * Separate multiplier for the muted grey lines ("Trend" caption + "Updated…" recency) so they
+   * Separate multiplier for the muted grey "Updated…" recency line so it
    * can stay small while the arrow + colored trend pill scale with `contentScale`. Defaults to
    * `contentScale` so callers that don't split the two are unaffected.
    */
@@ -120,7 +121,7 @@ const RING_THICKNESS_RATIO = 0.75;
  * pill), the trend arrow, and the trend pill. Headroom for users running a large system text size:
  * every one of these is a Text (or sized off one), so iOS multiplies it by the accessibility scale
  * and the big values were overflowing their containers ("Falling…" truncating, the reading crowding
- * the ring). Deliberately NOT applied to: the ring diameter, the pulse rings, the "Trend" caption,
+ * the ring). Deliberately NOT applied to: the ring diameter, the pulse rings,
  * or the "Updated …" line — those keep their exact current size.
  */
 const CONTENT_COMPACT = 0.9;
@@ -130,6 +131,43 @@ const CONTENT_COMPACT = 0.9;
  * outward pulse is hidden and the value reads "--" until a fresh reading lands. The solid ring stays.
  */
 const STALE_READING_MS = 20 * 60 * 1000;
+
+/**
+ * A screen-space vertical ramp over a GLYPH cluster (the trend arrow). A glyph can't take a gradient
+ * any more than a border can, so this renders `steps` copies of whatever `render` returns, each
+ * clipped to one horizontal band of the box and tinted along the `from` → `to` ramp. The clipping
+ * happens OUTSIDE the arrow's rotation, so the ramp always runs top-to-bottom on screen whichever way
+ * the arrow points — matching the ring beside it. Band edges are rounded to whole pixels so no
+ * hairline seams appear between copies.
+ */
+function ShadedGlyph({
+  width,
+  height,
+  from,
+  to,
+  steps = 8,
+  render,
+}: {
+  width: number;
+  height: number;
+  from: string;
+  to: string;
+  steps?: number;
+  render: (color: string) => React.ReactNode;
+}) {
+  const edges = Array.from({ length: steps + 1 }, (_, i) => Math.round((height * i) / steps));
+  return (
+    <View style={{ width, height }}>
+      {Array.from({ length: steps }, (_, i) => (
+        <View key={i} style={{ position: "absolute", left: 0, top: edges[i], width, height: edges[i + 1] - edges[i], overflow: "hidden" }}>
+          <View style={{ position: "absolute", left: 0, top: -edges[i], width, height, alignItems: "center", justifyContent: "center" }}>
+            {render(mixHex(from, to, steps === 1 ? 0 : i / (steps - 1)))}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export function GlucoseGauge({
   value,
@@ -196,6 +234,8 @@ export function GlucoseGauge({
 
   const pulseRingColor = movementVisuals.ringColor;
   const mainRingColor = status.color;
+  // The ring ramp is mixed from the color; only a plain 6-digit hex can be mixed.
+  const ringIsHex = /^#[0-9a-fA-F]{6}$/.test(mainRingColor);
 
   // Full-size gauge: the solid ring diameter, inner disc, and ripple container are ALL `size`. Only
   // the solid ring's STROKE is reduced to 75% of its original thickness for a thinner, refined ring.
@@ -334,18 +374,30 @@ export function GlucoseGauge({
         )}
 
         {/* SOLID breathing ring — FULL diameter (= size); only the stroke is thinner (75%) */}
+        {/* The solid ring. A border can't carry a gradient, so it is now a FILLED disc in the ring
+            color with its own top-light → bottom-deep ramp, sitting under the opaque inner disc —
+            the visible annulus is the ring. The ramp is derived from whatever color the status is,
+            so it follows every state the ring turns. The breathing scale is unchanged. */}
         <Animated.View
           style={{
             position: "absolute",
             width: size,
             height: size,
             borderRadius: size / 2,
-            borderWidth: ringStroke,
-            borderColor: mainRingColor,
-            backgroundColor: "transparent",
+            overflow: "hidden",
+            backgroundColor: mainRingColor,
             transform: [{ scale: ringPulse }],
           }}
-        />
+        >
+          {ringIsHex && (
+            <Shade
+              from={mixHex(mainRingColor, "#FFFFFF", 0.22)}
+              to={mixHex(mainRingColor, "#000000", 0.2)}
+              steps={12}
+              radius={size / 2}
+            />
+          )}
+        </Animated.View>
 
         {/* Inner content — restored full-size layout; NEW dark-clinical typography */}
         <View
@@ -353,11 +405,17 @@ export function GlucoseGauge({
             width: innerSize,
             height: innerSize,
             borderRadius: innerSize / 2,
-            backgroundColor: withAlpha(status.color, 0.12),
+            // Opaque base: the ring beneath is now a filled disc, so a translucent tint alone would
+            // show ring color through. The card color is what used to show through the old tint.
+            backgroundColor: c.card,
+            overflow: "hidden",
             alignItems: "center",
             justifyContent: "center",
           }}
         >
+          {/* The disc's OWN ramp in the status color — independent of the ring's — replacing the
+              old flat 12% tint with one that eases from a touch stronger at the top to lighter below. */}
+          <TintShade color={status.color} radius={innerSize / 2} from={0.2} to={0.06} />
           <Text style={[styles.value, TYPE.display, { color: c.textPrimary, fontSize: size * 0.27 * CONTENT_COMPACT }]}>
             {noCurrentValue ? "--" : value}
           </Text>
@@ -374,6 +432,7 @@ export function GlucoseGauge({
               },
             ]}
           >
+            <TintShade color={status.color} radius={20} />
             <Text style={[styles.badgeText, { color: status.color, fontSize: size * 0.08 * CONTENT_COMPACT }]}>{status.label}</Text>
           </View>
         </View>
@@ -395,12 +454,30 @@ export function GlucoseGauge({
             accessibilityRole={onTrendPress ? "button" : undefined}
             accessibilityLabel={onTrendPress ? "Show insights and recommendations" : undefined}
           >
-            <View style={[styles.trendArrowRow, { transform: [{ rotate: TREND_ROTATE[trend] }] }]}>
-              {Array.from({ length: arrows }).map((_, i) => (
-                <Feather key={i} name="arrow-up" size={Math.round(30 * CONTENT_COMPACT * contentScale)} color={trendColor} />
-              ))}
-            </View>
-            <Text style={[styles.trendCaption, { color: c.textSecondary, fontSize: 11 * mutedScale }]}>Trend</Text>
+            {/* The arrow's own ramp, from its own color (trendColor can differ from the ring's
+                status color). The box is padded 25% so a diagonal arrow's tips aren't clipped. */}
+            {(() => {
+              const iconSize = Math.round(30 * CONTENT_COMPACT * contentScale);
+              const rowW = arrows * iconSize + (arrows - 1) * 2;
+              const row = (color: string) => (
+                <View style={[styles.trendArrowRow, { transform: [{ rotate: TREND_ROTATE[trend] }] }]}>
+                  {Array.from({ length: arrows }).map((_, i) => (
+                    <Feather key={i} name="arrow-up" size={iconSize} color={color} />
+                  ))}
+                </View>
+              );
+              return /^#[0-9a-fA-F]{6}$/.test(trendColor) ? (
+                <ShadedGlyph
+                  width={Math.ceil(rowW * 1.25)}
+                  height={Math.ceil(iconSize * 1.25)}
+                  from={mixHex(trendColor, "#FFFFFF", 0.22)}
+                  to={mixHex(trendColor, "#000000", 0.2)}
+                  render={row}
+                />
+              ) : (
+                row(trendColor)
+              );
+            })()}
             <View
               style={[
                 styles.trendPill,
@@ -412,6 +489,7 @@ export function GlucoseGauge({
                 },
               ]}
             >
+              <TintShade color={trendColor} radius={20} />
               <Text
                 style={[styles.trendPillText, { color: trendColor, fontSize: 12.5 * CONTENT_COMPACT * contentScale }]}
                 numberOfLines={1}
@@ -443,7 +521,6 @@ const styles = StyleSheet.create({
   /** Content-hugging hit area for the insights popup — bounded to the trend cluster itself. */
   trendPressable: { alignItems: "center", gap: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
   trendArrowRow: { flexDirection: "row", alignItems: "center", gap: 2 },
-  trendCaption: { fontSize: 11, fontWeight: T.font.medium, marginTop: 2 },
   trendPill: {
     paddingHorizontal: 10,
     paddingVertical: 5,

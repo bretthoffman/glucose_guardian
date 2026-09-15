@@ -12,6 +12,12 @@ export const T = {
     screen: "#061124",
     card: "#0B1830",
     cardElevated: "#0E1D38",
+    // Shading endpoints (see components/Shade). The SCREEN keeps `screen` at the top and lightens
+    // toward `screenBottom`, so opaque header strips painted `screen` stay seamless. A CARD is
+    // lighter at the top and deeper at the bottom, bracketing `card`.
+    screenBottom: "#0B1B36",
+    cardTop: "#10203C",
+    cardBottom: "#091530",
     border: "rgba(120, 150, 190, 0.14)",
     borderStrong: "rgba(120, 150, 190, 0.22)",
     highlight: "rgba(190, 210, 240, 0.35)",
@@ -35,9 +41,16 @@ export const T = {
     pointCenter: "#EAFBF5",
     // chart controls / inset plot surface (shared by the Home + Dose charts)
     chartPlotBg: "#1a2540",
-    chartControlTrack: "#0A142499", // = withAlpha("#0A1424", 0.6)
-    chartControlActive: "#22324C",
+    // Segmented toggles (3H/6H/12H/24H etc.): the TRACK is the lighter inset that used to mark the
+    // selected item, and the selected item is violet — the same relationship light mode already has,
+    // so the two themes read the same way instead of dark mode inverting it.
+    chartControlTrack: "#22324C",
+    chartControlActive: "#7557F6",
     chartControlActiveText: "#F7F9FC",
+    // Shading endpoints for CONTROLS — toggle tracks and secondary buttons — bracketing the track
+    // color, so a control reads as its own small lit surface (see components/Shade ControlShade).
+    controlTop: "#293C5A",
+    controlBottom: "#1C2A42",
   },
 
   space: { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 },
@@ -93,6 +106,9 @@ export const lightColors: ThemeColors = {
   screen: "#EDF1F8",
   card: "#FFFFFF",
   cardElevated: "#F6F8FC",
+  screenBottom: "#F7F9FD",
+  cardTop: "#FFFFFF",
+  cardBottom: "#F3F6FB",
   border: "rgba(30, 55, 100, 0.12)",
   borderStrong: "rgba(30, 55, 100, 0.20)",
   highlight: "rgba(255, 255, 255, 0.70)",
@@ -119,6 +135,8 @@ export const lightColors: ThemeColors = {
   chartControlTrack: "rgba(30, 55, 100, 0.06)",
   chartControlActive: "#7557F6",
   chartControlActiveText: "#FFFFFF",
+  controlTop: "#F7F9FD",
+  controlBottom: "#E9EEF7",
 };
 
 export const THEME_COLORS: Record<EffectiveColorScheme, ThemeColors> = {
@@ -168,6 +186,19 @@ export const TYPE = {
 } as const;
 
 /** Hex + 0..1 alpha → 8-digit hex, e.g. withAlpha("#1FD18A", 0.12). */
+/**
+ * Linear blend of two 6-digit hex colors, `t` = 0 → `a`, 1 → `b`. Powers the banded pseudo-gradients
+ * in components/Shade: there is no gradient-capable native module in the shipped binary (no
+ * expo-linear-gradient / react-native-svg), and adding one can't ship over the air, so shading is
+ * built from a stack of flat bands with interpolated colors. Pure, so the ramp is unit-testable.
+ */
+export function mixHex(a: string, b: string, t: number): string {
+  const k = Math.max(0, Math.min(1, t));
+  const ch = (hex: string, i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  const out = [0, 1, 2].map((i) => Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * k));
+  return `#${out.map((v) => v.toString(16).padStart(2, "0")).join("")}`.toUpperCase();
+}
+
 export function withAlpha(hex: string, alpha: number): string {
   const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255)
     .toString(16)

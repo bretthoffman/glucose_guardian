@@ -12,6 +12,7 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -28,6 +29,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import UpdateDiagnostics from "@/components/UpdateDiagnostics";
+import { CardShade } from "@/components/Shade";
 
 interface Props {
   visible: boolean;
@@ -174,13 +176,27 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
     }
   };
 
-  const handleSignOut = async () => {
+  const doSignOut = async () => {
     onClose();
-    // Full teardown — see the note at dashboard.tsx confirmLogout. `signOut` is reserved for the
-    // onboarding "finish later" flow, which intentionally keeps local state so setup can resume.
+    // Full teardown (not `signOut`): clears the account, profile, logs, contacts, glucose cache and
+    // the doctor thread from this device. `signOut` only ends the session and deliberately leaves
+    // local state behind — right for the onboarding "finish later" escape hatch, wrong here, where it
+    // would leave the previous guardian's data for the next person.
     await logout();
     resetGlucoseData();
     router.replace("/auth");
+  };
+  /** Confirm first — signing out is a full local teardown, and this row is one tap from the popup. */
+  const handleSignOut = () => {
+    const question = "Sign out of Glucose Guardian? Your data will be saved.";
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && window.confirm(question)) void doSignOut();
+      return;
+    }
+    Alert.alert("Sign Out", question, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign Out", style: "destructive", onPress: () => void doSignOut() },
+    ]);
   };
 
   const baseFirstName = (profile?.childName ?? "").trim().split(/\s+/).filter(Boolean)[0] ?? "";
@@ -216,6 +232,7 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
           onPress={() => {}}
           accessibilityViewIsModal
         >
+          <CardShade radius={24} />
           {/* Header: quiet "Settings" label (left) + identity + close (right) */}
           <View style={styles.header}>
             <Text style={[styles.settingsLabel, { color: c.textMuted }]}>Settings</Text>
@@ -524,8 +541,12 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
             </View>
           ) : null}
 
-          {/* Sign Out — caregiver (nurse) accounts have no dashboard, so it lives here. */}
-          {isCaregiverAccount ? (
+          {/* Sign Out — for every signed-in ACCOUNT (guardian, adult, co-guardian, nurse). Hidden in an
+              access-code session: there `profile` is the patient's, so a Sign Out under the patient's
+              name read as though it would sign the patient out (it only ever ended the code session,
+              which the Caregiver View banner's Exit already does). The dashboard used to carry this
+              in an account card of its own; the popup is now the one place for it. */}
+          {!caregiverSession ? (
             <Pressable
               style={[styles.row, { borderTopColor: c.border }]}
               onPress={handleSignOut}

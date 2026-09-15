@@ -3,7 +3,6 @@ import * as Haptics from "expo-haptics";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
-import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
@@ -27,11 +26,11 @@ import ProfileChip from "@/components/ProfileChip";
 import TreatmentProposalCard from "@/components/TreatmentProposalCard";
 import { SettingsModal } from "@/components/SettingsModal";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
-import { DashboardSectionCard, DashboardSectionCardGhost } from "@/components/DashboardSectionCard";
+import { DashboardGroup, DashboardRow } from "@/components/DashboardGroupList";
 import CareCirclePanel from "@/components/CareCirclePanel";
 import A1CEstimateCard from "@/components/A1CEstimateCard";
 import {
-  availableDashboardSections,
+  dashboardGroups,
   dashboardSectionVisibility,
   type DashboardSectionKey,
 } from "@/utils/dashboardSections";
@@ -50,6 +49,7 @@ import {
   type NotificationPermissionStatus,
 } from "@/services/notifications";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { AccentShade, CardShade, ControlShade, ScreenShade } from "@/components/Shade";
 import {
   MEAL_BUCKETS,
   MEAL_BUCKET_HOURS,
@@ -61,13 +61,37 @@ import {
 
 // Icon shown on each compact section card (presentation only; section availability lives in the pure
 // `utils/dashboardSections` helper). One entry per DashboardSectionKey.
+/** The doctor's indigo, used throughout this page for doctor-related chrome. */
+const DOCTOR_INDIGO = "#6366F1";
+
+/** Row icon per section — `Record` so a new section key can't ship without one. */
 const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Feather>["name"]> = {
+  summary: "bar-chart-2",
+  activity: "list",
+  insulin: "droplet",
+  downloadLogs: "download",
   notifications: "bell",
   thresholds: "sliders",
   emergency: "users",
-  insulin: "droplet",
   doctor: "activity",
+  doctorCode: "key",
   careCircle: "share-2",
+  childView: "eye",
+};
+
+/** Row hue per section (icon + its tinted tile) — each row gets its own color, as in the mockup. */
+const SECTION_COLORS: Record<DashboardSectionKey, string> = {
+  summary: "#38BDF8",
+  activity: COLORS.accent,
+  insulin: COLORS.primary,
+  downloadLogs: DOCTOR_INDIGO,
+  notifications: COLORS.danger,
+  thresholds: COLORS.warning,
+  emergency: "#F06292",
+  doctor: DOCTOR_INDIGO,
+  doctorCode: "#A78BFA",
+  careCircle: COLORS.success,
+  childView: COLORS.primary,
 };
 
 // The Activity Log card is header-only (title + all-time totals + Manage Logs); the full history
@@ -87,7 +111,6 @@ export default function DashboardScreen() {
   const colors = isDark ? Colors.dark : Colors.light;
   const {
     history,
-    resetGlucoseData,
     carbRatio,
     targetGlucose,
     correctionFactor,
@@ -104,7 +127,6 @@ export default function DashboardScreen() {
     insulinLog,
     clearInsulinLog,
     updateProfile,
-    logout,
     emergencyContacts,
     alertPrefs,
     addEmergencyContact,
@@ -371,46 +393,6 @@ export default function DashboardScreen() {
         { text: "Stay", style: "cancel" },
         { text: "Exit", style: "destructive", onPress: doExit },
       ],
-    );
-  }
-
-  function confirmLogout() {
-    const doSignOut = async () => {
-      // Close any open popup before tearing down the session.
-      setOpenSection(null);
-      setSettingsOpen(false);
-      // Full teardown (not `signOut`): clears the account, profile, logs, contacts, glucose cache
-      // and the doctor thread from this device. `signOut` only ends the session and deliberately
-      // leaves local state behind — that's correct for the onboarding "finish later" escape hatch,
-      // but on a real sign-out it leaves the previous guardian's data for the next person.
-      await logout();
-      resetGlucoseData();
-      router.replace("/auth");
-    };
-
-    if (Platform.OS === "web") {
-      const confirmed =
-        typeof window !== "undefined" &&
-        window.confirm("Sign out of Glucose Guardian? Your data will be saved.");
-      if (confirmed) {
-        void doSignOut();
-      }
-      return;
-    }
-
-    Alert.alert(
-      "Sign Out",
-      "Sign out of Glucose Guardian? Your data will be saved.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Sign Out",
-          style: "destructive",
-          onPress: async () => {
-            await doSignOut();
-          },
-        },
-      ]
     );
   }
 
@@ -717,10 +699,11 @@ export default function DashboardScreen() {
     finally { setIsGeneratingPDF(false); }
   }
 
-  const diabetesLabel: Record<string, string> = { type1: "Type 1", type2: "Type 2", other: "Other" };
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
+      <ScreenShade />
       <ScrollView
         scrollEnabled={openSection === null}
         contentContainerStyle={[styles.scroll, { paddingTop: topPadding + 12, paddingBottom: bottomPadding + 80 }]}
@@ -856,77 +839,51 @@ export default function DashboardScreen() {
         )}
 
 
-        {/* Account card — hidden for access-code sessions. In those, `profile` is the PATIENT's
-            profile, so this card read as "you are signed in as <patient>" above a red Sign Out,
-            which looked like it might sign the patient out of their own account (it never did — it
-            only ended the local code session). The Caregiver View banner above already identifies
-            the session and provides Exit, and the page header already names who they're watching. */}
-        {!caregiverSession && (
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.profileTop}>
-            <View style={[styles.avatarCircle, { backgroundColor: COLORS.primary + "20" }]}>
-              <Text style={styles.avatarInitial}>
-                {profile?.childName?.charAt(0)?.toUpperCase() ?? "G"}
-              </Text>
-            </View>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={[styles.profileName, { color: colors.text }]}>{profile?.childName ?? "User"}</Text>
-              <Text style={[styles.profileMeta, { color: colors.textSecondary }]}>
-                {ageYears !== null ? `${ageYears} years old · ` : ""}
-                {profile?.diabetesType ? diabetesLabel[profile.diabetesType] ?? profile.diabetesType : ""}
-              </Text>
-            </View>
-          </View>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.logoutBtn,
-              { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : 1 },
-            ]}
-            onPress={confirmLogout}
-          >
-            <Feather name="log-out" size={16} color={COLORS.danger} />
-            <Text style={[styles.logoutBtnText, { color: COLORS.danger }]}>Sign Out</Text>
-          </Pressable>
-        </View>
-        )}
-
-        {(() => {
-          // Compact 2-column section grid. Each card opens the matching section's existing content in a
-          // popup. Cards appear only for sections the current role is authorized to see (same guards as
-          // the section content), so an odd count is possible — the last lone card keeps the identical
-          // half-width via a same-size invisible ghost filler in the right slot (a bare empty spacer
-          // would let the lone card render wider — see DashboardSectionCardGhost).
-          const cards = availableDashboardSections({
-            isChildMode,
-            caregiverSession,
-            doctorSession,
-            isParent,
-            isAdult,
-            caregiverViewingChild: isCaregiverViewingChild,
-          }).map((s) => ({ ...s, icon: SECTION_ICONS[s.key] }));
-          if (cards.length === 0) return null;
-          const rows: (typeof cards)[] = [];
-          for (let i = 0; i < cards.length; i += 2) rows.push(cards.slice(i, i + 2));
-          return (
-            <View style={styles.sectionGrid}>
-              {rows.map((row, ri) => (
-                <View key={ri} style={styles.sectionGridRow}>
-                  {row.map((cardDef) => (
-                    <DashboardSectionCard
-                      key={cardDef.key}
-                      title={cardDef.title}
-                      icon={cardDef.icon}
-                      colors={colors}
-                      onPress={() => openSectionPopup(cardDef.key)}
-                    />
-                  ))}
-                  {row.length === 1 && <DashboardSectionCardGhost />}
-                </View>
-              ))}
-            </View>
-          );
-        })()}
+        {/* ── The grouped settings list. Every section is a ROW in a titled window; tapping a row opens
+            the section's popup (the same content each section always had). Rows appear only for
+            sections the current role is authorized to see — the gates live in utils/dashboardSections
+            beside the popups' own guards, so the two cannot drift apart. ── */}
+        {dashboardGroups({
+          isChildMode,
+          caregiverSession,
+          doctorSession,
+          isParent,
+          isAdult,
+          caregiverViewingChild: isCaregiverViewingChild,
+          hasLogEntries: combinedEntries.length > 0,
+        }).map((group) => (
+          <DashboardGroup key={group.title} title={group.title} colors={colors}>
+            {group.rows.map((row, i) => {
+              const last = i === group.rows.length - 1;
+              const common = { title: row.title, icon: SECTION_ICONS[row.key], color: SECTION_COLORS[row.key], colors, last };
+              if (row.key === "childView") {
+                // The switch IS the row's interaction (the old "Enable" / "Turn Off" buttons, as one control).
+                return (
+                  <DashboardRow
+                    key={row.key}
+                    {...common}
+                    right={
+                      <Switch
+                        value={isChildMode}
+                        onValueChange={(v) => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          setChildMode(v);
+                        }}
+                        trackColor={{ false: colors.backgroundTertiary, true: COLORS.primary + "80" }}
+                        thumbColor={isChildMode ? COLORS.primary : colors.textMuted}
+                        ios_backgroundColor={colors.backgroundTertiary}
+                        accessibilityLabel="Child View Mode"
+                      />
+                    }
+                  />
+                );
+              }
+              // Activity Log opens the Manage Logs window, which is its own popup (paginated list + clears).
+              const onPress = row.key === "activity" ? openManageLogs : () => openSectionPopup(row.key);
+              return <DashboardRow key={row.key} {...common} onPress={onPress} />;
+            })}
+          </DashboardGroup>
+        ))}
 
         {/* Notifications is available to kid/caregiver code sessions too — each device owns its
             alert preferences; only Emergency Text Alerts renders locked to the owner's setting. */}
@@ -1239,6 +1196,7 @@ export default function DashboardScreen() {
                     if (updated.granted) ensureRegistered();
                   }}
                 >
+                  <AccentShade radius={11} />
                   <Feather name="bell" size={13} color="#fff" />
                   <Text style={styles.notifPermBtnText}>Enable Notifications</Text>
                 </Pressable>
@@ -1252,6 +1210,7 @@ export default function DashboardScreen() {
                     Linking.openSettings();
                   }}
                 >
+                  <AccentShade radius={11} />
                   <Feather name="settings" size={13} color="#fff" />
                   <Text style={styles.notifPermBtnText}>Open Phone Settings</Text>
                 </Pressable>
@@ -1351,6 +1310,7 @@ export default function DashboardScreen() {
                 style={({ pressed }) => [styles.emergencySettingsDone, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
                 onPress={() => { stopAlertSoundPreview(); setSoundPickerFor(null); }}
               >
+                <AccentShade radius={10} />
                 <Text style={styles.emergencySettingsDoneText}>Done</Text>
               </Pressable>
             </Pressable>
@@ -1387,6 +1347,7 @@ export default function DashboardScreen() {
                 style={({ pressed }) => [styles.emergencySettingsDone, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
                 onPress={() => { commitWaitMinutes(); setWaitWindowOpen(false); }}
               >
+                <AccentShade radius={10} />
                 <Text style={styles.emergencySettingsDoneText}>Done</Text>
               </Pressable>
             </Pressable>
@@ -1411,6 +1372,7 @@ export default function DashboardScreen() {
                 style={({ pressed }) => [styles.emergencySettingsDone, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
                 onPress={() => { commitWaitMinutes(); setEmergencySettingsOpen(false); }}
               >
+                <AccentShade radius={10} />
                 <Text style={styles.emergencySettingsDoneText}>Done</Text>
               </Pressable>
             </Pressable>
@@ -1447,6 +1409,7 @@ export default function DashboardScreen() {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}
               >
+                <AccentShade radius={10} />
                 <Feather name="edit-2" size={13} color="#fff" />
                 <Text style={styles.addContactBtnText}>Edit</Text>
               </Pressable>
@@ -1495,6 +1458,7 @@ export default function DashboardScreen() {
                     style={({ pressed }) => [styles.threshSaveBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.75 : 1 }]}
                     onPress={saveThresholds}
                   >
+                    <AccentShade radius={11} />
                     <Feather name="check" size={14} color="#fff" />
                     <Text style={styles.threshSaveBtnText}>Save</Text>
                   </Pressable>
@@ -1542,6 +1506,7 @@ export default function DashboardScreen() {
                 style={[styles.addContactBtn, { backgroundColor: COLORS.primary }]}
                 onPress={() => setAddingContact(true)}
               >
+                <AccentShade radius={10} />
                 <Feather name="plus" size={14} color="#fff" />
                 <Text style={styles.addContactBtnText}>Add</Text>
               </Pressable>
@@ -1618,6 +1583,7 @@ export default function DashboardScreen() {
                   style={({ pressed }) => [styles.saveFormBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
                   onPress={addContact}
                 >
+                  <AccentShade radius={10} />
                   <Feather name="user-plus" size={14} color="#fff" />
                   <Text style={styles.saveFormBtnText}>Save Contact</Text>
                 </Pressable>
@@ -1634,13 +1600,24 @@ export default function DashboardScreen() {
         </View>
         </DashboardSectionModal>
 
-        <View style={styles.statsGrid}>
-          <StatCard label="Avg Glucose" value={avgGlucose > 0 ? `${avgGlucose}` : "—"} unit="mg/dL" icon="activity" color={COLORS.primary} colors={colors} />
-          <StatCard label="Time in Range" value={history.length > 0 ? `${inRangePercent}%` : "—"} unit="80-180 mg/dL" icon="target" color={inRangePercent >= 70 ? COLORS.success : COLORS.warning} colors={colors} />
+        {/* ── A1C popup: ONE window (same chrome as the other popups) holding the Estimated A1C content
+            — range selector, value, breakdown, insight — with the all-time Avg Glucose / Time in Range
+            tiles underneath it. These used to sit inline on the page as three separate cards. ── */}
+        <DashboardSectionModal
+          visible={openSection === "summary"}
+          onClose={() => setOpenSection(null)}
+          accessibilityLabel="A1C"
+        >
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <CardShade radius={16} />
+          <Text style={[styles.cardTitle, { color: colors.text }]}>A1C</Text>
+          <A1CEstimateCard embedded />
+          <View style={[styles.statsGrid, { marginBottom: 0 }]}>
+            <StatCard label="Avg Glucose" value={avgGlucose > 0 ? `${avgGlucose}` : "—"} unit="mg/dL" icon="activity" color={COLORS.primary} colors={colors} inset />
+            <StatCard label="Time in Range" value={history.length > 0 ? `${inRangePercent}%` : "—"} unit="80-180 mg/dL" icon="target" color={inRangePercent >= 70 ? COLORS.success : COLORS.warning} colors={colors} inset />
+          </View>
         </View>
-
-        {/* Estimated A1C (moved here from the Insulin "Dose" tab; replaces the old Glucose Trend). */}
-        <A1CEstimateCard />
+        </DashboardSectionModal>
 
         <DashboardSectionModal
           visible={openSection === "insulin"}
@@ -1853,6 +1830,11 @@ export default function DashboardScreen() {
         </>)}
 
         {doctorSession && (
+        <DashboardSectionModal
+          visible={openSection === "downloadLogs"}
+          onClose={() => setOpenSection(null)}
+          accessibilityLabel="Download Patient Logs"
+        >
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>Download Patient Logs</Text>
             <Text style={[styles.shareNote, { color: colors.textSecondary, marginBottom: 12 }]}>
@@ -1899,9 +1881,10 @@ export default function DashboardScreen() {
               Full PDF includes all logs, A1C estimates, dosing settings, and patient summary.
             </Text>
           </View>
+        </DashboardSectionModal>
         )}
 
-        {showDoctorCareTeam && (
+        {showDoctorCareTeam && (<>
         <DashboardSectionModal
           visible={openSection === "doctor"}
           onClose={() => setOpenSection(null)}
@@ -1955,6 +1938,7 @@ export default function DashboardScreen() {
                       setEditingProfile(false);
                     }}
                   >
+                    <AccentShade radius={8} />
                     <Feather name="check" size={15} color="#fff" />
                     <Text style={[styles.editBtnText, { color: "#fff" }]}>Save</Text>
                   </Pressable>
@@ -1977,6 +1961,7 @@ export default function DashboardScreen() {
                         setEditingProfile(true);
                       }}
                     >
+                      <ControlShade radius={10} />
                       <Feather name="edit-2" size={14} color={colors.text} />
                       <Text style={[styles.outlineBtnText, { color: colors.text }]}>Edit Info</Text>
                     </Pressable>
@@ -2005,11 +1990,22 @@ export default function DashboardScreen() {
             <Feather name="share-2" size={16} color="#fff" />
             <Text style={styles.shareBtnText}>{isSharing ? "Generating..." : "Share Report with Doctor"}</Text>
           </Pressable>
+        </View>
+        </DashboardSectionModal>
 
-          <View style={[styles.accessSection, { borderColor: colors.border }]}>
+        {/* ── Doctor Code popup — split out of the Doctor Office popup: the code itself plus the Access
+            Log, which records what the code was used for. Same gate, same content, its own row. ── */}
+        <DashboardSectionModal
+          visible={openSection === "doctorCode"}
+          onClose={() => setOpenSection(null)}
+          accessibilityLabel="Doctor Code"
+        >
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {/* First section in its own window now, so no rule above it. */}
+          <View style={[styles.accessSection, { borderColor: colors.border, borderTopWidth: 0, paddingTop: 0 }]}>
             <View style={styles.accessSectionHeader}>
-              <Feather name="activity" size={14} color="#6366F1" />
-              <Text style={[styles.accessSectionTitle, { color: colors.text }]}>Doctor Code</Text>
+              <Feather name="key" size={14} color="#6366F1" />
+              <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor Code</Text>
               {/* "Grants full edit", not "Full edit access". This badge describes what the CODE gives
                   the DOCTOR, but sitting in a section whose controls are owner-only it read as the
                   viewer's own permission level — so a co-guardian saw "Full edit access" and then no
@@ -2115,82 +2111,7 @@ export default function DashboardScreen() {
           )}
         </View>
         </DashboardSectionModal>
-        )}
-
-        {combinedEntries.length > 0 && !(isChildMode && !caregiverSession) && (
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={styles.activityLogHeader}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>Activity Log</Text>
-                <Text style={[styles.foodLogCount, { color: colors.textSecondary }]}>
-                  {foodLog.length} meal{foodLog.length !== 1 ? "s" : ""}
-                  {insulinLog.length > 0 ? ` · ${insulinLog.length} insulin dose${insulinLog.length !== 1 ? "s" : ""}` : ""}
-                </Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Manage logs"
-                style={({ pressed }) => [styles.manageLogsBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
-                onPress={openManageLogs}
-              >
-                <Feather name="list" size={13} color={COLORS.primary} />
-                <Text style={[styles.manageLogsBtnText, { color: COLORS.primary }]}>Manage Logs</Text>
-              </Pressable>
-            </View>
-            {/* No inline preview — the header (title + all-time totals) + Manage Logs is the whole
-                card; every entry lives behind the Manage Logs popup. */}
-          </View>
-        )}
-
-        {isParent && !isChildMode && !caregiverSession && !isCaregiverViewingChild && (
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={styles.cardHeader}>
-              <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.primary + "15" }]}>
-                <Feather name="eye" size={20} color={COLORS.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Child View Mode</Text>
-                <Text style={[styles.guardianAccessSub, { color: colors.textMuted }]}>
-                  Hides settings — safe for child to use the app
-                </Text>
-              </View>
-              <Pressable
-                style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
-                onPress={() => {
-                  setChildMode(true);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                }}
-              >
-                <Feather name="toggle-right" size={14} color={COLORS.primary} />
-                <Text style={[styles.guardianBtnText, { color: COLORS.primary }]}>Enable</Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
-
-        {isChildMode && !caregiverSession && isParent && (
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: COLORS.primary + "35" }]}>
-            <View style={styles.cardHeader}>
-              <View style={[styles.guardianAccessIcon, { backgroundColor: COLORS.primary + "15" }]}>
-                <Feather name="eye-off" size={20} color={COLORS.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.guardianAccessTitle, { color: colors.text }]}>Child View Mode On</Text>
-                <Text style={[styles.guardianAccessSub, { color: colors.textMuted }]}>Settings are hidden for child safety</Text>
-              </View>
-              <Pressable
-                style={({ pressed }) => [styles.guardianBtn, { backgroundColor: COLORS.danger + "15", opacity: pressed ? 0.7 : 1 }]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  setChildMode(false);
-                }}
-              >
-                <Feather name="toggle-left" size={14} color={COLORS.danger} />
-                <Text style={[styles.guardianBtnText, { color: COLORS.danger }]}>Turn Off</Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
+        </>)}
 
         {showAccessManagement && (
           <DashboardSectionModal
@@ -2232,7 +2153,14 @@ export default function DashboardScreen() {
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setManageLogsOpen(false)} accessibilityLabel="Close manage logs" />
           <View style={[styles.manageCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.manageCardHeader}>
-              <Text style={[styles.cardTitle, { color: colors.text }]}>Manage Logs</Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.cardTitle, { color: colors.text }]}>Activity Log</Text>
+                {/* All-time totals — these used to head the inline Activity Log card. */}
+                <Text style={[styles.foodLogCount, { color: colors.textSecondary }]}>
+                  {foodLog.length} meal{foodLog.length !== 1 ? "s" : ""}
+                  {insulinLog.length > 0 ? ` · ${insulinLog.length} insulin dose${insulinLog.length !== 1 ? "s" : ""}` : ""}
+                </Text>
+              </View>
               <Pressable
                 onPress={() => setManageLogsOpen(false)}
                 hitSlop={12}
@@ -2384,9 +2312,9 @@ function ContactRow({
   );
 }
 
-function StatCard({ label, value, unit, icon, color, colors }: { label: string; value: string; unit: string; icon: React.ComponentProps<typeof Feather>["name"]; color: string; colors: (typeof Colors)["light"] }) {
+function StatCard({ label, value, unit, icon, color, colors, inset = false }: { label: string; value: string; unit: string; icon: React.ComponentProps<typeof Feather>["name"]; color: string; colors: (typeof Colors)["light"]; /** Inside a window: inset tile fill instead of card fill. */ inset?: boolean }) {
   return (
-    <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View style={[styles.statCard, { backgroundColor: inset ? colors.backgroundTertiary : colors.card, borderColor: colors.border }]}>
       <View style={[styles.statIcon, { backgroundColor: color + "20" }]}>
         <Feather name={icon} size={16} color={color} />
       </View>
@@ -2458,19 +2386,8 @@ const styles = StyleSheet.create({
   childBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 16 },
   childBannerText: { flex: 1, fontSize: 13, fontWeight: "400", lineHeight: 18 },
 
-  guardianAccessIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  guardianAccessTitle: { fontSize: 15, fontWeight: "700", marginBottom: 2 },
-  guardianAccessSub: { fontSize: 12, fontWeight: "400" },
   guardianBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
-  guardianBtnText: { fontSize: 13, fontWeight: "600" },
 
-  profileTop: { flexDirection: "row", alignItems: "center", gap: 14 },
-  avatarCircle: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
-  avatarInitial: { fontSize: 24, fontWeight: "700", color: COLORS.primary },
-  profileName: { fontSize: 18, fontWeight: "700" },
-  profileMeta: { fontSize: 13, fontWeight: "400" },
-  logoutBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1, justifyContent: "center", marginTop: 4 },
-  logoutBtnText: { fontSize: 15, fontWeight: "600" },
 
   toggleRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14 },
   toggleLabel: { fontSize: 15, fontWeight: "600" },
@@ -2540,8 +2457,6 @@ const styles = StyleSheet.create({
   // Same row recipe as sectionGridRow (gap 10 + flex-1 cards) so these two cards start/stop at the
   // exact edges of the settings cards above — on any device width.
   statsGrid: { flexDirection: "row", gap: 10, marginBottom: 20 },
-  sectionGrid: { gap: 10, marginBottom: 20 },
-  sectionGridRow: { flexDirection: "row", gap: 10 },
   statCard: { flex: 1, borderRadius: 14, borderWidth: 1, padding: 14, gap: 4 },
   statIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center", marginBottom: 6 },
   statValue: { fontSize: 24, fontWeight: "700", lineHeight: 28 },
@@ -2597,9 +2512,6 @@ const styles = StyleSheet.create({
   dangerBtnSmall: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1 },
 
   // ── Activity Log header + Manage Logs popup ──
-  activityLogHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
-  manageLogsBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, flexShrink: 0 },
-  manageLogsBtnText: { fontSize: 12.5, fontWeight: "600" },
   manageBackdrop: { flex: 1, justifyContent: "center", paddingHorizontal: 14 },
   manageCard: { width: "100%", maxWidth: 540, alignSelf: "center", borderRadius: 16, borderWidth: 1, padding: 16, gap: 12, shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 18, shadowOffset: { width: 0, height: 12 } },
   manageCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },

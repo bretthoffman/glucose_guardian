@@ -31,6 +31,7 @@ import { downsampleReadingsForContext, formatReadingTimeLabel } from "@/utils/gl
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { resolveChatSpeaker } from "@/utils/chatSpeaker";
 import { threadRoleLabel } from "@/utils/threadRoleLabel";
+import { AccentShade, CardShade, ControlShade, HeaderShade, ScreenShade } from "@/components/Shade";
 
 interface Message {
   id: string;
@@ -398,6 +399,8 @@ export default function ChatScreen() {
   if (doctorSession) {
     return (
       <View style={[styles.root, { backgroundColor: colors.background }]}>
+        {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
+        <ScreenShade />
         <View style={{ height: topPadding, backgroundColor: colors.background }} />
         <DoctorMessaging colors={colors} isDoctor={true} />
       </View>
@@ -465,9 +468,12 @@ export default function ChatScreen() {
   const totalUnread = unreadDoctorCount + careUnread;
 
   // The Messages page body, reused in the modal (chat on) and inline as the whole screen (chat off).
-  const renderThreadList = (onClose?: () => void) => (
+  const renderThreadList = (onClose?: () => void, topInset = 0) => (
     <>
-      <View style={[styles.modalTopBar, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+      {/* Same header band as the tab pages (see HeaderShade); with the modal's inset folded into it,
+          the band is one connected section from the screen's top edge through the title. */}
+      <View style={[styles.modalTopBar, { backgroundColor: colors.card, paddingTop: 14 + topInset }]}>
+        <HeaderShade />
         <View style={{ width: 44 }} />
         <Text style={[styles.modalTitle, { color: colors.text }]}>Messages</Text>
         {onClose ? (
@@ -478,17 +484,25 @@ export default function ChatScreen() {
           <View style={{ width: 44 }} />
         )}
       </View>
-      <ScrollView contentContainerStyle={{ paddingVertical: 6 }} {...NO_AUTO_CONTENT_INSETS}>
+      <ScrollView contentContainerStyle={styles.threadScroll} {...NO_AUTO_CONTENT_INSETS}>
         {threadRows.length === 0 ? (
           <View style={{ alignItems: "center", paddingTop: 64, paddingHorizontal: 32, gap: 8 }}>
             <Text style={{ fontSize: 34 }}>💬</Text>
             <Text style={{ fontSize: 14, color: colors.textSecondary, textAlign: "center" }}>No conversations yet.</Text>
           </View>
         ) : (
-          threadRows.map((row) => (
+          /* One shaded window holding every thread, rows divided by hairlines — the same treatment
+             as the Event Log list on the Log page. */
+          <View style={[styles.threadList, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <CardShade radius={16} />
+          {threadRows.map((row, i) => (
             <Pressable
               key={row.key}
-              style={({ pressed }) => [styles.threadRow, { borderBottomColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+              style={({ pressed }) => [
+                styles.threadRow,
+                i < threadRows.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
               onPress={row.open}
             >
               <View style={[styles.threadAvatar, { backgroundColor: COLORS.primary + "20" }]}>
@@ -513,7 +527,8 @@ export default function ChatScreen() {
                 {row.unread && <View style={styles.threadDot} />}
               </View>
             </Pressable>
-          ))
+          ))}
+          </View>
         )}
       </ScrollView>
     </>
@@ -523,7 +538,8 @@ export default function ChatScreen() {
   // tab bar; in the modal (chat on) the tab bar is covered, so only the safe area is reserved.
   const renderThreadView = (thread: ActiveThread, inline: boolean) => (
     <>
-      <View style={[styles.modalTopBar, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+      <View style={[styles.modalTopBar, { backgroundColor: colors.card, paddingTop: 14 + (inline ? 0 : insets.top) }]}>
+        <HeaderShade />
         <Pressable style={styles.modalCloseBtn} onPress={() => setActiveThread(null)} accessibilityLabel="Back to messages">
           <Feather name="chevron-left" size={22} color={colors.textSecondary} />
         </Pressable>
@@ -548,6 +564,8 @@ export default function ChatScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
+      <ScreenShade />
       <View onLayout={(e) => setHeaderH(e.nativeEvent.layout.height)}>
         <TabGlucoseHeaderShell
           borderBottomColor={colors.border}
@@ -579,6 +597,7 @@ export default function ChatScreen() {
           accessibilityRole="button"
           accessibilityLabel="Messages"
         >
+          <ControlShade radius={18} />
           {totalUnread > 0 && (
             <View style={styles.messagesFabBadge}>
               <Text style={styles.messagesFabBadgeText}>{totalUnread}</Text>
@@ -603,8 +622,12 @@ export default function ChatScreen() {
         presentationStyle="overFullScreen"
         onRequestClose={() => setShowMessages(false)}
       >
-        <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-          {activeThread === null ? renderThreadList(() => setShowMessages(false)) : renderThreadView(activeThread, false)}
+        <View style={[styles.root, { backgroundColor: colors.background }]}>
+          {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
+          <ScreenShade />
+          {/* No paddingTop here: the title bar carries the status-bar inset itself, so its header band
+              runs unbroken from the very top of the screen through the title. */}
+          {activeThread === null ? renderThreadList(() => setShowMessages(false), insets.top) : renderThreadView(activeThread, false)}
         </View>
       </Modal>
 
@@ -656,16 +679,21 @@ export default function ChatScreen() {
               onPress={() => send(item)}
               disabled={isThinking}
             >
+              {/* Same control fill + shade as the bot's bubbles and the Quick Lookup chips. */}
+              <ControlShade radius={16} />
               <Text style={[styles.suggestionText, { color: colors.text }]}>{item}</Text>
             </Pressable>
           )}
         />
       </View>
 
+      {/* No fill of its own: the composer sits on the same shaded page background as the messages
+          above it (an opaque fill here painted a flat dark block over the page's lighter bottom). The
+          hairline above is the only thing marking it off. */}
       <View
         style={[
           styles.inputRow,
-          { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: keyboardVisible ? 10 : bottomPadding + 84 },
+          { borderTopColor: colors.border, paddingBottom: keyboardVisible ? 10 : bottomPadding + 84 },
         ]}
       >
         <TextInput
@@ -689,6 +717,8 @@ export default function ChatScreen() {
           onPress={() => send()}
           disabled={!input.trim() || isThinking}
         >
+          {/* Purple button → purple shading, like every other purple button. */}
+          {input.trim() && !isThinking ? <AccentShade radius={22} /> : null}
           <Feather name="send" size={18} color={input.trim() && !isThinking ? "#fff" : colors.textMuted} />
         </Pressable>
       </View>
@@ -721,10 +751,14 @@ function MessageBubble({
           styles.bubble,
           isUser
             ? [styles.userBubble, { backgroundColor: COLORS.primary }]
-            : [styles.aiBubble, { backgroundColor: colors.card, borderColor: colors.border }],
+            // The control fill (not the card fill, which vanished against the dark page) + its shade,
+            // so a reply reads as its own window in both modes.
+            : [styles.aiBubble, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }],
           isKidMode && styles.kidBubble,
         ]}
       >
+        {/* radius 0: the bubble clips its own shade (overflow hidden), so the small tail corner shades too. */}
+        {isUser ? <AccentShade radius={0} /> : <ControlShade radius={0} />}
         <Text
           style={[
             isKidMode ? styles.kidBubbleText : styles.bubbleText,
@@ -756,7 +790,6 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   header: {
     paddingBottom: 12,
-    borderBottomWidth: 1,
   },
   headerLeft: {
     flexDirection: "row",
@@ -784,7 +817,8 @@ const styles = StyleSheet.create({
   userBubbleWrapper: { justifyContent: "flex-end" },
   aiBubbleWrapper: { justifyContent: "flex-start" },
   avatarTiny: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  bubble: { maxWidth: "80%", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, gap: 4 },
+  // overflow hidden so the shade bands take the bubble's exact shape, asymmetric tail corner included.
+  bubble: { maxWidth: "80%", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, gap: 4, overflow: "hidden" },
   userBubble: { borderBottomRightRadius: 4 },
   aiBubble: { borderBottomLeftRadius: 4, borderWidth: 1 },
   bubbleText: { fontSize: 15, fontWeight: "400", lineHeight: 22 },
@@ -860,13 +894,16 @@ const styles = StyleSheet.create({
   messagesFabBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
 
   // Messages thread list rows.
+  threadScroll: { paddingHorizontal: 16, paddingVertical: 12 },
+  /** The window around the thread rows — same box as the Event Log's `eventList`. */
+  threadList: { borderRadius: 16, borderWidth: 1, overflow: "hidden" },
+  // The hairline between rows is applied inline (none under the last row).
   threadRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   threadAvatar: {
     width: 44,
@@ -891,7 +928,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderBottomWidth: 1,
   },
   modalTitle: { fontSize: 16, fontWeight: "700" },
   modalCloseBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },

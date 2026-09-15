@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useThemeColors } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
+import { AccentShade, ScreenShade } from "@/components/Shade";
 
 function fmtNext(ms: number): string {
   const withinDay = ms - Date.now() < 24 * 60 * 60 * 1000;
@@ -100,6 +101,8 @@ export default function AccessLockScreen() {
 
   return (
     <View style={[styles.overlay, { backgroundColor: c.screen, paddingTop: insets.top + 40, paddingBottom: insets.bottom + 40 }]}>
+      {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
+      <ScreenShade />
       <View style={[styles.iconWrap, { backgroundColor: COLORS.primary + "18" }]}>
         <Feather name="lock" size={34} color={COLORS.primary} />
       </View>
@@ -113,6 +116,7 @@ export default function AccessLockScreen() {
           style={({ pressed }) => [styles.btn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
           onPress={doExit}
         >
+          <AccentShade radius={14} />
           <Text style={styles.btnText}>{isViewingLinkedPatient ? "Back to my account" : "Exit"}</Text>
         </Pressable>
       )}

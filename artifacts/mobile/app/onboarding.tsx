@@ -23,6 +23,7 @@ import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constan
 import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { AccentShade, ScreenShade } from "@/components/Shade";
 
 type Step = "welcome" | "role" | "parent_name" | "organization" | "name" | "birthday" | "diabetes" | "insulin_formula";
 
@@ -170,6 +171,8 @@ export default function OnboardingScreen() {
       style={[styles.root, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
+      {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
+      <ScreenShade />
       <ScrollView
         {...NO_AUTO_CONTENT_INSETS}
         contentContainerStyle={[
@@ -218,6 +221,7 @@ export default function OnboardingScreen() {
                 setStep("role");
               }}
             >
+              <AccentShade radius={16} />
               <Text style={styles.primaryBtnText}>Get Started</Text>
               <Feather name="arrow-right" size={18} color="#fff" />
             </Pressable>
@@ -282,6 +286,7 @@ export default function OnboardingScreen() {
                 setStep(accountRole === "adult" ? "name" : "parent_name");
               }}
             >
+              <AccentShade radius={16} />
               <Text style={styles.primaryBtnText}>Continue</Text>
               <Feather name="arrow-right" size={18} color="#fff" />
             </Pressable>
@@ -389,6 +394,7 @@ export default function OnboardingScreen() {
               ]}
               onPress={() => { if (!isSaving) finishCaregiverSetup(); }}
             >
+              <AccentShade radius={16} />
               <Text style={styles.primaryBtnText}>
                 {isSaving ? "Setting up…" : organizationInput.trim() ? "Finish" : "Skip & Finish"}
               </Text>
@@ -702,6 +708,7 @@ export default function OnboardingScreen() {
               ]}
               onPress={advanceFromDiabetes}
             >
+              <AccentShade radius={16} />
               <Text style={styles.primaryBtnText}>Continue</Text>
               <Feather name="arrow-right" size={18} color="#fff" />
             </Pressable>
@@ -841,6 +848,7 @@ export default function OnboardingScreen() {
               onPress={advanceFromInsulinFormula}
               disabled={isSaving}
             >
+              <AccentShade radius={16} />
               <Text style={styles.primaryBtnText}>
                 {isSaving ? "Setting up..." : `Let's go, ${childName || "you"}!`}
               </Text>
@@ -883,6 +891,7 @@ export default function OnboardingScreen() {
                 setExitPromptOpen(false);
               }}
             >
+              <AccentShade radius={12} />
               <Feather name="clock" size={15} color="#fff" />
               <Text style={styles.exitPrimaryBtnText}>Save it — I&apos;ll finish later</Text>
             </Pressable>

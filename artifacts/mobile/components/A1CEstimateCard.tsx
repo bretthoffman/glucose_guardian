@@ -44,7 +44,18 @@ function A1CStat({ label, value, color }: { label: string; value: string; color:
   );
 }
 
-export default function A1CEstimateCard() {
+/**
+ * `embedded`: render INSIDE a host window (the Dashboard's A1C popup) — no card border/background/
+ * margins of its own, and no horizontal padding, so the host's padding is the only inset. Standalone
+ * (default) keeps the self-contained card it always was.
+ */
+export default function A1CEstimateCard({ embedded = false }: { embedded?: boolean } = {}) {
+  // Style overrides for embedded mode — the card chrome goes, the content stays put.
+  const eCard = embedded ? { borderWidth: 0, backgroundColor: "transparent", marginBottom: 0, borderRadius: 0, overflow: "visible" as const } : null;
+  const eTop = embedded ? { paddingHorizontal: 0, paddingTop: 2, paddingBottom: 12 } : null;
+  const eStats = embedded ? { paddingHorizontal: 0 } : null;
+  const eInsight = embedded ? { marginHorizontal: 0, marginBottom: 0 } : null;
+  const eCoverage = embedded ? { paddingHorizontal: 0 } : null;
   const { scheme } = useTheme();
   const colors = scheme === "dark" ? Colors.dark : Colors.light;
   const { history, cgmSyncSuccessTick } = useGlucose();
@@ -152,8 +163,8 @@ export default function A1CEstimateCard() {
 
       {/* ── Estimated A1C card ── */}
       {rangeStats ? (
-        <View style={[styles.a1cCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.a1cTop}>
+        <View style={[styles.a1cCard, { backgroundColor: colors.card, borderColor: colors.border }, eCard]}>
+          <View style={[styles.a1cTop, eTop]}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.a1cLabel, { color: colors.textSecondary }]}>
                 Estimated A1C · {timeRange}-day avg
@@ -180,7 +191,7 @@ export default function A1CEstimateCard() {
             </View>
           </View>
 
-          <View style={[styles.a1cStatsRow, { borderTopColor: colors.border, opacity: rangeLoading ? 0.4 : 1 }]}>
+          <View style={[styles.a1cStatsRow, { borderTopColor: colors.border, opacity: rangeLoading ? 0.4 : 1 }, eStats]}>
             <A1CStat label="Time in Range" value={`${rangeStats.tir}%`} color={rangeStats.tir >= 70 ? COLORS.success : COLORS.warning} />
             <View style={[styles.a1cDivider, { backgroundColor: colors.border }]} />
             <A1CStat label="% High" value={`${rangeStats.pctHigh}%`} color={rangeStats.pctHigh > 25 ? COLORS.warning : COLORS.success} />
@@ -191,7 +202,7 @@ export default function A1CEstimateCard() {
           </View>
 
           {!rangeLoading && rangeStats.availableDays > 0 && rangeStats.availableDays < timeRange && (
-            <View style={styles.a1cCoverageNote}>
+            <View style={[styles.a1cCoverageNote, eCoverage]}>
               <Feather name="info" size={12} color={COLORS.warning} />
               <Text style={[styles.a1cCoverageText, { color: COLORS.warning }]}>
                 Only {rangeStats.availableDays} {rangeStats.availableDays === 1 ? "day" : "days"} of
@@ -200,7 +211,7 @@ export default function A1CEstimateCard() {
             </View>
           )}
 
-          <View style={[styles.a1cInsightBox, { backgroundColor: colors.backgroundTertiary, opacity: rangeLoading ? 0.4 : 1 }]}>
+          <View style={[styles.a1cInsightBox, { backgroundColor: colors.backgroundTertiary, opacity: rangeLoading ? 0.4 : 1 }, eInsight]}>
             <Feather name="zap" size={13} color={COLORS.primary} />
             <Text style={[styles.a1cInsightText, { color: colors.textSecondary }]}>
               {a1cInsight(rangeStats.avg, timeRange)}
@@ -208,7 +219,7 @@ export default function A1CEstimateCard() {
           </View>
         </View>
       ) : (
-        <View style={[styles.a1cCard, { backgroundColor: colors.card, borderColor: colors.border, alignItems: "center", paddingVertical: 20 }]}>
+        <View style={[styles.a1cCard, { backgroundColor: colors.card, borderColor: colors.border, alignItems: "center", paddingVertical: 20 }, eCard]}>
           <Text style={{ fontSize: 28 }}>📊</Text>
           <Text style={[styles.a1cLabel, { color: colors.textSecondary, textAlign: "center", marginTop: 6 }]}>
             No glucose data for this period. Sync your CGM to see A1C estimates.

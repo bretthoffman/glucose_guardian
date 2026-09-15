@@ -4,6 +4,7 @@ import { COLORS } from "@/constants/colors";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { getEffectiveTrend } from "@/utils/trend";
+import { TintShade } from "@/components/Shade";
 
 /** Threshold coloring — matches Chat header glucose pill. */
 export function glucosePillColor(g: number, low: number, high: number): string {
@@ -46,6 +47,7 @@ export default function GlucoseStatusPill({ style }: Props) {
         style,
       ]}
     >
+      <TintShade color={color} radius={12} />
       <Text style={[styles.value, { color }]}>
         {glucose} <Text style={styles.unit}>mg/dL</Text>
       </Text>

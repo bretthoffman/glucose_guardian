@@ -15,6 +15,7 @@ import Colors, { COLORS } from "@/constants/colors";
 import { useMessages, useThreadMessages, type CareMessage } from "@/context/MessagesContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { AccentShade, ControlShade } from "@/components/Shade";
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -152,6 +153,8 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
                           : { backgroundColor: colors.backgroundTertiary, borderBottomLeftRadius: 4, borderColor: colors.border, borderWidth: 1 },
                       ]}
                     >
+                      {/* Same shading as the AI chat bubbles: accent on mine, control on theirs. */}
+                      {isMine ? <AccentShade radius={0} /> : <ControlShade radius={0} />}
                       <Text style={[styles.bubbleText, { color: isMine ? "#fff" : colors.text }]}>{msg.text}</Text>
                     </View>
                     <Text style={[styles.timeLabel, { color: colors.textMuted, textAlign: isMine ? "right" : "left" }]}>
@@ -183,6 +186,7 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
           onPress={send}
           disabled={!input.trim()}
         >
+          {input.trim() ? <AccentShade radius={20} /> : null}
           <Feather name="send" size={16} color={input.trim() ? "#fff" : colors.textMuted} />
         </Pressable>
       </View>
@@ -201,7 +205,7 @@ const styles = StyleSheet.create({
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginBottom: 6 },
   avatar: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   senderLabel: { fontSize: 10, fontWeight: "500", marginBottom: 2, marginLeft: 2 },
-  bubble: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
+  bubble: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, overflow: "hidden" }, // shade takes the bubble's shape
   bubbleText: { fontSize: 14, fontWeight: "400", lineHeight: 20 },
   timeLabel: { fontSize: 10, fontWeight: "400", marginTop: 3, marginHorizontal: 4 },
   inputBar: { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingHorizontal: 16, paddingTop: 12, borderTopWidth: 1 },

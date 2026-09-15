@@ -35,6 +35,7 @@ import {
 } from "@/utils/doseOverride";
 import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import { getEffectiveTrend } from "@/utils/trend";
+import { AccentShade, CardShade } from "@/components/Shade";
 
 interface Props {
   visible: boolean;
@@ -222,6 +223,7 @@ export default function FoodInsulinModal({
   return (
     <DashboardSectionModal visible={visible} onClose={onClose} accessibilityLabel="Meal insulin calculator">
       <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <CardShade radius={16} />
         <Text style={[styles.title, { color: colors.text }]}>Insulin Calculator</Text>
         <Text style={[styles.sub, { color: colors.textSecondary }]}>
           {foodName ? `For ${foodName} — carbs pre-filled from the analysis.` : "Carbs pre-filled from the analysis."}
@@ -377,6 +379,7 @@ export default function FoodInsulinModal({
               ]}
               onPress={handleTookInsulin}
             >
+              <AccentShade radius={11} />
               <Feather name="check" size={14} color="#fff" />
               <Text style={styles.tookBtnText}>I Took This Insulin</Text>
             </Pressable>

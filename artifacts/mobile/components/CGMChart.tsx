@@ -1,11 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Dimensions,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Dimensions, PixelRatio, Pressable, StyleSheet, Text, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { CgmChartCursorOverlay } from "@/components/CgmChartCursorOverlay";
 import { useCgmChartCursorGesture } from "@/hooks/useCgmChartCursorGesture";
@@ -34,8 +28,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { COLORS } from "@/constants/colors";
 import { GLUCOSE_GRAPH_DISPLAY_MODE_STORAGE_KEY } from "@/constants/storage-keys";
-import { T, glucoseTone, withAlpha, type ThemeColors } from "@/constants/theme";
+import { T, glucoseTone, withAlpha, type ThemeColors, mixHex } from "@/constants/theme";
 import { useThemeColors } from "@/context/ThemeContext";
+import { AccentShade, ControlShade } from "@/components/Shade";
 import {
   buildAxisLabelSpecs,
   chartValueToY,
@@ -44,6 +39,8 @@ import {
   DOT_MODE_READING_STROKE,
   formatGlucoseAxisLabel,
   resolveAxisLabelPositions,
+  fittedDash,
+  CHART_AXIS_LABEL_HEIGHT,
 } from "@/utils/cgmChartAxis";
 import {
   buildCalendarDayXLabels,
@@ -63,7 +60,7 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 /** On-graph food/insulin log-marker box — enlarged 75% for legibility (icon size scales with it). */
 const EVENT_MARKER_SIZE = 23;
 
-export const Y_MIN = 40;
+export const Y_MIN = 0; // mirrors CHART_Y_MIN in utils/cgmChartAxis
 export const Y_MAX = 400;
 
 export const LOW_THRESH = 70;
@@ -126,6 +123,18 @@ interface CGMChartProps {
    * ScrollView (scrollEnabled={!active}) so a held finger can drift vertically without scrolling.
    */
   onCursorActiveChange?: (active: boolean) => void;
+  /**
+   * Space on EACH side of the y-axis digits: between the plot's right border and the digits, and
+   * between the digits and whatever bounds the chart (the card's edge on the glucose page, the page
+   * edge on the Log page). Defaults to 8.
+   */
+  axisGap?: number;
+  /**
+   * The host's own right-hand padding. When it is larger than `axisGap`, the chart bleeds into it
+   * by the difference (a negative right margin on the measured wrapper) so the digits end `axisGap`
+   * from the host's bound and the plot grows by the same amount. Defaults to `axisGap` (no bleed).
+   */
+  hostPaddingRight?: number;
   /** Food/insulin log markers drawn as tiny icons on the target baseline at each log's time. */
   eventMarkers?: ChartEventMarker[];
   /** Makes log markers tappable — fired with the marker so the host can open its detail popup. */
@@ -158,6 +167,8 @@ export function CGMChart({
   eventMarkers,
   onEventMarkerPress,
   enablePinchZoom = false,
+  axisGap: axisGapProp,
+  hostPaddingRight,
 }: CGMChartProps) {
   const c = useThemeColors();
   const styles = useMemo(() => makeStyles(c), [c]);
@@ -195,7 +206,33 @@ export function CGMChart({
   }, []);
 
   const H = chartHeight;
-  const yAxisW = 40;
+  // The label gutter grows with the user's text-size setting (capped), so large accessibility text
+  // never runs into the plot's right border line — and since plotW is what's left over, the fitted
+  // dash patterns below re-solve for that width too.
+  const fontScale = Math.min(PixelRatio.getFontScale(), 1.3);
+  /**
+   * The label gutter is exactly GAP + DIGITS: the gap between the plot's right border line and the
+   * numbers equals the card padding to their right (T.space.lg), so the numbers sit centered in
+   * their column, and the digit box is just wide enough for a three-digit label at the (capped)
+   * text scale. Everything the gutter no longer hoards goes to `plotW`, and since every x in the
+   * chart derives from plotW, the plot and all its contents stretch into it proportionally. Height
+   * is untouched. (It used to be a flat 40pt + a 6pt margin with a 34pt right-aligned box, which
+   * left ~28pt of dead space before the digits and even overran the row by 6pt.)
+   */
+  const axisGap = axisGapProp ?? 8;
+  // Borrow from the host's padding so the digits sit `axisGap` from its bound, not from where the
+  // padding happens to stop. Applied to the MEASURED wrapper, so the borrowed width reaches plotW.
+  const bleed = Math.max(0, (hostPaddingRight ?? axisGap) - axisGap);
+  /**
+   * The digit column is sized from the MEASURED widest label, not an estimate. An estimate was too
+   * tight for "400" in SF Pro and made three-digit labels wrap onto a second line; measuring also
+   * means the column follows the real text width under any accessibility text size (the labels are
+   * capped at 1.3×, so the gutter can't run away). Until the first layout lands, a generous estimate
+   * keeps the plot from jumping more than a few points once the true width arrives.
+   */
+  const [maxLabelW, setMaxLabelW] = useState<number | null>(null);
+  const labelW = Math.ceil(maxLabelW ?? 24 * fontScale);
+  const yAxisW = axisGap + labelW;
   // Width comes from MEASURING the actual container, not from a screen-width snapshot: the old
   // module-level Dimensions math overflowed iPad cards (portrait) — the plot ran under the y-axis
   // legend and pushed it out of view — and never tracked rotation. The screen-width formula is
@@ -204,6 +241,20 @@ export function CGMChart({
   const containerW = measuredW ?? SCREEN_WIDTH - paddingHorizontal * 2;
   const plotW = Math.max(60, containerW - yAxisW);
   const plotY = (glucose: number) => chartValueToY(glucose, H);
+  const thresholdDash = fittedDash(plotW, 5, 6);
+
+  /**
+   * Gradient paints for the plot, in the app's lighting language (lighter at the top, deeper at
+   * the bottom). Defined in CHART coordinates (`userSpaceOnUse`) on purpose: a per-shape bounding
+   * box would make a flat run of readings — zero height — paint nothing at all. Lines and dots take
+   * the vertical ramp of their own color; the horizontal reference lines (which have no top or
+   * bottom to shade) take a left-to-right ramp instead. Non-hex colors fall back to the flat color.
+   */
+  const isHex = (col: string) => /^#[0-9a-fA-F]{6}$/.test(col);
+  const plotPalette = Array.from(new Set([COLORS.danger, "#F97316", COLORS.success, COLORS.warning])).filter(isHex);
+  const vPaint = (col: string) => (isHex(col) && plotPalette.includes(col) ? `url(#vg-${col.slice(1)})` : col);
+  const linePalette = { coral: T.color.coral, emerald: T.color.emerald, violet: T.color.violet } as const;
+  const hPaint = (key: keyof typeof linePalette) => (isHex(linePalette[key]) ? `url(#hg-${key})` : linePalette[key]);
 
   // Pinch zoom (Log page only): a set zoomWindow narrows every window-derived computation below
   // — readings, plot points, cursor, markers, x-axis — while the full day stays the zoom-out cap.
@@ -406,7 +457,7 @@ export function CGMChart({
 
   return (
     <View
-      style={styles.wrapper}
+      style={[styles.wrapper, bleed > 0 && { marginRight: -bleed }]}
       onLayout={(e) => {
         const w = Math.round(e.nativeEvent.layout.width);
         if (w > 0) setMeasuredW((prev) => (prev === w ? prev : w));
@@ -414,7 +465,11 @@ export function CGMChart({
     >
       {showRangeSelector && (
       <View style={styles.topRow}>
-        <View style={styles.segment}>
+        {/* Exactly as wide as the plot, so its right edge lands on the plot's right border line rather
+            than running on over the axis gutter. The four tabs are flex:1 inside, so they share
+            whatever width this is. */}
+        <View style={[styles.segment, { width: plotW }]}>
+          <ControlShade radius={T.radius.pill} />
           {TIME_RANGES.map((r) => {
             const active = timeRange === r;
             return (
@@ -424,12 +479,12 @@ export function CGMChart({
                 onPress={() => handleRangePress(r)}
                 hitSlop={6}
               >
+                {active && <AccentShade color={c.chartControlActive} radius={T.radius.pill - 4} />}
                 <Text style={[styles.segText, { color: active ? c.chartControlActiveText : c.textMuted }]}>{r}</Text>
               </Pressable>
             );
           })}
         </View>
-        <Text style={styles.unitLabel}>mg/dL</Text>
       </View>
       )}
 
@@ -461,6 +516,18 @@ export function CGMChart({
                 <Stop offset={tMid} stopColor={T.color.coral} stopOpacity={0.04} />
                 <Stop offset="1" stopColor={T.color.coral} stopOpacity={0.3} />
               </SvgLinearGradient>
+              {plotPalette.map((col) => (
+                <SvgLinearGradient key={`vg-${col}`} id={`vg-${col.slice(1)}`} x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
+                  <Stop offset="0" stopColor={mixHex(col, "#FFFFFF", 0.22)} />
+                  <Stop offset="1" stopColor={mixHex(col, "#000000", 0.18)} />
+                </SvgLinearGradient>
+              ))}
+              {(Object.keys(linePalette) as (keyof typeof linePalette)[]).filter((k) => isHex(linePalette[k])).map((k) => (
+                <SvgLinearGradient key={`hg-${k}`} id={`hg-${k}`} x1="0" y1="0" x2={plotW} y2="0" gradientUnits="userSpaceOnUse">
+                  <Stop offset="0" stopColor={mixHex(linePalette[k], "#FFFFFF", 0.22)} />
+                  <Stop offset="1" stopColor={mixHex(linePalette[k], "#000000", 0.18)} />
+                </SvgLinearGradient>
+              ))}
               <ClipPath id="aboveMid">
                 <Rect x="0" y="0" width={plotW} height={Math.max(0, targetLineY)} />
               </ClipPath>
@@ -475,6 +542,11 @@ export function CGMChart({
               if (!inView(y)) return null;
               return <Line key={`g-${v}`} x1={0} y1={y} x2={plotW} y2={y} stroke={c.grid} strokeWidth={1} />;
             })}
+            {/* Axis frame, same stroke as the grid: a right-hand "end" line where the horizontal lines
+                stop, and a bottom border at 0 mg/dL (labeled "0" in the axis column) — together a backwards L.
+                Inset by half a stroke so neither is clipped by the SVG edge. */}
+            <Line x1={plotW - 0.5} y1={0} x2={plotW - 0.5} y2={H} stroke={c.grid} strokeWidth={1} />
+            <Line x1={0} y1={H - 0.5} x2={plotW} y2={H - 0.5} stroke={c.grid} strokeWidth={1} />
 
             {/* deviation shading — clipped to each side of the midline */}
             <G clipPath="url(#aboveMid)">
@@ -490,19 +562,20 @@ export function CGMChart({
               })}
             </G>
 
-            {/* threshold references (restrained) */}
+            {/* threshold references (restrained). One fitted dash pattern for all three so each starts
+                and ends on a full dash; the low line matches the upper red line's weight exactly. */}
             {inView(urgentHighLineY) && (
-              <Line x1={0} y1={urgentHighLineY} x2={plotW} y2={urgentHighLineY} stroke={T.color.coral} strokeWidth={1} strokeDasharray="5 6" opacity={0.7} />
+              <Line x1={0} y1={urgentHighLineY} x2={plotW} y2={urgentHighLineY} stroke={hPaint("coral")} strokeWidth={1} strokeDasharray={thresholdDash} opacity={0.7} />
             )}
             {inView(highLineY) && (
-              <Line x1={0} y1={highLineY} x2={plotW} y2={highLineY} stroke={T.color.emerald} strokeWidth={1} strokeDasharray="5 6" opacity={0.55} />
+              <Line x1={0} y1={highLineY} x2={plotW} y2={highLineY} stroke={hPaint("emerald")} strokeWidth={1} strokeDasharray={thresholdDash} opacity={0.55} />
             )}
             {inView(lowLineY) && (
-              <Line x1={0} y1={lowLineY} x2={plotW} y2={lowLineY} stroke={T.color.coral} strokeWidth={1} strokeDasharray="4 7" opacity={0.4} />
+              <Line x1={0} y1={lowLineY} x2={plotW} y2={lowLineY} stroke={hPaint("coral")} strokeWidth={1} strokeDasharray={thresholdDash} opacity={0.7} />
             )}
             {/* optimal midline — solid violet-blue */}
             {inView(targetLineY) && (
-              <Line x1={0} y1={targetLineY} x2={plotW} y2={targetLineY} stroke={T.color.violet} strokeWidth={1.5} opacity={0.9} />
+              <Line x1={0} y1={targetLineY} x2={plotW} y2={targetLineY} stroke={hPaint("violet")} strokeWidth={1.5} opacity={0.9} />
             )}
 
             {displayMode === "line" &&
@@ -512,7 +585,7 @@ export function CGMChart({
                     key={`l-${ri}-${ci}`}
                     points={cr.d}
                     fill="none"
-                    stroke={cr.color}
+                    stroke={vPaint(cr.color)}
                     strokeWidth={2.75}
                     strokeLinejoin="round"
                     strokeLinecap="round"
@@ -530,7 +603,7 @@ export function CGMChart({
                     cx={p.x}
                     cy={p.y}
                     r={DOT_MODE_READING_RADIUS}
-                    fill={dotColor}
+                    fill={vPaint(dotColor)}
                     stroke={withAlpha(dotColor, 0.55)}
                     strokeWidth={DOT_MODE_READING_STROKE}
                   />
@@ -541,7 +614,7 @@ export function CGMChart({
             {last && last.x <= plotW + 0.5 && last.x >= -0.5 && (
               <>
                 <Circle cx={last.x} cy={last.y} r={9} fill={withAlpha(lastColor, 0.18)} />
-                <Circle cx={last.x} cy={last.y} r={5} fill={c.pointCenter} stroke={lastColor} strokeWidth={2.5} />
+                <Circle cx={last.x} cy={last.y} r={5} fill={c.pointCenter} stroke={vPaint(lastColor)} strokeWidth={2.5} />
               </>
             )}
           </Svg>
@@ -603,13 +676,30 @@ export function CGMChart({
         </View>
 
         {/* y-axis on the right, matching the reference */}
-        <View style={[styles.yAxis, { width: yAxisW, height: H }]}>
+        <View style={[styles.yAxis, { width: labelW, marginLeft: axisGap, height: H }]}>
+          {/* "0" for the bottom border: pinned FLUSH with it rather than centered on it, so it can't hang
+              below the chart (which is exactly what the generic filter below would have dropped). */}
+          <Text
+            style={[styles.yLabel, { top: H - CHART_AXIS_LABEL_HEIGHT, color: c.axis }]}
+            numberOfLines={1}
+            maxFontSizeMultiplier={1.3}
+          >
+            0
+          </Text>
           {axisLabels.map((label) => {
             if (label.top < -8 || label.top > H - 6) return null;
             return (
               <Text
                 key={`${label.kind}-${label.value}`}
+                // No width: the label shrinks to its own content and can never wrap; the column is
+                // sized to the widest measurement instead, so the gap on the digits' left is exact.
                 style={[styles.yLabel, { top: label.top, color: label.color }]}
+                numberOfLines={1}
+                maxFontSizeMultiplier={1.3}
+                onLayout={(e) => {
+                  const w = e.nativeEvent.layout.width;
+                  if (w > 0) setMaxLabelW((prev) => (prev == null || w > prev ? w : prev));
+                }}
               >
                 {formatGlucoseAxisLabel(label.value)}
               </Text>
@@ -688,6 +778,7 @@ const makeStyles = (c: ThemeColors) => StyleSheet.create({
     marginBottom: 14,
   },
   segment: {
+    // Width is set inline to the plot width (see the JSX); the four tabs share it equally.
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: c.chartControlTrack,
@@ -697,17 +788,15 @@ const makeStyles = (c: ThemeColors) => StyleSheet.create({
     borderColor: c.border,
   },
   segTab: {
-    paddingHorizontal: 14,
+    flex: 1,
     paddingVertical: 6,
     borderRadius: T.radius.pill - 4,
-    minWidth: 46,
     alignItems: "center",
   },
   segTabActive: {
     backgroundColor: c.chartControlActive,
   },
   segText: { fontSize: 12.5, fontWeight: T.font.semibold, letterSpacing: 0.2 },
-  unitLabel: { fontSize: 11, fontWeight: T.font.medium, color: c.textMuted },
 
   chartRow: { flexDirection: "row", alignItems: "flex-start" },
 
@@ -722,14 +811,13 @@ const makeStyles = (c: ThemeColors) => StyleSheet.create({
   },
   emptyText: { color: c.textMuted, fontSize: 13, fontWeight: T.font.regular },
 
-  yAxis: { position: "relative", marginLeft: 6 },
+  yAxis: { position: "relative" },
   yLabel: {
     position: "absolute",
     fontSize: 9.5,
     fontWeight: T.font.medium,
     right: 0,
     textAlign: "right",
-    width: 34,
   },
 
   xAxis: {

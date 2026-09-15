@@ -1,6 +1,8 @@
 import { T } from "../constants/theme";
 
-export const CHART_Y_MIN = 40;
+// The floor is 0 — drawn as the chart's bottom border, labeled "0" by the chart itself — so the labeled 40 line sits
+// above it with real space beneath, instead of being the (half-clipped) bottom edge.
+export const CHART_Y_MIN = 0;
 export const CHART_Y_MAX = 400;
 const Y_RANGE = CHART_Y_MAX - CHART_Y_MIN;
 
@@ -149,4 +151,19 @@ export function resolveAxisLabelPositions(
     top: chartLabelTopForValue(spec.value, chartHeight),
     nudged: false,
   }));
+}
+
+/**
+ * A dash pattern fitted to `width` so it starts AND ends on a full dash. A plain "5 6" repeats until
+ * the line stops, which ends the pattern mid-dash at whatever width the plot happens to be; here the
+ * dash count is solved from the width and the gap stretched by a fraction of a pixel so the repeats
+ * land exactly on the far edge. Width-derived, so it re-fits on any device and any text-size
+ * setting (the gutter width, and therefore the plot width, changes with the font scale).
+ */
+export function fittedDash(width: number, dash: number, gap: number): string {
+  const n = Math.max(2, Math.round((width + gap) / (dash + gap)));
+  const g = (width - n * dash) / (n - 1);
+  // Three decimals: the pattern repeats ~30× across a plot, so rounding error must stay well under a
+  // pixel even after accumulating.
+  return `${dash} ${Math.max(0.5, g).toFixed(3)}`;
 }

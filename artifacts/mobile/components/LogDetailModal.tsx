@@ -18,6 +18,7 @@ import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
 import { startOfLocalDay } from "@/utils/localDayBoundaries";
 import { useTheme } from "@/context/ThemeContext";
+import { CardShade } from "@/components/Shade";
 
 export type SelectedLog =
   | { kind: "food"; data: FoodLogEntry }
@@ -156,6 +157,7 @@ export default function LogDetailModal({
       >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close log details" />
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: withAlpha(accent, 0.4) }]}>
+          <CardShade radius={16} />
           {/* Top row: Edit / Delete (or Save Edit / Cancel while editing) + close */}
           <View style={styles.topRow}>
             {canEdit ? (

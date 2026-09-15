@@ -1,13 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  glucoseTone,
-  parseThemePreference,
-  resolveEffectiveScheme,
-  getThemeColors,
-  lightColors,
-  darkColors,
-  T,
-} from "./theme";
+import { glucoseTone, parseThemePreference, resolveEffectiveScheme, getThemeColors, lightColors, darkColors, T, mixHex } from "./theme";
 
 const { coral, emerald, amber } = T.color;
 
@@ -98,5 +90,29 @@ describe("glucoseTone — four-state classification by account thresholds", () =
 
   it("a reading of 200 stays amber under the default account thresholds", () => {
     expect(glucoseTone(200)).toBe(amber);
+  });
+});
+
+describe("mixHex (the shade ramp)", () => {
+  it("returns the endpoints at t=0 and t=1, clamped outside [0,1]", () => {
+    expect(mixHex("#000000", "#FFFFFF", 0)).toBe("#000000");
+    expect(mixHex("#000000", "#FFFFFF", 1)).toBe("#FFFFFF");
+    expect(mixHex("#000000", "#FFFFFF", -3)).toBe("#000000");
+    expect(mixHex("#000000", "#FFFFFF", 7)).toBe("#FFFFFF");
+  });
+  it("interpolates each channel independently", () => {
+    expect(mixHex("#000000", "#FFFFFF", 0.5)).toBe("#808080");
+    expect(mixHex("#061124", "#0B1B36", 0.5)).toBe("#09162D");
+  });
+  it("keeps every band of the dark screen ramp within two units of its neighbour per channel", () => {
+    const steps = 16;
+    const bands = Array.from({ length: steps }, (_, i) => mixHex("#061124", "#0B1B36", i / (steps - 1)));
+    for (let i = 1; i < steps; i++) {
+      for (let ch = 0; ch < 3; ch++) {
+        const a = parseInt(bands[i - 1].slice(1 + ch * 2, 3 + ch * 2), 16);
+        const b = parseInt(bands[i].slice(1 + ch * 2, 3 + ch * 2), 16);
+        expect(Math.abs(b - a)).toBeLessThanOrEqual(2);
+      }
+    }
   });
 });

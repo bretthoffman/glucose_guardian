@@ -9,6 +9,7 @@ import React from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { T } from "@/constants/theme";
 import { useTheme } from "@/context/ThemeContext";
+import { CardShade } from "@/components/Shade";
 
 interface SurfaceProps {
   children: React.ReactNode;
@@ -40,6 +41,8 @@ export function Surface({ children, style, elevated, padding = T.space.lg, radiu
         style,
       ]}
     >
+      {/* Window shading, clipped to this card's radius — see components/Shade. */}
+      <CardShade radius={radius} />
       {children}
     </View>
   );

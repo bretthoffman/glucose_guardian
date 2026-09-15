@@ -1,10 +1,4 @@
-import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  useFonts,
-} from "@expo-google-fonts/inter";
+import { useFonts } from "expo-font";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Notifications from "expo-notifications";
 import { Stack, router, useSegments } from "expo-router";
@@ -28,6 +22,7 @@ import { ClerkProvider, useAuth as useClerkAuth } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { convex } from "@/utils/convex-auth-client";
+import UpdatePrompt from "@/components/UpdatePrompt";
 import {
   registerNotificationCategories,
   handleNotificationResponse,
@@ -165,11 +160,11 @@ function ThemedStatusBar() {
 }
 
 export default function RootLayout() {
+  // Typography is the PLATFORM SYSTEM FONT — SF Pro on iOS — by design (see constants/theme.ts):
+  // nothing sets `fontFamily`, so no text font is loaded here. Inter used to be loaded at startup
+  // too, gating the splash screen on four font files that nothing ever referenced. Only the icon
+  // font must be ready before first paint.
   const [fontsLoaded, fontError] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
     feather: require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Feather.ttf"),
   });
 
@@ -203,6 +198,8 @@ export default function RootLayout() {
                       <GestureHandlerRootView>
                         <KeyboardProvider>
                           <RootLayoutNav />
+                          {/* Global OTA "restart to update" prompt — every screen, every session type. */}
+                          <UpdatePrompt />
                         </KeyboardProvider>
                       </GestureHandlerRootView>
                     </PushProvider>

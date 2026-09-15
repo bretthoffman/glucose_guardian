@@ -7,6 +7,7 @@ import React from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Colors, { COLORS } from "@/constants/colors";
 import type { DoseWarning } from "@/utils/dose";
+import { TintShade } from "@/components/Shade";
 import {
   doseAmountsEqual,
   formatDoseAmount,
@@ -26,6 +27,8 @@ export function DoseWarningsList({ warnings }: { warnings: DoseWarning[] }) {
             key={i}
             style={[styles.doseWarning, { backgroundColor: color + (isInfo ? "14" : "18"), borderColor: color }]}
           >
+            {/* Same ramp the tinted pills use, in THIS note's color — the level→color rule above is untouched. */}
+            <TintShade color={color} radius={10} />
             <Feather name={isInfo ? "info" : "alert-triangle"} size={13} color={color} />
             <Text style={[styles.doseWarningText, { color }]}>{w.message}</Text>
           </View>
@@ -157,8 +160,9 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.65)",
     marginBottom: 4,
   },
-  // Purple outline instead of a solid fill; the value/units inside carry their own color inline.
-  doseTotalBadge: { flexDirection: "row", alignItems: "baseline", gap: 4, borderWidth: 2, borderColor: COLORS.primary, paddingHorizontal: 18, paddingVertical: 5, borderRadius: 14, minWidth: 88, justifyContent: "center" },
+  // Same treatment as the Log page's "+ Add Entry" button: a soft purple fill (primary at 15%) inside
+  // a 1.5px purple outline. The value/units inside carry their own color inline.
+  doseTotalBadge: { flexDirection: "row", alignItems: "baseline", gap: 4, borderWidth: 1.5, borderColor: COLORS.primary, backgroundColor: COLORS.primary + "26", paddingHorizontal: 18, paddingVertical: 5, borderRadius: 14, minWidth: 88, justifyContent: "center" },
   doseTotalValue: { fontSize: 22, fontWeight: "700" },
   doseTotalInput: {
     fontSize: 22,

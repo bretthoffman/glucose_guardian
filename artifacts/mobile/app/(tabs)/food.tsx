@@ -30,6 +30,7 @@ import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop 
 import FoodInsulinModal from "@/components/FoodInsulinModal";
 import { apiUrl } from "@/utils/api-base-url";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { AccentShade, ControlShade, ScreenShade } from "@/components/Shade";
 
 interface FoodResult {
   foodName: string;
@@ -344,12 +345,17 @@ export default function FoodScreen() {
       style={[styles.root, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
+      {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
+      <ScreenShade />
+      {/* Food's header is NOT its own shaded section (unlike Insulin/Chat): no band, no divider. */}
       {showGlucoseHeader && (
-        <TabGlucoseHeaderShell style={{ backgroundColor: colors.background, paddingBottom: 14 }}>
+        <TabGlucoseHeaderShell shade={false} style={{ paddingBottom: 14 }}>
           <TabGlucoseHeaderRow
             left={
               history.length > 1 ? (
                 <View style={[styles.trendChip, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+                  {/* Same control fill + shade as the other control-colored chips and buttons. */}
+                  <ControlShade radius={12} />
                   <Feather name="activity" size={13} color={colors.textSecondary} />
                   <Text style={[styles.trendChipText, { color: colors.textSecondary }]}>
                     Glucose trend: {TREND_LABELS[currentTrend] ?? "→ Stable"}
@@ -381,6 +387,7 @@ export default function FoodScreen() {
             onPress={takePhoto}
             disabled={isAnalyzingPhoto}
           >
+            <AccentShade radius={14} />
             {isAnalyzingPhoto ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
@@ -399,6 +406,7 @@ export default function FoodScreen() {
             onPress={pickFromGallery}
             disabled={isAnalyzingPhoto}
           >
+            <ControlShade radius={14} />
             <Feather name="image" size={18} color={colors.text} />
           </Pressable>
         </View>
@@ -450,6 +458,7 @@ export default function FoodScreen() {
           onPress={() => search(query)}
           disabled={isLoading || !query.trim()}
         >
+          <ControlShade radius={14} />
           {isLoading ? (
             <ActivityIndicator color={COLORS.primary} size="small" />
           ) : (
@@ -642,35 +651,28 @@ export default function FoodScreen() {
 
         <Text style={[styles.quickTitle, { color: colors.text }]}>Quick Lookup</Text>
         <View style={styles.quickGrid}>
-          {quickFoods.map((food) => (
-            <Pressable
-              key={food}
-              style={({ pressed }) => [
-                styles.quickChip,
-                {
-                  backgroundColor:
-                    result?.foodName?.toLowerCase() === food.toLowerCase()
-                      ? COLORS.primary
-                      : colors.card,
-                  borderColor:
-                    result?.foodName?.toLowerCase() === food.toLowerCase()
-                      ? COLORS.primary
-                      : colors.border,
-                  opacity: pressed ? 0.8 : 1,
-                },
-              ]}
-              onPress={() => search(food)}
-            >
-              <Text
-                style={[
-                  styles.quickChipText,
-                  { color: result?.foodName?.toLowerCase() === food.toLowerCase() ? "#fff" : colors.text },
+          {quickFoods.map((food) => {
+            const selected = result?.foodName?.toLowerCase() === food.toLowerCase();
+            return (
+              <Pressable
+                key={food}
+                style={({ pressed }) => [
+                  styles.quickChip,
+                  {
+                    // Same lighter control fill as the Gallery / Search buttons, with the same shading
+                    // on top; the selected chip is a purple button like every other purple button.
+                    backgroundColor: selected ? COLORS.primary : colors.backgroundTertiary,
+                    borderColor: selected ? COLORS.primary : colors.border,
+                    opacity: pressed ? 0.8 : 1,
+                  },
                 ]}
+                onPress={() => search(food)}
               >
-                {food}
-              </Text>
-            </Pressable>
-          ))}
+                {selected ? <AccentShade radius={20} /> : <ControlShade radius={20} />}
+                <Text style={[styles.quickChipText, { color: selected ? "#fff" : colors.text }]}>{food}</Text>
+              </Pressable>
+            );
+          })}
         </View>
       </ScrollView>
 

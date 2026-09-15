@@ -26,6 +26,7 @@ import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import AccessCodeScanner from "@/components/AccessCodeScanner";
 import * as Haptics from "expo-haptics";
 import * as WebBrowser from "expo-web-browser";
+import { AccentShade } from "@/components/Shade";
 
 // Clerk's recommended call for OAuth screens: settles any auth session left pending when the
 // browser sheet hands control back to the app (standalone builds; no-op in Expo Go).
@@ -428,6 +429,7 @@ export default function AuthScreen() {
             onPress={handleSubmit}
             disabled={isSubmitting}
           >
+            <AccentShade radius={14} />
             {isSubmitting ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
@@ -579,6 +581,7 @@ export default function AuthScreen() {
                     onPress={handleVerifyCode}
                     disabled={isSubmitting}
                   >
+                    <AccentShade radius={12} />
                     {isSubmitting ? (
                       <ActivityIndicator color="#fff" size="small" />
                     ) : (
@@ -628,6 +631,7 @@ export default function AuthScreen() {
                     onPress={resetSent ? handleResetPassword : handleSendReset}
                     disabled={isSubmitting}
                   >
+                    <AccentShade radius={12} />
                     {isSubmitting ? (
                       <ActivityIndicator color="#fff" size="small" />
                     ) : (

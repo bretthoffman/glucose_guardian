@@ -54,6 +54,7 @@ import {
 } from "@/utils/homeScrollRecovery";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
 
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 /** Matches GlucoseGauge's STALE_READING_MS — past this, label from the reading, not the sync. */
@@ -97,6 +98,63 @@ type PerformSyncOutcome = {
   manualAlert: ManualSyncAlert | null;
 };
 
+/**
+ * One notice row under the glucose chart — the page's shared format for every alert it shows: a
+ * glyph in the notice's semantic color, a bold title, a muted message, and a chevron when tapping
+ * does something. The row is TINTED in the notice's semantic color — fill, border, icon, title —
+ * exactly as the old banners were, so urgency stays readable at a glance (coral = act now, amber =
+ * attention, emerald = fine); only the layout changed. Text and handlers belong to the callers.
+ */
+function HomeNotice({
+  icon,
+  color,
+  title,
+  message,
+  onPress,
+  chevron,
+  trailing,
+  children,
+}: {
+  icon: React.ComponentProps<typeof Feather>["name"];
+  color: string;
+  title?: string;
+  /** Optional so a notice whose source has no message renders none — same as the old banners. */
+  message?: string;
+  onPress?: () => void;
+  /** Show the trailing chevron; defaults to "whenever there is an onPress". */
+  chevron?: boolean;
+  /** A custom trailing control (e.g. a dismiss ×) — replaces the chevron. */
+  trailing?: React.ReactNode;
+  /** Extra content under the message (e.g. action buttons). */
+  children?: React.ReactNode;
+}) {
+  const c = useThemeColors();
+  const showChevron = chevron ?? !!onPress;
+  const body = (
+    <>
+      {/* The ramp runs in the notice's own semantic color, so coral/amber/emerald each shade as themselves. */}
+      <TintShade color={color} radius={T.radius.control} />
+      <View style={styles.noticeIcon}>
+        <Feather name={icon} size={22} color={color} />
+      </View>
+      <View style={styles.noticeBody}>
+        {title ? <Text style={[styles.noticeTitle, { color }]}>{title}</Text> : null}
+        {message ? <Text style={[styles.noticeMessage, { color: c.textSecondary }]}>{message}</Text> : null}
+        {children}
+      </View>
+      {trailing ?? (showChevron ? <Feather name="chevron-right" size={20} color={c.textMuted} /> : null)}
+    </>
+  );
+  const base = [styles.notice, { backgroundColor: withAlpha(color, 0.12), borderColor: withAlpha(color, 0.4) }];
+  return onPress ? (
+    <Pressable onPress={onPress} style={({ pressed }) => [...base, { opacity: pressed ? 0.85 : 1 }]}>
+      {body}
+    </Pressable>
+  ) : (
+    <View style={base}>{body}</View>
+  );
+}
+
 function TrendAlertBanner({
   trend,
   glucose,
@@ -115,24 +173,23 @@ function TrendAlertBanner({
     ? `At ${glucose} mg/dL and dropping quickly — eat 15g fast-acting carbs (juice or glucose tabs) now. Do not take insulin.`
     : `At ${glucose} mg/dL and rising quickly — avoid high-carb food now. Consider a short walk or consult your dose plan.`;
   return (
-    <View style={[styles.banner, { backgroundColor: withAlpha(bannerColor, 0.12), borderColor: withAlpha(bannerColor, 0.4) }]}>
-      <View style={[styles.bannerIcon, { backgroundColor: withAlpha(bannerColor, 0.18) }]}>
-        <Feather name={icon} size={18} color={bannerColor} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.bannerTitle, { color: bannerColor }]}>{title}</Text>
-        <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>{message}</Text>
-      </View>
-      <Pressable
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          setDismissed(true);
-        }}
-        hitSlop={10}
-      >
-        <Feather name="x" size={16} color={c.textMuted} />
-      </Pressable>
-    </View>
+    <HomeNotice
+      icon={icon}
+      color={bannerColor}
+      title={title}
+      message={message}
+      trailing={
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setDismissed(true);
+          }}
+          hitSlop={10}
+        >
+          <Feather name="x" size={16} color={c.textMuted} />
+        </Pressable>
+      }
+    />
   );
 }
 
@@ -442,7 +499,7 @@ export default function HomeScreen() {
   // metrics — sitting on the safe-area inset) plus a small breathing gap. No flat oversized
   // padding → no leftover scrollable slack; when everything fits the screen, a downward tug
   // just springs back. Screens where content truly overflows still scroll exactly as needed.
-  const TAB_BAR_HEIGHT = 71;
+  const TAB_BAR_HEIGHT = 66; // the floating bar in (tabs)/_layout: border + padding + slot + icon + label
   const tabBarClearance = TAB_BAR_HEIGHT + (insets.bottom > 0 ? insets.bottom : 12) + 8;
 
   const patientName = profile?.childName ?? "Glucose Guardian";
@@ -1017,8 +1074,20 @@ export default function HomeScreen() {
       ? cgmDiagnosticMessage(syncStatus.messageKey, cgmConnection.type)
       : null;
 
+  // The notices under the chart. Each condition is exactly what gated the old banner it replaces.
+  const showCgmNotice = !sessionExpired && !!libreBannerKind && libreBannerKind !== "backup_missing" && !!libreBannerMessage;
+  const showTrendNotice = (glucoseTrend === "rapidly_falling" || glucoseTrend === "rapidly_rising") && history.length > 1;
+  const showAnomalyNotice = !!latestReading?.anomaly.warning;
+  const showEmergencyNotice =
+    !!latestReading && alertPrefs.emergencyAlertsEnabled && alertPrefs.oneTapTextEnabled === true &&
+    !caregiverSession && !isViewingLinkedPatient && emergencyContacts.length > 0 &&
+    (latestReading.glucose < alertPrefs.lowThreshold || latestReading.glucose > alertPrefs.highThreshold);
+  const hasNotices = sessionExpired || showCgmNotice || showTrendNotice || showAnomalyNotice || showEmergencyNotice;
+
   return (
     <View style={[styles.root, { backgroundColor: c.screen }]}>
+      {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
+      <ScreenShade />
       {!refreshing && (
         <Animated.View
           pointerEvents="none"
@@ -1081,6 +1150,7 @@ export default function HomeScreen() {
               },
             ]}
           >
+            {isConnected && <TintShade color={T.color.emerald} radius={18} />}
             {isAutoSyncing ? (
               <ActivityIndicator size={10} color={T.color.emerald} />
             ) : (
@@ -1139,253 +1209,215 @@ export default function HomeScreen() {
           </Pressable>
         )}
 
-        {/* Sign-in-again banner. Placed ABOVE the CGM banner and suppressing it, because a dead session
-            makes the CGM look broken: readings can't load and the diagnostic can't refresh, so the app
-            was blaming Dexcom for what is actually an auth problem. Signing in again is the fix.
-
-            The copy deliberately does NOT name a cause. It used to say "this usually happens after
-            changing your password", which is a guess this component cannot support: `sessionExpired`
-            only observes that Clerk reports signed-out while we believe otherwise, and a failed
-            client fetch on a cold start produces exactly the same signal as a real expiry. Users who
-            had not touched their password were told they had, which sent at least one support
-            conversation chasing the wrong thing. Describe the OBSERVABLE state and the remedy only. */}
-        {sessionExpired && (
-          <Pressable
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              Alert.alert(
-                "Sign in to keep syncing",
-                "This device lost its connection to your account. Your data is safe and nothing has been lost \u2014 but readings won't update and changes won't save until you sign in again.",
-                [
-                  { text: "Later", style: "cancel" },
-                  { text: "Sign in", onPress: () => { void signOut().then(() => router.replace("/auth")); } },
-                ],
-              );
-            }}
-            style={[styles.banner, { backgroundColor: T.color.coral + "1A", borderColor: T.color.coral + "55" }]}
-          >
-            <Feather name="alert-circle" size={16} color={T.color.coral} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.bannerTitle, { color: T.color.coral }]}>Sign in to keep syncing</Text>
-              <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>
-                This device lost its connection to your account. Readings won't update until you sign in.
-              </Text>
-            </View>
-            <Feather name="chevron-right" size={18} color={c.textMuted} />
-          </Pressable>
-        )}
-
-        {!sessionExpired && libreBannerKind && libreBannerKind !== "backup_missing" && libreBannerMessage && (
-          <Pressable
-            onPress={() => {
-              if (libreBannerKind === "app_auth") {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                Alert.alert("Sign in to keep syncing", libreBannerMessage ?? "", [
-                  { text: "Later", style: "cancel" },
-                  { text: "Sign in", onPress: () => { void signOut().then(() => router.replace("/auth")); } },
-                ]);
-                return;
-              }
-              if (libreBannerKind === "reconnect_required" || libreBannerKind === "sharing_not_enabled") {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push("/cgm-setup");
-              }
-            }}
-            style={[
-              styles.banner,
-              {
-                backgroundColor: withAlpha(
-                  libreBannerKind === "connected_no_data" ? T.color.emerald : libreBannerKind === "app_auth" ? T.color.coral : T.color.amber,
-                  0.12,
-                ),
-                borderColor: withAlpha(
-                  libreBannerKind === "connected_no_data" ? T.color.emerald : libreBannerKind === "app_auth" ? T.color.coral : T.color.amber,
-                  0.4,
-                ),
-              },
-            ]}
-          >
-            <Feather
-              name={libreBannerKind === "connected_no_data" ? "check-circle" : libreBannerKind === "app_auth" ? "alert-circle" : "info"}
-              size={16}
-              color={libreBannerKind === "connected_no_data" ? T.color.emerald : libreBannerKind === "app_auth" ? T.color.coral : T.color.amber}
-            />
-            <View style={{ flex: 1 }}>
-              <Text
-                style={[
-                  styles.bannerTitle,
-                  { color: libreBannerKind === "connected_no_data" ? T.color.emerald : libreBannerKind === "app_auth" ? T.color.coral : T.color.amber },
-                ]}
-              >
-                {/* The first three states are LibreLinkUp-only (see bannerKindFromSyncStatus);
-                    the rest can happen on either service, so they name the connected one. */}
-                {libreBannerKind === "no_shared_patient"
-                  ? "No shared Libre patient"
-                  : libreBannerKind === "connected_no_data"
-                    ? "Libre connected — no readings yet"
-                    : libreBannerKind === "sharing_not_enabled"
-                      ? "LibreLinkUp sharing required"
-                      : libreBannerKind === "provider_unavailable"
-                        ? `${deviceLabel} temporarily unavailable`
-                        : libreBannerKind === "app_auth"
-                          ? "Sign in to keep syncing"
-                          : `${deviceLabel} reconnect needed`}
-              </Text>
-              <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>{libreBannerMessage}</Text>
-            </View>
-            {(libreBannerKind === "reconnect_required" || libreBannerKind === "sharing_not_enabled" || libreBannerKind === "app_auth") && (
-              <Feather name="chevron-right" size={18} color={c.textMuted} />
-            )}
-          </Pressable>
-        )}
-
-        {/* Pull-to-sync helper — centered in the open header space, above the glucose summary card.
-            Page-centered (its own full-width row), not anchored to the greeting or the Dexcom card. */}
-        {isConnected && !isViewingLinkedPatient && !isCgmViewerOnly && (
-          <View style={styles.syncHintRow}>
-            <Text style={[styles.syncHintLine, { color: c.textMuted }]}>Pull down to sync</Text>
-            <Text style={[styles.syncHintLine, styles.syncHintSub, { color: c.textMuted }]}>
-              (Auto-sync every 5 min)
-            </Text>
-          </View>
-        )}
-
-        {/* Glucose summary */}
-        {latestReading ? (
-          <Surface
-            // Card height is LOCKED to what the 15%-larger gauge needed, and the content centers
-            // inside it — the circle reverted to its original size but the window must not shrink.
-            style={[styles.section, { minHeight: Math.round(172 * 1.15 * padScale) + Math.round(T.space.xl * padScale) * 2, justifyContent: "center" }]}
-            padding={Math.round(T.space.xl * padScale)}
-          >
-            <GlucoseGauge
-              value={displayGlucose}
-              // Circle + its contents at original size; arrow + colored trend pill keep the +25%;
-              // the grey "Trend"/"Updated…" lines revert to original via mutedTextScale.
-              size={Math.round(172 * padScale)}
-              contentScale={1.25 * padScale}
-              mutedTextScale={padScale}
-              trend={glucoseTrend}
-              trendInfo={effectiveTrend}
-              lowThreshold={alertPrefs.lowThreshold}
-              highThreshold={alertPrefs.highThreshold}
-              recentReadings={history}
-              updatedLabel={updatedLabel}
-              onGaugePress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setRecentReadingsVisible(true);
-              }}
-              onTrendPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setInsightsVisible(true);
-              }}
-            />
-            {canOpenLogsTab && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Open the logs page"
-                hitSlop={8}
-                onPress={() => {
+        {/* ── The glucose card. Gauge on top, trend chart beneath it, and every notice this page shows
+            stacked under the chart as inset rows — ONE Surface where there used to be two (summary +
+            chart), so the page reads as a single instrument instead of a stack of panels. The notices
+            used to sit above the gauge and between the two cards; their text and handlers are
+            unchanged, only where they live and the row format (see HomeNotice). ── */}
+        <Surface style={styles.section} padding={0}>
+          {latestReading ? (
+            <View
+              // Height is LOCKED to what the 15%-larger gauge needed, and the content centers inside
+              // it — the circle reverted to its original size but the window must not shrink.
+              style={[
+                styles.gaugeBlock,
+                {
+                  padding: Math.round(T.space.xl * padScale),
+                  minHeight: Math.round(172 * 1.15 * padScale) + Math.round(T.space.xl * padScale) * 2,
+                },
+              ]}
+            >
+              <GlucoseGauge
+                value={displayGlucose}
+                // Circle + its contents at original size; arrow + colored trend pill keep the +25%;
+                // the grey "Trend"/"Updated…" lines revert to original via mutedTextScale.
+                size={Math.round(172 * padScale)}
+                contentScale={1.25 * padScale}
+                mutedTextScale={padScale}
+                trend={glucoseTrend}
+                trendInfo={effectiveTrend}
+                lowThreshold={alertPrefs.lowThreshold}
+                highThreshold={alertPrefs.highThreshold}
+                recentReadings={history}
+                updatedLabel={updatedLabel}
+                onGaugePress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  // `t` is a nonce so a second tap re-triggers the insulin screen's param effect
-                  // even though expo-router keeps the previous params around.
-                  router.push({ pathname: "/(tabs)/insulin", params: { tab: "log", t: String(Date.now()) } });
+                  setRecentReadingsVisible(true);
                 }}
-                style={({ pressed }) => [styles.logsShortcut, { borderColor: c.border, opacity: pressed ? 0.6 : 1 }]}
-              >
-                <Feather name="list" size={11} color={c.textSecondary} />
-                <Text style={[styles.logsShortcutText, { color: c.textSecondary }]}>Logs</Text>
-              </Pressable>
-            )}
-          </Surface>
-        ) : (
-          <Surface style={styles.section}>
-            <View style={styles.emptyGauge}>
-              <Feather name="activity" size={30} color={c.textMuted} />
-              <Text style={[styles.emptyGaugeText, { color: c.textPrimary }]}>No readings yet</Text>
-              <Text style={[styles.emptyGaugeSub, { color: c.textSecondary }]}>
-                {isConnected ? "Pull down to sync your CGM" : "Connect a CGM to start monitoring"}
-              </Text>
+                onTrendPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setInsightsVisible(true);
+                }}
+              />
+              {canOpenLogsTab && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Open the logs page"
+                  hitSlop={8}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    // `t` is a nonce so a second tap re-triggers the insulin screen's param effect
+                    // even though expo-router keeps the previous params around.
+                    router.push({ pathname: "/(tabs)/insulin", params: { tab: "log", t: String(Date.now()) } });
+                  }}
+                  style={({ pressed }) => [styles.logsShortcut, { backgroundColor: c.cardElevated, borderColor: c.border, opacity: pressed ? 0.6 : 1 }]}
+                >
+                  {/* Control fill + shade, like the other secondary buttons and chips. */}
+                  <ControlShade radius={8} />
+                  <Feather name="list" size={11} color={c.textSecondary} />
+                  <Text style={[styles.logsShortcutText, { color: c.textSecondary }]}>Logs</Text>
+                </Pressable>
+              )}
             </View>
-          </Surface>
-        )}
-
-        {(glucoseTrend === "rapidly_falling" || glucoseTrend === "rapidly_rising") && history.length > 1 && (
-          <View style={styles.section}>
-            <TrendAlertBanner trend={glucoseTrend} glucose={displayGlucose} />
-          </View>
-        )}
-
-        {latestReading?.anomaly.warning && (
-          <View style={[styles.section, styles.banner, { backgroundColor: withAlpha(T.color.coral, 0.12), borderColor: withAlpha(T.color.coral, 0.4) }]}>
-            <Feather name="alert-triangle" size={16} color={T.color.coral} />
-            <Text style={[styles.bannerMessage, { color: c.textSecondary, flex: 1 }]}>
-              {latestReading.anomaly.message}
-            </Text>
-          </View>
-        )}
-
-        {/* One-tap SMS banner: MAIN accounts only (never code sessions or borrowed views), and only
-            once the account has turned the one-tap text feature on in Emergency settings. */}
-        {latestReading && alertPrefs.emergencyAlertsEnabled && alertPrefs.oneTapTextEnabled === true &&
-          !caregiverSession && !isViewingLinkedPatient && emergencyContacts.length > 0 &&
-          (latestReading.glucose < alertPrefs.lowThreshold || latestReading.glucose > alertPrefs.highThreshold) && (
-            <View style={[styles.section, styles.emergencyBanner, { backgroundColor: withAlpha(T.color.coral, 0.1), borderColor: withAlpha(T.color.coral, 0.4) }]}>
-              <View style={styles.emergencyTop}>
-                <Feather name="phone-call" size={15} color={T.color.coral} />
-                <Text style={[styles.emergencyTitle, { color: T.color.coral }]}>Emergency Alert Ready</Text>
-              </View>
-              <Text style={[styles.bannerMessage, { color: c.textSecondary }]}>
-                Glucose is {latestReading.glucose < alertPrefs.lowThreshold ? "critically low" : "critically high"} — tap to alert your emergency contact{emergencyContacts.length > 1 ? "s" : ""}.
-              </Text>
-              <View style={styles.emergencyList}>
-                {/* One-tap target chosen in Emergency Contacts → show ONLY that contact's button;
-                    with none chosen, every contact keeps a button (legacy behavior). */}
-                {(emergencyContacts.some((c) => c.primary)
-                  ? emergencyContacts.filter((c) => c.primary)
-                  : emergencyContacts
-                ).map((c) => (
-                  <Pressable
-                    key={c.id}
-                    style={({ pressed }) => [styles.emergencyBtn, { backgroundColor: T.color.coral, opacity: pressed ? 0.85 : 1 }]}
-                    onPress={() => {
-                      const name = profile?.childName ?? "your child";
-                      const level = latestReading!.glucose;
-                      const status = level < alertPrefs.lowThreshold ? "DANGEROUSLY LOW" : "DANGEROUSLY HIGH";
-                      const msg = `🚨 GLUCO GUARDIAN ALERT: ${name}'s blood sugar is ${status} at ${level} mg/dL. Please check on them immediately!`;
-                      const url = Platform.OS === "ios"
-                        ? `sms:${c.phone}&body=${encodeURIComponent(msg)}`
-                        : `sms:${c.phone}?body=${encodeURIComponent(msg)}`;
-                      Linking.openURL(url).catch(() => Alert.alert("Could not open SMS", "Please check the phone number for " + c.name));
-                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                    }}
-                  >
-                    <Feather name="send" size={13} color="#fff" />
-                    <Text style={styles.emergencyBtnText}>Alert {c.name}</Text>
-                  </Pressable>
-                ))}
+          ) : (
+            <View style={[styles.gaugeBlock, { padding: T.space.lg }]}>
+              <View style={styles.emptyGauge}>
+                <Feather name="activity" size={30} color={c.textMuted} />
+                <Text style={[styles.emptyGaugeText, { color: c.textPrimary }]}>No readings yet</Text>
+                <Text style={[styles.emptyGaugeSub, { color: c.textSecondary }]}>
+                  {isConnected ? "Pull down to sync your CGM" : "Connect a CGM to start monitoring"}
+                </Text>
               </View>
             </View>
           )}
 
-        {/* Trend chart */}
-        {history.length > 1 && (
-          <Surface style={styles.section} padding={Math.round(T.space.lg * padScale)}>
-            <CGMChart
-              readings={history}
-              targetGlucose={targetGlucose}
-              chartHeight={Math.round(264 * padScale)}
-              paddingHorizontal={34}
-              urgentLowThreshold={alertPrefs.urgentLowThreshold}
-              lowThreshold={alertPrefs.lowThreshold}
-              highThreshold={alertPrefs.highThreshold}
-              urgentHighThreshold={alertPrefs.urgentHighThreshold}
-              onCursorActiveChange={setChartCursorActive}
-              eventMarkers={homeChartMarkers}
-              onEventMarkerPress={openHomeMarkerLog}
-            />
-          </Surface>
-        )}
+          {/* No top padding and no divider on the chart block: the gauge block above already ends with
+              its own padding, so the range toggle sits directly beneath the gauge and the two halves
+              read as one surface. */}
+          {history.length > 1 && (
+            <View style={{ paddingHorizontal: Math.round(T.space.lg * padScale), paddingBottom: Math.round(T.space.lg * padScale) }}>
+              <CGMChart
+                readings={history}
+                targetGlucose={targetGlucose}
+                chartHeight={Math.round(264 * padScale)}
+                paddingHorizontal={34}
+                urgentLowThreshold={alertPrefs.urgentLowThreshold}
+                lowThreshold={alertPrefs.lowThreshold}
+                highThreshold={alertPrefs.highThreshold}
+                urgentHighThreshold={alertPrefs.urgentHighThreshold}
+                onCursorActiveChange={setChartCursorActive}
+                eventMarkers={homeChartMarkers}
+                onEventMarkerPress={openHomeMarkerLog}
+                // 8pt either side of the digits, measured against the WINDOW edge: the chart borrows the
+                // rest of the card's side padding so the plot can grow into it.
+                axisGap={Math.round(8 * padScale)}
+                hostPaddingRight={Math.round(T.space.lg * padScale)}
+              />
+            </View>
+          )}
+
+          {hasNotices && (
+            <View style={[styles.noticeList, { paddingHorizontal: Math.round(T.space.lg * padScale), paddingBottom: Math.round(T.space.lg * padScale) }]}>
+              {/* The copy deliberately does NOT name a cause — `sessionExpired` only observes that Clerk
+                  reports signed-out while we believe otherwise, and a failed cold-start fetch looks
+                  identical to a real expiry. Describe the OBSERVABLE state and the remedy only. */}
+              {sessionExpired && (
+                <HomeNotice
+                  icon="alert-circle"
+                  color={T.color.coral}
+                  title="Sign in to keep syncing"
+                  message="This device lost its connection to your account. Readings won't update until you sign in."
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    Alert.alert(
+                      "Sign in to keep syncing",
+                      "This device lost its connection to your account. Your data is safe and nothing has been lost \u2014 but readings won't update and changes won't save until you sign in again.",
+                      [
+                        { text: "Later", style: "cancel" },
+                        { text: "Sign in", onPress: () => { void signOut().then(() => router.replace("/auth")); } },
+                      ],
+                    );
+                  }}
+                />
+              )}
+
+              {showCgmNotice && libreBannerKind && libreBannerMessage && (
+                <HomeNotice
+                  icon={libreBannerKind === "connected_no_data" ? "check-circle" : libreBannerKind === "app_auth" ? "alert-circle" : "info"}
+                  color={libreBannerKind === "connected_no_data" ? T.color.emerald : libreBannerKind === "app_auth" ? T.color.coral : T.color.amber}
+                  // The first three states are LibreLinkUp-only (see bannerKindFromSyncStatus); the rest
+                  // can happen on either service, so they name the connected one.
+                  title={
+                    libreBannerKind === "no_shared_patient"
+                      ? "No shared Libre patient"
+                      : libreBannerKind === "connected_no_data"
+                        ? "Libre connected — no readings yet"
+                        : libreBannerKind === "sharing_not_enabled"
+                          ? "LibreLinkUp sharing required"
+                          : libreBannerKind === "provider_unavailable"
+                            ? `${deviceLabel} temporarily unavailable`
+                            : libreBannerKind === "app_auth"
+                              ? "Sign in to keep syncing"
+                              : `${deviceLabel} reconnect needed`
+                  }
+                  message={libreBannerMessage}
+                  chevron={libreBannerKind === "reconnect_required" || libreBannerKind === "sharing_not_enabled" || libreBannerKind === "app_auth"}
+                  onPress={() => {
+                    if (libreBannerKind === "app_auth") {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      Alert.alert("Sign in to keep syncing", libreBannerMessage ?? "", [
+                        { text: "Later", style: "cancel" },
+                        { text: "Sign in", onPress: () => { void signOut().then(() => router.replace("/auth")); } },
+                      ]);
+                      return;
+                    }
+                    if (libreBannerKind === "reconnect_required" || libreBannerKind === "sharing_not_enabled") {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      router.push("/cgm-setup");
+                    }
+                  }}
+                />
+              )}
+
+              {showTrendNotice && (glucoseTrend === "rapidly_falling" || glucoseTrend === "rapidly_rising") && (
+                <TrendAlertBanner trend={glucoseTrend} glucose={displayGlucose} />
+              )}
+
+              {latestReading?.anomaly.warning && (
+                <HomeNotice icon="alert-triangle" color={T.color.coral} message={latestReading.anomaly.message} />
+              )}
+
+              {/* One-tap SMS: MAIN accounts only (never code sessions or borrowed views), and only once
+                  the account has turned the one-tap text feature on in Emergency settings. */}
+              {showEmergencyNotice && latestReading && (
+                <HomeNotice
+                  icon="phone-call"
+                  color={T.color.coral}
+                  title="Emergency Alert Ready"
+                  message={`Glucose is ${latestReading.glucose < alertPrefs.lowThreshold ? "critically low" : "critically high"} — tap to alert your emergency contact${emergencyContacts.length > 1 ? "s" : ""}.`}
+                >
+                  <View style={styles.emergencyList}>
+                    {/* One-tap target chosen in Emergency Contacts → show ONLY that contact's button;
+                        with none chosen, every contact keeps a button (legacy behavior). */}
+                    {(emergencyContacts.some((c) => c.primary)
+                      ? emergencyContacts.filter((c) => c.primary)
+                      : emergencyContacts
+                    ).map((c) => (
+                      <Pressable
+                        key={c.id}
+                        style={({ pressed }) => [styles.emergencyBtn, { backgroundColor: T.color.coral, opacity: pressed ? 0.85 : 1 }]}
+                        onPress={() => {
+                          const name = profile?.childName ?? "your child";
+                          const level = latestReading!.glucose;
+                          const status = level < alertPrefs.lowThreshold ? "DANGEROUSLY LOW" : "DANGEROUSLY HIGH";
+                          const msg = `🚨 GLUCO GUARDIAN ALERT: ${name}'s blood sugar is ${status} at ${level} mg/dL. Please check on them immediately!`;
+                          const url = Platform.OS === "ios"
+                            ? `sms:${c.phone}&body=${encodeURIComponent(msg)}`
+                            : `sms:${c.phone}?body=${encodeURIComponent(msg)}`;
+                          Linking.openURL(url).catch(() => Alert.alert("Could not open SMS", "Please check the phone number for " + c.name));
+                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                        }}
+                      >
+                        <Feather name="send" size={13} color="#fff" />
+                        <Text style={styles.emergencyBtnText}>Alert {c.name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </HomeNotice>
+              )}
+            </View>
+          )}
+        </Surface>
 
       </Animated.ScrollView>
 
@@ -1407,6 +1439,7 @@ export default function HomeScreen() {
         accessibilityLabel="Recent readings"
       >
         <View style={[styles.popupCard, { backgroundColor: c.card, borderColor: c.border }]}>
+          <CardShade radius={16} />
           <Text style={[styles.popupTitle, { color: c.textPrimary }]}>Recent Readings</Text>
           {recentHistory.length === 0 ? (
             <View style={styles.popupEmpty}>
@@ -1430,6 +1463,7 @@ export default function HomeScreen() {
         accessibilityLabel="Insights and recommendations"
       >
         <View style={[styles.popupCard, { backgroundColor: c.card, borderColor: c.border }]}>
+          <CardShade radius={16} />
           <Text style={[styles.popupTitle, { color: c.textPrimary }]}>
             {isMinor ? "Tips for You 💡" : "Insights & Recommendations"}
           </Text>
@@ -1465,15 +1499,31 @@ const styles = StyleSheet.create({
   },
   // iPad: cap + center the content column so it doesn't stretch across a 13" screen. No-op on phones.
   scroll: { paddingHorizontal: T.space.xl, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: T.space.xs },
+  // The pull-to-sync hint that used to sit under the header is gone; this margin is now the only
+  // space between the header and the glucose card, so it carries the breathing room itself.
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: T.space.md },
   headerText: { flex: 1 },
   /** Centered pull-to-sync helper row above the glucose summary card (page-centered, own row). */
   viewingBanner: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, marginBottom: T.space.md },
   viewingBannerText: { flex: 1, fontSize: 13, fontWeight: T.font.medium },
   viewingBannerExit: { fontSize: 13, fontWeight: T.font.bold },
-  syncHintRow: { alignItems: "center", gap: 3, marginBottom: T.space.xs },
-  syncHintLine: { fontSize: 8.25, fontWeight: T.font.regular, textAlign: "center" },
-  syncHintSub: { opacity: 0.82 },
+  /** The combined glucose card's gauge block — see the JSX for why it's one Surface now. */
+  gaugeBlock: { justifyContent: "center" },
+  noticeList: { gap: T.space.sm },
+  /** Inset notice row — the one format every alert on this page shares (see HomeNotice). */
+  notice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: T.radius.control,
+    borderWidth: 1,
+  },
+  noticeIcon: { width: 26, alignItems: "center", justifyContent: "center" },
+  noticeBody: { flex: 1, gap: 2 },
+  noticeTitle: { fontSize: 15, fontWeight: T.font.semibold },
+  noticeMessage: { fontSize: 13, fontWeight: T.font.regular, lineHeight: 18 },
   cgmChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -1505,14 +1555,13 @@ const styles = StyleSheet.create({
     borderRadius: T.radius.control,
     borderWidth: 1,
   },
-  bannerIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   bannerTitle: { fontSize: 13, fontWeight: T.font.bold, marginBottom: 2 },
   bannerMessage: { fontSize: 12, fontWeight: T.font.regular, lineHeight: 17 },
 
-  /** Tiny bottom-right shortcut on the glucose card — quiet outline pill, muted like the card's
+  /** Tiny top-right shortcut on the glucose card — quiet outline pill, muted like the card's
       secondary text, absolute so the centered gauge layout is untouched. */
   logsShortcut: {
-    position: "absolute", right: 12, bottom: 10,
+    position: "absolute", right: 12, top: 10,
     flexDirection: "row", alignItems: "center", gap: 4,
     paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, borderWidth: 1,
   },
@@ -1521,9 +1570,6 @@ const styles = StyleSheet.create({
   emptyGaugeText: { fontSize: 16, fontWeight: T.font.semibold },
   emptyGaugeSub: { fontSize: 12.5, fontWeight: T.font.regular, textAlign: "center" },
 
-  emergencyBanner: { borderRadius: T.radius.control, borderWidth: 1, padding: 14, gap: 8 },
-  emergencyTop: { flexDirection: "row", alignItems: "center", gap: 7 },
-  emergencyTitle: { fontSize: 14, fontWeight: T.font.bold },
   emergencyList: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   emergencyBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10 },
   emergencyBtnText: { fontSize: 13, fontWeight: T.font.semibold, color: "#fff" },

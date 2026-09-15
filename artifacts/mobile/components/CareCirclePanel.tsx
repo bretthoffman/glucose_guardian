@@ -34,6 +34,7 @@ import { useQuery } from "convex/react";
 import { convexErrorMessage } from "@/utils/convexError";
 import { formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
 import { applyPermissionChange } from "@/utils/carePermissions";
+import { AccentShade } from "@/components/Shade";
 
 type AccessState = { state: "ok" | "before_window" | "outside_window" | "disabled"; nextStartMs?: number };
 
@@ -753,6 +754,7 @@ export default function CareCirclePanel({
                   })
                 }
               >
+                <AccentShade radius={10} />
                 <Feather name="plus" size={14} color="#fff" />
                 <Text style={styles.primaryBtnText}>{childCodes.length > 0 ? "Add another child device" : "Generate child code"}</Text>
               </Pressable>
@@ -856,6 +858,7 @@ export default function CareCirclePanel({
                   })
                 }
               >
+                <AccentShade radius={10} />
                 <Feather name="user-plus" size={14} color="#fff" />
                 <Text style={styles.primaryBtnText}>Invite co-guardian</Text>
               </Pressable>
@@ -870,6 +873,7 @@ export default function CareCirclePanel({
                   style={({ pressed }) => [styles.primaryBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.8 : 1 }]}
                   onPress={() => shareCode(createdInvite.code, "invite")}
                 >
+                  <AccentShade radius={10} />
                   <Feather name="share" size={14} color="#fff" />
                   <Text style={styles.primaryBtnText}>Share</Text>
                 </Pressable>
@@ -982,6 +986,7 @@ export default function CareCirclePanel({
                           })
                         }
                       >
+                        <AccentShade radius={10} />
                         <Feather name="check" size={14} color="#fff" />
                         <Text style={styles.primaryBtnText}>Save changes</Text>
                       </Pressable>
@@ -1000,6 +1005,7 @@ export default function CareCirclePanel({
                   setCreatedCode(null);
                 }}
               >
+                <AccentShade radius={10} />
                 <Feather name="plus" size={14} color="#fff" />
                 <Text style={styles.primaryBtnText}>Add caregiver code</Text>
               </Pressable>
@@ -1066,6 +1072,7 @@ export default function CareCirclePanel({
                   style={({ pressed }) => [styles.primaryBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.8 : 1 }]}
                   onPress={() => shareCode(createdCode.code, "access")}
                 >
+                  <AccentShade radius={10} />
                   <Feather name="share" size={14} color="#fff" />
                   <Text style={styles.primaryBtnText}>Share</Text>
                 </Pressable>
