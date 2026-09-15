@@ -1086,14 +1086,9 @@ export default function InsulinScreen() {
               );
             })()}
           </View>
-          {dose.iobCredit > 0 && (
-            <View key="calc-note" style={[styles.calcNote, { backgroundColor: colors.backgroundTertiary }]}>
-              <Feather name="zap" size={12} color={COLORS.primary} />
-              <Text style={[styles.calcNoteText, { color: colors.textSecondary }]}>
-                Active insulin reduces only the correction — your carbs are always covered in full.
-              </Text>
-            </View>
-          )}
+          {/* No active-insulin note here: the warning at the top of the page (and the on-board bar)
+              already say it, so a second copy above the suggested dose was just noise. The pattern
+              and safety-cap notes below are different messages and stay. */}
           {Math.abs(dose.patternDelta) >= 0.005 && (
             <View key="pattern-note" style={[styles.calcNote, { backgroundColor: colors.backgroundTertiary }]}>
               <Feather name="bar-chart-2" size={12} color={COLORS.primary} />
@@ -1111,7 +1106,16 @@ export default function InsulinScreen() {
             </View>
           )}
 
-          <View key="suggest" style={[styles.suggestCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {/* A note sits 10 below the calc window (calcNote.marginTop); when one is showing, the
+              suggested dose sits the same 10 below the note — not the full section gap. */}
+          <View
+            key="suggest"
+            style={[
+              styles.suggestCard,
+              (Math.abs(dose.patternDelta) >= 0.005 || dose.cappedAtMax) && { marginTop: CALC_NOTE_GAP },
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
             <CardShade radius={16} />
             {/* Suggested Dose + editable badge */}
             <View style={styles.suggestTotalRow}>
@@ -1523,6 +1527,8 @@ function PredictionStrength({
  * came before it. No negative-margin cancelling, no gap that depends on which sections are showing.
  */
 const SECTION_GAP = 16;
+/** Gap around a note under the calc window (pattern / safety-cap): above it, and below it when shown. */
+const CALC_NOTE_GAP = 10;
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
@@ -1583,7 +1589,7 @@ const styles = StyleSheet.create({
   opValue: { fontSize: 15, fontWeight: "800", textAlign: "center", alignSelf: "stretch" },
   /** Third row inside each piece: the live input value, title-grey and smaller than the value. */
   opSub: { fontSize: 9.5, fontWeight: "600", textAlign: "center", alignSelf: "stretch" },
-  calcNote: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, borderRadius: 10, marginTop: 10 },
+  calcNote: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, borderRadius: 10, marginTop: CALC_NOTE_GAP },
   calcNoteText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 17 },
 
   // ── Collapsible "Your Dose Breakdown" ──

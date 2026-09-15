@@ -49,7 +49,7 @@ import {
   type NotificationPermissionStatus,
 } from "@/services/notifications";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
-import { AccentShade, CardShade, ControlShade, ScreenShade } from "@/components/Shade";
+import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
 import {
   MEAL_BUCKETS,
   MEAL_BUCKET_HOURS,
@@ -894,6 +894,7 @@ export default function DashboardScreen() {
           accessibilityLabel="Notifications"
         >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <CardShade radius={16} />
           <Text style={[styles.cardTitle, { color: colors.text }]}>Notifications</Text>
           <Text style={[styles.cardSub, { color: colors.textSecondary }]}>
             Alert switches apply to this device — each device in the circle sets its own.
@@ -955,6 +956,7 @@ export default function DashboardScreen() {
                       setWaitWindowOpen(true);
                     }}
                   >
+                    <TintShade color={COLORS.warning} radius={8} />
                     <Feather name="clock" size={12} color={COLORS.warning} />
                     <Text style={[styles.chooseSoundBtnText, { color: COLORS.warning }]}>Wait Window</Text>
                   </Pressable>
@@ -967,6 +969,7 @@ export default function DashboardScreen() {
                   style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("urgent"); }}
                 >
+                  <TintShade color={COLORS.primary} radius={8} />
                   <Feather name="music" size={12} color={COLORS.primary} />
                   <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.urgent)}</Text>
                 </Pressable>
@@ -986,6 +989,7 @@ export default function DashboardScreen() {
                   style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("glucoseHigh"); }}
                 >
+                  <TintShade color={COLORS.primary} radius={8} />
                   <Feather name="music" size={12} color={COLORS.primary} />
                   <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.glucoseHigh ?? alertSounds.glucose)}</Text>
                 </Pressable>
@@ -1005,6 +1009,7 @@ export default function DashboardScreen() {
                   style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("glucoseLow"); }}
                 >
+                  <TintShade color={COLORS.primary} radius={8} />
                   <Feather name="music" size={12} color={COLORS.primary} />
                   <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.glucoseLow ?? alertSounds.glucose)}</Text>
                 </Pressable>
@@ -1024,6 +1029,7 @@ export default function DashboardScreen() {
                   style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("riseFast"); }}
                 >
+                  <TintShade color={COLORS.primary} radius={8} />
                   <Feather name="music" size={12} color={COLORS.primary} />
                   <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.riseFast)}</Text>
                 </Pressable>
@@ -1043,6 +1049,7 @@ export default function DashboardScreen() {
                   style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("fallFast"); }}
                 >
+                  <TintShade color={COLORS.primary} radius={8} />
                   <Feather name="music" size={12} color={COLORS.primary} />
                   <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>Sound: {soundLabelFor(alertSounds.fallFast)}</Text>
                 </Pressable>
@@ -1103,6 +1110,7 @@ export default function DashboardScreen() {
                   style={({ pressed }) => [styles.chooseSoundBtn, { backgroundColor: COLORS.primary + "18", opacity: pressed ? 0.7 : 1 }]}
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSoundPickerFor("messages"); }}
                 >
+                  <TintShade color={COLORS.primary} radius={8} />
                   <Feather name="music" size={12} color={COLORS.primary} />
                   <Text style={[styles.chooseSoundBtnText, { color: COLORS.primary }]}>
                     {messagesLocked ? "Message Sound" : "Sound"}: {soundLabelFor(alertSounds.messages)}
@@ -1152,6 +1160,7 @@ export default function DashboardScreen() {
                       style={({ pressed }) => [styles.emergencySettingsBtn, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
                       onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEmergencySettingsOpen(true); }}
                     >
+                      <ControlShade radius={8} />
                       <Feather name="settings" size={11} color={colors.textSecondary} />
                       <Text style={[styles.emergencySettingsBtnText, { color: colors.textSecondary }]}>Settings</Text>
                     </Pressable>
@@ -1257,6 +1266,7 @@ export default function DashboardScreen() {
         >
           <Pressable style={styles.emergencySettingsBackdrop} onPress={() => { stopAlertSoundPreview(); setSoundPickerFor(null); }}>
             <Pressable style={[styles.emergencySettingsCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => {}}>
+              <CardShade radius={16} />
               <Text style={[styles.cardTitle, { color: colors.text }]}>
                 {soundPickerFor === "glucoseHigh"
                   ? "High Glucose Sound"
@@ -1322,6 +1332,7 @@ export default function DashboardScreen() {
         <Modal visible={waitWindowOpen} transparent animationType="fade" onRequestClose={() => { commitWaitMinutes(); setWaitWindowOpen(false); }}>
           <Pressable style={styles.emergencySettingsBackdrop} onPress={() => { commitWaitMinutes(); setWaitWindowOpen(false); }}>
             <Pressable style={[styles.emergencySettingsCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => {}}>
+              <CardShade radius={16} />
               <ToggleRow
                 label="Wait Window"
                 description="Hold your caregivers' urgent glucose alert while you confirm you're okay — below 35 or above 350 mg/dL always sends immediately"
@@ -1359,6 +1370,7 @@ export default function DashboardScreen() {
         <Modal visible={emergencySettingsOpen} transparent animationType="fade" onRequestClose={() => setEmergencySettingsOpen(false)}>
           <Pressable style={styles.emergencySettingsBackdrop} onPress={() => { commitWaitMinutes(); setEmergencySettingsOpen(false); }}>
             <Pressable style={[styles.emergencySettingsCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => {}}>
+              <CardShade radius={16} />
               <Text style={[styles.cardTitle, { color: colors.text }]}>Emergency Alert Settings</Text>
               <ToggleRow
                 label="One-Tap Text"
@@ -1388,6 +1400,7 @@ export default function DashboardScreen() {
           accessibilityLabel="Alert Thresholds"
         >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <CardShade radius={16} />
           <View style={styles.cardHeader}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.cardTitle, { color: colors.text }]}>Alert Thresholds</Text>
@@ -1466,12 +1479,14 @@ export default function DashboardScreen() {
                     style={({ pressed }) => [styles.threshCancelBtn, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
                     onPress={() => setEditingThresholds(false)}
                   >
+                    <ControlShade radius={11} />
                     <Text style={[styles.threshCancelBtnText, { color: colors.textSecondary }]}>Cancel</Text>
                   </Pressable>
                 </View>
               )}
               {!editingThresholds && (
                 <View style={[styles.threshLegend, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+                  <ControlShade radius={10} />
                   <Feather name="info" size={12} color={colors.textMuted} />
                   <Text style={[styles.threshLegendText, { color: colors.textMuted }]}>
                     {isCaregiverViewingChild
@@ -1493,6 +1508,7 @@ export default function DashboardScreen() {
           accessibilityLabel="Emergency Contacts"
         >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <CardShade radius={16} />
           <View style={styles.cardHeader}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.cardTitle, { color: colors.text }]}>Emergency Contacts</Text>
@@ -1515,6 +1531,7 @@ export default function DashboardScreen() {
 
           {emergencyContacts.length === 0 && !addingContact && (
             <View style={[styles.emptyContacts, { backgroundColor: colors.backgroundTertiary }]}>
+              <ControlShade radius={12} />
               <Feather name="users" size={22} color={colors.textMuted} />
               <Text style={[styles.emptyContactsText, { color: colors.textMuted }]}>
                 {isCaregiverViewingChild
@@ -1547,6 +1564,7 @@ export default function DashboardScreen() {
 
           {addingContact && (
             <View style={[styles.addContactForm, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+              <ControlShade radius={14} />
               <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Name *</Text>
               <TextInput
                 style={[styles.smallInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
@@ -1592,6 +1610,7 @@ export default function DashboardScreen() {
           )}
 
           <View style={[styles.alertNote, { backgroundColor: COLORS.warning + "12", borderColor: COLORS.warning + "30" }]}>
+            <TintShade color={COLORS.warning} radius={10} />
             <Feather name="info" size={13} color={COLORS.warning} />
             <Text style={[styles.alertNoteText, { color: colors.textSecondary }]}>
               Tapping "Send Alert" opens your phone's SMS app with a pre-written emergency message ready to send.
@@ -1613,8 +1632,8 @@ export default function DashboardScreen() {
           <Text style={[styles.cardTitle, { color: colors.text }]}>A1C</Text>
           <A1CEstimateCard embedded />
           <View style={[styles.statsGrid, { marginBottom: 0 }]}>
-            <StatCard label="Avg Glucose" value={avgGlucose > 0 ? `${avgGlucose}` : "—"} unit="mg/dL" icon="activity" color={COLORS.primary} colors={colors} inset />
-            <StatCard label="Time in Range" value={history.length > 0 ? `${inRangePercent}%` : "—"} unit="80-180 mg/dL" icon="target" color={inRangePercent >= 70 ? COLORS.success : COLORS.warning} colors={colors} inset />
+            <StatCard label="Avg Glucose" value={avgGlucose > 0 ? `${avgGlucose}` : "—"} unit="mg/dL" icon="activity" color={COLORS.primary} colors={colors} />
+            <StatCard label="Time in Range" value={history.length > 0 ? `${inRangePercent}%` : "—"} unit="80-180 mg/dL" icon="target" color={inRangePercent >= 70 ? COLORS.success : COLORS.warning} colors={colors} />
           </View>
         </View>
         </DashboardSectionModal>
@@ -1625,6 +1644,7 @@ export default function DashboardScreen() {
           accessibilityLabel="Insulin Settings"
         >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <CardShade radius={16} />
           <View style={styles.cardHeader}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>Insulin Settings</Text>
             {/* Owner-only: linked co-guardians and a nurse viewing a child see the values read-only. */}
@@ -1649,6 +1669,7 @@ export default function DashboardScreen() {
                 hitSlop={8}
               >
                 <View style={[styles.editBtn, { backgroundColor: editing ? COLORS.primary : colors.backgroundTertiary }]}>
+                  {editing ? <AccentShade radius={8} /> : <ControlShade radius={8} />}
                   <Feather name={editing ? "check" : "edit-2"} size={15} color={editing ? "#fff" : colors.text} />
                   <Text style={[styles.editBtnText, { color: editing ? "#fff" : colors.text }]}>
                     {editing ? "Save" : "Edit"}
@@ -1659,6 +1680,7 @@ export default function DashboardScreen() {
           </View>
           {settingsReadOnly && (
             <View style={[styles.threshLegend, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, marginBottom: 10 }]}>
+              <ControlShade radius={10} />
               <Feather name="users" size={12} color={colors.textMuted} />
               <Text style={[styles.threshLegendText, { color: colors.textMuted }]}>
                 {isCaregiverViewingChild
@@ -1684,6 +1706,7 @@ export default function DashboardScreen() {
                         { backgroundColor: editCarbUnit === u ? COLORS.primary + "18" : colors.backgroundTertiary, borderColor: editCarbUnit === u ? COLORS.primary : colors.border },
                       ]}
                     >
+                      {editCarbUnit === u ? <TintShade color={COLORS.primary} radius={8} /> : <ControlShade radius={8} />}
                       <Text style={[styles.carbUnitToggleBtnText, { color: editCarbUnit === u ? COLORS.primary : colors.textMuted }]}>
                         {u === "full" ? "1 unit" : "½ unit"}
                       </Text>
@@ -1808,6 +1831,7 @@ export default function DashboardScreen() {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                           }}
                         >
+                          {selected ? <TintShade color={COLORS.accent} radius={12} /> : <ControlShade radius={12} />}
                           {selected && <Feather name="check" size={11} color={COLORS.accent} />}
                           <View>
                             <Text style={[styles.insulinChipName, { color: selected ? COLORS.accent : colors.text }]}>{opt.name}</Text>
@@ -1836,6 +1860,7 @@ export default function DashboardScreen() {
           accessibilityLabel="Download Patient Logs"
         >
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <CardShade radius={16} />
             <Text style={[styles.cardTitle, { color: colors.text }]}>Download Patient Logs</Text>
             <Text style={[styles.shareNote, { color: colors.textSecondary, marginBottom: 12 }]}>
               Select which records to include, then download as a text export or a full formatted PDF report.
@@ -1865,6 +1890,7 @@ export default function DashboardScreen() {
               onPress={downloadSelectedLogs}
               disabled={isSharing || isGeneratingPDF || (!dlBSLogs && !dlFoodLogs && !dlInsulinLogs && !dlA1C)}
             >
+              <ControlShade radius={14} />
               <Feather name="download" size={16} color={colors.text} />
               <Text style={[styles.shareBtnText, { color: colors.text }]}>{isSharing ? "Exporting…" : "Export Selected (.txt)"}</Text>
             </Pressable>
@@ -1874,6 +1900,7 @@ export default function DashboardScreen() {
               onPress={downloadFullPDF}
               disabled={isSharing || isGeneratingPDF}
             >
+              <AccentShade color="#6366F1" radius={14} />
               <Feather name="file-text" size={16} color="#fff" />
               <Text style={styles.shareBtnText}>{isGeneratingPDF ? "Building PDF…" : "Download Full PDF Report"}</Text>
             </Pressable>
@@ -1891,6 +1918,7 @@ export default function DashboardScreen() {
           accessibilityLabel="Doctor Office"
         >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <CardShade radius={16} />
           <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor Office</Text>
           {!isChildMode && !caregiverSession && (
             <>
@@ -1973,6 +2001,7 @@ export default function DashboardScreen() {
                           Linking.openURL(`tel:${profile.doctorPhone}`);
                         }}
                       >
+                        <TintShade color={COLORS.success} radius={10} />
                         <Feather name="phone" size={14} color={COLORS.success} />
                         <Text style={[styles.outlineBtnText, { color: COLORS.success }]}>Call Doctor</Text>
                       </Pressable>
@@ -1987,6 +2016,7 @@ export default function DashboardScreen() {
             onPress={generateReport}
             disabled={isSharing}
           >
+            <AccentShade color={COLORS.accent} radius={14} />
             <Feather name="share-2" size={16} color="#fff" />
             <Text style={styles.shareBtnText}>{isSharing ? "Generating..." : "Share Report with Doctor"}</Text>
           </Pressable>
@@ -2001,6 +2031,7 @@ export default function DashboardScreen() {
           accessibilityLabel="Doctor Code"
         >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <CardShade radius={16} />
           {/* First section in its own window now, so no rule above it. */}
           <View style={[styles.accessSection, { borderColor: colors.border, borderTopWidth: 0, paddingTop: 0 }]}>
             <View style={styles.accessSectionHeader}>
@@ -2039,12 +2070,14 @@ export default function DashboardScreen() {
                   Alert.alert("Doctor Code Created", `Your doctor code is:\n\n${code}\n\nShare this ONLY with your verified doctor. They enter it on the login screen to access editing rights.`, [{ text: "OK" }]);
                 }}
               >
+                <TintShade color="#6366F1" radius={10} />
                 <Feather name="plus" size={14} color="#6366F1" />
                 <Text style={[styles.outlineBtnText, { color: "#6366F1" }]}>Generate Doctor Code</Text>
               </Pressable>
               </>
             ) : (
               <View style={[styles.caregiverCodeDisplay, { backgroundColor: "#6366F1" + "0A", borderColor: "#6366F1" + "30" }]}>
+                <TintShade color="#6366F1" radius={12} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.caregiverCodeLabel, { color: colors.textMuted }]}>Active code</Text>
                   <Text style={[styles.caregiverCodeValue, { color: colors.text }]}>
@@ -2061,6 +2094,7 @@ export default function DashboardScreen() {
                     style={({ pressed }) => [styles.guardianBtn, { backgroundColor: "#6366F1" + "15", opacity: pressed ? 0.7 : 1 }]}
                     onPress={() => { Alert.alert("Doctor Code", `Share this ONLY with your verified doctor:\n\n${profile.doctorCode}\n\nThey enter it on the login screen.`, [{ text: "OK" }]); }}
                   >
+                    <TintShade color="#6366F1" radius={10} />
                     <Feather name="share-2" size={14} color="#6366F1" />
                   </Pressable>
                   {/* Rotating the shared code is owner-only — a member device only shares it. */}
@@ -2073,6 +2107,7 @@ export default function DashboardScreen() {
                       ]);
                     }}
                   >
+                    <TintShade color={COLORS.danger} radius={10} />
                     <Feather name="refresh-cw" size={14} color={COLORS.danger} />
                   </Pressable>
                   )}
@@ -2152,6 +2187,7 @@ export default function DashboardScreen() {
         >
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setManageLogsOpen(false)} accessibilityLabel="Close manage logs" />
           <View style={[styles.manageCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <CardShade radius={16} />
             <View style={styles.manageCardHeader}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[styles.cardTitle, { color: colors.text }]}>Activity Log</Text>
@@ -2206,6 +2242,7 @@ export default function DashboardScreen() {
                   style={({ pressed }) => [styles.dangerBtnSmall, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : foodLog.length === 0 ? 0.4 : 1 }]}
                   onPress={promptClearFood}
                 >
+                  <ControlShade radius={10} />
                   <Feather name="trash-2" size={13} color={COLORS.danger} />
                   <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear Meals</Text>
                 </Pressable>
@@ -2214,6 +2251,7 @@ export default function DashboardScreen() {
                   style={({ pressed }) => [styles.dangerBtnSmall, { borderColor: COLORS.danger + "50", backgroundColor: colors.backgroundTertiary, opacity: pressed ? 0.8 : insulinLog.length === 0 ? 0.4 : 1 }]}
                   onPress={promptClearInsulin}
                 >
+                  <ControlShade radius={10} />
                   <Feather name="trash-2" size={13} color={COLORS.danger} />
                   <Text style={[styles.dangerBtnText, { color: COLORS.danger }]}>Clear Insulin</Text>
                 </Pressable>
@@ -2271,6 +2309,7 @@ function ContactRow({
 }) {
   return (
     <View style={[styles.contactRow, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+      <ControlShade radius={12} />
       <View style={[styles.contactAvatar, { backgroundColor: COLORS.primary + "20" }]}>
         <Text style={[styles.contactAvatarText, { color: COLORS.primary }]}>
           {contact.name.charAt(0).toUpperCase()}
@@ -2300,6 +2339,7 @@ function ContactRow({
         style={({ pressed }) => [styles.contactAlertBtn, { backgroundColor: COLORS.danger + "18", opacity: pressed ? 0.7 : 1 }]}
         onPress={onSendAlert}
       >
+        <TintShade color={COLORS.danger} radius={8} />
         <Feather name="send" size={13} color={COLORS.danger} />
         <Text style={[styles.contactAlertBtnText, { color: COLORS.danger }]}>Alert</Text>
       </Pressable>
@@ -2312,9 +2352,10 @@ function ContactRow({
   );
 }
 
-function StatCard({ label, value, unit, icon, color, colors, inset = false }: { label: string; value: string; unit: string; icon: React.ComponentProps<typeof Feather>["name"]; color: string; colors: (typeof Colors)["light"]; /** Inside a window: inset tile fill instead of card fill. */ inset?: boolean }) {
+function StatCard({ label, value, unit, icon, color, colors }: { label: string; value: string; unit: string; icon: React.ComponentProps<typeof Feather>["name"]; color: string; colors: (typeof Colors)["light"] }) {
   return (
-    <View style={[styles.statCard, { backgroundColor: inset ? colors.backgroundTertiary : colors.card, borderColor: colors.border }]}>
+    <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <CardShade radius={14} />
       <View style={[styles.statIcon, { backgroundColor: color + "20" }]}>
         <Feather name={icon} size={16} color={color} />
       </View>
@@ -2328,6 +2369,7 @@ function StatCard({ label, value, unit, icon, color, colors, inset = false }: { 
 function ThresholdCell({ label, value, color, editing, onChangeText, colors }: { label: string; value: string; color: string; editing: boolean; onChangeText: (v: string) => void; colors: (typeof Colors)["light"] }) {
   return (
     <View style={[styles.thresholdCell, { backgroundColor: color + "12", borderColor: color + "40" }]}>
+      <TintShade color={color} radius={12} />
       <Text style={[styles.thresholdCellLabel, { color }]}>{label}</Text>
       {editing ? (
         <TextInput

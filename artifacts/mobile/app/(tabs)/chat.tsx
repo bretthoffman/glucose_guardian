@@ -757,8 +757,14 @@ function MessageBubble({
           isKidMode && styles.kidBubble,
         ]}
       >
-        {/* radius 0: the bubble clips its own shade (overflow hidden), so the small tail corner shades too. */}
-        {isUser ? <AccentShade radius={0} /> : <ControlShade radius={0} />}
+        {/* The shade clips itself to the bubble's shape: its corner radius, with the 4pt tail corner
+            matched. (Clipping via overflow:hidden on the bubble squared the corners on iOS — a bordered
+            view clips its children to a plain rectangle there.) */}
+        {isUser ? (
+          <AccentShade radius={isKidMode ? 22 : 18} style={{ borderBottomRightRadius: 4 }} />
+        ) : (
+          <ControlShade radius={isKidMode ? 22 : 18} style={{ borderBottomLeftRadius: 3 }} />
+        )}
         <Text
           style={[
             isKidMode ? styles.kidBubbleText : styles.bubbleText,
@@ -817,8 +823,8 @@ const styles = StyleSheet.create({
   userBubbleWrapper: { justifyContent: "flex-end" },
   aiBubbleWrapper: { justifyContent: "flex-start" },
   avatarTiny: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  // overflow hidden so the shade bands take the bubble's exact shape, asymmetric tail corner included.
-  bubble: { maxWidth: "80%", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, gap: 4, overflow: "hidden" },
+  // No overflow:hidden here — see the shade note in MessageBubble.
+  bubble: { maxWidth: "80%", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, gap: 4 },
   userBubble: { borderBottomRightRadius: 4 },
   aiBubble: { borderBottomLeftRadius: 4, borderWidth: 1 },
   bubbleText: { fontSize: 15, fontWeight: "400", lineHeight: 22 },

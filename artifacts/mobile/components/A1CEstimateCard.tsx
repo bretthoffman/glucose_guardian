@@ -11,7 +11,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import type { Id } from "../../../convex/_generated/dataModel";
 import Colors, { COLORS } from "@/constants/colors";
+import { T } from "@/constants/theme";
 import { useTheme } from "@/context/ThemeContext";
+import { AccentShade, CardShade, ControlShade } from "@/components/Shade";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
@@ -35,11 +37,15 @@ import {
 const LOW_THRESH = 70;
 const HIGH_THRESH = 180;
 
-function A1CStat({ label, value, color }: { label: string; value: string; color: string }) {
+/** One of the four stat windows under the A1C value: its own bordered, shaded window. */
+function A1CStat({ label, value, color, colors }: { label: string; value: string; color: string; colors: (typeof Colors)["light"] }) {
   return (
-    <View style={{ flex: 1, alignItems: "center", gap: 2 }}>
+    <View style={[styles.a1cStatWin, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <CardShade radius={12} />
       <Text style={[styles.a1cStatValue, { color }]}>{value}</Text>
-      <Text style={styles.a1cStatLabel}>{label}</Text>
+      <Text style={[styles.a1cStatLabel, { color: colors.textMuted }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -56,7 +62,7 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
   const eStats = embedded ? { paddingHorizontal: 0 } : null;
   const eInsight = embedded ? { marginHorizontal: 0, marginBottom: 0 } : null;
   const eCoverage = embedded ? { paddingHorizontal: 0 } : null;
-  const { scheme } = useTheme();
+  const { scheme, colors: tc } = useTheme();
   const colors = scheme === "dark" ? Colors.dark : Colors.light;
   const { history, cgmSyncSuccessTick } = useGlucose();
   const { account, caregiverSession, foodLog, insulinLog } = useAuth();
@@ -146,19 +152,26 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
 
   return (
     <View>
-      {/* ── Time Range Selector ── */}
-      <View style={styles.rangeRow}>
-        {A1C_RANGES.map((r) => (
-          <Pressable
-            key={r}
-            style={[styles.rangeBtn, { backgroundColor: timeRange === r ? COLORS.primary : colors.backgroundTertiary }]}
-            onPress={() => setTimeRange(r)}
-          >
-            <Text style={[styles.rangeBtnText, { color: timeRange === r ? "#fff" : colors.textSecondary }]}>
-              {r}D
-            </Text>
-          </Pressable>
-        ))}
+      {/* ── Time Range Selector — the same segmented bar toggle as the chart's 3H/6H/12H/24H:
+          shaded track, the selected segment a shaded accent pill. ── */}
+      <View style={[styles.rangeSeg, { backgroundColor: tc.chartControlTrack, borderColor: tc.border }]}>
+        <ControlShade radius={T.radius.pill} />
+        {A1C_RANGES.map((r) => {
+          const active = timeRange === r;
+          return (
+            <Pressable
+              key={r}
+              style={[styles.rangeTab, active && { backgroundColor: tc.chartControlActive }]}
+              onPress={() => setTimeRange(r)}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+            >
+              {active && <AccentShade color={tc.chartControlActive} radius={T.radius.pill - 4} />}
+              <Text style={[styles.rangeTabText, { color: active ? tc.chartControlActiveText : tc.textMuted }]}>{r}D</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       {/* ── Estimated A1C card ── */}
@@ -191,14 +204,11 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
             </View>
           </View>
 
-          <View style={[styles.a1cStatsRow, { borderTopColor: colors.border, opacity: rangeLoading ? 0.4 : 1 }, eStats]}>
-            <A1CStat label="Time in Range" value={`${rangeStats.tir}%`} color={rangeStats.tir >= 70 ? COLORS.success : COLORS.warning} />
-            <View style={[styles.a1cDivider, { backgroundColor: colors.border }]} />
-            <A1CStat label="% High" value={`${rangeStats.pctHigh}%`} color={rangeStats.pctHigh > 25 ? COLORS.warning : COLORS.success} />
-            <View style={[styles.a1cDivider, { backgroundColor: colors.border }]} />
-            <A1CStat label="% Low" value={`${rangeStats.pctLow}%`} color={rangeStats.pctLow > 5 ? COLORS.danger : COLORS.success} />
-            <View style={[styles.a1cDivider, { backgroundColor: colors.border }]} />
-            <A1CStat label="Avg Carbs/day" value={`${rangeStats.avgCarbs}g`} color={COLORS.accent} />
+          <View style={[styles.a1cStatsRow, { opacity: rangeLoading ? 0.4 : 1 }, eStats]}>
+            <A1CStat label="Time in Range" value={`${rangeStats.tir}%`} color={rangeStats.tir >= 70 ? COLORS.success : COLORS.warning} colors={colors} />
+            <A1CStat label="% High" value={`${rangeStats.pctHigh}%`} color={rangeStats.pctHigh > 25 ? COLORS.warning : COLORS.success} colors={colors} />
+            <A1CStat label="% Low" value={`${rangeStats.pctLow}%`} color={rangeStats.pctLow > 5 ? COLORS.danger : COLORS.success} colors={colors} />
+            <A1CStat label="Avg Carbs/day" value={`${rangeStats.avgCarbs}g`} color={COLORS.accent} colors={colors} />
           </View>
 
           {!rangeLoading && rangeStats.availableDays > 0 && rangeStats.availableDays < timeRange && (
@@ -231,9 +241,9 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
 }
 
 const styles = StyleSheet.create({
-  rangeRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
-  rangeBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: "center" },
-  rangeBtnText: { fontSize: 13, fontWeight: "700" },
+  rangeSeg: { flexDirection: "row", alignItems: "center", borderRadius: T.radius.pill, padding: 3, borderWidth: 1, marginBottom: 14 },
+  rangeTab: { flex: 1, paddingVertical: 6, borderRadius: T.radius.pill - 4, alignItems: "center" },
+  rangeTabText: { fontSize: 12.5, fontWeight: T.font.semibold, letterSpacing: 0.2 },
 
   a1cCard: { borderRadius: 18, borderWidth: 1, marginBottom: 16, overflow: "hidden" },
   a1cTop: { padding: 16 },
@@ -242,10 +252,11 @@ const styles = StyleSheet.create({
   a1cValue: { fontSize: 42, fontWeight: "700" },
   a1cBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
   a1cBadgeText: { fontSize: 13, fontWeight: "700" },
-  a1cStatsRow: { flexDirection: "row", alignItems: "center", borderTopWidth: 1, padding: 14 },
-  a1cDivider: { width: 1, height: 36, marginHorizontal: 2 },
+  // Four windows in a row; the gap between them is the divider (standalone card: inset by 14).
+  a1cStatsRow: { flexDirection: "row", gap: 6, paddingHorizontal: 14, paddingBottom: 12 },
+  a1cStatWin: { flex: 1, minWidth: 0, alignItems: "center", gap: 2, paddingVertical: 10, paddingHorizontal: 4, borderRadius: 12, borderWidth: 1 },
   a1cStatValue: { fontSize: 16, fontWeight: "700" },
-  a1cStatLabel: { fontSize: 9, fontWeight: "500", color: "#888", textAlign: "center" },
+  a1cStatLabel: { fontSize: 9, fontWeight: "500", textAlign: "center" },
   a1cInsightBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, margin: 12, marginTop: 0, borderRadius: 10 },
   a1cInsightText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 18 },
   a1cLoadingText: { fontSize: 12, fontWeight: "500" },

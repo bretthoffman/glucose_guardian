@@ -507,14 +507,16 @@ export function CGMChart({
           <Svg width={plotW} height={H}>
             <Defs>
               <SvgLinearGradient id="devUp" x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
-                <Stop offset="0" stopColor={T.color.emerald} stopOpacity={0.3} />
-                <Stop offset={tMid} stopColor={T.color.emerald} stopOpacity={0.04} />
-                <Stop offset="1" stopColor={T.color.emerald} stopOpacity={0.04} />
+                {/* Zone fills a touch more solid (0.30→0.34 at the far edge, 0.04→0.06 by the target
+                    line) so the green/coral areas read on the page without becoming a block. */}
+                <Stop offset="0" stopColor={T.color.emerald} stopOpacity={0.34} />
+                <Stop offset={tMid} stopColor={T.color.emerald} stopOpacity={0.06} />
+                <Stop offset="1" stopColor={T.color.emerald} stopOpacity={0.06} />
               </SvgLinearGradient>
               <SvgLinearGradient id="devDown" x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
-                <Stop offset="0" stopColor={T.color.coral} stopOpacity={0.04} />
-                <Stop offset={tMid} stopColor={T.color.coral} stopOpacity={0.04} />
-                <Stop offset="1" stopColor={T.color.coral} stopOpacity={0.3} />
+                <Stop offset="0" stopColor={T.color.coral} stopOpacity={0.06} />
+                <Stop offset={tMid} stopColor={T.color.coral} stopOpacity={0.06} />
+                <Stop offset="1" stopColor={T.color.coral} stopOpacity={0.34} />
               </SvgLinearGradient>
               {plotPalette.map((col) => (
                 <SvgLinearGradient key={`vg-${col}`} id={`vg-${col.slice(1)}`} x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">

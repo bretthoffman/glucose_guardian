@@ -164,7 +164,11 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
                       ]}
                     >
                       {/* Same shading as the AI chat bubbles: accent on mine (in whichever color it is), control on theirs. */}
-                      {isMine ? <AccentShade color={isDoctor ? "#6366F1" : COLORS.primary} radius={0} /> : <ControlShade radius={0} />}
+                      {isMine ? (
+                        <AccentShade color={isDoctor ? "#6366F1" : COLORS.primary} radius={18} style={{ borderBottomRightRadius: 4 }} />
+                      ) : (
+                        <ControlShade radius={18} style={{ borderBottomLeftRadius: 3 }} />
+                      )}
                       <Text style={[styles.bubbleText, { color: isMine ? "#fff" : colors.text }]}>
                         {msg.text}
                       </Text>
@@ -253,7 +257,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 18,
-    overflow: "hidden", // the shade takes the bubble's exact shape, tail corner included
+    // No overflow:hidden — the shade clips itself (a bordered view would clip to a rectangle on iOS).
   },
   bubbleText: { fontSize: 14, fontWeight: "400", lineHeight: 20 },
   timeLabel: { fontSize: 10, fontWeight: "400", marginTop: 3, marginHorizontal: 4 },

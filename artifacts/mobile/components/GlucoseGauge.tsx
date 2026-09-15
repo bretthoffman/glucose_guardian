@@ -406,8 +406,10 @@ export function GlucoseGauge({
             height: innerSize,
             borderRadius: innerSize / 2,
             // Opaque base: the ring beneath is now a filled disc, so a translucent tint alone would
-            // show ring color through. The card color is what used to show through the old tint.
-            backgroundColor: c.card,
+            // show ring color through. The base carries the disc's tint itself (card blended 12%
+            // toward the status color) so the centered TintShade ramp has a middle to center on —
+            // the old floor-based ramp supplied the whole tint and climbed hard from it.
+            backgroundColor: /^#[0-9a-fA-F]{6}$/.test(status.color) ? mixHex(c.card, status.color, 0.12) : c.card,
             overflow: "hidden",
             alignItems: "center",
             justifyContent: "center",
@@ -415,7 +417,8 @@ export function GlucoseGauge({
         >
           {/* The disc's OWN ramp in the status color — independent of the ring's — replacing the
               old flat 12% tint with one that eases from a touch stronger at the top to lighter below. */}
-          <TintShade color={status.color} radius={innerSize / 2} from={0.2} to={0.06} />
+          {/* Same centered, gentle ramp as every other tinted surface — the disc's own tint is the middle. */}
+          <TintShade color={status.color} radius={innerSize / 2} />
           <Text style={[styles.value, TYPE.display, { color: c.textPrimary, fontSize: size * 0.27 * CONTENT_COMPACT }]}>
             {noCurrentValue ? "--" : value}
           </Text>

@@ -154,7 +154,11 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
                       ]}
                     >
                       {/* Same shading as the AI chat bubbles: accent on mine, control on theirs. */}
-                      {isMine ? <AccentShade radius={0} /> : <ControlShade radius={0} />}
+                      {isMine ? (
+                        <AccentShade radius={18} style={{ borderBottomRightRadius: 4 }} />
+                      ) : (
+                        <ControlShade radius={18} style={{ borderBottomLeftRadius: 3 }} />
+                      )}
                       <Text style={[styles.bubbleText, { color: isMine ? "#fff" : colors.text }]}>{msg.text}</Text>
                     </View>
                     <Text style={[styles.timeLabel, { color: colors.textMuted, textAlign: isMine ? "right" : "left" }]}>
@@ -205,7 +209,7 @@ const styles = StyleSheet.create({
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginBottom: 6 },
   avatar: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   senderLabel: { fontSize: 10, fontWeight: "500", marginBottom: 2, marginLeft: 2 },
-  bubble: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, overflow: "hidden" }, // shade takes the bubble's shape
+  bubble: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 }, // the shade clips itself — no overflow:hidden
   bubbleText: { fontSize: 14, fontWeight: "400", lineHeight: 20 },
   timeLabel: { fontSize: 10, fontWeight: "400", marginTop: 3, marginHorizontal: 4 },
   inputBar: { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingHorizontal: 16, paddingTop: 12, borderTopWidth: 1 },

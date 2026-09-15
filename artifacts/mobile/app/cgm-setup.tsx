@@ -442,7 +442,7 @@ export default function CGMSetupScreen() {
             { backgroundColor: COLORS.primary + "10", borderColor: COLORS.primary + "30" },
           ]}
         >
-          <TintShade color={COLORS.primary} radius={12} from={0.12} />
+          <TintShade color={COLORS.primary} radius={12} />
           <Feather name="lock" size={14} color={COLORS.primary} />
           <Text style={[styles.infoText, { color: colors.textSecondary }]}>
             {selectedType === "dexcom"

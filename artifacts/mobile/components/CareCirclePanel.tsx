@@ -34,7 +34,7 @@ import { useQuery } from "convex/react";
 import { convexErrorMessage } from "@/utils/convexError";
 import { formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
 import { applyPermissionChange } from "@/utils/carePermissions";
-import { AccentShade } from "@/components/Shade";
+import { AccentShade, CardShade, ControlShade, TintShade } from "@/components/Shade";
 
 type AccessState = { state: "ok" | "before_window" | "outside_window" | "disabled"; nextStartMs?: number };
 
@@ -171,6 +171,7 @@ function AccessChip({ accessState, colors }: { accessState: AccessState; colors:
       : ["Window ended", COLORS.warning];
   return (
     <View style={[styles.chip, { backgroundColor: color + "1E" }]}>
+      <TintShade color={color} radius={8} />
       <Text style={[styles.chipText, { color }]}>{label}</Text>
     </View>
   );
@@ -373,6 +374,7 @@ function ScheduleEditor({
                 }
               }}
             >
+              {active ? <AccentShade radius={16} /> : <ControlShade radius={16} />}
               <Text style={[styles.modeChipText, { color: active ? "#fff" : colors.textSecondary }]}>{label}</Text>
             </Pressable>
           );
@@ -399,6 +401,7 @@ function ScheduleEditor({
                     onChange({ mode: "window", startMs: now, endMs: now + h * 3_600_000 });
                   }}
                 >
+                  {active ? <AccentShade radius={14} /> : <ControlShade radius={14} />}
                   <Text style={[styles.modeChipText, { color: active ? "#fff" : colors.textSecondary }]}>{h}h</Text>
                 </Pressable>
               );
@@ -427,6 +430,7 @@ function ScheduleEditor({
                     commitWeekly(next, startText, endText);
                   }}
                 >
+                  {active ? <AccentShade radius={17} /> : <ControlShade radius={17} />}
                   <Text style={[styles.modeChipText, { color: active ? "#fff" : colors.textSecondary }]}>{letter}</Text>
                 </Pressable>
               );
@@ -607,6 +611,7 @@ export default function CareCirclePanel({
   if (loading) {
     return (
       <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, alignItems: "center", paddingVertical: 30 }]}>
+        <CardShade radius={16} />
         <ActivityIndicator color={COLORS.primary} />
       </View>
     );
@@ -614,6 +619,7 @@ export default function CareCirclePanel({
 
   return (
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <CardShade radius={16} />
       <View style={styles.headerRow}>
         <View style={[styles.headerIcon, { backgroundColor: COLORS.primary + "15" }]}>
           <Feather name="share-2" size={20} color={COLORS.primary} />
@@ -628,6 +634,7 @@ export default function CareCirclePanel({
 
       {!!error && (
         <View style={[styles.errorBox, { backgroundColor: COLORS.dangerLight }]}>
+          <TintShade color={COLORS.danger} radius={10} />
           <Feather name="alert-circle" size={14} color={COLORS.danger} />
           <Text style={[styles.errorText, { color: COLORS.danger }]}>{error}</Text>
           <Pressable onPress={() => setError("")}>
@@ -866,6 +873,7 @@ export default function CareCirclePanel({
 
             {createdInvite && (
               <View style={[styles.resultBox, { backgroundColor: COLORS.primary + "10", borderColor: COLORS.primary + "40" }]}>
+                <TintShade color={COLORS.primary} radius={12} />
                 <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>Share this invite code — or let them scan it:</Text>
                 <Text style={[styles.codeTextBig, { color: COLORS.primary }]}>{createdInvite.code}</Text>
                 <CodeQR value={createdInvite.code} />
@@ -1054,6 +1062,7 @@ export default function CareCirclePanel({
                       })
                     }
                   >
+                    {newCodeLabel.trim() ? <AccentShade radius={10} /> : <ControlShade radius={10} />}
                     <Feather name="check" size={14} color={newCodeLabel.trim() ? "#fff" : colors.textMuted} />
                     <Text style={[styles.primaryBtnText, { color: newCodeLabel.trim() ? "#fff" : colors.textMuted }]}>Create code</Text>
                   </Pressable>
@@ -1063,6 +1072,7 @@ export default function CareCirclePanel({
 
             {createdCode && (
               <View style={[styles.resultBox, { backgroundColor: COLORS.primary + "10", borderColor: COLORS.primary + "40" }]}>
+                <TintShade color={COLORS.primary} radius={12} />
                 <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>
                   Code for {createdCode.label} — share it or let them scan:
                 </Text>
@@ -1114,6 +1124,7 @@ export default function CareCirclePanel({
                   </View>
                   {m.alreadyLinked ? (
                     <View style={[styles.chip, { backgroundColor: COLORS.success + "1E" }]}>
+                      <TintShade color={COLORS.success} radius={8} />
                       <Text style={[styles.chipText, { color: COLORS.success }]}>Linked</Text>
                     </View>
                   ) : (
@@ -1179,6 +1190,7 @@ export default function CareCirclePanel({
                   })
                 }
               >
+                <TintShade color={COLORS.primary} radius={8} />
                 <Feather name="check" size={13} color={COLORS.primary} />
                 <Text style={[styles.actionLink, { color: COLORS.primary }]}>Accept</Text>
               </Pressable>
@@ -1222,6 +1234,7 @@ export default function CareCirclePanel({
                 })
               }
             >
+              {joinCode.length === 8 ? <AccentShade radius={10} /> : <ControlShade radius={10} />}
               <Text style={[styles.primaryBtnText, { color: joinCode.length === 8 ? "#fff" : colors.textMuted }]}>Join</Text>
             </Pressable>
           </View>

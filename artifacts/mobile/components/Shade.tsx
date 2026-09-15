@@ -58,9 +58,9 @@ export function ScreenShade() {
  * smaller scale and a lighter base: the control becomes its own small lit surface instead of a flat
  * fill, and because it covers the whole padding box the host's own backgroundColor no longer matters.
  */
-export function ControlShade({ radius }: { radius: number }) {
+export function ControlShade({ radius, style }: { radius: number; style?: StyleProp<ViewStyle> }) {
   const c = useThemeColors();
-  return <Shade from={c.controlTop} to={c.controlBottom} steps={6} radius={Math.max(0, radius - 1)} />;
+  return <Shade from={c.controlTop} to={c.controlBottom} steps={6} radius={Math.max(0, radius - 1)} style={style} />;
 }
 
 /**
@@ -75,20 +75,44 @@ export function ControlShade({ radius }: { radius: number }) {
 export function TintShade({
   color,
   radius,
-  from = 0.16,
-  to = 0,
-  steps = 6,
+  from,
+  to,
+  amount = 0.04,
+  dilute = 0.25,
+  steps = 8,
 }: {
   color: string;
   radius: number;
+  /**
+   * Legacy one-way ramp: the pill's own color at alpha `from` at the top easing to `to` at the bottom,
+   * all ABOVE the host's tint. Only for the few hosts that want a strong ramp (the gauge's inner
+   * disc). Give both, or neither.
+   */
   from?: number;
   to?: number;
+  /**
+   * Default CENTERED ramp — the host's own tint is the MIDDLE of the gradient, not its floor. The top
+   * half adds a little more of the color (up to `amount`), the bottom half thins the tint back toward
+   * the surface it sits on (up to `dilute` of the card neutral). Gentle on purpose: the old floor-based
+   * ramp made the top of a tinted pill more than twice as saturated as its bottom.
+   */
+  amount?: number;
+  dilute?: number;
   steps?: number;
 }) {
-  const bands = useMemo(
-    () => Array.from({ length: steps }, (_, i) => withAlpha(color, from + (to - from) * (steps === 1 ? 0 : i / (steps - 1)))),
-    [color, from, to, steps],
-  );
+  const c = useThemeColors();
+  const bands = useMemo(() => {
+    const t = (i: number) => (steps === 1 ? 0 : i / (steps - 1));
+    if (from != null && to != null) {
+      return Array.from({ length: steps }, (_, i) => withAlpha(color, from + (to - from) * t(i)));
+    }
+    return Array.from({ length: steps }, (_, i) => {
+      const x = t(i);
+      return x < 0.5
+        ? withAlpha(color, amount * (1 - 2 * x)) // above the middle: a touch more color
+        : withAlpha(c.card, dilute * (2 * x - 1)); // below: a touch less, toward the neutral
+    });
+  }, [color, from, to, amount, dilute, steps, c.card]);
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) return null;
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: Math.max(0, radius - 1), overflow: "hidden" }]}>
@@ -106,10 +130,10 @@ export function TintShade({
  * the color as a prop so a button whose fill changes (green once a dose is logged) shades in the
  * color it currently is. Non-hex colors render nothing rather than a wrong ramp.
  */
-export function AccentShade({ color = COLORS.primary, radius }: { color?: string; radius: number }) {
+export function AccentShade({ color = COLORS.primary, radius, style }: { color?: string; radius: number; style?: StyleProp<ViewStyle> }) {
   const ok = /^#[0-9a-fA-F]{6}$/.test(color);
   return ok ? (
-    <Shade from={mixHex(color, "#FFFFFF", 0.14)} to={mixHex(color, "#000000", 0.14)} steps={6} radius={Math.max(0, radius - 1)} />
+    <Shade from={mixHex(color, "#FFFFFF", 0.14)} to={mixHex(color, "#000000", 0.14)} steps={6} radius={Math.max(0, radius - 1)} style={style} />
   ) : null;
 }
 
