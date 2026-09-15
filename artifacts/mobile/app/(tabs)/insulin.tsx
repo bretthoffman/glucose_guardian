@@ -917,6 +917,7 @@ export default function InsulinScreen() {
             <View style={styles.doseInputGroup}>
               <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>Current Time</Text>
               <View style={[styles.basalInfoBox, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+                <ControlShade radius={12} />
                 <Text style={[styles.basalInfoValue, { color: colors.text }]}>{currentTimeLabel}</Text>
               </View>
             </View>
@@ -931,6 +932,7 @@ export default function InsulinScreen() {
                 )}
               </View>
               <View style={[styles.basalInfoBox, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+                <ControlShade radius={12} />
                 <Text style={[styles.basalInfoValue, { color: latest ? glucoseColor(latest.glucose) : colors.textMuted }]}>
                   {latest ? latest.glucose : "—"}
                 </Text>
@@ -1350,6 +1352,7 @@ export default function InsulinScreen() {
                   openChat(prompt);
                 }}
               >
+                <TintShade color={COLORS.primary} radius={11} />
                 <Feather name="help-circle" size={13} color={COLORS.primary} />
                 <Text style={[styles.explainBtnText, { color: COLORS.primary }]}>Explain My Dose</Text>
               </Pressable>

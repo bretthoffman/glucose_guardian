@@ -1,4 +1,4 @@
-import React, { useId } from "react";
+import React, { useId, useState } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { mixHex } from "@/constants/theme";
@@ -26,9 +26,30 @@ type GradientStop = { offset: number; color: string; opacity?: number };
 function Gradient({ stops, radius = 0, style }: { stops: GradientStop[]; radius?: number; style?: StyleProp<ViewStyle> }) {
   // Gradient ids are looked up by string inside the SVG; make each instance's unique on the screen.
   const id = "g" + useId().replace(/[^a-zA-Z0-9]/g, "");
+  // The wrapper's measured size drives the SVG explicitly. Percentage lengths ("100%") were resolved
+  // against a stale/short canvas on some hosts (a button whose width follows its text, e.g. the
+  // insulin selector) and the gradient stopped short of the trailing edge. With the real numbers the
+  // canvas re-renders on every size change. Until the first measurement, a unit viewBox stretched to
+  // the view fills it without any percentage math.
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: "hidden" }, style]}>
-      <Svg width="100%" height="100%" style={StyleSheet.absoluteFill} pointerEvents="none">
+    <View
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: "hidden" }, style]}
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        const w = Math.ceil(width), h = Math.ceil(height);
+        setSize((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
+      }}
+    >
+      <Svg
+        style={StyleSheet.absoluteFill}
+        width={size ? size.w : undefined}
+        height={size ? size.h : undefined}
+        viewBox={size ? `0 0 ${size.w} ${size.h}` : "0 0 1 1"}
+        preserveAspectRatio="none"
+        pointerEvents="none"
+      >
         <Defs>
           <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
             {stops.map((s, i) => (
@@ -36,7 +57,7 @@ function Gradient({ stops, radius = 0, style }: { stops: GradientStop[]; radius?
             ))}
           </LinearGradient>
         </Defs>
-        <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${id})`} />
+        <Rect x="0" y="0" width={size ? size.w : 1} height={size ? size.h : 1} fill={`url(#${id})`} />
       </Svg>
     </View>
   );
