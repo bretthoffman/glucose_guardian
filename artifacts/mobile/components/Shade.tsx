@@ -1,42 +1,61 @@
-import React, { useMemo } from "react";
+import React, { useId } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import { mixHex, withAlpha } from "@/constants/theme";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+import { mixHex } from "@/constants/theme";
 import { useThemeColors } from "@/context/ThemeContext";
 import { COLORS } from "@/constants/colors";
 
 /**
- * A vertical pseudo-gradient: `steps` flat bands whose colors run from `from` (top) to `to`
- * (bottom). It exists because the shipped binary has NO gradient-capable native module, and adding
- * one can't ship over the air — while a stack of Views ships anywhere. The shading this app wants is
- * deliberately slight (a few units per channel across a whole screen), so with 8–16 bands each step
- * moves a channel by ~1 and the banding is imperceptible. Absolutely positioned, never touchable:
- * drop it in as the FIRST child of a container and everything after it paints on top.
+ * Shading primitives — every window, control, pill and accent button in the app shades through one
+ * of these. Each is a REAL vertical gradient, drawn natively by react-native-svg (a linear gradient
+ * filling a rect), so the transition is continuous: no bands, no steps, no seams.
+ *
+ * Why SVG and not a gradient view: react-native-svg is already in the shipped binary (the glucose
+ * chart draws with it), so a true gradient ships over the air to every install, today. A dedicated
+ * gradient native module would need a new binary on every device before any update could use it.
+ *
+ * Shape: the gradient is clipped by its own wrapper View (rounded to `radius`, `overflow: hidden`),
+ * so the HOST never needs `overflow: hidden` — which would clip a host's shadow, and on iOS clips a
+ * bordered view's children to a plain rectangle. Per-corner overrides (a chat bubble's tail) go in
+ * `style`. Always absolutely positioned and never touchable: drop one in as the FIRST child of a
+ * container and everything after it paints on top.
  */
+
+type GradientStop = { offset: number; color: string; opacity?: number };
+
+function Gradient({ stops, radius = 0, style }: { stops: GradientStop[]; radius?: number; style?: StyleProp<ViewStyle> }) {
+  // Gradient ids are looked up by string inside the SVG; make each instance's unique on the screen.
+  const id = "g" + useId().replace(/[^a-zA-Z0-9]/g, "");
+  return (
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: "hidden" }, style]}>
+      <Svg width="100%" height="100%" style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Defs>
+          <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            {stops.map((s, i) => (
+              <Stop key={i} offset={s.offset} stopColor={s.color} stopOpacity={s.opacity ?? 1} />
+            ))}
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${id})`} />
+      </Svg>
+    </View>
+  );
+}
+
+/** A plain two-color vertical gradient: `from` at the top blending continuously into `to` at the bottom. */
 export function Shade({
   from,
   to,
-  steps = 12,
   radius = 0,
   style,
 }: {
   from: string;
   to: string;
-  steps?: number;
-  /** Clips the bands to a rounded rect so the HOST needs no `overflow: hidden` (which would clip its shadow). */
+  /** Clips the gradient to a rounded rect so the HOST needs no `overflow: hidden`. */
   radius?: number;
   style?: StyleProp<ViewStyle>;
 }) {
-  const bands = useMemo(
-    () => Array.from({ length: steps }, (_, i) => mixHex(from, to, steps === 1 ? 0 : i / (steps - 1))),
-    [from, to, steps],
-  );
-  return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: "hidden" }, style]}>
-      {bands.map((color, i) => (
-        <View key={i} style={{ flex: 1, backgroundColor: color }} />
-      ))}
-    </View>
-  );
+  return <Gradient stops={[{ offset: 0, color: from }, { offset: 1, color: to }]} radius={radius} style={style} />;
 }
 
 /**
@@ -46,13 +65,9 @@ export function Shade({
  */
 export function ScreenShade() {
   const c = useThemeColors();
-  return <Shade from={c.screen} to={c.screenBottom} steps={16} />;
+  return <Shade from={c.screen} to={c.screenBottom} />;
 }
 
-/**
- * Window/card shade: lighter at the top, deeper at the bottom. Pass the card's own border radius;
- * the bands inset themselves by the 1px border so they never bleed past it.
- */
 /**
  * Control shade — toggle tracks and secondary (non-accent) buttons. Same idea as CardShade at a
  * smaller scale and a lighter base: the control becomes its own small lit surface instead of a flat
@@ -60,17 +75,15 @@ export function ScreenShade() {
  */
 export function ControlShade({ radius, style }: { radius: number; style?: StyleProp<ViewStyle> }) {
   const c = useThemeColors();
-  return <Shade from={c.controlTop} to={c.controlBottom} steps={6} radius={Math.max(0, radius - 1)} style={style} />;
+  return <Shade from={c.controlTop} to={c.controlBottom} radius={Math.max(0, radius - 1)} style={style} />;
 }
 
 /**
- * Tint shade — the card shade's ramp (brighter at the top, easing to the base at the bottom) for the
- * translucent COLORED pills and chips: the green Dexcom chip, the reading pill in tab headers, LIVE
- * tags, the gauge's status and trend pills. Bands of the pill's OWN color at an alpha that fades from
- * `from` at the top to `to` at the bottom, over the host's flat tint — so the pill shades the same way
- * the windows do, in its own color, and still composes over whatever it sits on. It takes the color
- * as a prop so a pill that changes with the reading (green → amber → coral) shades in the color it
- * currently is. Only 6-digit hex colors are shaded; anything else renders nothing, never a wrong tint.
+ * Tint shade — for the translucent COLORED pills, chips and notices: the green Dexcom chip, the
+ * reading pill in tab headers, LIVE tags, the gauge's status and trend pills, the dose warnings. It
+ * composes OVER the host's own flat tint, in the pill's own color, so a pill that changes with the
+ * reading (green → amber → coral) shades in the color it currently is. Only 6-digit hex colors are
+ * shaded; anything else renders nothing, never a wrong tint.
  */
 export function TintShade({
   color,
@@ -79,48 +92,39 @@ export function TintShade({
   to,
   amount = 0.04,
   dilute = 0.25,
-  steps = 8,
 }: {
   color: string;
   radius: number;
   /**
    * Legacy one-way ramp: the pill's own color at alpha `from` at the top easing to `to` at the bottom,
-   * all ABOVE the host's tint. Only for the few hosts that want a strong ramp (the gauge's inner
-   * disc). Give both, or neither.
+   * all ABOVE the host's tint. Give both, or neither.
    */
   from?: number;
   to?: number;
   /**
    * Default CENTERED ramp — the host's own tint is the MIDDLE of the gradient, not its floor. The top
    * half adds a little more of the color (up to `amount`), the bottom half thins the tint back toward
-   * the surface it sits on (up to `dilute` of the card neutral). Gentle on purpose: the old floor-based
-   * ramp made the top of a tinted pill more than twice as saturated as its bottom.
+   * the surface it sits on (up to `dilute` of the card neutral). Gentle on purpose: a floor-based ramp
+   * made the top of a tinted pill more than twice as saturated as its bottom.
    */
   amount?: number;
   dilute?: number;
-  steps?: number;
 }) {
   const c = useThemeColors();
-  const bands = useMemo(() => {
-    const t = (i: number) => (steps === 1 ? 0 : i / (steps - 1));
-    if (from != null && to != null) {
-      return Array.from({ length: steps }, (_, i) => withAlpha(color, from + (to - from) * t(i)));
-    }
-    return Array.from({ length: steps }, (_, i) => {
-      const x = t(i);
-      return x < 0.5
-        ? withAlpha(color, amount * (1 - 2 * x)) // above the middle: a touch more color
-        : withAlpha(c.card, dilute * (2 * x - 1)); // below: a touch less, toward the neutral
-    });
-  }, [color, from, to, amount, dilute, steps, c.card]);
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) return null;
-  return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: Math.max(0, radius - 1), overflow: "hidden" }]}>
-      {bands.map((c, i) => (
-        <View key={i} style={{ flex: 1, backgroundColor: c }} />
-      ))}
-    </View>
-  );
+  const stops: GradientStop[] =
+    from != null && to != null
+      ? [
+          { offset: 0, color, opacity: from },
+          { offset: 1, color, opacity: to },
+        ]
+      : [
+          { offset: 0, color, opacity: amount }, // above the middle: a touch more color…
+          { offset: 0.5, color, opacity: 0 }, // …fading to nothing at the middle
+          { offset: 0.5, color: c.card, opacity: 0 }, // then the neutral fades in…
+          { offset: 1, color: c.card, opacity: dilute }, // …thinning the tint toward the surface below
+        ];
+  return <Gradient stops={stops} radius={Math.max(0, radius - 1)} />;
 }
 
 /**
@@ -133,7 +137,7 @@ export function TintShade({
 export function AccentShade({ color = COLORS.primary, radius, style }: { color?: string; radius: number; style?: StyleProp<ViewStyle> }) {
   const ok = /^#[0-9a-fA-F]{6}$/.test(color);
   return ok ? (
-    <Shade from={mixHex(color, "#FFFFFF", 0.14)} to={mixHex(color, "#000000", 0.14)} steps={6} radius={Math.max(0, radius - 1)} style={style} />
+    <Shade from={mixHex(color, "#FFFFFF", 0.14)} to={mixHex(color, "#000000", 0.14)} radius={Math.max(0, radius - 1)} style={style} />
   ) : null;
 }
 
@@ -144,10 +148,11 @@ export function AccentShade({ color = COLORS.primary, radius, style }: { color?:
  */
 export function HeaderShade() {
   const c = useThemeColors();
-  return <Shade from={c.cardTop} to={c.cardElevated} steps={8} />;
+  return <Shade from={c.cardTop} to={c.cardElevated} />;
 }
 
+/** Window/card shade: lighter at the top, deeper at the bottom. Pass the card's own border radius. */
 export function CardShade({ radius }: { radius: number }) {
   const c = useThemeColors();
-  return <Shade from={c.cardTop} to={c.cardBottom} steps={8} radius={Math.max(0, radius - 1)} />;
+  return <Shade from={c.cardTop} to={c.cardBottom} radius={Math.max(0, radius - 1)} />;
 }

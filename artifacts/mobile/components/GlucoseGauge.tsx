@@ -145,16 +145,18 @@ function ShadedGlyph({
   height,
   from,
   to,
-  steps = 8,
   render,
 }: {
   width: number;
   height: number;
   from: string;
   to: string;
-  steps?: number;
   render: (color: string) => React.ReactNode;
 }) {
+  // A font glyph can't take a gradient fill, so this stays a stack of clipped copies — but with one
+  // copy per PIXEL ROW, so no band is ever wider than a pixel: continuous by construction, matching
+  // the true gradients everywhere else (see components/Shade).
+  const steps = Math.max(1, Math.round(height));
   const edges = Array.from({ length: steps + 1 }, (_, i) => Math.round((height * i) / steps));
   return (
     <View style={{ width, height }}>
@@ -393,7 +395,6 @@ export function GlucoseGauge({
             <Shade
               from={mixHex(mainRingColor, "#FFFFFF", 0.22)}
               to={mixHex(mainRingColor, "#000000", 0.2)}
-              steps={12}
               radius={size / 2}
             />
           )}
