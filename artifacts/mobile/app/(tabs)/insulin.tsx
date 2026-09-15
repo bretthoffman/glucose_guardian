@@ -8,6 +8,7 @@ import {
   Animated,
   Keyboard,
   LayoutAnimation,
+  PixelRatio,
   Platform,
   Pressable,
   ScrollView,
@@ -164,6 +165,15 @@ export default function InsulinScreen() {
   ];
 
   const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
+  /**
+   * The on-board bars' shared label fit. Each bar reports the scale (≤ 1) its label needs to fit its
+   * slot at the current text size; both labels then render at the smaller of the two, floored at 75%,
+   * so the pair always match instead of the longer one shrinking alone.
+   */
+  const [barFit, setBarFit] = useState<[number, number]>([1, 1]);
+  const sharedBarScale = Math.max(0.75, Math.min(1, barFit[0], barFit[1]));
+  const reportCarbsFit = useCallback((need: number) => setBarFit((prev) => (prev[0] === need ? prev : [need, prev[1]])), []);
+  const reportInsulinFit = useCallback((need: number) => setBarFit((prev) => (prev[1] === need ? prev : [prev[0], need])), []);
   // Deep link from the home page's "Logs" shortcut: /(tabs)/insulin?tab=log. The `t` nonce makes a
   // repeat tap re-run this even though expo-router keeps the previous params; `effectiveTab` below
   // still guards availability, so a session without the log grant just lands on its allowed tab.
@@ -758,7 +768,17 @@ export default function InsulinScreen() {
     >
       <AccentShade color={doseJustLogged ? COLORS.success : COLORS.primary} radius={11} />
       <Feather name={doseJustLogged ? "check-circle" : "check"} size={13} color="#fff" />
-      <Text style={styles.tookDoseBtnText}>
+      {/* The text box is bounded (flexShrink), so it can never grow past the space beside the icon —
+          that is what used to shove the icon off the button at the largest text sizes. Normally one
+          line, shrinking to fit (floor 80%); at large accessibility sizes a one-line shrink would have to
+          go below the floor and truncate, so the label may take a second line inside the button instead. */}
+      <Text
+        style={styles.tookDoseBtnText}
+        numberOfLines={ACTION_LABEL_LINES}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+        maxFontSizeMultiplier={1.6}
+      >
         {doseJustLogged ? "Dose Logged" : "I Just Took This Dose"}
       </Text>
     </Pressable>
@@ -866,7 +886,7 @@ export default function InsulinScreen() {
 
       {/* ── Title + insulin-type dropdown (top-right) ── */}
       <View style={styles.titleRow}>
-        <Text style={[styles.pageTitle, { color: colors.text, flex: 1 }]} numberOfLines={1}>Dose Calculator</Text>
+        <Text style={[styles.pageTitle, { color: colors.text, flex: 1 }]} numberOfLines={1}>Calculator</Text>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Choose insulin type"
@@ -1006,6 +1026,8 @@ export default function InsulinScreen() {
           the whole strip is absent and the page looks exactly as it did before. ── */}
       {!isBasalMode && showOnBoard && (
         <View key="on-board" style={styles.onBoardStrip}>
+          {/* Both labels render at ONE size: the size that fits the longer of the two (see barFit).
+              Otherwise the longer insulin label shrank alone at large text sizes and the pair mismatched. */}
           <View style={styles.onBoardCell}>
             <OnBoardBar
               fraction={activeCarbsFraction}
@@ -1013,6 +1035,8 @@ export default function InsulinScreen() {
               windowMin={activeCarbs.remainingWindowMin}
               color={COLORS.warning}
               colors={colors}
+              fontScale={sharedBarScale}
+              onMeasure={reportCarbsFit}
             />
           </View>
           <View style={styles.onBoardCell}>
@@ -1022,6 +1046,8 @@ export default function InsulinScreen() {
               windowMin={activeInsulin.remainingWindowMin}
               color={CARD_PURPLE}
               colors={colors}
+              fontScale={sharedBarScale}
+              onMeasure={reportInsulinFit}
             />
           </View>
         </View>
@@ -1163,7 +1189,13 @@ export default function InsulinScreen() {
                 ) : (
                   <Feather name="trending-up" size={13} color="#fff" />
                 )}
-                <Text style={styles.tookDoseBtnText}>
+                <Text
+                  style={styles.tookDoseBtnText}
+                  numberOfLines={ACTION_LABEL_LINES}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                  maxFontSizeMultiplier={1.6}
+                >
                   {predicting || drawing ? "Predicting…" : prediction?.ok ? "Predict Again" : "Predict"}
                 </Text>
               </Pressable>
@@ -1421,6 +1453,8 @@ function OnBoardBar({
   windowMin,
   color,
   colors,
+  fontScale,
+  onMeasure,
 }: {
   fraction: number;
   /** Full text shown INSIDE the bar, e.g. "24 g carbs still active". */
@@ -1433,7 +1467,21 @@ function OnBoardBar({
   windowMin: number;
   color: string;
   colors: (typeof Colors)["light"];
+  /** The shared label scale (≤ 1) both bars render at — see `barFit` in the calculator. */
+  fontScale: number;
+  /** Reports the scale this label needs to fit its slot: min(1, slot / natural width). */
+  onMeasure: (need: number) => void;
 }) {
+  // Natural (unshrunk) label width and the slot it must fit in; both measured on layout.
+  const [naturalW, setNaturalW] = useState(0);
+  const [slotW, setSlotW] = useState(0);
+  useEffect(() => {
+    if (naturalW > 0 && slotW > 0) {
+      // Both boxes carry the same 8+8 horizontal padding; compare the text runs themselves.
+      const need = Math.min(1, Math.max(0.5, (slotW - 16) / Math.max(1, naturalW - 16)));
+      onMeasure(Math.round(need * 100) / 100);
+    }
+  }, [naturalW, slotW, onMeasure]);
   // Visibility is the CALLER's decision now — the two bars show and hide as a pair, so this renders
   // whatever it is given, including a genuinely empty bar for the side with nothing on board.
   const pct =
@@ -1466,11 +1514,24 @@ function OnBoardBar({
       {/* Half-width cells leave little room for "0.99 u insulin still active", so allow the label to
           shrink a little rather than clip — truncation would hide the number, which is the point. */}
       <Text
-        style={[styles.onBoardAmount, { color }]}
+        style={[styles.onBoardAmount, { color, fontSize: 10 * fontScale }]}
         numberOfLines={1}
+        // Shrink-to-fit stays as a backstop for the frame before measurement lands.
         adjustsFontSizeToFit
         minimumFontScale={0.75}
         maxFontSizeMultiplier={1.15}
+        onLayout={(e) => setSlotW(Math.round(e.nativeEvent.layout.width))}
+      >
+        {label}
+      </Text>
+      {/* Invisible twin at full size, unbounded, so its width is the label's natural width. */}
+      <Text
+        style={[styles.onBoardAmount, styles.onBoardMeasure]}
+        numberOfLines={1}
+        maxFontSizeMultiplier={1.15}
+        onLayout={(e) => setNaturalW(Math.round(e.nativeEvent.layout.width))}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
       >
         {label}
       </Text>
@@ -1527,6 +1588,13 @@ function PredictionStrength({
  * came before it. No negative-margin cancelling, no gap that depends on which sections are showing.
  */
 const SECTION_GAP = 16;
+/**
+ * Lines the Predict / "I Just Took This Dose" labels may use. One at normal text sizes; two once the
+ * device text size is up, because "I Just Took This Dose" on one line would then have to shrink below
+ * the 80% floor and truncate. The label's box is bounded either way, so the icon stays on the button.
+ * Read once: the device text size can't change while the app is running.
+ */
+const ACTION_LABEL_LINES = PixelRatio.getFontScale() > 1.05 ? 2 : 1;
 /** Gap around a note under the calc window (pattern / safety-cap): above it, and below it when shown. */
 const CALC_NOTE_GAP = 10;
 
@@ -1653,6 +1721,8 @@ const styles = StyleSheet.create({
   onBoardFill: { position: "absolute", left: 0, top: 0, bottom: 0 },
   onBoardFillEdge: { position: "absolute", top: 0, bottom: 0, width: 2, marginLeft: -2 },
   onBoardAmount: { flex: 1, minWidth: 0, fontSize: 10, fontWeight: "800", paddingHorizontal: 8, letterSpacing: 0.1 },
+  /** The measuring twin: out of flow and unbounded (so it sizes to its content), invisible. */
+  onBoardMeasure: { position: "absolute", left: 0, top: 0, flex: 0, minWidth: undefined, opacity: 0 },
   doseInput: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontWeight: "700", textAlign: "center" },
   doseInputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.18)", marginVertical: 2 },
   liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
@@ -1720,7 +1790,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 11,
   },
-  tookDoseBtnText: { fontSize: 12, fontWeight: "700", color: "#fff", textAlign: "center" },
+  // flexShrink so the text box is bounded by the button (shrink-to-fit needs a bound to fit into).
+  tookDoseBtnText: { flexShrink: 1, fontSize: 12, fontWeight: "700", color: "#fff", textAlign: "center" },
   predictBuilding: {
     marginTop: 12,
     height: 156,

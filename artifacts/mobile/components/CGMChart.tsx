@@ -41,6 +41,7 @@ import {
   resolveAxisLabelPositions,
   fittedDash,
   CHART_AXIS_LABEL_HEIGHT,
+  chartLabelTopForValue,
 } from "@/utils/cgmChartAxis";
 import {
   buildCalendarDayXLabels,
@@ -679,10 +680,12 @@ export function CGMChart({
 
         {/* y-axis on the right, matching the reference */}
         <View style={[styles.yAxis, { width: labelW, marginLeft: axisGap, height: H }]}>
-          {/* "0" for the bottom border: pinned FLUSH with it rather than centered on it, so it can't hang
-              below the chart (which is exactly what the generic filter below would have dropped). */}
+          {/* "0" for the bottom border: centered on that line exactly like every other axis label (it
+              used to be pinned flush above the line, which left the digit sitting half a label high). It
+              is placed here rather than through the generic list because the list's overflow filter
+              would drop a label centered this low. Its lower half hangs just below the plot, on purpose. */}
           <Text
-            style={[styles.yLabel, { top: H - CHART_AXIS_LABEL_HEIGHT, color: c.axis }]}
+            style={[styles.yLabel, { top: chartLabelTopForValue(0, H), color: c.axis }]}
             numberOfLines={1}
             maxFontSizeMultiplier={1.3}
           >
