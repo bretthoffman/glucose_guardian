@@ -410,8 +410,8 @@ function DayView({
           accessibilityLabel="Close the add menu"
         />
       )}
-      {/* Calendar shortcut — its own row above the day arrows, at the right. Control-styled (not
-          purple): it is a way to move, not a primary action. */}
+      {/* Calendar shortcut — its own row above the day arrows, centered over the day label.
+          Control-styled (not purple): it is a way to move, not a primary action. */}
       <View style={styles.calendarRow}>
         <Pressable
           style={({ pressed }) => [
@@ -699,7 +699,8 @@ const styles = StyleSheet.create({
   /** Bottom padding clears the floating tab bar so a full day of logs can scroll into view. */
   scroll: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 140 },
 
-  calendarRow: { flexDirection: "row", justifyContent: "flex-end", marginBottom: -6 },
+  // Centered, directly above the day label between the arrows.
+  calendarRow: { flexDirection: "row", justifyContent: "center", marginBottom: -6 },
   calendarBtn: { width: 34, height: 34, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   dayNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   navBtn: { padding: 8 },
