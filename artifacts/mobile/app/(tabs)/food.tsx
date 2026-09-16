@@ -32,6 +32,7 @@ import { apiUrl } from "@/utils/api-base-url";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
 import QuickLookupManager from "@/components/QuickLookupManager";
+import FoodScanner, { type BarcodeLookupState } from "@/components/FoodScanner";
 import { QUICK_LOOKUP_VISIBLE, type QuickFood } from "@/utils/quickFoods";
 
 interface FoodResult {
@@ -46,6 +47,18 @@ interface FoodResult {
   fatGrams?: number;
   proteinGrams?: number;
   absorption?: "fast" | "medium" | "slow";
+  /** Barcode results: label values are per ONE serving; the servings picker scales them. */
+  fromBarcode?: boolean;
+  source?: "usda" | "openfoodfacts";
+  perServing?: { carbs: number; fat?: number; protein?: number };
+  servingText?: string;
+  servingsPerContainer?: number;
+}
+
+/** Whole servings, 1–99, from whatever the picker holds. */
+function parseServings(text: string): number {
+  const n = Math.round(parseFloat(text));
+  return Number.isFinite(n) && n >= 1 ? Math.min(99, n) : 1;
 }
 
 interface MealGuidance {
@@ -159,6 +172,11 @@ export default function FoodScreen() {
   // (an add by any co-guardian shows up on every guardian's Food tab within a poll). ──
   const [savedToQuick, setSavedToQuick] = useState(false);
   const [quickManagerOpen, setQuickManagerOpen] = useState(false);
+  // Camera screen (barcode detection + shutter) and the barcode lookup it drives.
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [barcodeLookup, setBarcodeLookup] = useState<BarcodeLookupState>("idle");
+  /** Servings picker for barcode results (text so the field can be cleared while typing). */
+  const [servingsText, setServingsText] = useState("1");
 
   function saveToQuickLookup() {
     if (!result || savedToQuick) return;
@@ -244,7 +262,16 @@ export default function FoodScreen() {
     }
   }
 
-  async function takePhoto() {
+  /** The scan panel: our own camera screen — barcode detection while framing, shutter for a photo. */
+  function takePhoto() {
+    setError("");
+    setBarcodeLookup("idle");
+    setScannerOpen(true);
+  }
+
+  /** Fallback when camera access is refused: the system picker path this page always had. */
+  async function takePhotoWithSystemCamera() {
+    setScannerOpen(false);
     setError("");
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
@@ -282,6 +309,89 @@ export default function FoodScreen() {
     if (!pickerResult.canceled && pickerResult.assets[0]) {
       await analyzePhoto(pickerResult.assets[0].uri);
     }
+  }
+
+  /** A barcode was detected on the camera screen: look it up; on a hit close the camera and show it. */
+  async function lookupBarcode(code: string) {
+    setBarcodeLookup("looking");
+    try {
+      const res = await fetch(apiUrl("/api/food/barcode"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      if (res.status === 404) {
+        // Our endpoint answers 404 with { found: false }. Any other 404 is a server without the
+        // route (e.g. not deployed yet) — that is an error, not "this product is unknown".
+        const body = await res.json().catch(() => null) as { found?: boolean } | null;
+        if (body && body.found === false) {
+          setBarcodeLookup("notFound");
+          return;
+        }
+        throw new Error("barcode endpoint unavailable");
+      }
+      if (!res.ok) throw new Error(`barcode lookup failed (${res.status})`);
+      const data = (await res.json()) as {
+        foodName: string; source?: "usda" | "openfoodfacts"; estimatedCarbs: number; confidence: "high" | "medium" | "low";
+        tips?: string; fatGrams?: number; proteinGrams?: number; absorption?: "fast" | "medium" | "slow";
+        servingText?: string; servingsPerContainer?: number;
+      };
+      const carbs = data.estimatedCarbs;
+      const result: FoodResult = {
+        foodName: data.foodName,
+        estimatedCarbs: carbs,
+        confidence: data.confidence,
+        tips: data.tips,
+        insulinUnits: Math.round((carbs / carbRatio) * 10) / 10,
+        fromPhoto: false,
+        fromBarcode: true,
+        source: data.source,
+        fatGrams: data.fatGrams,
+        proteinGrams: data.proteinGrams,
+        absorption: data.absorption,
+        perServing: { carbs, fat: data.fatGrams, protein: data.proteinGrams },
+        servingText: data.servingText,
+        servingsPerContainer: data.servingsPerContainer,
+        portion: data.servingText ? `1 serving · ${data.servingText}` : "1 serving",
+      };
+      setScannerOpen(false);
+      setBarcodeLookup("idle");
+      setQuery("");
+      setPhotoUri(null);
+      setGuidance(null);
+      setLogged(false);
+      setInsulinTaken(false);
+      setSavedToQuick(false);
+      setError("");
+      setServingsText("1");
+      setResult(result);
+      setEditedCarbs(String(carbs));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await fetchGuidance(carbs);
+    } catch {
+      setScannerOpen(false);
+      setBarcodeLookup("idle");
+      setError("Could not look up that barcode. Please try again or take a photo.");
+    }
+  }
+
+  /** Servings changed on a barcode result: scale the label's per-serving values across the card. */
+  function applyServings(text: string) {
+    setServingsText(text);
+    if (!result?.fromBarcode || !result.perServing) return;
+    const n = parseServings(text);
+    const per = result.perServing;
+    const carbs = Math.round(per.carbs * n * 10) / 10;
+    setResult({
+      ...result,
+      estimatedCarbs: carbs,
+      insulinUnits: Math.round((carbs / carbRatio) * 10) / 10,
+      fatGrams: per.fat != null ? Math.round(per.fat * n * 10) / 10 : undefined,
+      proteinGrams: per.protein != null ? Math.round(per.protein * n * 10) / 10 : undefined,
+      portion: `${n} serving${n === 1 ? "" : "s"}${result.servingText ? ` · ${result.servingText} each` : ""}`,
+    });
+    setEditedCarbs(String(carbs));
+    void fetchGuidance(carbs);
   }
 
   async function analyzePhoto(uri: string) {
@@ -549,6 +659,13 @@ export default function FoodScreen() {
                   <Feather name="cpu" size={12} color={COLORS.primary} />
                   <Text style={[styles.aiTagText, { color: COLORS.primary }]}>AI Photo Analysis</Text>
                 </View>
+              ) : result.fromBarcode ? (
+                <View style={[styles.aiTag, { backgroundColor: COLORS.success + "18" }]}>
+                  <Feather name="maximize" size={12} color={COLORS.success} />
+                  <Text style={[styles.aiTagText, { color: COLORS.success }]}>
+                    {result.source === "usda" ? "Barcode · USDA label" : "Barcode · Open Food Facts"}
+                  </Text>
+                </View>
               ) : (
                 <View style={{ flex: 1 }} />
               )}
@@ -605,6 +722,53 @@ export default function FoodScreen() {
                 <Text style={[{ fontSize: 9, color: COLORS.primary + "80", fontWeight: "400" }]}>tap to edit</Text>
               </View>
             </View>
+
+            {/* Servings — barcode results only, and only when the package holds more than one serving
+                (or we can't tell). Carbs, fat, protein and the insulin estimate all scale with it. */}
+            {result.fromBarcode && (result.servingsPerContainer == null || result.servingsPerContainer > 1) && (
+              <View style={[styles.servingsRow, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+                <ControlShade radius={12} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.servingsLabel, { color: colors.text }]}>Servings you're having</Text>
+                  <Text style={[styles.servingsHint, { color: colors.textMuted }]} numberOfLines={1}>
+                    {result.perServing ? `${result.perServing.carbs} g carbs per serving` : ""}
+                    {result.servingsPerContainer != null ? ` · about ${result.servingsPerContainer} in the package` : ""}
+                  </Text>
+                </View>
+                <View style={styles.stepper}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="One fewer serving"
+                    hitSlop={6}
+                    onPress={() => applyServings(String(Math.max(1, parseServings(servingsText) - 1)))}
+                    style={({ pressed }) => [styles.stepBtn, { opacity: pressed ? 0.6 : 1 }]}
+                  >
+                    <Feather name="minus" size={16} color={colors.text} />
+                  </Pressable>
+                  <TextInput
+                    style={[styles.stepInput, { color: colors.text }]}
+                    value={servingsText}
+                    onChangeText={(t) => setServingsText(t.replace(/[^0-9]/g, "").slice(0, 2))}
+                    onBlur={() => applyServings(String(parseServings(servingsText)))}
+                    onSubmitEditing={() => applyServings(String(parseServings(servingsText)))}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
+                    selectTextOnFocus
+                    maxLength={2}
+                    accessibilityLabel="Number of servings"
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="One more serving"
+                    hitSlop={6}
+                    onPress={() => applyServings(String(Math.min(99, parseServings(servingsText) + 1)))}
+                    style={({ pressed }) => [styles.stepBtn, { opacity: pressed ? 0.6 : 1 }]}
+                  >
+                    <Feather name="plus" size={16} color={colors.text} />
+                  </Pressable>
+                </View>
+              </View>
+            )}
 
             {(result.fatGrams != null || result.proteinGrams != null || result.absorption != null) && (
               <View style={[styles.tipsBox, { backgroundColor: colors.backgroundTertiary }]}>
@@ -750,6 +914,21 @@ export default function FoodScreen() {
         )}
       </ScrollView>
 
+      <FoodScanner
+        visible={scannerOpen}
+        lookup={barcodeLookup}
+        onClose={() => {
+          setScannerOpen(false);
+          setBarcodeLookup("idle");
+        }}
+        onBarcode={(code) => void lookupBarcode(code)}
+        onPhoto={(uri) => {
+          setScannerOpen(false);
+          setBarcodeLookup("idle");
+          void analyzePhoto(uri);
+        }}
+        onPermissionDenied={() => void takePhotoWithSystemCamera()}
+      />
       <QuickLookupManager
         visible={quickManagerOpen}
         onClose={() => setQuickManagerOpen(false)}
@@ -1047,6 +1226,13 @@ const styles = StyleSheet.create({
   carbValue: { fontSize: 32, fontWeight: "700", lineHeight: 38 },
   carbLabel: { fontSize: 12, fontWeight: "500" },
   tipsBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 10 },
+  /** Barcode results: servings picker (label + hint on the left, − [n] + on the right). */
+  servingsRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 12, borderWidth: 1 },
+  servingsLabel: { fontSize: 14, fontWeight: "600" },
+  servingsHint: { fontSize: 12, fontWeight: "400", marginTop: 2 },
+  stepper: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
+  stepBtn: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.primary + "18" },
+  stepInput: { width: 44, textAlign: "center", fontSize: 18, fontWeight: "700", padding: 0 },
   tipsText: { flex: 1, fontSize: 13, fontWeight: "400", lineHeight: 20 },
   logActionsRow: { flexDirection: "row", gap: 10 },
   logBtn: {
