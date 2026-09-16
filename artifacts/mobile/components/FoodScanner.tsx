@@ -124,9 +124,6 @@ export default function FoodScanner({
           {lookup === "looking" && <ActivityIndicator color="#fff" size="small" />}
           <Text style={styles.topBannerText}>{banner}</Text>
         </View>
-        <View style={styles.frameWrap} pointerEvents="none">
-          <View style={[styles.frame, lookup === "looking" && { borderColor: "#fff" }]} />
-        </View>
 
         <View style={styles.bottomBar}>
           <Pressable
@@ -163,8 +160,6 @@ const styles = StyleSheet.create({
   },
   topBannerWarn: { backgroundColor: "rgba(255,159,28,0.55)" },
   topBannerText: { color: "#fff", fontSize: 15, fontWeight: "700", textAlign: "center", flexShrink: 1 },
-  frameWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
-  frame: { width: 260, height: 190, borderRadius: 22, borderWidth: 3, borderColor: COLORS.primary + "CC" },
   bottomBar: {
     position: "absolute", left: 0, right: 0, bottom: 0, paddingBottom: 40, paddingTop: 16, paddingHorizontal: 24,
     flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "rgba(0,0,0,0.45)",

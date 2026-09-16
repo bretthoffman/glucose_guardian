@@ -657,12 +657,12 @@ export default function FoodScreen() {
               {result.fromPhoto ? (
                 <View style={[styles.aiTag, { backgroundColor: COLORS.primary + "15" }]}>
                   <Feather name="cpu" size={12} color={COLORS.primary} />
-                  <Text style={[styles.aiTagText, { color: COLORS.primary }]}>AI Photo Analysis</Text>
+                  <Text style={[styles.aiTagText, { color: COLORS.primary }]} numberOfLines={1}>AI Photo Analysis</Text>
                 </View>
               ) : result.fromBarcode ? (
                 <View style={[styles.aiTag, { backgroundColor: COLORS.success + "18" }]}>
                   <Feather name="maximize" size={12} color={COLORS.success} />
-                  <Text style={[styles.aiTagText, { color: COLORS.success }]}>
+                  <Text style={[styles.aiTagText, { color: COLORS.success }]} numberOfLines={1}>
                     {result.source === "usda" ? "Barcode · USDA label" : "Barcode · Open Food Facts"}
                   </Text>
                 </View>
@@ -688,7 +688,7 @@ export default function FoodScreen() {
                   size={11}
                   color={savedToQuick ? COLORS.success : colors.textMuted}
                 />
-                <Text style={[styles.saveQuickBtnText, { color: savedToQuick ? COLORS.success : colors.textMuted }]}>
+                <Text style={[styles.saveQuickBtnText, { color: savedToQuick ? COLORS.success : colors.textMuted }]} numberOfLines={1}>
                   {savedToQuick ? "Saved" : "Save to Quick Lookup"}
                 </Text>
               </Pressable>
@@ -1189,9 +1189,14 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 20,
     alignSelf: "flex-start",
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: "100%",
   },
-  aiTagText: { fontSize: 12, fontWeight: "700" },
-  resultHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  aiTagText: { fontSize: 12, fontWeight: "700", flexShrink: 1 },
+  // Wraps: the tag shrinks first; if the two still can't share a line (long registry name, large
+  // accessibility text) the save button drops to a second line INSIDE the card instead of poking out.
+  resultHeaderRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
   saveQuickBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1200,8 +1205,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 8,
     borderWidth: 1,
+    maxWidth: "100%",
   },
-  saveQuickBtnText: { fontSize: 10, fontWeight: "600" },
+  saveQuickBtnText: { fontSize: 10, fontWeight: "600", flexShrink: 1 },
   resultTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   foodName: { fontSize: 20, fontWeight: "700", marginBottom: 4, textTransform: "capitalize" },
   portionText: { fontSize: 13, fontWeight: "400", marginBottom: 6 },
