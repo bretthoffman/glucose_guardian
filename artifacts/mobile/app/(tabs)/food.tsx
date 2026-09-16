@@ -20,17 +20,19 @@ import {
 import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
-import { T } from "@/constants/theme";
+import { T, glucoseTone, withAlpha } from "@/constants/theme";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 
-import { getEffectiveTrend } from "@/utils/trend";
+import { getEffectiveTrend, trendTone } from "@/utils/trend";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
 import FoodInsulinModal from "@/components/FoodInsulinModal";
 import { apiUrl } from "@/utils/api-base-url";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
-import { AccentShade, ControlShade, ScreenShade } from "@/components/Shade";
+import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
+import QuickLookupManager from "@/components/QuickLookupManager";
+import { QUICK_LOOKUP_VISIBLE, type QuickFood } from "@/utils/quickFoods";
 
 interface FoodResult {
   foodName: string;
@@ -62,6 +64,48 @@ interface MealGuidance {
   trendDirection: string;
 }
 
+/**
+ * One Quick Lookup row: name · carbs (big number, small unit) · chevron. Compact on purpose — eight
+ * of these plus the header must fit a phone screen cleanly — and the name never wraps.
+ */
+function QuickFoodRow({
+  food,
+  selected,
+  last,
+  colors,
+  onPress,
+}: {
+  food: QuickFood;
+  selected: boolean;
+  last: boolean;
+  colors: (typeof Colors)["light"];
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Look up ${food.name}`}
+      style={({ pressed }) => [
+        styles.quickRow,
+        !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+        { opacity: pressed ? 0.7 : 1 },
+      ]}
+    >
+      <Text style={[styles.quickRowName, { color: selected ? COLORS.primary : colors.text }]} numberOfLines={1}>
+        {food.name}
+      </Text>
+      <View style={styles.quickRowCarbs}>
+        <Text style={[styles.quickRowCarbsValue, { color: food.carbs != null ? colors.text : colors.textMuted }]}>
+          {food.carbs != null ? food.carbs : "—"}
+        </Text>
+        <Text style={[styles.quickRowCarbsUnit, { color: colors.textMuted }]}>g carbs</Text>
+      </View>
+      <Feather name="chevron-right" size={18} color={colors.textMuted} />
+    </Pressable>
+  );
+}
+
 const TREND_LABELS: Record<string, string> = {
   rapidly_rising: "↑↑ Rising fast",
   rising: "↑ Rising",
@@ -88,7 +132,7 @@ export default function FoodScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { carbRatio, targetGlucose, correctionFactor, latestReading, history } = useGlucose();
-  const { addFoodLogEntry, isMinor, quickFoods, saveQuickFood } = useAuth();
+  const { addFoodLogEntry, isMinor, quickFoods, saveQuickFood, updateQuickFoodCarbs, alertPrefs } = useAuth();
   const confirmLog = useCareLogConfirm();
 
   const [query, setQuery] = useState("");
@@ -114,10 +158,11 @@ export default function FoodScreen() {
   // ── Quick Lookup chips now live in AuthContext: one mutual list for the whole care circle
   // (an add by any co-guardian shows up on every guardian's Food tab within a poll). ──
   const [savedToQuick, setSavedToQuick] = useState(false);
+  const [quickManagerOpen, setQuickManagerOpen] = useState(false);
 
   function saveToQuickLookup() {
     if (!result || savedToQuick) return;
-    saveQuickFood(result.foodName);
+    saveQuickFood(result.foodName, result.estimatedCarbs);
     setSavedToQuick(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
@@ -131,6 +176,13 @@ export default function FoodScreen() {
   };
 
   const currentTrend = getEffectiveTrend(history).glucoseTrend;
+  // The trend's color, exactly as the Glucose page's trend pill picks it: fast → red, slow → amber,
+  // stable → the reading's own status color.
+  const trendStatusColor =
+    latestReading?.glucose != null
+      ? glucoseTone(latestReading.glucose, alertPrefs.lowThreshold, alertPrefs.highThreshold, alertPrefs.urgentHighThreshold)
+      : T.color.emerald;
+  const trendColor = trendTone(currentTrend, trendStatusColor);
 
   async function fetchGuidance(carbs: number) {
     setIsFetchingGuidance(true);
@@ -181,6 +233,8 @@ export default function FoodScreen() {
       const finalResult = { ...data, insulinUnits, fromPhoto: false };
       setResult(finalResult);
       setEditedCarbs(data.estimatedCarbs.toString());
+      // A quick food tapped before it had carbs on file (older saves) learns them now, in place.
+      updateQuickFoodCarbs(q, data.estimatedCarbs);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       await fetchGuidance(data.estimatedCarbs);
     } catch {
@@ -357,9 +411,20 @@ export default function FoodScreen() {
                   {/* Same control fill + shade as the other control-colored chips and buttons. */}
                   <ControlShade radius={12} />
                   <Feather name="activity" size={13} color={colors.textSecondary} />
-                  <Text style={[styles.trendChipText, { color: colors.textSecondary }]}>
-                    Glucose trend: {TREND_LABELS[currentTrend] ?? "→ Stable"}
-                  </Text>
+                  <Text style={[styles.trendChipText, { color: colors.textSecondary }]}>Glucose trend:</Text>
+                  {/* Only the STATUS is colored — a small pill in the trend's color, like the gauge's
+                      trend pill — while the chip around it stays neutral. */}
+                  <View
+                    style={[
+                      styles.trendStatusPill,
+                      { backgroundColor: withAlpha(trendColor, 0.14), borderColor: withAlpha(trendColor, 0.4) },
+                    ]}
+                  >
+                    <TintShade color={trendColor} radius={10} />
+                    <Text style={[styles.trendStatusText, { color: trendColor }]} numberOfLines={1}>
+                      {TREND_LABELS[currentTrend] ?? "→ Stable"}
+                    </Text>
+                  </View>
                 </View>
               ) : null
             }
@@ -378,38 +443,25 @@ export default function FoodScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.cameraRow}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.cameraBtn,
-              { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1, flex: 1 },
-            ]}
-            onPress={takePhoto}
-            disabled={isAnalyzingPhoto}
-          >
-            <AccentShade radius={14} />
-            {isAnalyzingPhoto ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Feather name="camera" size={18} color="#fff" />
-            )}
-            <Text style={styles.cameraBtnText}>
-              {isAnalyzingPhoto ? "Analyzing..." : "Take Photo"}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.galleryBtn,
-              { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.85 : 1 },
-            ]}
-            onPress={pickFromGallery}
-            disabled={isAnalyzingPhoto}
-          >
-            <ControlShade radius={14} />
-            <Feather name="image" size={18} color={colors.text} />
-          </Pressable>
-        </View>
+        {/* ── Scan panel: one big tinted card, a round camera button in the middle. Whole card taps. ── */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.scanCard,
+            { backgroundColor: withAlpha(COLORS.primary, 0.14), borderColor: withAlpha(COLORS.primary, 0.4), opacity: pressed ? 0.85 : 1 },
+          ]}
+          onPress={takePhoto}
+          disabled={isAnalyzingPhoto}
+          accessibilityRole="button"
+          accessibilityLabel="Scan or take a photo of your meal"
+        >
+          <TintShade color={COLORS.primary} radius={20} />
+          <View style={[styles.scanIcon, { backgroundColor: COLORS.primary }]}>
+            <AccentShade radius={36} />
+            {isAnalyzingPhoto ? <ActivityIndicator color="#fff" size="large" /> : <Feather name="camera" size={30} color="#fff" />}
+          </View>
+          <Text style={[styles.scanTitle, { color: colors.text }]}>{isAnalyzingPhoto ? "Analyzing…" : "Scan or Take a Photo"}</Text>
+          <Text style={[styles.scanSub, { color: colors.textSecondary }]}>Log your meal in seconds</Text>
+        </Pressable>
 
         {/* Top preview only while analyzing — once the analysis card is up, its inline photo is
             the single representation of the meal on the page. */}
@@ -425,13 +477,8 @@ export default function FoodScreen() {
           </View>
         )}
 
-        <View style={styles.dividerRow}>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <Text style={[styles.dividerText, { color: colors.textMuted }]}>or search by name</Text>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-        </View>
-
-        <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={styles.searchRow}>
+        <View style={[styles.searchBar, { flex: 1, marginBottom: 0, backgroundColor: colors.card, borderColor: colors.border }]}>
           <Feather name="search" size={18} color={colors.textMuted} />
           <TextInput
             style={[styles.searchInput, { color: colors.text }]}
@@ -448,6 +495,21 @@ export default function FoodScreen() {
               <Feather name="x" size={18} color={colors.textMuted} />
             </Pressable>
           )}
+        </View>
+          {/* Photo library — beside the search bar, matching its height. */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.galleryBtn,
+              { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.85 : 1 },
+            ]}
+            onPress={pickFromGallery}
+            disabled={isAnalyzingPhoto}
+            accessibilityRole="button"
+            accessibilityLabel="Choose a photo from your library"
+          >
+            <ControlShade radius={14} />
+            <Feather name="image" size={18} color={colors.text} />
+          </Pressable>
         </View>
 
         <Pressable
@@ -649,32 +711,54 @@ export default function FoodScreen() {
           </View>
         )}
 
-        <Text style={[styles.quickTitle, { color: colors.text }]}>Quick Lookup</Text>
-        <View style={styles.quickGrid}>
-          {quickFoods.map((food) => {
-            const selected = result?.foodName?.toLowerCase() === food.toLowerCase();
-            return (
-              <Pressable
-                key={food}
-                style={({ pressed }) => [
-                  styles.quickChip,
-                  {
-                    // Same lighter control fill as the Gallery / Search buttons, with the same shading
-                    // on top; the selected chip is a purple button like every other purple button.
-                    backgroundColor: selected ? COLORS.primary : colors.backgroundTertiary,
-                    borderColor: selected ? COLORS.primary : colors.border,
-                    opacity: pressed ? 0.8 : 1,
-                  },
-                ]}
-                onPress={() => search(food)}
-              >
-                {selected ? <AccentShade radius={20} /> : <ControlShade radius={20} />}
-                <Text style={[styles.quickChipText, { color: selected ? "#fff" : colors.text }]}>{food}</Text>
-              </Pressable>
-            );
-          })}
+        {/* ── Quick Lookup: the first QUICK_LOOKUP_VISIBLE saved foods as compact rows in one shaded
+            window (same treatment as the Event Log); "See All" opens the full, manageable list. ── */}
+        <View style={styles.quickHeader}>
+          <Text style={[styles.quickTitle, { color: colors.text }]}>Quick Lookup</Text>
+          <Pressable
+            style={({ pressed }) => [styles.seeAllBtn, { opacity: pressed ? 0.6 : 1 }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setQuickManagerOpen(true);
+            }}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="See all quick lookup foods"
+          >
+            <Text style={[styles.seeAllText, { color: COLORS.primary }]}>See All</Text>
+            <Feather name="chevron-right" size={16} color={COLORS.primary} />
+          </Pressable>
         </View>
+        {quickFoods.length === 0 ? (
+          <Text style={[styles.quickEmpty, { color: colors.textMuted }]}>
+            Nothing saved yet — look a food up and tap the bookmark to keep it here.
+          </Text>
+        ) : (
+          <View style={[styles.quickList, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <CardShade radius={16} />
+            {quickFoods.slice(0, QUICK_LOOKUP_VISIBLE).map((food, i, arr) => (
+              <QuickFoodRow
+                key={food.name}
+                food={food}
+                selected={result?.foodName?.toLowerCase() === food.name.toLowerCase()}
+                last={i === arr.length - 1}
+                colors={colors}
+                onPress={() => search(food.name)}
+              />
+            ))}
+          </View>
+        )}
       </ScrollView>
+
+      <QuickLookupManager
+        visible={quickManagerOpen}
+        onClose={() => setQuickManagerOpen(false)}
+        onPick={(name) => {
+          setQuickManagerOpen(false);
+          search(name);
+        }}
+        colors={colors}
+      />
 
       {/* ── Meal insulin calculator popup — self-contained; never touches the main calculator ── */}
       <FoodInsulinModal
@@ -852,18 +936,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   trendChipText: { fontSize: 12, fontWeight: "500" },
-  cameraRow: { flexDirection: "row", gap: 10, marginBottom: 14, marginTop: 14 },
-  cameraBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 14,
-  },
-  cameraBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  trendStatusPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1, marginLeft: 2 },
+  trendStatusText: { fontSize: 12, fontWeight: "600" },
+  /** The scan panel (Take Photo): a tinted card with a round camera button and two lines of text. */
+  scanCard: { alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 20, borderRadius: 20, borderWidth: 1, marginBottom: 14 },
+  scanIcon: { width: 72, height: 72, borderRadius: 36, alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  scanTitle: { fontSize: 20, fontWeight: "700" },
+  scanSub: { fontSize: 14, fontWeight: "400" },
   galleryBtn: {
     width: 50,
+    alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 14,
@@ -885,9 +967,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   photoOverlayText: { color: "#fff", fontSize: 15, fontWeight: "600" },
-  dividerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
-  divider: { flex: 1, height: 1 },
-  dividerText: { fontSize: 12, fontWeight: "400" },
+  /** Search bar + photo-library button side by side; the button stretches to the bar's height. */
+  searchRow: { flexDirection: "row", alignItems: "stretch", gap: 10, marginBottom: 10 },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -1021,8 +1102,17 @@ const styles = StyleSheet.create({
   statBox: { flex: 1, padding: 10, borderRadius: 10, borderWidth: 1, alignItems: "center", gap: 2 },
   statValue: { fontSize: 15, fontWeight: "700" },
   statLabel: { fontSize: 10, fontWeight: "500", textAlign: "center" },
-  quickTitle: { fontSize: 18, fontWeight: "700", marginBottom: 12 },
-  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  quickChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
-  quickChipText: { fontSize: 14, fontWeight: "500" },
+  quickHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  quickTitle: { fontSize: 18, fontWeight: "700" },
+  seeAllBtn: { flexDirection: "row", alignItems: "center", gap: 2, paddingVertical: 4, paddingLeft: 8 },
+  seeAllText: { fontSize: 14, fontWeight: "600" },
+  quickEmpty: { fontSize: 13, lineHeight: 18 },
+  /** The window around the rows — same box as the Event Log list. */
+  quickList: { borderRadius: 16, borderWidth: 1, overflow: "hidden" },
+  // 44pt rows: eight of them (plus the header) fit a phone screen with the scan panel above.
+  quickRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9, paddingHorizontal: 14, minHeight: 44 },
+  quickRowName: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: "600" },
+  quickRowCarbs: { alignItems: "flex-end", flexShrink: 0 },
+  quickRowCarbsValue: { fontSize: 16, fontWeight: "700", lineHeight: 18 },
+  quickRowCarbsUnit: { fontSize: 10.5, fontWeight: "500" },
 });

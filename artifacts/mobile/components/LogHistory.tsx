@@ -243,6 +243,8 @@ export default function LogHistory({
           </View>
           <View style={[styles.logUnitsRow, { borderTopColor: colors.border }]}>
             <Text style={[styles.logUnitsLabel, { color: colors.textSecondary }]}>Insulin taken</Text>
+            {/* Same look as the Suggested Dose badge on the Insulin page: purple outline, soft purple fill,
+                dark number, muted "units". */}
             <View style={styles.logUnitsBadge}>
               <TextInput
                 value={logUnitsText}
@@ -250,12 +252,12 @@ export default function LogHistory({
                 keyboardType="decimal-pad"
                 returnKeyType="done"
                 placeholder="0"
-                placeholderTextColor="rgba(255,255,255,0.45)"
-                style={styles.logUnitsInput}
+                placeholderTextColor={colors.textMuted}
+                style={[styles.logUnitsInput, { color: colors.text }]}
                 maxLength={8}
                 accessibilityLabel="Insulin units taken"
               />
-              <Text style={styles.logUnitsUnit}>units</Text>
+              <Text style={[styles.logUnitsUnit, { color: colors.textMuted }]}>units</Text>
             </View>
           </View>
           <View style={styles.logModalFooter}>
@@ -790,27 +792,29 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   logUnitsLabel: { fontSize: 13, fontWeight: "600" },
+  // Mirrors `doseTotalBadge` / `doseTotalInput` / `doseTotalUnit` in DoseCalculatorBits.
   logUnitsBadge: {
     flexDirection: "row",
     alignItems: "baseline",
     gap: 4,
-    backgroundColor: COLORS.primary,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary + "26",
     paddingHorizontal: 18,
-    paddingVertical: 10,
+    paddingVertical: 5,
     borderRadius: 14,
     minWidth: 88,
     justifyContent: "center",
   },
   logUnitsInput: {
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: "700",
-    color: "#fff",
-    minWidth: 44,
+    minWidth: 52,
     textAlign: "center",
     padding: 0,
     margin: 0,
   },
-  logUnitsUnit: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.8)" },
+  logUnitsUnit: { fontSize: 13, fontWeight: "600" },
   logModalFooter: { flexDirection: "row", justifyContent: "flex-end" },
   logSubmitBtn: {
     flexDirection: "row",

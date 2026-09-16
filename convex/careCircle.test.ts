@@ -434,6 +434,29 @@ describe("merged co-guardian care (one pool, owner-inherited settings)", () => {
     expect(memberCtx?.quickFoods).toEqual(["Mac and cheese", "Apple", "Pizza"]);
   });
 
+  it("stores carbs with quick foods, keeps names in lockstep, and preserves carbs for a names-only (older app) write", async () => {
+    const { t, patient, member } = await linked();
+    // A new client sends items with carbs.
+    await t.mutation(api.careCircle.setQuickFoods, {
+      userId: patient,
+      passwordHash: HASH_A,
+      foods: ["Apple", "Pizza"],
+      items: [{ name: "Apple", carbs: 25 }, { name: "Pizza", carbs: 36 }],
+    });
+    const ctx1 = await t.query(api.careCircle.circleContext, { userId: member, passwordHash: HASH_B });
+    expect(ctx1?.quickFoodItems).toEqual([{ name: "Apple", carbs: 25 }, { name: "Pizza", carbs: 36 }]);
+    expect(ctx1?.quickFoods).toEqual(["Apple", "Pizza"]);
+    // An older client (names only) reorders and adds one: known carbs survive, the new name has none.
+    await t.mutation(api.careCircle.setQuickFoods, {
+      userId: member,
+      passwordHash: HASH_B,
+      foods: ["Rice", "pizza", "Apple"],
+    });
+    const ctx2 = await t.query(api.careCircle.circleContext, { userId: patient, passwordHash: HASH_A });
+    expect(ctx2?.quickFoodItems).toEqual([{ name: "Rice" }, { name: "pizza", carbs: 36 }, { name: "Apple", carbs: 25 }]);
+    expect(ctx2?.quickFoods).toEqual(["Rice", "pizza", "Apple"]);
+  });
+
   it("leaves the departing member with the circle's current settings — minus the doctor code", async () => {
     const { t, patient, member } = await linked();
     await t.mutation(api.patientProfile.replace, {

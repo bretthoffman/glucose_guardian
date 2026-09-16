@@ -4,7 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { T, TYPE, withAlpha, mixHex } from "@/constants/theme";
 import { useThemeColors } from "@/context/ThemeContext";
-import { trendArrowCount, trendGaugeLabel, type TrendInfo } from "@/utils/trend";
+import { trendArrowCount, trendGaugeLabel, trendTone, type TrendInfo } from "@/utils/trend";
 import { Shade, TintShade } from "@/components/Shade";
 
 export type GlucoseTrend =
@@ -77,11 +77,6 @@ const TREND_LABEL: Record<GlucoseTrend, string> = {
   rapidly_falling: "Dropping Fast",
 };
 
-function getTrendColor(trend: GlucoseTrend, glucoseStatusColor: string): string {
-  if (trend === "rapidly_rising" || trend === "rapidly_falling") return COLORS.danger;
-  if (trend === "rising" || trend === "falling") return COLORS.warning;
-  return glucoseStatusColor;
-}
 
 /** mg/dL per minute from the two newest points (absolute change / elapsed minutes). */
 function computeAbsRateMgPerMin(readings: { glucose: number; timestamp: string }[]): number | null {
@@ -328,7 +323,7 @@ export function GlucoseGauge({
     };
   }, [movementVisuals]);
 
-  const trendColor = trend ? getTrendColor(trend, status.color) : null;
+  const trendColor = trend ? trendTone(trend, status.color) : null;
   const trendLabel = trendInfo ? trendGaugeLabel(trendInfo) : trend ? TREND_LABEL[trend] : null;
   const arrows = trendInfo ? trendArrowCount(trendInfo) : 1;
 

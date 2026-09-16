@@ -528,6 +528,11 @@ const caregiverLinks = defineTable({
 const careShared = defineTable({
   patientUserId: v.id("users"),
   quickFoods: v.optional(v.array(v.string())),
+  /**
+   * The same list WITH carbs, in the same order. `quickFoods` (names only) is kept in lockstep for
+   * app versions that predate carbs on quick foods; new clients read this and fall back to names.
+   */
+  quickFoodItems: v.optional(v.array(v.object({ name: v.string(), carbs: v.optional(v.number()) }))),
   emergencyContacts: v.optional(
     v.array(
       v.object({

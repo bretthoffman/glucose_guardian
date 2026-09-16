@@ -1,3 +1,5 @@
+// Relative on purpose: the root vitest run has no "@/" alias, and this file is unit-tested.
+import { COLORS } from "../constants/colors";
 import type { GlucoseTrend } from "@/components/GlucoseGauge";
 
 export interface TrendInfo {
@@ -110,4 +112,15 @@ export function trendGaugeLabel(info: TrendInfo): string {
 /** Two arrows are reserved for the MAXIMUM trend speed; every other state shows one. */
 export function trendArrowCount(info: TrendInfo): 1 | 2 {
   return info.veryFast ? 2 : 1;
+}
+
+/**
+ * The color a trend reads in, everywhere it is shown (gauge pill, Food page trend chip): fast
+ * rises/falls are danger red, slow ones warning amber, and a stable trend takes the reading's own
+ * status color (in range → green, and so on) so "stable but low" still reads as a concern.
+ */
+export function trendTone(trend: GlucoseTrend, glucoseStatusColor: string): string {
+  if (trend === "rapidly_rising" || trend === "rapidly_falling") return COLORS.danger;
+  if (trend === "rising" || trend === "falling") return COLORS.warning;
+  return glucoseStatusColor;
 }

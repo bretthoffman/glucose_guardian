@@ -421,6 +421,7 @@ async function snapshotSharedToMember(
     const doc = {
       patientUserId: memberUserId,
       quickFoods: pool.quickFoods,
+      quickFoodItems: pool.quickFoodItems,
       emergencyContacts: pool.emergencyContacts,
       updatedAt: now,
     };
@@ -662,7 +663,8 @@ const emergencyContactPayload = v.object({
 });
 
 const MAX_EMERGENCY_CONTACTS = 5;
-const MAX_QUICK_FOODS = 12;
+// No practical cap any more (the Food page shows the first 8; "See All" shows the rest) — a sanity limit only.
+const MAX_QUICK_FOODS = 500;
 
 /** The circle bucket a caller's shared settings resolve to (owner's account, or self when solo). */
 async function circleAnchorFor(
@@ -736,6 +738,7 @@ export const circleContext = query({
       ownerName,
       shared,
       quickFoods: pool?.quickFoods ?? null,
+      quickFoodItems: pool?.quickFoodItems ?? null,
       emergencyContacts: pool?.emergencyContacts ?? null,
     };
   },
@@ -825,16 +828,43 @@ export const createDoctorCodeAsMember = mutation({
   },
 });
 
-/** Replace the circle's Quick Lookup meals list (mutual: any guardian may update it). */
+/**
+ * Replace the circle's Quick Lookup meals list (mutual: any guardian may update it).
+ *
+ * New clients send `items` (name + carbs, in display order); `foods` (names only) is still accepted
+ * from older app versions. Both fields are always written in lockstep: `quickFoods` for old readers,
+ * `quickFoodItems` for new ones. When only names arrive, carbs already known for those names are kept.
+ */
 export const setQuickFoods = mutation({
-  args: { ...legacyAuthArgs, foods: v.array(v.string()) },
+  args: {
+    ...legacyAuthArgs,
+    foods: v.array(v.string()),
+    items: v.optional(v.array(v.object({ name: v.string(), carbs: v.optional(v.number()) }))),
+  },
   handler: async (ctx, args) => {
     const user = await requireUserCompat(ctx, args);
     const { anchor } = await circleAnchorFor(ctx, user._id);
-    const foods = args.foods.map((f) => f.trim()).filter(Boolean).slice(0, MAX_QUICK_FOODS);
     const existing = await getCareSharedRow(ctx, anchor);
-    if (existing) await ctx.db.patch(existing._id, { quickFoods: foods, updatedAt: Date.now() });
-    else await ctx.db.insert("careShared", { patientUserId: anchor, quickFoods: foods, updatedAt: Date.now() });
+    type Item = { name: string; carbs?: number };
+    let items: Item[];
+    if (args.items) {
+      items = args.items
+        .map((i) => (i.carbs != null ? { name: i.name.trim(), carbs: i.carbs } : { name: i.name.trim() }))
+        .filter((i) => i.name);
+    } else {
+      const known = new Map((existing?.quickFoodItems ?? []).map((i) => [i.name.toLowerCase(), i.carbs] as const));
+      items = args.foods
+        .map((f) => f.trim())
+        .filter(Boolean)
+        .map((name) => {
+          const carbs = known.get(name.toLowerCase());
+          return carbs != null ? { name, carbs } : { name };
+        });
+    }
+    items = items.slice(0, MAX_QUICK_FOODS);
+    const foods = items.map((i) => i.name);
+    if (existing) await ctx.db.patch(existing._id, { quickFoods: foods, quickFoodItems: items, updatedAt: Date.now() });
+    else await ctx.db.insert("careShared", { patientUserId: anchor, quickFoods: foods, quickFoodItems: items, updatedAt: Date.now() });
   },
 });
 

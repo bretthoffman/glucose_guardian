@@ -363,10 +363,8 @@ export function CGMChart({
     [eventMarkers, windowStart, windowMs, plotW, markerScale],
   );
 
+  /** Clock time at a point in the window — every range, not just 3H/6H (12H/24H used to say "Nh ago"). */
   function xLabel(msFromStart: number): string {
-    const hoursAgo = Math.round((windowMs - msFromStart) / (60 * 60 * 1000));
-    if (hoursAgo === 0) return "Now";
-    if (windowMs >= RANGE_MS["12H"]) return `${hoursAgo}h ago`;
     return new Date(windowStart + msFromStart).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
   const startTime = xLabel(0);
@@ -422,8 +420,10 @@ export function CGMChart({
     return out.map((r) => ({ color: r.color, d: r.pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ") }));
   }
 
-  // Deviation band polygon: along the trend line, then back along the midline. Filled twice — clipped
-  // to above/below the midline — so it is emerald above target and coral below, never a full area fill.
+  // Deviation band polygon: along the trend line, then back along the target line. It is drawn once per
+  // threshold ZONE, clipped to that zone's horizontal strip and filled in that zone's color: green
+  // between the low and high thresholds, amber between high and very-high, coral beyond either end. So
+  // the fill still runs from the line back to the target, and changes color where it crosses a threshold.
   function bandPath(run: Pt[]): string | null {
     if (run.length < 2) return null;
     let d = `M ${run[0].x.toFixed(1)} ${run[0].y.toFixed(1)}`;
@@ -433,7 +433,18 @@ export function CGMChart({
     return d;
   }
 
-  const tMid = Math.max(0.001, Math.min(0.999, targetLineY / H));
+  // Zone strips (plot Y, top → bottom) and the green strip's fade toward the target line. Gradient
+  // stops are offsets over the plot height, so they must be ordered; clamp the target inside the
+  // green strip for the fade even if a setting puts it outside.
+  const strip = (y0: number, y1: number) => ({ y: Math.max(0, Math.min(H, y0)), h: Math.max(0, Math.min(H, y1) - Math.max(0, y0)) });
+  const zoneRed1 = strip(0, urgentHighLineY);
+  const zoneAmber = strip(urgentHighLineY, highLineY);
+  const zoneGreen = strip(highLineY, lowLineY);
+  const zoneRed2 = strip(lowLineY, H);
+  const off = (y: number) => Math.max(0, Math.min(1, y / H));
+  const tGreenTop = off(Math.min(highLineY, lowLineY));
+  const tGreenBot = off(Math.max(highLineY, lowLineY));
+  const tTarget = Math.max(tGreenTop, Math.min(tGreenBot, off(targetLineY)));
   const last = points[points.length - 1];
   const lastColor = last ? glucoseTone(last.glucose, lowThreshold, highThreshold, urgentHighThreshold) : T.color.emerald;
 
@@ -507,17 +518,20 @@ export function CGMChart({
         >
           <Svg width={plotW} height={H}>
             <Defs>
-              <SvgLinearGradient id="devUp" x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
-                {/* Zone fills a touch more solid (0.30→0.34 at the far edge, 0.04→0.06 by the target
-                    line) so the green/coral areas read on the page without becoming a block. */}
+              {/* Zone fills. Green fades from its far edges (the low/high lines) toward the target line;
+                  amber deepens from the high line up to the very-high line; coral is uniform beyond. */}
+              <SvgLinearGradient id="zoneGreen" x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
                 <Stop offset="0" stopColor={T.color.emerald} stopOpacity={0.34} />
-                <Stop offset={tMid} stopColor={T.color.emerald} stopOpacity={0.06} />
-                <Stop offset="1" stopColor={T.color.emerald} stopOpacity={0.06} />
+                <Stop offset={tGreenTop} stopColor={T.color.emerald} stopOpacity={0.34} />
+                <Stop offset={tTarget} stopColor={T.color.emerald} stopOpacity={0.06} />
+                <Stop offset={tGreenBot} stopColor={T.color.emerald} stopOpacity={0.34} />
+                <Stop offset="1" stopColor={T.color.emerald} stopOpacity={0.34} />
               </SvgLinearGradient>
-              <SvgLinearGradient id="devDown" x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
-                <Stop offset="0" stopColor={T.color.coral} stopOpacity={0.06} />
-                <Stop offset={tMid} stopColor={T.color.coral} stopOpacity={0.06} />
-                <Stop offset="1" stopColor={T.color.coral} stopOpacity={0.34} />
+              <SvgLinearGradient id="zoneAmber" x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
+                <Stop offset="0" stopColor={T.color.amber} stopOpacity={0.36} />
+                <Stop offset={off(urgentHighLineY)} stopColor={T.color.amber} stopOpacity={0.36} />
+                <Stop offset={off(highLineY)} stopColor={T.color.amber} stopOpacity={0.26} />
+                <Stop offset="1" stopColor={T.color.amber} stopOpacity={0.26} />
               </SvgLinearGradient>
               {plotPalette.map((col) => (
                 <SvgLinearGradient key={`vg-${col}`} id={`vg-${col.slice(1)}`} x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
@@ -531,12 +545,10 @@ export function CGMChart({
                   <Stop offset="1" stopColor={mixHex(linePalette[k], "#000000", 0.18)} />
                 </SvgLinearGradient>
               ))}
-              <ClipPath id="aboveMid">
-                <Rect x="0" y="0" width={plotW} height={Math.max(0, targetLineY)} />
-              </ClipPath>
-              <ClipPath id="belowMid">
-                <Rect x="0" y={Math.max(0, targetLineY)} width={plotW} height={Math.max(0, H - targetLineY)} />
-              </ClipPath>
+              <ClipPath id="zoneRed1Clip"><Rect x="0" y={zoneRed1.y} width={plotW} height={zoneRed1.h} /></ClipPath>
+              <ClipPath id="zoneAmberClip"><Rect x="0" y={zoneAmber.y} width={plotW} height={zoneAmber.h} /></ClipPath>
+              <ClipPath id="zoneGreenClip"><Rect x="0" y={zoneGreen.y} width={plotW} height={zoneGreen.h} /></ClipPath>
+              <ClipPath id="zoneRed2Clip"><Rect x="0" y={zoneRed2.y} width={plotW} height={zoneRed2.h} /></ClipPath>
             </Defs>
 
             {/* faint horizontal grid */}
@@ -551,19 +563,22 @@ export function CGMChart({
             <Line x1={plotW - 0.5} y1={0} x2={plotW - 0.5} y2={H} stroke={c.grid} strokeWidth={1} />
             <Line x1={0} y1={H - 0.5} x2={plotW} y2={H - 0.5} stroke={c.grid} strokeWidth={1} />
 
-            {/* deviation shading — clipped to each side of the midline */}
-            <G clipPath="url(#aboveMid)">
-              {runs.map((run, i) => {
-                const d = bandPath(run);
-                return d ? <Path key={`bu-${i}`} d={d} fill="url(#devUp)" /> : null;
-              })}
-            </G>
-            <G clipPath="url(#belowMid)">
-              {runs.map((run, i) => {
-                const d = bandPath(run);
-                return d ? <Path key={`bd-${i}`} d={d} fill="url(#devDown)" /> : null;
-              })}
-            </G>
+            {/* deviation shading — the line-to-target band, drawn per threshold zone in that zone's color */}
+            {(
+              [
+                ["zoneRed1Clip", withAlpha(T.color.coral, 0.34)],
+                ["zoneAmberClip", "url(#zoneAmber)"],
+                ["zoneGreenClip", "url(#zoneGreen)"],
+                ["zoneRed2Clip", withAlpha(T.color.coral, 0.34)],
+              ] as const
+            ).map(([clip, fill]) => (
+              <G key={clip} clipPath={`url(#${clip})`}>
+                {runs.map((run, i) => {
+                  const d = bandPath(run);
+                  return d ? <Path key={`${clip}-${i}`} d={d} fill={fill} /> : null;
+                })}
+              </G>
+            ))}
 
             {/* threshold references (restrained). One fitted dash pattern for all three so each starts
                 and ends on a full dash; the low line matches the upper red line's weight exactly. */}

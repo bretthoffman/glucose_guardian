@@ -25,7 +25,7 @@ import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import { useGlucose } from "@/context/GlucoseContext";
 import { apiUrl } from "@/utils/api-base-url";
 import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
-import { DEFAULT_QUICK_FOODS, parseStoredQuickFoods } from "@/utils/quickFoods";
+import { DEFAULT_QUICK_FOODS, parseStoredQuickFoods, QUICK_LOOKUP_VISIBLE, type QuickFood } from "@/utils/quickFoods";
 import { CardShade } from "@/components/Shade";
 
 interface FoodLookupResult {
@@ -67,7 +67,7 @@ export default function LogFoodModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [timeText, setTimeText] = useState("");
-  const [quickFoods, setQuickFoods] = useState<string[]>(DEFAULT_QUICK_FOODS);
+  const [quickFoods, setQuickFoods] = useState<QuickFood[]>(DEFAULT_QUICK_FOODS);
 
   // Fresh popup per open: clear lookup state, prefill the time with the device clock, and pull
   // the user's current Quick Lookup list (shared with the Food page).
@@ -182,7 +182,7 @@ export default function LogFoodModal({
         </Pressable>
 
         <View style={styles.quickGrid}>
-          {quickFoods.map((food) => {
+          {quickFoods.slice(0, QUICK_LOOKUP_VISIBLE).map(({ name: food }) => {
             const active = result?.foodName?.toLowerCase() === food.toLowerCase();
             return (
               <Pressable

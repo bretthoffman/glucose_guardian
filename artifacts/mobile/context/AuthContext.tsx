@@ -21,7 +21,16 @@ import { generateAccessCode } from "@/utils/accessCodeGen";
 import { splitSharedProfilePatch } from "@/utils/sharedProfilePatch";
 import { patchTouchesBackend, rollbackSyncedKeys } from "@/utils/alertPrefsSync";
 import { resolveLogConfirmName } from "@/utils/careLogConfirm";
-import { DEFAULT_QUICK_FOODS, insertQuickFood, parseStoredQuickFoods } from "@/utils/quickFoods";
+import {
+  DEFAULT_QUICK_FOODS,
+  insertQuickFood,
+  parseStoredQuickFoods,
+  quickFoodNames,
+  quickFoodsFromServer,
+  removeQuickFood as removeQuickFoodFromList,
+  updateQuickFoodCarbs as updateQuickFoodCarbsInList,
+  type QuickFood,
+} from "@/utils/quickFoods";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import {
   mergeDoctorMessages,
@@ -381,9 +390,14 @@ export interface AuthContextType {
   /** Display name of the circle owner whose settings this member inherits (lock-copy in the UI). */
   circleOwnerName: string | null;
   /** Quick Lookup meals — the circle's mutual list for cloud accounts, device-local otherwise. */
-  quickFoods: string[];
-  /** Put a meal at the front of the Quick Lookup list (syncs to every guardian in the circle). */
-  saveQuickFood: (name: string) => void;
+  quickFoods: QuickFood[];
+  /** Put a meal (with its carbs, when known) at the front of the Quick Lookup list (syncs to the circle). */
+  saveQuickFood: (name: string, carbs?: number) => void;
+  /** Record carbs for a meal already on the list (a lookup just told us), keeping its position. */
+  updateQuickFoodCarbs: (name: string, carbs: number) => void;
+  removeQuickFood: (name: string) => void;
+  /** Replace the whole list in a new order (the "See All" window's drag-to-reorder). */
+  reorderQuickFoods: (next: QuickFood[]) => void;
   /** The linked patient's userId currently being viewed (null = viewing my own account). */
   viewingPatientId: string | null;
   viewingPatientName: string | null;
@@ -621,7 +635,8 @@ const SHARED_PROFILE_EDIT_KEYS = [
 ] as const;
 
 /** Max Quick Lookup entries (list length stays constant; saving pushes the oldest off). */
-const QUICK_FOODS_MAX = DEFAULT_QUICK_FOODS.length;
+// No practical cap: the Food page shows the first 8 and "See All" manages the rest. Sanity limit only.
+const QUICK_FOODS_MAX = 500;
 
 /** Mirrors MAX_EMERGENCY_CONTACTS in convex/careCircle.ts — the server throws past this. */
 const MAX_EMERGENCY_CONTACTS_CLIENT = 5;
@@ -755,7 +770,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /** Bumped to force an immediate circle re-hydrate (e.g. right after joining/leaving a circle). */
   const [hydrateNonce, setHydrateNonce] = useState(0);
   /** Quick Lookup meals — hydrated from the circle pool for cloud accounts. */
-  const [quickFoods, setQuickFoods] = useState<string[]>(DEFAULT_QUICK_FOODS);
+  const [quickFoods, setQuickFoods] = useState<QuickFood[]>(DEFAULT_QUICK_FOODS);
   const [viewingPatientId, setViewingPatientId] = useState<string | null>(null);
   const [viewedProfile, setViewedProfile] = useState<UserProfile | null>(null);
   const [viewedFoodLog, setViewedFoodLog] = useState<FoodLogEntry[]>([]);
@@ -794,7 +809,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { circleSharedRef.current = circleShared; }, [circleShared]);
   const emergencyContactsRef = useRef<EmergencyContact[]>([]);
   useEffect(() => { emergencyContactsRef.current = emergencyContacts; }, [emergencyContacts]);
-  const quickFoodsRef = useRef<string[]>(DEFAULT_QUICK_FOODS);
+  const quickFoodsRef = useRef<QuickFood[]>(DEFAULT_QUICK_FOODS);
   useEffect(() => { quickFoodsRef.current = quickFoods; }, [quickFoods]);
   /** Set on every local profile commit so the hydrate poll never clobbers an in-flight edit. */
   const lastProfileCommitAtRef = useRef(0);
@@ -1432,8 +1447,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Trust the server's own verdict, not the presence of shared data: a member whose owner
             // has no profile row yields `shared: null` and would otherwise look like an owner.
             setCircleRole(circle.isOwner ? "owner" : "member");
-            if (Array.isArray(circle.quickFoods)) {
-              const pool = (circle.quickFoods as string[]).slice(0, QUICK_FOODS_MAX);
+            const serverQuickFoods = quickFoodsFromServer(circle.quickFoodItems, circle.quickFoods);
+            if (serverQuickFoods) {
+              const pool = serverQuickFoods.slice(0, QUICK_FOODS_MAX);
               const next = pool.length > 0 ? pool : DEFAULT_QUICK_FOODS;
               setQuickFoods(next);
               AsyncStorage.setItem(QUICK_FOODS_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
@@ -1441,7 +1457,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               // Seed the pool once from this device's list (owner only — a joiner's old local list
               // must never displace the owner's).
               client
-                .mutation(api.careCircle.setQuickFoods, { userId, passwordHash, foods: quickFoodsRef.current })
+                .mutation(api.careCircle.setQuickFoods, {
+                  userId,
+                  passwordHash,
+                  foods: quickFoodNames(quickFoodsRef.current),
+                  items: quickFoodsRef.current,
+                })
                 .catch(() => {});
             } else if (!circle.isOwner) {
               // Member of a circle whose pool isn't seeded yet: show the clean default list, never
@@ -2654,10 +2675,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  /** Quick Lookup meals: front-insert locally, then sync the circle's mutual list. */
-  const saveQuickFood = useCallback((name: string) => {
+  /**
+   * Quick Lookup meals: every change goes through here — apply locally, persist, then sync the
+   * circle's mutual list (names AND items, in lockstep — see convex/careCircle setQuickFoods).
+   */
+  const commitQuickFoods = useCallback((update: (prev: QuickFood[]) => QuickFood[]) => {
     setQuickFoods((prev) => {
-      const next = insertQuickFood(prev, name, QUICK_FOODS_MAX);
+      const next = update(prev).slice(0, QUICK_FOODS_MAX);
+      if (next === prev) return prev;
       AsyncStorage.setItem(QUICK_FOODS_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
       const acc = accountRef.current;
       if (acc?.convexUserId && !caregiverSessionRef.current) {
@@ -2665,13 +2690,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .mutation(api.careCircle.setQuickFoods, {
             userId: acc.convexUserId as Id<"users">,
             passwordHash: acc.passwordHash,
-            foods: next,
+            foods: quickFoodNames(next),
+            items: next,
           })
           .catch(() => {});
       }
       return next;
     });
   }, []);
+  const saveQuickFood = useCallback(
+    (name: string, carbs?: number) => commitQuickFoods((prev) => insertQuickFood(prev, carbs != null ? { name, carbs } : name)),
+    [commitQuickFoods],
+  );
+  const updateQuickFoodCarbs = useCallback(
+    (name: string, carbs: number) => commitQuickFoods((prev) => updateQuickFoodCarbsInList(prev, name, carbs)),
+    [commitQuickFoods],
+  );
+  const removeQuickFood = useCallback((name: string) => commitQuickFoods((prev) => removeQuickFoodFromList(prev, name)), [commitQuickFoods]);
+  const reorderQuickFoods = useCallback((next: QuickFood[]) => commitQuickFoods(() => next), [commitQuickFoods]);
 
   /** TRUE when the change is durable. See the note on {@link commitProfile}. */
   const updateAlertPrefs = useCallback(async (partial: Partial<AlertPreferences>): Promise<boolean> => {
@@ -3616,6 +3652,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         circleOwnerName: isCircleMember ? circleShared?.ownerName ?? null : null,
         quickFoods,
         saveQuickFood,
+        updateQuickFoodCarbs,
+        removeQuickFood,
+        reorderQuickFoods,
         viewingPatientId,
         viewingPatientName,
         isViewingLinkedPatient,
