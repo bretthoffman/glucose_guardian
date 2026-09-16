@@ -8,6 +8,6 @@ export default defineConfig({
     environment: "edge-runtime",
     server: { deps: { inline: ["convex-test"] } },
     // Convex backend tests + pure, RN-import-free mobile helpers (e.g. the chart color classifier).
-    include: ["convex/**/*.test.ts", "artifacts/mobile/**/*.test.ts"],
+    include: ["convex/**/*.test.ts", "artifacts/mobile/**/*.test.ts", "artifacts/api-server/internal/**/*.test.ts"],
   },
 });

@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { EstimateFoodCarbsBody, EstimateFoodCarbsResponse } from "@workspace/api-zod";
 import OpenAI from "openai";
+import { absorptionFor, lookupBarcode, normalizeBarcode } from "../barcode-lookup";
 
 const router: IRouter = Router();
 
@@ -157,6 +158,42 @@ router.post("/estimate", (req, res) => {
   // app's carbs-on-board window matches the food. Absent = medium.
   const absorption = absorptionForKey(match?.key ?? null);
   res.json({ ...response, ...(absorption ? { absorption } : {}) });
+});
+
+/**
+ * Packaged food by barcode → label nutrition, per serving. USDA FoodData Central first, Open Food
+ * Facts as the fallback (see internal/barcode-lookup). The response carries the same fields the app's
+ * result card already renders (foodName, estimatedCarbs = one serving, confidence, tips, fat/protein,
+ * absorption) plus the serving details the servings picker needs.
+ *   400 — not an 8–14 digit barcode · 404 — neither registry knows it ({ found: false })
+ */
+router.post("/barcode", async (req, res) => {
+  const raw = (req.body as { code?: unknown } | undefined)?.code;
+  const code = typeof raw === "string" ? normalizeBarcode(raw) : null;
+  if (!code) {
+    res.status(400).json({ error: "code must be an 8–14 digit barcode" });
+    return;
+  }
+  const product = await lookupBarcode(code, {
+    fetch: (url, init) => fetch(url, init),
+    usdaApiKey: process.env.USDA_FDC_API_KEY,
+    userAgent: "GlucoseGuardian/1.0 (api-server; barcode lookup)",
+  });
+  if (!product) {
+    res.status(404).json({ found: false, barcode: code });
+    return;
+  }
+  const absorption = absorptionFor(product.perServing);
+  res.json({
+    found: true,
+    ...product,
+    estimatedCarbs: product.perServing.carbs,
+    confidence: "high",
+    tips: `Label values for one serving${product.servingText ? ` (${product.servingText})` : ""}. Enter how many servings you're having.`,
+    ...(product.perServing.fat != null ? { fatGrams: product.perServing.fat } : {}),
+    ...(product.perServing.protein != null ? { proteinGrams: product.perServing.protein } : {}),
+    ...(absorption ? { absorption } : {}),
+  });
 });
 
 router.post("/analyze-photo", async (req, res) => {
