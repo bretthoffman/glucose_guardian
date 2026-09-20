@@ -58,7 +58,7 @@ export default function TreatmentProposalCard() {
       const cf = typeof p.correctionFactor === "number" ? p.correctionFactor : correctionFactor;
       // Live dosing store (persisted) + doctor-facing profile mirror.
       saveFormula(cr, tg, cf);
-      await updateProfile({ carbRatio: cr, targetGlucose: tg, correctionFactor: cf });
+      await updateProfile({ carbRatio: cr, targetGlucose: tg, correctionFactor: cf }, { source: "treatment-proposal" });
       await decideTherapyProposal("approved");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch {

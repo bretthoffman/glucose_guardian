@@ -164,6 +164,9 @@ const patientProfiles = defineTable({
   targetGlucose: v.optional(v.number()),
   correctionFactor: v.optional(v.number()),
   doseSettingsByTime: v.optional(doseSettingsByTime),
+  /** When / through what the dose settings last changed (see patientProfile.setDoseSettings). */
+  doseSettingsUpdatedAt: v.optional(v.number()),
+  doseSettingsUpdatedBy: v.optional(v.string()),
   // Glucose alert thresholds, account-scoped so an access-code (kid/caregiver) device shows the
   // code owner's ranges — not whatever was cached locally from a previous sign-in.
   alertPreferences: v.optional(alertPreferences),
@@ -172,6 +175,32 @@ const patientProfiles = defineTable({
   .index("by_userId", ["userId"])
   .index("by_caregiverCode", ["caregiverCode"])
   .index("by_doctorCode", ["doctorCode"]);
+
+const doseAuditValues = v.object({
+  carbRatio: v.optional(v.number()),
+  targetGlucose: v.optional(v.number()),
+  correctionFactor: v.optional(v.number()),
+  hasTimeOverrides: v.optional(v.boolean()),
+});
+
+/**
+ * Append-only record of every dose-settings change — and of every ATTEMPT to change them through a
+ * generic profile save, which the server now ignores. Dose math silently changing was the hardest
+ * class of bug this app has had precisely because nothing recorded who wrote what; this does.
+ *  - kind "changed": the values were updated (setDoseSettings, or the first fill of an empty row).
+ *  - kind "ignored": a profile save carried different dose values and they were NOT applied.
+ */
+const doseSettingsAudit = defineTable({
+  patientUserId: v.id("users"),
+  actorUserId: v.optional(v.id("users")),
+  kind: v.union(v.literal("changed"), v.literal("ignored")),
+  /** Where it came from: "dashboard", "treatment-proposal", "onboarding", "profile-save", … */
+  source: v.string(),
+  before: doseAuditValues,
+  after: doseAuditValues,
+  appVersion: v.optional(v.string()),
+  at: v.number(),
+}).index("by_patient", ["patientUserId", "at"]);
 
 /**
  * Guardian Mode PIN verifier — one row per authenticated patient account (`users`).
@@ -716,6 +745,7 @@ const emergencyWaits = defineTable({
 export default defineSchema({
   users,
   patientProfiles,
+  doseSettingsAudit,
   patientGuardianPins,
   patientCgmConnections,
   patientDexcomCredentials,

@@ -357,9 +357,10 @@ export default function DashboardScreen() {
     // Mirror to the backend profile — this is the copy co-guardians inherit and the doctor portal
     // reads, so the account's live dose math and the shared/synced one can never drift apart.
     setEditing(false);
-    void updateProfile({
-      carbRatio: cr, targetGlucose: tg, correctionFactor: isf, doseSettingsByTime: normalizedByTime,
-    }).then((ok) => {
+    void updateProfile(
+      { carbRatio: cr, targetGlucose: tg, correctionFactor: isf, doseSettingsByTime: normalizedByTime },
+      { source: doctorSession ? "doctor-in-app" : "dashboard" },
+    ).then((ok) => {
       if (ok && doctorSession) {
         addAccessLogEntry(`Doctor updated dosing: CR=${cr}g/u, Target=${tg}, ISF=${isf}`, "doctor");
         Alert.alert("Dosing Updated", "New parameters saved and applied immediately. The account holder has been notified in their access log.", [{ text: "OK" }]);

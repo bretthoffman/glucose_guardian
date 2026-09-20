@@ -184,3 +184,49 @@ Verification: typecheck clean; 532 passing, the same 7 `convex/doctor.test.ts` f
 * **The blast radius of the carbRatio corruption is therefore unmeasured.** When CLI access is restored, the query that sizes it: count `patientProfiles` rows whose `carbRatio/targetGlucose/correctionFactor` are exactly `15/120/50` **and** whose `updatedAt` falls after 2026-07-22, cross-referenced against owners with active `careLinks`. Every such owner's per-meal `doseSettingsByTime` overrides are **gone**, not recoverable from the row, and every co-guardian and access code in their circle has already inherited the defaults. Those owners must re-enter their dose settings by hand.
 * **Two deployments exist in the tree** (`artifacts/mobile/.env:5` → `polished-badger-189`; root `.env.local` → `dev:clean-ptarmigan-904`). I checked whether a deployment flip could explain the cluster and **refuted it**: both exported bundles (`artifacts/mobile/dist/_expo/static/js/{ios,android}/entry-*.hbc`) contain `polished-badger` and zero occurrences of `clean-ptarmigan`, the root `.env.local` vars carry no `EXPO_PUBLIC_` prefix and sit outside the Expo project root so Metro cannot inline them, and — decisively — re-signing-in and re-entering the code both *worked*, which is impossible against a deployment lacking the rows. Whoever re-runs any prod query must still confirm which deployment the CLI selected first.
 * **I did not reproduce anything on a device.** Every finding above is static analysis of the checked-out source and the installed `@clerk/clerk-expo@2.19.31` / `@clerk/clerk-js@5.127.1` / `convex@1.35.1` packages. The cheapest repro for #1/#7 needs no outage: cold-start signed in with the device in airplane mode.
+
+---
+
+## 6. Dose settings made server-owned — 2026-09-20
+
+Fixes 1–3 removed one trigger and the resets kept coming (Brittany's circle, 2026-09-19). The cause
+was the design, not another stray trigger: the ratios had **two sources of truth** — the device's
+saved copy and the server profile — reconciled by "the device always wins", and nothing ever made a
+device adopt newer server values. Three mechanisms were live:
+
+1. **Stale-device revert.** The launch-time backfill (`GlucoseContext`) pushed this device's saved
+   values over the server's whenever they differed. A second device on the owner account, or any
+   change made elsewhere (another device, an approved doctor order), was silently undone the next
+   time the stale device opened. Fix 1 had narrowed it to devices with saved values — exactly the
+   stale case.
+2. **The server accepted it.** `patientProfile.replace` is a whole-document replace that carried
+   forward thresholds, codes and the access log but not the four dose fields, so any profile save
+   from any client (stale cache, old bundle, onboarding re-run after an empty profile read) decided
+   the dose math.
+3. **Member fallback.** A co-guardian only saw the owner's ratios while the circle overlay was
+   loaded. After every sign-in until it loaded, or whenever it failed, the app ran on the member's
+   OWN row — which the original bug had stamped 15/120/50 and nothing repaired. No write involved.
+
+Production at the time of the report: the owner's row held real values (30/160/160), so the server
+had NOT been overwritten; the co-guardian's own row held 15/120/50. What the family saw as "resets"
+was the client showing placeholders / the wrong row.
+
+**What changed**
+
+- `convex/patientProfile.ts`: `setDoseSettings` is the ONLY writer (explicit, range-validated,
+  owner-only). `replace` carries existing dose values forward; only a row with none takes them from
+  the payload (onboarding's first write). `get` resolves a linked member's dose fields from the
+  circle OWNER's row, so no client can be shown a member's stale row.
+- `doseSettingsAudit` (new table) + an access-log entry: every change records actor, source, app
+  version, before → after. A generic save that TRIED to change them is recorded as `ignored` — that
+  is how a still-stale device shows up.
+- Mobile: the backfill is deleted. One adoption effect makes the device take the server's values
+  whenever they are known (owner, member, or viewed patient) and cache them; the sign-in loader can
+  no longer leave placeholders in place. `updateProfile` sends dose edits through `setDoseSettings`
+  first; on failure the local profile keeps the previous dose values and the math re-adopts them.
+
+**Known trade-off:** a device still on an old bundle can no longer change ratios (its generic save
+is ignored, and logged). It gets the update prompt; the `ignored` audit rows show any edit lost in
+the rollout window so it can be re-applied deliberately.
+
+Deploy order: Convex first (backward compatible), then the OTA.

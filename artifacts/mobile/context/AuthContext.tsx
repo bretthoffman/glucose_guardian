@@ -32,6 +32,7 @@ import {
   type QuickFood,
 } from "@/utils/quickFoods";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
+import { appVersionTag } from "@/utils/appVersion";
 import {
   mergeDoctorMessages,
   reconcileTherapyProposal,
@@ -309,7 +310,15 @@ export interface AuthContextType {
   isChildMode: boolean;
   setupProfile: (profile: UserProfile) => Promise<void>;
   /** Resolves TRUE only when the change is durable (server accepted, or local-only account). */
-  updateProfile: (profile: Partial<UserProfile>) => Promise<boolean>;
+  /**
+   * Save profile fields. Dose settings (carbRatio / targetGlucose / correctionFactor /
+   * doseSettingsByTime) are SERVER-OWNED: when the patch includes any, they are written through the
+   * dedicated, audited `patientProfile.setDoseSettings` mutation — a generic profile save cannot
+   * change them. `source` labels that audit entry ("dashboard", "treatment-proposal", …).
+   */
+  updateProfile: (profile: Partial<UserProfile>, opts?: { source?: string }) => Promise<boolean>;
+  /** Bumps when a dose-settings save FAILED, so the dose math re-adopts the server's values. */
+  doseSyncNonce: number;
   setCGMConnection: (conn: CGMConnection) => Promise<void>;
   /**
    * Durable disconnect. `ok: false` means the server still has the connection and nothing changed;
@@ -444,6 +453,8 @@ const CAREGIVER_CODE_KEY = "@gluco_guardian_caregiver_code";
 const CARE_MEMBERSHIPS_KEY = "@gluco_guardian_care_memberships";
 /** Persisted owner-settings overlay so a member's app inherits offline too. */
 const CIRCLE_SHARED_KEY = "@gluco_guardian_circle_shared";
+/** The server-owned dose fields — see `updateProfile` and convex/patientProfile `setDoseSettings`. */
+const DOSE_PROFILE_KEYS = ["carbRatio", "targetGlucose", "correctionFactor", "doseSettingsByTime"] as const;
 const DOCTOR_MESSAGES_KEY = "@gluco_guardian_doctor_messages";
 const THERAPY_PROPOSAL_KEY = "@gluco_guardian_therapy_proposal";
 /**
@@ -2104,8 +2115,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await commitProfile(p);
   }, [commitProfile]);
 
+  const [doseSyncNonce, setDoseSyncNonce] = useState(0);
   /** TRUE when the change is durable. See the note on {@link commitProfile}. */
-  const updateProfile = useCallback(async (partial: Partial<UserProfile>): Promise<boolean> => {
+  const updateProfile = useCallback(async (partial: Partial<UserProfile>, opts?: { source?: string }): Promise<boolean> => {
     // A linked co-guardian's shared fields live on the OWNER's account: route those through the
     // circle mutation (optimistically reflected via the overlay) and keep only personal fields on
     // this account's own document. Owner-locked fields are rejected server-side as a backstop.
@@ -2166,7 +2178,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const prev = profileRef.current;
     if (!prev) return false;
-    return await commitProfile({ ...prev, ...partial });
+    const merged: UserProfile = { ...prev, ...partial };
+    /**
+     * Dose settings are server-owned (convex/patientProfile `setDoseSettings`). Send them through the
+     * dedicated mutation FIRST; the generic save below then carries identical values, which the
+     * server ignores either way. If the dose write fails, the local profile keeps the PREVIOUS dose
+     * values (so nothing on this device dose-calculates from numbers the server never accepted) and
+     * the nonce makes the dose math re-adopt them.
+     */
+    const touchesDose = DOSE_PROFILE_KEYS.some((k) => k in partial);
+    let doseOk = true;
+    if (touchesDose && acc?.convexUserId && !caregiverSessionRef.current) {
+      const { carbRatio: cr, targetGlucose: tg, correctionFactor: cf } = merged;
+      if (typeof cr === "number" && typeof tg === "number" && typeof cf === "number") {
+        doseOk = await createConvexAuthClient()
+          .mutation(api.patientProfile.setDoseSettings, {
+            userId: acc.convexUserId as Id<"users">,
+            passwordHash: acc.passwordHash,
+            carbRatio: cr,
+            targetGlucose: tg,
+            correctionFactor: cf,
+            ...("doseSettingsByTime" in partial ? { doseSettingsByTime: partial.doseSettingsByTime ?? null } : {}),
+            source: opts?.source ?? "app",
+            appVersion: appVersionTag(),
+          })
+          .then(() => true)
+          .catch(() => false);
+      }
+    }
+    if (!doseOk) {
+      merged.carbRatio = prev.carbRatio;
+      merged.targetGlucose = prev.targetGlucose;
+      merged.correctionFactor = prev.correctionFactor;
+      merged.doseSettingsByTime = prev.doseSettingsByTime;
+      setDoseSyncNonce((n) => n + 1);
+    }
+    return (await commitProfile(merged)) && doseOk;
   }, [commitProfile]);
 
   /**
@@ -3651,6 +3698,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isCircleMember,
         circleOwnerName: isCircleMember ? circleShared?.ownerName ?? null : null,
         quickFoods,
+        doseSyncNonce,
         saveQuickFood,
         updateQuickFoodCarbs,
         removeQuickFood,

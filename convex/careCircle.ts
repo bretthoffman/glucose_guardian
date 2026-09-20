@@ -667,7 +667,7 @@ const MAX_EMERGENCY_CONTACTS = 5;
 const MAX_QUICK_FOODS = 500;
 
 /** The circle bucket a caller's shared settings resolve to (owner's account, or self when solo). */
-async function circleAnchorFor(
+export async function circleAnchorFor(
   ctx: QueryCtx | MutationCtx,
   callerUserId: Id<"users">,
 ): Promise<{ anchor: Id<"users">; isOwner: boolean }> {
