@@ -632,6 +632,12 @@ const careFoodLogs = defineTable({
   confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
   fromPhoto: v.boolean(),
   photoUri: v.optional(v.string()),
+  /**
+   * The meal photo, uploaded to Convex file storage (careLogs.generateFoodPhotoUploadUrl +
+   * attachFoodPhoto) — unlike `photoUri`, which is a file path on the logging device. The file is
+   * deleted when it's replaced, or with the last entry using it (delete, clear, the FOOD_CAP prune).
+   */
+  photoStorageId: v.optional(v.id("_storage")),
   // Optional nutrition context from the AI analysis (fat/protein grams + absorption speed).
   fatGrams: v.optional(v.number()),
   proteinGrams: v.optional(v.number()),
@@ -640,7 +646,8 @@ const careFoodLogs = defineTable({
   edited: v.optional(v.boolean()), // true once a viewer has edited this entry in place
 })
   .index("by_patient_time", ["patientUserId", "timestamp"])
-  .index("by_patient_client", ["patientUserId", "clientId"]);
+  .index("by_patient_client", ["patientUserId", "clientId"])
+  .index("by_photo", ["photoStorageId"]);
 
 const careInsulinLogs = defineTable({
   patientUserId: v.id("users"),

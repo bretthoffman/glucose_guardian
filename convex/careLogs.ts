@@ -8,7 +8,7 @@
  * `clientId` (the device-generated entry id) is the idempotency key so migration and retries never
  * duplicate.
  */
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
@@ -173,13 +173,33 @@ export async function circleBucketFor(
 
 // ─── pruning ─────────────────────────────────────────────────────────────────────────────────
 
+/** True while any food entry still points at this stored photo. */
+async function photoInUse(ctx: MutationCtx, storageId: Id<"_storage">): Promise<boolean> {
+  const row = await ctx.db
+    .query("careFoodLogs")
+    .withIndex("by_photo", (q) => q.eq("photoStorageId", storageId))
+    .first();
+  return row !== null;
+}
+
+/**
+ * Remove a food entry, and its stored meal photo once no entry uses it any more. (copyBucketLogs
+ * leaves the joiner's original rows in place, so a photo can be shared by the two copies.)
+ */
+async function deleteFoodRow(ctx: MutationCtx, row: Doc<"careFoodLogs">) {
+  await ctx.db.delete(row._id);
+  if (row.photoStorageId && !(await photoInUse(ctx, row.photoStorageId))) {
+    await ctx.storage.delete(row.photoStorageId);
+  }
+}
+
 async function pruneFood(ctx: MutationCtx, patientUserId: Id<"users">) {
   const rows = await ctx.db
     .query("careFoodLogs")
     .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
     .order("desc")
     .collect();
-  for (const row of rows.slice(FOOD_CAP)) await ctx.db.delete(row._id);
+  for (const row of rows.slice(FOOD_CAP)) await deleteFoodRow(ctx, row);
 }
 
 async function pruneInsulin(ctx: MutationCtx, patientUserId: Id<"users">) {
@@ -320,6 +340,7 @@ export async function copyBucketLogs(
       confidence: row.confidence,
       fromPhoto: row.fromPhoto,
       ...(row.photoUri != null ? { photoUri: row.photoUri } : {}),
+      ...(row.photoStorageId != null ? { photoStorageId: row.photoStorageId } : {}),
       ...(row.fatGrams != null ? { fatGrams: row.fatGrams } : {}),
       ...(row.proteinGrams != null ? { proteinGrams: row.proteinGrams } : {}),
       ...(row.absorption != null ? { absorption: row.absorption } : {}),
@@ -682,7 +703,7 @@ export const clearFood = mutation({
       .query("careFoodLogs")
       .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
       .collect();
-    for (const row of rows) await ctx.db.delete(row._id);
+    for (const row of rows) await deleteFoodRow(ctx, row);
   },
 });
 
@@ -784,7 +805,7 @@ export const deleteFoodLog = mutation({
     const user = await requireUserCompat(ctx, args);
     const patientUserId = await accountEntryAuth(ctx, user._id, args.patientUserId);
     const row = await findFoodRow(ctx, patientUserId, args.clientId);
-    if (row) await ctx.db.delete(row._id);
+    if (row) await deleteFoodRow(ctx, row);
   },
 });
 
@@ -823,7 +844,7 @@ export const deleteFoodLogViaCode = mutation({
   handler: async (ctx, args) => {
     const patientUserId = await codeEntryAuth(ctx, args.code);
     const row = await findFoodRow(ctx, patientUserId, args.clientId);
-    if (row) await ctx.db.delete(row._id);
+    if (row) await deleteFoodRow(ctx, row);
   },
 });
 
@@ -851,5 +872,78 @@ export const updateInsulinLogViaCode = mutation({
     const patientUserId = await codeEntryAuth(ctx, args.code);
     const row = await findInsulinRow(ctx, patientUserId, args.clientId);
     if (row) await patchInsulinRow(ctx, row, args.patch);
+  },
+});
+
+// ─── meal photos (Convex file storage) ───────────────────────────────────────────────────────
+// Flow: log the meal as usual → generate an upload URL → POST the image to it (the response is
+// { storageId }) → attach it to the entry by clientId. Authorization is the same as editing that
+// entry. A photo is deleted with its entry (delete, clear, the FOOD_CAP prune) or when replaced.
+// Storage ids never leave the backend in reads; the doctor portal gets photos via the api-server.
+
+/** Under the api-server's 4.5 MB response cap, which streams these to the portal. */
+const MAX_FOOD_PHOTO_BYTES = 4 * 1024 * 1024;
+/**
+ * Formats every browser displays (the doctor portal shows these). No SVG — it can carry script — and
+ * no HEIC, which Chrome can't show; the app sends a compressed JPEG. Convex records the type from
+ * the upload's Content-Type header.
+ */
+const FOOD_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+async function attachPhoto(
+  ctx: MutationCtx,
+  patientUserId: Id<"users">,
+  clientId: string,
+  storageId: Id<"_storage">,
+) {
+  const row = await findFoodRow(ctx, patientUserId, clientId);
+  if (!row) throw new ConvexError("Log the meal before attaching its photo");
+  if (row.photoStorageId === storageId) return; // retry — already attached
+  const file = await ctx.db.system.get(storageId);
+  if (!file) throw new ConvexError("That upload wasn't found — upload the photo again");
+  // A refused file is left alone rather than deleted: an id in the request isn't proof the caller
+  // uploaded it. (A well-behaved app never gets here — it sends a compressed JPEG.)
+  const type = file.contentType?.split(";")[0]?.trim().toLowerCase();
+  if (!type || !FOOD_PHOTO_TYPES.includes(type) || file.size > MAX_FOOD_PHOTO_BYTES) {
+    throw new ConvexError("Meal photos must be JPEG, PNG or WebP images under 4 MB");
+  }
+  // One upload, one meal — so one entry's photo can't be pointed at from another circle.
+  if (await photoInUse(ctx, storageId)) throw new ConvexError("That photo is already attached to another meal");
+  const previous = row.photoStorageId;
+  await ctx.db.patch(row._id, { photoStorageId: storageId });
+  if (previous && !(await photoInUse(ctx, previous))) await ctx.storage.delete(previous);
+}
+
+export const generateFoodPhotoUploadUrl = mutation({
+  args: { ...legacyAuthArgs, patientUserId: v.id("users") },
+  handler: async (ctx, args) => {
+    const user = await requireUserCompat(ctx, args);
+    await accountEntryAuth(ctx, user._id, args.patientUserId);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const generateFoodPhotoUploadUrlViaCode = mutation({
+  args: { code: v.string() },
+  handler: async (ctx, args) => {
+    await codeEntryAuth(ctx, args.code);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const attachFoodPhoto = mutation({
+  args: { ...legacyAuthArgs, patientUserId: v.id("users"), clientId: v.string(), storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    const user = await requireUserCompat(ctx, args);
+    const patientUserId = await accountEntryAuth(ctx, user._id, args.patientUserId);
+    await attachPhoto(ctx, patientUserId, args.clientId, args.storageId);
+  },
+});
+
+export const attachFoodPhotoViaCode = mutation({
+  args: { code: v.string(), clientId: v.string(), storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    const patientUserId = await codeEntryAuth(ctx, args.code);
+    await attachPhoto(ctx, patientUserId, args.clientId, args.storageId);
   },
 });

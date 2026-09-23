@@ -413,6 +413,8 @@ export const getCareLogs = query({
       proteinGrams: r.proteinGrams,
       absorption: r.absorption,
       authorName: r.authorName,
+      // The photo itself is fetched through the api-server (getFoodPhoto), never a public URL.
+      hasPhoto: !!r.photoStorageId,
     }));
     const insulin = insulinRows.map((r) => ({
       id: r.clientId,
@@ -427,6 +429,31 @@ export const getCareLogs = query({
       authorName: r.authorName,
     }));
     return { food, insulin };
+  },
+});
+
+/**
+ * The stored photo for one of a linked patient's meals. Storage URLs don't expire and work for
+ * anyone who has one, so the api-server fetches it and streams the image to the portal — the URL
+ * never reaches a browser. Null when the entry has no photo. The api-server verifies the
+ * doctor↔patient link before calling.
+ */
+export const getFoodPhoto = query({
+  args: { serverSecret: v.string(), accessCode: v.string(), clientId: v.string() },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const profile = await findPatientProfileByDoctorCode(ctx, normalizeAccessCode(args.accessCode));
+    if (!profile) return null;
+    const row = await ctx.db
+      .query("careFoodLogs")
+      .withIndex("by_patient_client", (q) => q.eq("patientUserId", profile.userId).eq("clientId", args.clientId))
+      .first();
+    if (!row?.photoStorageId) return null;
+    const [url, file] = await Promise.all([
+      ctx.storage.getUrl(row.photoStorageId),
+      ctx.db.system.get(row.photoStorageId),
+    ]);
+    return url ? { url, contentType: file?.contentType ?? "image/jpeg" } : null;
   },
 });
 

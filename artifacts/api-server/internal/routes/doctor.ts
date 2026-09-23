@@ -1069,6 +1069,66 @@ router.get(
   },
 );
 
+/** Formats the portal displays — the backend only accepts these at upload; checked again here. */
+const FOOD_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+/**
+ * One meal's photo, which the app uploads to Convex file storage. Streamed through here — behind
+ * the doctor's session and patient link — instead of handing the browser the storage URL, which
+ * works for anyone who has it. 404 when the entry has no photo; 503 until the backend is deployed.
+ */
+router.get(
+  "/patient/:accessCode/food-photos/:clientId",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      try {
+        const code =
+          (req as DoctorAuthedRequest).doctorAccessCode ??
+          normalizeDoctorAccessCode(routeParam(req.params.accessCode));
+        const clientId = routeParam(req.params.clientId);
+        if (!clientId || clientId.length > 200) {
+          res.status(400).json({ error: "Invalid entry id" });
+          return;
+        }
+
+        const client = createConvexDoctorAccountsClient();
+        const photo = (await client.query(api.doctorAccounts.getFoodPhoto, {
+          serverSecret: getConvexDoctorApiSecret(),
+          accessCode: code,
+          clientId,
+        })) as { url: string; contentType: string } | null;
+        const type = photo?.contentType.split(";")[0]?.trim().toLowerCase();
+        if (!photo || !type || !FOOD_PHOTO_TYPES.has(type)) {
+          res.status(404).json({ error: "No photo for this meal" });
+          return;
+        }
+
+        const file = await fetch(photo.url);
+        if (!file.ok) {
+          res.status(file.status === 404 ? 404 : 502).json({ error: "Photo not available" });
+          return;
+        }
+        const bytes = Buffer.from(await file.arrayBuffer());
+        res.set({
+          "Content-Type": type,
+          "Content-Length": String(bytes.length),
+          // Patient data: kept out of shared and on-disk caches (the portal holds it while open).
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": "default-src 'none'; sandbox",
+        });
+        res.send(bytes);
+      } catch (e) {
+        // Includes "function not deployed yet" — the portal shows the meal without its photo.
+        console.error("[doctor] GET /patient/:accessCode/food-photos/:clientId", e);
+        res.status(503).json({ error: "Meal photos not available yet" });
+      }
+    })();
+  },
+);
+
 const CAREGIVER_TITLES = ["mother", "father", "family_member", "school_nurse", "organization"] as const;
 type CaregiverTitle = (typeof CAREGIVER_TITLES)[number];
 
