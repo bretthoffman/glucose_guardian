@@ -4,7 +4,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { caregiverTitle } from "./schema";
 
-function requireDoctorApiSecret(provided: string) {
+export function requireDoctorApiSecret(provided: string) {
   const expected = process.env.CONVEX_DOCTOR_API_SECRET;
   if (!expected || provided !== expected) {
     throw new Error("Unauthorized doctor API");
@@ -15,7 +15,7 @@ export function normalizeAccessCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
 }
 
-async function getActiveLink(
+export async function getActiveLink(
   ctx: QueryCtx | MutationCtx,
   doctorId: Id<"doctorAccounts">,
   accessCode: string,
@@ -30,7 +30,7 @@ async function getActiveLink(
   return link;
 }
 
-async function findPatientProfileByDoctorCode(ctx: QueryCtx | MutationCtx, code: string) {
+export async function findPatientProfileByDoctorCode(ctx: QueryCtx | MutationCtx, code: string) {
   const row = await ctx.db
     .query("patientProfiles")
     .withIndex("by_doctorCode", (q) => q.eq("doctorCode", code))
@@ -474,7 +474,7 @@ export const getPatientProfile = query({
 });
 
 /** Caregiver names match case- and spacing-insensitively ("holly " is "Holly"). */
-function caregiverKey(name: string): string {
+export function caregiverKey(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 

@@ -5,6 +5,9 @@
  *   - `code:<CODE>`    an access code (kid "child" code or "caregiver" code). A signed-in nurse
  *                      account viewing via a code messages AS that code, so from the other side it
  *                      is indistinguishable from an accountless code holder.
+ *   - `doctor:<id>`    a linked doctor (portal). Reachable ONLY from caregiver codes that doctor has
+ *                      tagged as a School Nurse — parents talk to the doctor in the portal’s guardian
+ *                      thread, and family members never get a doctor chat (see nurseDoctorIds).
  *
  * A THREAD is the two endpoint keys sorted and joined with "|". Threads are DERIVED from the circle
  * roster — EVERY pair of participants gets one (guardian↔code, code↔code, and guardian↔guardian for
@@ -24,6 +27,13 @@ import { mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { userCompat } from "./identity";
 import { careAccessAllowed, type CareAccess } from "./careSchedule";
+import {
+  caregiverKey,
+  findPatientProfileByDoctorCode,
+  getActiveLink,
+  normalizeAccessCode,
+  requireDoctorApiSecret,
+} from "./doctorAccounts";
 
 const MAX_TEXT = 1000;
 
@@ -112,10 +122,15 @@ const codeKey = (code: string) => `code:${code}`;
 const isGuardianKey = (key: string) => key.startsWith("user:");
 const keyValue = (key: string) => key.slice(5); // strip "user:" / "code:"
 
+const DOCTOR_PREFIX = "doctor:";
+const doctorKey = (id: Id<"doctorAccounts">) => `${DOCTOR_PREFIX}${id}`;
+const isDoctorKey = (key: string) => key.startsWith(DOCTOR_PREFIX);
+const doctorIdOf = (key: string) => key.slice(DOCTOR_PREFIX.length) as Id<"doctorAccounts">;
+
 /** Canonical thread id: the two endpoint keys sorted so either side computes the same value. */
 const threadKeyOf = (a: string, b: string) => [a, b].sort().join("|");
 
-export type EndpointRole = "guardian" | "co-guardian" | "child" | "caregiver" | "adult";
+export type EndpointRole = "guardian" | "co-guardian" | "child" | "caregiver" | "adult" | "doctor";
 
 /**
  * The ROLE of an endpoint, for the little qualifier beside a name in the thread list.
@@ -135,6 +150,7 @@ async function endpointRole(
   codes: AccessCodeRow[],
   guardianCount: number,
 ): Promise<EndpointRole> {
+  if (isDoctorKey(key)) return "doctor";
   if (isGuardianKey(key)) {
     const profile = await ctx.db
       .query("patientProfiles")
@@ -160,11 +176,78 @@ async function endpointName(
   key: string,
   codes: AccessCodeRow[],
 ): Promise<string> {
+  if (isDoctorKey(key)) return await doctorFormalName(ctx, doctorIdOf(key));
   if (isGuardianKey(key)) return await guardianDisplayName(ctx, keyValue(key) as Id<"users">);
   const row = codes.find((c) => c.code === keyValue(key));
   if (!row) return "Caregiver";
   if ((row.kind ?? "caregiver") === "child") return await patientDisplayName(ctx, patientUserId);
   return row.label;
+}
+
+/** "Dr. Rivera": the doctor’s title + last name, else their display name. */
+async function doctorFormalName(ctx: QueryCtx | MutationCtx, doctorId: Id<"doctorAccounts">): Promise<string> {
+  const doctor = await ctx.db.get(doctorId);
+  const formal = [doctor?.title, doctor?.lastName]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(" ");
+  return formal || doctor?.displayName?.trim() || "Doctor";
+}
+
+/** The patient’s current doctor code (normalized), which is what doctor links are keyed by. */
+async function patientDoctorCode(ctx: QueryCtx | MutationCtx, patientUserId: Id<"users">): Promise<string | null> {
+  const profile = await ctx.db
+    .query("patientProfiles")
+    .withIndex("by_userId", (q) => q.eq("userId", patientUserId))
+    .unique();
+  return profile?.doctorCode ? normalizeAccessCode(profile.doctorCode) : null;
+}
+
+/** Names of the nurse (caregiver) accounts that added this code — the names on their logs. */
+async function codeAccountNames(
+  ctx: QueryCtx | MutationCtx,
+  patientUserId: Id<"users">,
+  code: string,
+): Promise<string[]> {
+  const links = await ctx.db
+    .query("caregiverLinks")
+    .withIndex("by_patient", (q) => q.eq("patientUserId", patientUserId))
+    .collect();
+  const names: string[] = [];
+  for (const link of links) {
+    if (link.code === code) names.push(await guardianDisplayName(ctx, link.caregiverUserId));
+  }
+  return names;
+}
+
+/**
+ * The doctors a caregiver code may message: doctors linked to the patient who have tagged this
+ * code — by its label, or by the name of a nurse account using it — as a School Nurse in the
+ * portal. Everyone else in the circle stays out of doctor chats.
+ */
+async function nurseDoctorIds(
+  ctx: QueryCtx | MutationCtx,
+  patientUserId: Id<"users">,
+  code: AccessCodeRow,
+): Promise<Id<"doctorAccounts">[]> {
+  if ((code.kind ?? "caregiver") !== "caregiver") return [];
+  const doctorCode = await patientDoctorCode(ctx, patientUserId);
+  if (!doctorCode) return [];
+  const links = (
+    await ctx.db
+      .query("doctorPatientLinks")
+      .withIndex("by_accessCode", (q) => q.eq("accessCode", doctorCode))
+      .collect()
+  ).filter((l) => l.revokedAt == null && l.caregiverTitles?.some((t) => t.title === "school_nurse"));
+  if (!links.length) return [];
+  const names = new Set(
+    [code.label, ...(await codeAccountNames(ctx, patientUserId, code.code))].map(caregiverKey),
+  );
+  return links
+    .filter((l) =>
+      l.caregiverTitles!.some((t) => t.title === "school_nurse" && names.has(caregiverKey(t.name))),
+    )
+    .map((l) => l.doctorId);
 }
 
 // ─── viewer resolution ───────────────────────────────────────────────────────────────────────
@@ -211,12 +294,29 @@ async function resolveViewer(
  * accounts immediately creates a thread between them, exactly like creating an access code does.
  * Only the viewer themselves is excluded.
  */
-function counterpartsFor(viewer: Viewer, guardianIds: Id<"users">[], codes: AccessCodeRow[]): string[] {
+function counterpartsFor(
+  viewer: Viewer,
+  guardianIds: Id<"users">[],
+  codes: AccessCodeRow[],
+  doctorIds: Id<"doctorAccounts">[] = [],
+): string[] {
   const myCode = isGuardianKey(viewer.key) ? null : keyValue(viewer.key);
   return [
     ...guardianIds.map((g) => guardianKey(g)).filter((k) => k !== viewer.key),
     ...codes.filter((c) => c.code !== myCode).map((c) => codeKey(c.code)),
+    ...doctorIds.map(doctorKey),
   ];
+}
+
+/** Doctors this viewer may message — only a caregiver code tagged School Nurse has any. */
+async function viewerDoctorIds(
+  ctx: QueryCtx | MutationCtx,
+  viewer: Viewer,
+  codes: AccessCodeRow[],
+): Promise<Id<"doctorAccounts">[]> {
+  if (isGuardianKey(viewer.key)) return [];
+  const mine = codes.find((c) => c.code === keyValue(viewer.key));
+  return mine ? await nurseDoctorIds(ctx, viewer.patientUserId, mine) : [];
 }
 
 // ─── queries + mutations ─────────────────────────────────────────────────────────────────────
@@ -233,7 +333,8 @@ export const listThreads = query({
 
     const codes = await activeCircleCodes(ctx, viewer.patientUserId);
     const guardianIds = await circleGuardianIds(ctx, viewer.patientUserId);
-    const counterparts = counterpartsFor(viewer, guardianIds, codes);
+    const doctorIds = await viewerDoctorIds(ctx, viewer, codes);
+    const counterparts = counterpartsFor(viewer, guardianIds, codes, doctorIds);
 
     const threads = [];
     let unreadTotal = 0;
@@ -306,7 +407,11 @@ export const sendMessage = mutation({
 
     // The other endpoint must still be a current member of this circle.
     const codes = await activeCircleCodes(ctx, viewer.patientUserId);
-    if (isGuardianKey(other)) {
+    if (isDoctorKey(other)) {
+      if (!(await viewerDoctorIds(ctx, viewer, codes)).includes(doctorIdOf(other))) {
+        throw new ConvexError("This doctor isn’t available to message");
+      }
+    } else if (isGuardianKey(other)) {
       const guardianIds = await circleGuardianIds(ctx, viewer.patientUserId);
       if (!guardianIds.includes(keyValue(other) as Id<"users">)) {
         throw new ConvexError("That person is no longer in this circle");
@@ -327,6 +432,22 @@ export const sendMessage = mutation({
       read: false,
       createdAt: Date.now(),
     });
+
+    if (isDoctorKey(other)) {
+      // Doctors have no app: flag the reply in the portal’s alert bell (no message text, since
+      // alerts can be emailed).
+      const doctorCode = await patientDoctorCode(ctx, viewer.patientUserId);
+      if (doctorCode) {
+        await ctx.db.insert("doctorAlerts", {
+          doctorId: doctorIdOf(other),
+          accessCode: doctorCode,
+          kind: "nurse_message",
+          message: `New message from ${senderName}`,
+          createdAt: Date.now(),
+        });
+      }
+      return { id };
+    }
 
     // Push the message to the RECIPIENT endpoint only, so it lands even with the app closed.
     // Scheduled so a push failure can't fail the send.
@@ -358,6 +479,186 @@ export const markThreadRead = mutation({
       .collect();
     for (const m of msgs) {
       if (m.senderKey !== viewer.key && !m.read) await ctx.db.patch(m._id, { read: true });
+    }
+  },
+});
+
+// ─── doctor portal side (api-server, doctor API secret) ──────────────────────────────────────
+// The portal never sees access codes: caregiver codes are referenced by their document id, and
+// thread keys (which contain the code) stay server-side.
+
+const doctorArgs = {
+  serverSecret: v.string(),
+  doctorId: v.id("doctorAccounts"),
+  accessCode: v.string(),
+};
+
+/** The linked patient behind a doctor's request; the api-server has already checked the link. */
+async function doctorPatient(
+  ctx: QueryCtx | MutationCtx,
+  args: { serverSecret: string; doctorId: Id<"doctorAccounts">; accessCode: string },
+) {
+  requireDoctorApiSecret(args.serverSecret);
+  const code = normalizeAccessCode(args.accessCode);
+  if (!(await getActiveLink(ctx, args.doctorId, code))) throw new ConvexError("No access to this patient");
+  return await findPatientProfileByDoctorCode(ctx, code);
+}
+
+/**
+ * Who is in the patient's Care Circle right now, for the portal sidebar: the account owner,
+ * co-guardians, and active access codes (with any nurse accounts using them). `messaging` says how
+ * this doctor can reach them — "parents" = the portal's guardian thread, "nurse" = a Care Circle
+ * chat (caregiver codes this doctor tagged School Nurse), null = not messageable.
+ */
+export const doctorCareCircle = query({
+  args: doctorArgs,
+  handler: async (ctx, args) => {
+    const profile = await doctorPatient(ctx, args);
+    if (!profile) return { members: [] };
+    const patientUserId = profile.userId;
+    const codes = await activeCircleCodes(ctx, patientUserId);
+    const accountLinks = await ctx.db
+      .query("caregiverLinks")
+      .withIndex("by_patient", (q) => q.eq("patientUserId", patientUserId))
+      .collect();
+
+    const members = [];
+    for (const [i, userId] of (await circleGuardianIds(ctx, patientUserId)).entries()) {
+      members.push({
+        id: `user:${userId}`,
+        name: await guardianDisplayName(ctx, userId),
+        kind: i > 0 ? "co_guardian" : profile.accountRole === "adult" ? "patient" : "owner",
+        accounts: [] as { name: string; organization?: string }[],
+        lastUsedAt: undefined as number | undefined,
+        messaging: "parents" as "parents" | "nurse" | null,
+      });
+    }
+    for (const code of codes) {
+      if ((code.kind ?? "caregiver") === "child") {
+        members.push({
+          id: `code:${code._id}`,
+          name: await patientDisplayName(ctx, patientUserId),
+          kind: "patient_device",
+          accounts: [],
+          lastUsedAt: code.lastUsedAt,
+          messaging: null,
+        });
+        continue;
+      }
+      const accounts: { name: string; organization?: string }[] = [];
+      for (const link of accountLinks.filter((l) => l.code === code.code)) {
+        const nurse = await ctx.db
+          .query("patientProfiles")
+          .withIndex("by_userId", (q) => q.eq("userId", link.caregiverUserId))
+          .unique();
+        accounts.push({
+          name: await guardianDisplayName(ctx, link.caregiverUserId),
+          organization: nurse?.organization?.trim() || undefined,
+        });
+      }
+      const nurse = (await nurseDoctorIds(ctx, patientUserId, code)).includes(args.doctorId);
+      members.push({
+        id: `code:${code._id}`,
+        name: code.label,
+        kind: "caregiver_code",
+        accounts,
+        lastUsedAt: code.lastUsedAt,
+        messaging: nurse ? ("nurse" as const) : null,
+      });
+    }
+    return { members };
+  },
+});
+
+/** This doctor's chats with the circle's school nurses (oldest→newest messages per chat). */
+export const doctorNurseThreads = query({
+  args: doctorArgs,
+  handler: async (ctx, args) => {
+    const profile = await doctorPatient(ctx, args);
+    if (!profile) return { threads: [] };
+    const me = doctorKey(args.doctorId);
+    const threads = [];
+    for (const code of await activeCircleCodes(ctx, profile.userId)) {
+      if (!(await nurseDoctorIds(ctx, profile.userId, code)).includes(args.doctorId)) continue;
+      const threadKey = threadKeyOf(codeKey(code.code), me);
+      const msgs = await ctx.db
+        .query("careMessages")
+        .withIndex("by_thread", (q) => q.eq("patientUserId", profile.userId).eq("threadKey", threadKey))
+        .collect();
+      threads.push({
+        codeId: code._id,
+        name: code.label,
+        messages: msgs.map((m) => ({
+          id: m._id,
+          text: m.text,
+          fromDoctor: m.senderKey === me,
+          senderName: m.senderName,
+          createdAt: m.createdAt,
+        })),
+        unread: msgs.filter((m) => m.senderKey !== me && !m.read).length,
+      });
+    }
+    return { threads };
+  },
+});
+
+async function nurseThreadFor(
+  ctx: QueryCtx | MutationCtx,
+  args: { serverSecret: string; doctorId: Id<"doctorAccounts">; accessCode: string; codeId: Id<"careAccessCodes"> },
+) {
+  const profile = await doctorPatient(ctx, args);
+  const code = await ctx.db.get(args.codeId);
+  if (!profile || !code || code.patientUserId !== profile.userId || code.status !== "active") {
+    throw new ConvexError("That caregiver is no longer in this circle");
+  }
+  if (!(await nurseDoctorIds(ctx, profile.userId, code)).includes(args.doctorId)) {
+    throw new ConvexError("Only caregivers you've tagged as School Nurse can be messaged");
+  }
+  return {
+    patientUserId: profile.userId,
+    code,
+    threadKey: threadKeyOf(codeKey(code.code), doctorKey(args.doctorId)),
+  };
+}
+
+export const doctorSendNurseMessage = mutation({
+  args: { ...doctorArgs, codeId: v.id("careAccessCodes"), text: v.string() },
+  handler: async (ctx, args) => {
+    const { patientUserId, code, threadKey } = await nurseThreadFor(ctx, args);
+    const text = args.text.trim();
+    if (!text) throw new ConvexError("Empty message");
+    const senderName = await doctorFormalName(ctx, args.doctorId);
+    const id = await ctx.db.insert("careMessages", {
+      patientUserId,
+      threadKey,
+      senderKey: doctorKey(args.doctorId),
+      senderName,
+      text: text.slice(0, MAX_TEXT),
+      read: false,
+      createdAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, internal.push.notifyMessage, {
+      patientUserId,
+      senderName,
+      text: text.slice(0, MAX_TEXT),
+      threadKey,
+      toCode: code.code,
+    });
+    return { id };
+  },
+});
+
+export const doctorMarkNurseThreadRead = mutation({
+  args: { ...doctorArgs, codeId: v.id("careAccessCodes") },
+  handler: async (ctx, args) => {
+    const { patientUserId, threadKey } = await nurseThreadFor(ctx, args);
+    const me = doctorKey(args.doctorId);
+    const msgs = await ctx.db
+      .query("careMessages")
+      .withIndex("by_thread", (q) => q.eq("patientUserId", patientUserId).eq("threadKey", threadKey))
+      .collect();
+    for (const m of msgs) {
+      if (m.senderKey !== me && !m.read) await ctx.db.patch(m._id, { read: true });
     }
   },
 });

@@ -172,7 +172,12 @@ export const upsertFromSync = mutation({
     const doc = {
       accessCode,
       messages: rest.messages,
-      profile: rest.profile,
+      // Only the phone holding the photo can send it; a co-guardian syncing the same child
+      // without it must not wipe the one already stored.
+      profile: {
+        ...rest.profile,
+        photoDataUri: rest.profile.photoDataUri ?? existing?.profile?.photoDataUri,
+      },
       glucoseReadings: rest.glucoseReadings,
       insulinLog: rest.insulinLog,
       foodLog: rest.foodLog,

@@ -275,6 +275,8 @@ const doctorAlerts = defineTable({
     v.literal("stale_data"),
     v.literal("decision_approved"),
     v.literal("decision_declined"),
+    /** A school nurse replied in their Care Circle chat with the doctor. */
+    v.literal("nurse_message"),
   ),
   message: v.string(),
   value: v.optional(v.number()),
@@ -577,7 +579,8 @@ const caregiverLinks = defineTable({
   createdAt: v.number(),
 })
   .index("by_caregiver", ["caregiverUserId"])
-  .index("by_caregiver_code", ["caregiverUserId", "code"]);
+  .index("by_caregiver_code", ["caregiverUserId", "code"])
+  .index("by_patient", ["patientUserId"]);
 
 const careShared = defineTable({
   patientUserId: v.id("users"),

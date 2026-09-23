@@ -255,6 +255,22 @@ const FOOD_PHOTO_MAX_ENTRIES = 20;
  * (useless off the phone), and keep meal-photo data-URIs only on the newest entries and only when
  * they're genuinely small thumbnails. Worst case ~320KB of photos per patient.
  */
+const PROFILE_PHOTO_MAX_BYTES = 150 * 1024;
+
+/**
+ * Keep the patient photo only when it's a small image data-URI (the portal's avatar). Anything
+ * else — a device file path, or a full-size photo that would crowd Convex's ~1MB document — is
+ * dropped, and the backend then keeps the last good photo.
+ */
+function sanitizeProfilePhoto(profile: PatientSnapshot["profile"]): PatientSnapshot["profile"] {
+  const { photoDataUri, ...rest } = profile;
+  const ok =
+    typeof photoDataUri === "string" &&
+    photoDataUri.startsWith("data:image/") &&
+    photoDataUri.length <= PROFILE_PHOTO_MAX_BYTES;
+  return ok ? { ...rest, photoDataUri } : rest;
+}
+
 /**
  * The app stamps each Care Circle entry with the access code that wrote it (`authorCode`, a
  * credential that can log as that caregiver). The portal only needs `authorName`, so the code is
@@ -818,7 +834,7 @@ router.post("/sync", limitCodeAttempts, (req, res) => {
         await client.mutation(api.doctor.upsertFromSync, {
           serverSecret: secret,
           accessCode: code,
-          profile: body.profile,
+          profile: sanitizeProfilePhoto(body.profile),
           glucoseReadings: body.glucoseReadings ?? [],
           insulinLog: withoutAuthorCodes(body.insulinLog ?? []),
           foodLog: sanitizeFoodLog(body.foodLog ?? []),
@@ -1119,6 +1135,125 @@ router.put(
       } catch (e) {
         console.error("[doctor] PUT /patient/:accessCode/caregiver-titles", e);
         res.status(503).json({ error: "Caregiver titles not available yet" });
+      }
+    })();
+  },
+);
+
+/** Doctor-portal calls into Care Circle messaging carry the doctor, link, and patient code. */
+function doctorCircleArgs(req: DoctorAuthedRequest) {
+  return {
+    serverSecret: getConvexDoctorApiSecret(),
+    doctorId: asDoctorId(req.doctorId),
+    accessCode: req.doctorAccessCode ?? normalizeDoctorAccessCode(routeParam(req.params.accessCode)),
+  };
+}
+
+/** Access codes are referenced by document id, never by the code itself. */
+function careCodeIdParam(req: DoctorAuthedRequest): Id<"careAccessCodes"> | null {
+  const raw = routeParam(req.params.codeId);
+  return /^[a-z0-9]{10,64}$/i.test(raw) ? (raw as Id<"careAccessCodes">) : null;
+}
+
+/** Who is in the patient's Care Circle now, and how this doctor can message each of them. */
+router.get(
+  "/patient/:accessCode/care-circle",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      try {
+        const result = await createConvexDoctorAccountsClient().query(
+          api.careMessages.doctorCareCircle,
+          doctorCircleArgs(req as DoctorAuthedRequest),
+        );
+        res.json(result);
+      } catch (e) {
+        console.error("[doctor] GET /patient/:accessCode/care-circle", e);
+        res.status(503).json({ error: "Care Circle not available yet" });
+      }
+    })();
+  },
+);
+
+/** This doctor's chats with the circle's school nurses. */
+router.get(
+  "/patient/:accessCode/nurse-threads",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      try {
+        const result = await createConvexDoctorAccountsClient().query(
+          api.careMessages.doctorNurseThreads,
+          doctorCircleArgs(req as DoctorAuthedRequest),
+        );
+        res.json(result);
+      } catch (e) {
+        console.error("[doctor] GET /patient/:accessCode/nurse-threads", e);
+        res.status(503).json({ error: "Nurse messaging not available yet" });
+      }
+    })();
+  },
+);
+
+router.post(
+  "/patient/:accessCode/nurse-threads/:codeId/messages",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      const authed = req as DoctorAuthedRequest;
+      const codeId = careCodeIdParam(authed);
+      const text = (req.body as { text?: unknown })?.text;
+      if (!codeId || typeof text !== "string" || !text.trim()) {
+        res.status(400).json({ error: "codeId and text are required" });
+        return;
+      }
+      try {
+        const result = await createConvexDoctorAccountsClient().mutation(
+          api.careMessages.doctorSendNurseMessage,
+          { ...doctorCircleArgs(authed), codeId, text },
+        );
+        res.json(result);
+      } catch (e) {
+        // A ConvexError carries its plain message in `data`.
+        const data = (e as { data?: unknown })?.data;
+        const message = typeof data === "string" ? data : e instanceof Error ? e.message : "";
+        if (/School Nurse|no longer in this circle/.test(message)) {
+          res.status(403).json({
+            error: typeof data === "string" ? data : "Only caregivers you've tagged as School Nurse can be messaged.",
+          });
+          return;
+        }
+        console.error("[doctor] POST nurse message", e);
+        res.status(503).json({ error: "Nurse messaging not available yet" });
+      }
+    })();
+  },
+);
+
+router.post(
+  "/patient/:accessCode/nurse-threads/:codeId/read",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      const authed = req as DoctorAuthedRequest;
+      const codeId = careCodeIdParam(authed);
+      if (!codeId) {
+        res.status(400).json({ error: "codeId is required" });
+        return;
+      }
+      try {
+        await createConvexDoctorAccountsClient().mutation(
+          api.careMessages.doctorMarkNurseThreadRead,
+          { ...doctorCircleArgs(authed), codeId },
+        );
+        res.json({ success: true });
+      } catch (e) {
+        console.error("[doctor] POST nurse thread read", e);
+        res.status(503).json({ error: "Nurse messaging not available yet" });
       }
     })();
   },
