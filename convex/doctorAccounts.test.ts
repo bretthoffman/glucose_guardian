@@ -175,3 +175,64 @@ describe("doctorAccounts.getPatientProfile", () => {
     ).toBeNull();
   });
 });
+
+describe("doctorAccounts caregiver titles", () => {
+  async function linkedDoctor(t: ReturnType<typeof convexTest>, email = "dr@example.com") {
+    const { doctorId } = await t.mutation(api.doctorAccounts.register, {
+      serverSecret: SECRET,
+      email,
+      passwordHash: "h",
+      displayName: "Dr. Test",
+    });
+    await t.mutation(api.doctorAccounts.createLink, { serverSecret: SECRET, doctorId, accessCode: CODE });
+    return doctorId;
+  }
+
+  it("sets, renames case-insensitively, and clears a label per caregiver name", async () => {
+    const t = convexTest(schema, modules);
+    await seedPatient(t);
+    const doctorId = await linkedDoctor(t);
+    const base = { serverSecret: SECRET, doctorId, accessCode: CODE };
+
+    await t.mutation(api.doctorAccounts.setCaregiverTitle, { ...base, name: "Holly", title: "mother" });
+    await t.mutation(api.doctorAccounts.setCaregiverTitle, {
+      ...base,
+      name: "School Nurse",
+      title: "organization",
+      detail: "  Lincoln Elementary  ",
+    });
+    // Same person, different case/spacing → replaces rather than duplicates.
+    await t.mutation(api.doctorAccounts.setCaregiverTitle, { ...base, name: " holly ", title: "family_member", detail: "Aunt" });
+
+    let res = await t.query(api.doctorAccounts.getCaregiverTitles, base);
+    expect(res.titles.map((x) => [x.name, x.title, x.detail])).toEqual([
+      ["School Nurse", "organization", "Lincoln Elementary"],
+      ["holly", "family_member", "Aunt"],
+    ]);
+
+    await t.mutation(api.doctorAccounts.setCaregiverTitle, { ...base, name: "HOLLY" });
+    res = await t.query(api.doctorAccounts.getCaregiverTitles, base);
+    expect(res.titles.map((x) => x.name)).toEqual(["School Nurse"]);
+  });
+
+  it("keeps each doctor's labels private and requires an active link", async () => {
+    const t = convexTest(schema, modules);
+    await seedPatient(t);
+    const mine = await linkedDoctor(t, "a@example.com");
+    const other = await linkedDoctor(t, "b@example.com");
+    await t.mutation(api.doctorAccounts.setCaregiverTitle, {
+      serverSecret: SECRET, doctorId: mine, accessCode: CODE, name: "Holly", title: "mother",
+    });
+    const theirs = await t.query(api.doctorAccounts.getCaregiverTitles, {
+      serverSecret: SECRET, doctorId: other, accessCode: CODE,
+    });
+    expect(theirs.titles).toEqual([]);
+
+    await t.mutation(api.doctorAccounts.revokeLink, { serverSecret: SECRET, doctorId: mine, accessCode: CODE });
+    await expect(
+      t.mutation(api.doctorAccounts.setCaregiverTitle, {
+        serverSecret: SECRET, doctorId: mine, accessCode: CODE, name: "Holly", title: "father",
+      }),
+    ).rejects.toThrow(/No access/);
+  });
+});

@@ -255,6 +255,18 @@ const FOOD_PHOTO_MAX_ENTRIES = 20;
  * (useless off the phone), and keep meal-photo data-URIs only on the newest entries and only when
  * they're genuinely small thumbnails. Worst case ~320KB of photos per patient.
  */
+/**
+ * The app stamps each Care Circle entry with the access code that wrote it (`authorCode`, a
+ * credential that can log as that caregiver). The portal only needs `authorName`, so the code is
+ * dropped before the snapshot is stored or served.
+ */
+function withoutAuthorCodes<T extends object>(entries: T[]): T[] {
+  return entries.map((e) => {
+    const { authorCode: _code, ...rest } = e as T & { authorCode?: unknown };
+    return rest as T;
+  });
+}
+
 function sanitizeFoodLog(foodLog: PatientSnapshot["foodLog"]): PatientSnapshot["foodLog"] {
   const newestFirst = [...foodLog].sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
@@ -262,7 +274,7 @@ function sanitizeFoodLog(foodLog: PatientSnapshot["foodLog"]): PatientSnapshot["
   const keepPhotoIds = new Set(
     newestFirst.slice(0, FOOD_PHOTO_MAX_ENTRIES).map((f) => f.id),
   );
-  return foodLog.map((f) => {
+  return withoutAuthorCodes(foodLog).map((f) => {
     const { photoUri: _dropped, photoDataUri, ...rest } = f;
     const keep =
       photoDataUri &&
@@ -808,7 +820,7 @@ router.post("/sync", limitCodeAttempts, (req, res) => {
           accessCode: code,
           profile: body.profile,
           glucoseReadings: body.glucoseReadings ?? [],
-          insulinLog: body.insulinLog ?? [],
+          insulinLog: withoutAuthorCodes(body.insulinLog ?? []),
           foodLog: sanitizeFoodLog(body.foodLog ?? []),
           messages: merged,
           alertPreferences: body.alertPreferences,
@@ -915,6 +927,9 @@ router.get(
           ...snapshot,
           // "server" = built from server records because the phone has never synced.
           source: phoneSnapshot ? "phone" : "server",
+          // Stored before codes were stripped on sync — strip on the way out too.
+          insulinLog: withoutAuthorCodes(snapshot.insulinLog ?? []),
+          foodLog: withoutAuthorCodes(snapshot.foodLog ?? []),
           glucoseReadings,
           messages,
           therapyProposal: doc?.therapyProposal ?? null,
@@ -1033,6 +1048,77 @@ router.get(
         // Includes "function not deployed yet" — the portal keeps the snapshot's logs on 503.
         console.error("[doctor] GET /patient/:accessCode/logs", e);
         res.status(503).json({ error: "Log history not available yet" });
+      }
+    })();
+  },
+);
+
+const CAREGIVER_TITLES = ["mother", "father", "family_member", "school_nurse", "organization"] as const;
+type CaregiverTitle = (typeof CAREGIVER_TITLES)[number];
+
+/** This doctor's labels for the people who log for the patient ("Holly" → Mother). */
+router.get(
+  "/patient/:accessCode/caregiver-titles",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      try {
+        const authed = req as DoctorAuthedRequest;
+        const code =
+          authed.doctorAccessCode ?? normalizeDoctorAccessCode(routeParam(req.params.accessCode));
+        const result = await createConvexDoctorAccountsClient().query(
+          api.doctorAccounts.getCaregiverTitles,
+          { serverSecret: getConvexDoctorApiSecret(), doctorId: asDoctorId(authed.doctorId), accessCode: code },
+        );
+        res.json(result);
+      } catch (e) {
+        console.error("[doctor] GET /patient/:accessCode/caregiver-titles", e);
+        res.status(503).json({ error: "Caregiver titles not available yet" });
+      }
+    })();
+  },
+);
+
+/** Set one caregiver's label; `title: null` clears it. Body: { name, title, detail? }. */
+router.put(
+  "/patient/:accessCode/caregiver-titles",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      try {
+        const authed = req as DoctorAuthedRequest;
+        const code =
+          authed.doctorAccessCode ?? normalizeDoctorAccessCode(routeParam(req.params.accessCode));
+        const { name, title, detail } = req.body as {
+          name?: unknown;
+          title?: unknown;
+          detail?: unknown;
+        };
+        if (typeof name !== "string" || !name.trim()) {
+          res.status(400).json({ error: "name is required" });
+          return;
+        }
+        if (title != null && !CAREGIVER_TITLES.includes(title as CaregiverTitle)) {
+          res.status(400).json({ error: `title must be one of ${CAREGIVER_TITLES.join(", ")}` });
+          return;
+        }
+        const result = await createConvexDoctorAccountsClient().mutation(
+          api.doctorAccounts.setCaregiverTitle,
+          {
+            serverSecret: getConvexDoctorApiSecret(),
+            doctorId: asDoctorId(authed.doctorId),
+            accessCode: code,
+            name,
+            title: (title ?? undefined) as CaregiverTitle | undefined,
+            detail: typeof detail === "string" ? detail : undefined,
+          },
+        );
+        res.json(result);
+      } catch (e) {
+        console.error("[doctor] PUT /patient/:accessCode/caregiver-titles", e);
+        res.status(503).json({ error: "Caregiver titles not available yet" });
       }
     })();
   },

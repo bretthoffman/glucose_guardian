@@ -2,6 +2,7 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { caregiverTitle } from "./schema";
 
 function requireDoctorApiSecret(provided: string) {
   const expected = process.env.CONVEX_DOCTOR_API_SECRET;
@@ -469,6 +470,56 @@ export const getPatientProfile = query({
         : undefined,
       updatedAt: row.updatedAt,
     };
+  },
+});
+
+/** Caregiver names match case- and spacing-insensitively ("holly " is "Holly"). */
+function caregiverKey(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+const CAREGIVER_TITLES_MAX = 50;
+
+/** This doctor's labels for the people who log for the patient (see doctorPatientLinks). */
+export const getCaregiverTitles = query({
+  args: {
+    serverSecret: v.string(),
+    doctorId: v.id("doctorAccounts"),
+    accessCode: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const link = await getActiveLink(ctx, args.doctorId, normalizeAccessCode(args.accessCode));
+    return { titles: link?.caregiverTitles ?? [] };
+  },
+});
+
+/** Set (or, with no `title`, clear) this doctor's label for one caregiver name. */
+export const setCaregiverTitle = mutation({
+  args: {
+    serverSecret: v.string(),
+    doctorId: v.id("doctorAccounts"),
+    accessCode: v.string(),
+    name: v.string(),
+    title: v.optional(caregiverTitle),
+    detail: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const link = await getActiveLink(ctx, args.doctorId, normalizeAccessCode(args.accessCode));
+    if (!link) throw new Error("No access to this patient");
+    const name = args.name.trim().replace(/\s+/g, " ").slice(0, 60);
+    if (!name) throw new Error("Caregiver name required");
+
+    const key = caregiverKey(name);
+    const titles = (link.caregiverTitles ?? []).filter((t) => caregiverKey(t.name) !== key);
+    if (args.title) {
+      const detail = args.detail?.trim().slice(0, 60) || undefined;
+      titles.push({ name, title: args.title, detail, updatedAt: Date.now() });
+    }
+    const next = titles.slice(-CAREGIVER_TITLES_MAX);
+    await ctx.db.patch(link._id, { caregiverTitles: next });
+    return { titles: next };
   },
 });
 

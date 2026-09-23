@@ -300,6 +300,14 @@ const doctorAccessLogs = defineTable({
   .index("by_doctor_code_action", ["doctorId", "accessCode", "action"]);
 
 /** Persistent association between a doctor account and a patient access code. */
+export const caregiverTitle = v.union(
+  v.literal("mother"),
+  v.literal("father"),
+  v.literal("family_member"),
+  v.literal("school_nurse"),
+  v.literal("organization"),
+);
+
 const doctorPatientLinks = defineTable({
   doctorId: v.id("doctorAccounts"),
   accessCode: v.string(),
@@ -307,6 +315,21 @@ const doctorPatientLinks = defineTable({
   displayName: v.optional(v.string()),
   linkedAt: v.number(),
   revokedAt: v.optional(v.number()),
+  /**
+   * This doctor's own labels for the people who log for the patient ("Holly" → Mother), keyed by
+   * the display name the portal shows on each entry. Doctor-owned and private to this link.
+   */
+  caregiverTitles: v.optional(
+    v.array(
+      v.object({
+        name: v.string(),
+        title: caregiverTitle,
+        /** Optional specifics, e.g. the organization ("Grace Church") or "Grandmother". */
+        detail: v.optional(v.string()),
+        updatedAt: v.number(),
+      }),
+    ),
+  ),
 })
   .index("by_doctorId", ["doctorId"])
   .index("by_doctorId_accessCode", ["doctorId", "accessCode"])
