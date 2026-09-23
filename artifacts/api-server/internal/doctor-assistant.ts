@@ -68,6 +68,35 @@ async function fetchReadings(accessCode: string): Promise<Reading[]> {
   return out;
 }
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * Logged food + insulin for the history window from the server-side log store — the sync snapshot
+ * only holds the phone's newest 100 of each. Null until getCareLogs is deployed.
+ */
+async function fetchCareLogs(accessCode: string): Promise<{ food: any[]; insulin: any[] } | null> {
+  try {
+    const now = Date.now();
+    const r = (await createConvexDoctorAccountsClient().query(api.doctorAccounts.getCareLogs, {
+      serverSecret: getConvexDoctorApiSecret(),
+      accessCode,
+      fromTimestamp: new Date(now - HISTORY_DAYS * DAY).toISOString(),
+      toTimestamp: new Date(now + DAY).toISOString(),
+    })) as { food?: any[]; insulin?: any[] };
+    return { food: r.food ?? [], insulin: r.insulin ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+/** Snapshot entries plus server-side ones, by id; the server copy wins (it carries later edits). */
+function mergeById(snapshot: any[] = [], server: any[] = []): any[] {
+  const byId = new Map<string, any>();
+  for (const e of snapshot) byId.set(String(e.id), e);
+  for (const e of server) byId.set(String(e.id), e);
+  return [...byId.values()];
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 function windowStats(readings: Reading[], fromMs: number, low: number, high: number) {
   const inWin = readings.filter((r) => new Date(r.timestamp).getTime() >= fromMs);
   const n = inWin.length;
@@ -181,7 +210,12 @@ function buildLowAnalysis(
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function buildContext(doc: any, readings: Reading[], tzOffsetMin: number): string {
+function buildContext(
+  doc: any,
+  readings: Reading[],
+  tzOffsetMin: number,
+  logsFromServer: boolean,
+): string {
   const p = doc?.profile ?? {};
   const prefs = doc?.alertPreferences ?? {};
   const low = prefs.lowThreshold ?? 70;
@@ -267,22 +301,25 @@ function buildContext(doc: any, readings: Reading[], tzOffsetMin: number): strin
     }
   }
 
-  const insulin: any[] = [...(doc?.insulinLog ?? [])]
-    .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
-    .slice(0, 15);
+  const newestFirst = (arr: any[] = []) =>
+    [...arr].sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+  const since = (arr: any[], days: number) =>
+    arr.filter((x) => new Date(x.timestamp).getTime() >= now - days * DAY);
+  const allInsulin = newestFirst(doc?.insulinLog);
+  const allMeals = newestFirst(doc?.foodLog);
+
+  const insulin = since(allInsulin, 7).slice(0, 60);
   if (insulin.length) {
-    lines.push("RECENT INSULIN (newest first, UTC):");
+    lines.push("INSULIN, LAST 7 DAYS (newest first, UTC):");
     for (const l of insulin) {
       lines.push(
         `  ${shortTs(String(l.timestamp))}: ${l.units}u ${l.type ?? ""}${l.insulinType ? ` (${l.insulinType})` : ""}${l.note ? ` — ${String(l.note).slice(0, 40)}` : ""}`,
       );
     }
   }
-  const meals: any[] = [...(doc?.foodLog ?? [])]
-    .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
-    .slice(0, 15);
+  const meals = since(allMeals, 7).slice(0, 60);
   if (meals.length) {
-    lines.push("RECENT MEALS (newest first, UTC):");
+    lines.push("MEALS, LAST 7 DAYS (newest first, UTC):");
     for (const f of meals) {
       lines.push(
         `  ${shortTs(String(f.timestamp))}: "${String(f.foodName).slice(0, 60)}" ${f.estimatedCarbs}g carbs, ${f.insulinUnits ?? 0}u given`,
@@ -290,10 +327,32 @@ function buildContext(doc: any, readings: Reading[], tzOffsetMin: number): strin
     }
   }
 
+  // Per-day log totals so questions about earlier days have an answer.
+  const logDays = new Map<string, { meals: number; carbs: number; units: number }>();
+  const dayRow = (ts: string) => {
+    const k = fmtDay(ts);
+    return logDays.get(k) ?? logDays.set(k, { meals: 0, carbs: 0, units: 0 }).get(k)!;
+  };
+  for (const f of since(allMeals, 30)) {
+    const d = dayRow(String(f.timestamp));
+    d.meals++;
+    d.carbs += Number(f.estimatedCarbs) || 0;
+  }
+  for (const l of since(allInsulin, 30)) dayRow(String(l.timestamp)).units += Number(l.units) || 0;
+  if (logDays.size) {
+    lines.push("DAILY LOG TOTALS, LAST 30 DAYS (UTC date: meals, carbs, insulin):");
+    for (const [k, d] of [...logDays.entries()].sort()) {
+      lines.push(`  ${k}: ${d.meals} meals, ${Math.round(d.carbs)}g carbs, ${+d.units.toFixed(1)}u insulin`);
+    }
+  }
+
   const first = readings[0]?.timestamp;
   const last = readings[readings.length - 1]?.timestamp;
+  const logSource = logsFromServer
+    ? `the full server-side log (${allMeals.length} meals, ${allInsulin.length} doses in the 90-day window)`
+    : `the app's last sync (${doc?.syncedAt ?? "never"}), newest 100 of each`;
   lines.push(
-    `DATA COVERAGE: CGM store has ${readings.length} readings${first ? ` from ${shortTs(first)} to ${shortTs(last!)}` : ""} (90-day window). Insulin/meal logs come from the app's last sync: ${doc?.syncedAt ?? "never"}. Anything outside this coverage is unknown — say so rather than guessing.`,
+    `DATA COVERAGE: CGM store has ${readings.length} readings${first ? ` from ${shortTs(first)} to ${shortTs(last!)}` : ""} (90-day window). Insulin/meal logs come from ${logSource}. Anything outside this coverage is unknown — say so rather than guessing.`,
   );
   return lines.join("\n");
 }
@@ -325,21 +384,29 @@ export async function answerDoctorQuestion(args: {
   tzOffsetMin?: number;
 }): Promise<string> {
   const ingestClient = createConvexDoctorHttpClient();
-  const [doc, readings] = await Promise.all([
+  const [doc, readings, logs] = await Promise.all([
     ingestClient.query(api.doctor.getState, {
       serverSecret: getConvexDoctorIngestSecret(),
       accessCode: args.accessCode,
     }),
     fetchReadings(args.accessCode),
+    fetchCareLogs(args.accessCode),
   ]);
 
   const patientName =
     (doc as { profile?: { childName?: string } } | null)?.profile?.childName ?? "this patient";
   const tzOffsetMin = Number.isFinite(args.tzOffsetMin) ? (args.tzOffsetMin as number) : 0;
+  const record = logs
+    ? {
+        ...doc,
+        foodLog: mergeById(doc?.foodLog, logs.food),
+        insulinLog: mergeById(doc?.insulinLog, logs.insulin),
+      }
+    : doc;
   const systemPrompt = buildSystemPrompt(
     args.doctorName,
     patientName,
-    buildContext(doc, readings, tzOffsetMin),
+    buildContext(record, readings, tzOffsetMin, !!logs),
   );
 
   const openai = new OpenAI({

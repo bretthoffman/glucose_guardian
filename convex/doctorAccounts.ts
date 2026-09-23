@@ -351,6 +351,127 @@ export const getGlucoseHistory = query({
   },
 });
 
+/** Newest entries kept per log type per call — about a year of heavy logging. */
+const CARE_LOG_MAX = 2000;
+
+/**
+ * Full food + insulin history for a linked patient over a time range, read from the Care Circle
+ * log store (`careFoodLogs` / `careInsulinLogs`) that every circle member writes to — not the sync
+ * snapshot, which only carries the phone's newest 100 entries of each. Entries are shaped like the
+ * snapshot's (`id` is the device `clientId`, the same id the snapshot uses) so callers can merge
+ * the two without duplicates. Newest first, capped at CARE_LOG_MAX per type. Same trust model as
+ * getGlucoseHistory: the api-server verifies the doctor↔patient link before calling.
+ */
+export const getCareLogs = query({
+  args: {
+    serverSecret: v.string(),
+    accessCode: v.string(),
+    fromTimestamp: v.string(),
+    toTimestamp: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const code = normalizeAccessCode(args.accessCode);
+    const profile = await findPatientProfileByDoctorCode(ctx, code);
+    if (!profile) return { food: [], insulin: [] };
+
+    const [foodRows, insulinRows] = await Promise.all([
+      ctx.db
+        .query("careFoodLogs")
+        .withIndex("by_patient_time", (q) =>
+          q
+            .eq("patientUserId", profile.userId)
+            .gte("timestamp", args.fromTimestamp)
+            .lte("timestamp", args.toTimestamp),
+        )
+        .order("desc")
+        .take(CARE_LOG_MAX),
+      ctx.db
+        .query("careInsulinLogs")
+        .withIndex("by_patient_time", (q) =>
+          q
+            .eq("patientUserId", profile.userId)
+            .gte("timestamp", args.fromTimestamp)
+            .lte("timestamp", args.toTimestamp),
+        )
+        .order("desc")
+        .take(CARE_LOG_MAX),
+    ]);
+
+    // photoUri is a file on the logging device (useless off the phone) and authorCode is an access
+    // credential — neither leaves the backend.
+    const food = foodRows.map((r) => ({
+      id: r.clientId,
+      timestamp: r.timestamp,
+      foodName: r.foodName,
+      estimatedCarbs: r.estimatedCarbs,
+      insulinUnits: r.insulinUnits,
+      confidence: r.confidence,
+      fromPhoto: r.fromPhoto,
+      fatGrams: r.fatGrams,
+      proteinGrams: r.proteinGrams,
+      absorption: r.absorption,
+      authorName: r.authorName,
+    }));
+    const insulin = insulinRows.map((r) => ({
+      id: r.clientId,
+      timestamp: r.timestamp,
+      units: r.units,
+      type: r.type,
+      note: r.note,
+      foodLogId: r.foodLogId,
+      insulinType: r.insulinType,
+      recommendedUnits: r.recommendedUnits,
+      manualOverride: r.manualOverride,
+      authorName: r.authorName,
+    }));
+    return { food, insulin };
+  },
+});
+
+/**
+ * A linked patient's server-side profile, shaped like the sync snapshot's `profile`. Linking only
+ * needs the doctor code, so a patient whose phone hasn't pushed a doctor sync yet has no snapshot;
+ * this lets the portal show their chart from server records instead of "no data". Exposes only the
+ * fields the app already syncs to the doctor. The api-server verifies the link before calling.
+ */
+export const getPatientProfile = query({
+  args: {
+    serverSecret: v.string(),
+    accessCode: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const row = await findPatientProfileByDoctorCode(ctx, normalizeAccessCode(args.accessCode));
+    if (!row) return null;
+    const prefs = row.alertPreferences;
+    return {
+      profile: {
+        childName: row.childName,
+        parentName: row.parentName,
+        diabetesType: row.diabetesType,
+        dateOfBirth: row.dateOfBirth,
+        weightLbs: row.weightLbs,
+        doctorName: row.doctorName,
+        insulinTypes: row.insulinTypes,
+        carbRatio: row.carbRatio,
+        targetGlucose: row.targetGlucose,
+        correctionFactor: row.correctionFactor,
+        doseSettingsByTime: row.doseSettingsByTime,
+      },
+      alertPreferences: prefs
+        ? {
+            lowThreshold: prefs.lowThreshold,
+            highThreshold: prefs.highThreshold,
+            urgentLowThreshold: prefs.urgentLowThreshold,
+            urgentHighThreshold: prefs.urgentHighThreshold,
+          }
+        : undefined,
+      updatedAt: row.updatedAt,
+    };
+  },
+});
+
 export const assertCanAccess = query({
   args: {
     serverSecret: v.string(),

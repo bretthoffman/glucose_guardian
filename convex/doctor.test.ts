@@ -10,8 +10,12 @@ const CODE = "ABC123";
 
 beforeEach(() => {
   vi.stubEnv("CONVEX_DOCTOR_INGEST_SECRET", SECRET);
+  // Proposals schedule a push; fake timers let each test run it to completion instead of it
+  // firing after the test has torn down.
+  vi.useFakeTimers();
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
 });
 
@@ -59,6 +63,7 @@ describe("doctor.proposeOrder", () => {
     const state = await t.query(api.doctor.getState, { serverSecret: SECRET, accessCode: CODE });
     expect(state?.therapyProposal).toEqual(proposal);
     expect(state?.therapyDecision).toBeUndefined();
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
   });
 
   it("rejects a second proposal while one is pending (→ 409)", async () => {
@@ -75,6 +80,7 @@ describe("doctor.proposeOrder", () => {
         proposal: makeProposal({ id: "prop-2" }),
       }),
     ).rejects.toThrow(/PENDING_PROPOSAL_EXISTS/);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
   });
 
   it("rejects an invalid server secret", async () => {
@@ -107,6 +113,7 @@ describe("doctor proposal preservation across patient sync", () => {
     const state = await t.query(api.doctor.getState, { serverSecret: SECRET, accessCode: CODE });
     expect(state?.therapyProposal).toEqual(proposal);
     expect(state?.messages).toHaveLength(1);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
   });
 
   it("appendMessage does not clobber a pending proposal", async () => {
@@ -122,6 +129,7 @@ describe("doctor proposal preservation across patient sync", () => {
     const state = await t.query(api.doctor.getState, { serverSecret: SECRET, accessCode: CODE });
     expect(state?.therapyProposal).toEqual(proposal);
     expect(state?.messages.some((m) => m.id === "m2")).toBe(true);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
   });
 });
 
@@ -143,6 +151,7 @@ describe("doctor.decideOrder", () => {
     expect(state?.therapyProposal).toBeUndefined();
     expect(state?.therapyDecision?.proposalId).toBe(proposal.id);
     expect(state?.therapyDecision?.status).toBe("approved");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
   });
 
   it("is idempotent for a proposal that was already decided", async () => {
@@ -163,6 +172,7 @@ describe("doctor.decideOrder", () => {
     });
     expect(second.applied).toBe(false);
     expect(second.alreadyDecided).toBe(true);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
   });
 
   it("lets a doctor propose again after a decision (clearing the stale decision)", async () => {
@@ -182,5 +192,19 @@ describe("doctor.decideOrder", () => {
     const state = await t.query(api.doctor.getState, { serverSecret: SECRET, accessCode: CODE });
     expect(state?.therapyProposal?.id).toBe("prop-2");
     expect(state?.therapyDecision).toBeUndefined();
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  });
+});
+
+describe("doctor.upsertFromSync profile", () => {
+  it("accepts the per-meal dose overrides the app sends with each sync", async () => {
+    const t = convexTest(schema, modules);
+    const doseSettingsByTime = { breakfast: { carbRatio: 8 }, dinner: { correctionFactor: 40 } };
+    await t.mutation(api.doctor.upsertFromSync, {
+      ...baseSnapshotArgs,
+      profile: { ...baseSnapshotArgs.profile, doseSettingsByTime },
+    });
+    const state = await t.query(api.doctor.getState, { serverSecret: SECRET, accessCode: CODE });
+    expect(state?.profile?.doseSettingsByTime).toEqual(doseSettingsByTime);
   });
 });

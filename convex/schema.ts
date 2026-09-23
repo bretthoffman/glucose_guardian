@@ -40,6 +40,8 @@ const profile = v.object({
   correctionFactor: v.optional(v.number()),
   /** Small (~192px JPEG) base64 data-URI of the patient's photo, synced from the app. */
   photoDataUri: v.optional(v.string()),
+  /** Per-meal-window overrides the patient actually doses on (the app sends these with each sync). */
+  doseSettingsByTime: v.optional(doseSettingsByTime),
 });
 
 const glucoseReading = v.object({

@@ -89,6 +89,9 @@ interface PatientSnapshot {
     targetGlucose?: number;
     correctionFactor?: number;
     photoDataUri?: string;
+    doseSettingsByTime?: Partial<
+      Record<"breakfast" | "lunch" | "dinner" | "night", { carbRatio?: number; correctionFactor?: number }>
+    >;
   };
   glucoseReadings: { value: number; trend: string; timestamp: string }[];
   insulinLog: {
@@ -294,6 +297,73 @@ function asDoctorId(id: string): Id<"doctorAccounts"> {
 function routeParam(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? "";
   return value ?? "";
+}
+
+/**
+ * Snapshot for a linked patient whose phone hasn't pushed a doctor sync yet (linking only needs
+ * the doctor code): their server-side profile and nothing else — the freshness overlay adds the
+ * day's glucose and the portal pulls the logged history from /logs. Null when the code is unknown
+ * or the backend function isn't deployed yet.
+ */
+async function snapshotFromServerProfile(
+  code: string,
+  doc: ConvexDoctorDoc | null,
+): Promise<PatientSnapshot | null> {
+  if (!isConvexDoctorAccountsConfigured()) return null;
+  try {
+    const record = (await createConvexDoctorAccountsClient().query(
+      api.doctorAccounts.getPatientProfile,
+      { serverSecret: getConvexDoctorApiSecret(), accessCode: code },
+    )) as {
+      profile: PatientSnapshot["profile"];
+      alertPreferences?: PatientSnapshot["alertPreferences"];
+      updatedAt: number;
+    } | null;
+    if (!record) return null;
+    return {
+      accessCode: code,
+      profile: record.profile,
+      glucoseReadings: [],
+      insulinLog: [],
+      foodLog: [],
+      messages: doc?.messages ?? [],
+      alertPreferences: record.alertPreferences,
+      syncedAt: new Date(record.updatedAt).toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** getGlucoseHistory returns at most this many readings per call, oldest first. */
+const GLUCOSE_HISTORY_PAGE = 5000;
+
+/**
+ * Every durable reading in [from, to]. Pages past getGlucoseHistory's per-call cap so long windows
+ * and dense (1-minute) CGM data come back complete; bounded at 12 pages (~60k readings).
+ */
+async function readGlucoseHistory(
+  code: string,
+  fromIso: string,
+  toIso: string,
+): Promise<PatientSnapshot["glucoseReadings"]> {
+  const client = createConvexDoctorAccountsClient();
+  const out: PatientSnapshot["glucoseReadings"] = [];
+  let from = fromIso;
+  for (let page = 0; page < 12; page++) {
+    const result = (await client.query(api.doctorAccounts.getGlucoseHistory, {
+      serverSecret: getConvexDoctorApiSecret(),
+      accessCode: code,
+      fromTimestamp: from,
+      toTimestamp: toIso,
+    })) as { readings?: PatientSnapshot["glucoseReadings"] };
+    const rows = result.readings ?? [];
+    // The range is inclusive, so every page after the first repeats the previous page's last row.
+    out.push(...(page === 0 ? rows : rows.filter((r) => r.timestamp > from)));
+    if (rows.length < GLUCOSE_HISTORY_PAGE) break;
+    from = rows[rows.length - 1]!.timestamp;
+  }
+  return out;
 }
 
 function toPatientSnapshot(doc: ConvexDoctorDoc | null): PatientSnapshot | null {
@@ -800,7 +870,9 @@ router.get(
           serverSecret: secret,
           accessCode: code,
         })) as ConvexDoctorDoc | null;
-        const snapshot = toPatientSnapshot(doc);
+        const phoneSnapshot = toPatientSnapshot(doc);
+        // No phone sync yet → show the chart from server records instead of "not found".
+        const snapshot = phoneSnapshot ?? (await snapshotFromServerProfile(code, doc));
         if (!snapshot) {
           res.status(404).json({ error: "No patient data found for this access code" });
           return;
@@ -841,6 +913,8 @@ router.get(
         logDoctorAccess((req as DoctorAuthedRequest).doctorId, code, "viewed");
         res.json({
           ...snapshot,
+          // "server" = built from server records because the phone has never synced.
+          source: phoneSnapshot ? "phone" : "server",
           glucoseReadings,
           messages,
           therapyProposal: doc?.therapyProposal ?? null,
@@ -900,23 +974,65 @@ router.get(
           return;
         }
 
-        const client = createConvexDoctorAccountsClient();
-        const result = (await client.query(api.doctorAccounts.getGlucoseHistory, {
-          serverSecret: getConvexDoctorApiSecret(),
-          accessCode: code,
-          fromTimestamp: new Date(fromMs).toISOString(),
-          toTimestamp: new Date(toMs).toISOString(),
-        })) as { readings: { value: number; trend: string; timestamp: string }[] };
-
-        res.json({
-          accessCode: code,
-          from: new Date(fromMs).toISOString(),
-          to: new Date(toMs).toISOString(),
-          readings: result.readings ?? [],
-        });
+        const from = new Date(fromMs).toISOString();
+        const to = new Date(toMs).toISOString();
+        res.json({ accessCode: code, from, to, readings: await readGlucoseHistory(code, from, to) });
       } catch (e) {
         console.error("[doctor] GET /patient/:accessCode/readings", e);
         res.status(500).json({ error: "Could not load glucose history" });
+      }
+    })();
+  },
+);
+
+/**
+ * The patient's logged food + insulin history from the server-side Care Circle log store — the
+ * sync snapshot only carries the phone's newest 100 entries of each. Entries share the snapshot's
+ * ids, so the portal merges the two without duplicates. Newest first, up to ~13 months per call.
+ */
+router.get(
+  "/patient/:accessCode/logs",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      try {
+        const code =
+          (req as DoctorAuthedRequest).doctorAccessCode ??
+          normalizeDoctorAccessCode(routeParam(req.params.accessCode));
+
+        const fromMs = Date.parse(String(req.query.from ?? ""));
+        const toMs = Date.parse(String(req.query.to ?? ""));
+        if (Number.isNaN(fromMs) || Number.isNaN(toMs) || fromMs >= toMs) {
+          res.status(400).json({ error: "from and to must be ISO timestamps with from < to" });
+          return;
+        }
+        if (toMs - fromMs > 400 * 24 * 60 * 60 * 1000) {
+          res.status(400).json({ error: "Range too large (max 400 days)" });
+          return;
+        }
+
+        const from = new Date(fromMs).toISOString();
+        const to = new Date(toMs).toISOString();
+        const client = createConvexDoctorAccountsClient();
+        const result = (await client.query(api.doctorAccounts.getCareLogs, {
+          serverSecret: getConvexDoctorApiSecret(),
+          accessCode: code,
+          fromTimestamp: from,
+          toTimestamp: to,
+        })) as { food?: PatientSnapshot["foodLog"]; insulin?: PatientSnapshot["insulinLog"] };
+
+        res.json({
+          accessCode: code,
+          from,
+          to,
+          food: result.food ?? [],
+          insulin: result.insulin ?? [],
+        });
+      } catch (e) {
+        // Includes "function not deployed yet" — the portal keeps the snapshot's logs on 503.
+        console.error("[doctor] GET /patient/:accessCode/logs", e);
+        res.status(503).json({ error: "Log history not available yet" });
       }
     })();
   },

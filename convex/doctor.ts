@@ -2,6 +2,7 @@ import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { doseSettingsByTime } from "./schema";
 
 const doctorMessage = v.object({
   id: v.string(),
@@ -24,6 +25,9 @@ const profile = v.object({
   targetGlucose: v.optional(v.number()),
   correctionFactor: v.optional(v.number()),
   photoDataUri: v.optional(v.string()),
+  // The app sends these with every sync; without the field here Convex rejects the whole sync
+  // (extra field) the moment a patient sets a per-meal override.
+  doseSettingsByTime: v.optional(doseSettingsByTime),
 });
 
 const glucoseReading = v.object({
@@ -272,12 +276,17 @@ export const proposeOrder = mutation({
       });
     }
 
-    await ctx.db.insert("doctorAccessLogs", {
-      doctorId: args.proposal.proposedByDoctorId as Id<"doctorAccounts">,
-      accessCode: args.accessCode,
-      action: "proposed_change",
-      createdAt: Date.now(),
-    });
+    // Log only a real account id — a malformed one would fail the insert and, with it, the
+    // proposal the caregiver is waiting on.
+    const doctorId = ctx.db.normalizeId("doctorAccounts", args.proposal.proposedByDoctorId);
+    if (doctorId) {
+      await ctx.db.insert("doctorAccessLogs", {
+        doctorId,
+        accessCode: args.accessCode,
+        action: "proposed_change",
+        createdAt: Date.now(),
+      });
+    }
 
     // Proposals need a decision — surface them even with the app closed ("doctor" push category).
     await ctx.scheduler.runAfter(0, internal.push.notifyDoctor, {
