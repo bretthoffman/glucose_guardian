@@ -136,6 +136,9 @@ interface CGMChartProps {
    * from the host's bound and the plot grows by the same amount. Defaults to `axisGap` (no bleed).
    */
   hostPaddingRight?: number;
+  /** Help Mode anchors — the 3H/6H/12H/24H toggle and the plot area (home page tour). */
+  helpRangeRef?: (node: View | null) => void;
+  helpChartRef?: (node: View | null) => void;
   /** Food/insulin log markers drawn as tiny icons on the target baseline at each log's time. */
   eventMarkers?: ChartEventMarker[];
   /** Makes log markers tappable — fired with the marker so the host can open its detail popup. */
@@ -170,6 +173,8 @@ export function CGMChart({
   enablePinchZoom = false,
   axisGap: axisGapProp,
   hostPaddingRight,
+  helpRangeRef,
+  helpChartRef,
 }: CGMChartProps) {
   const c = useThemeColors();
   const styles = useMemo(() => makeStyles(c), [c]);
@@ -480,7 +485,7 @@ export function CGMChart({
         {/* Exactly as wide as the plot, so its right edge lands on the plot's right border line rather
             than running on over the axis gutter. The four tabs are flex:1 inside, so they share
             whatever width this is. */}
-        <View style={[styles.segment, { width: plotW }]}>
+        <View ref={helpRangeRef} collapsable={false} style={[styles.segment, { width: plotW }]}>
           <ControlShade radius={T.radius.pill} />
           {TIME_RANGES.map((r) => {
             const active = timeRange === r;
@@ -500,7 +505,7 @@ export function CGMChart({
       </View>
       )}
 
-      <View style={[styles.chartRow, { height: H }]}>
+      <View ref={helpChartRef} collapsable={false} style={[styles.chartRow, { height: H }]}>
         {/* Pinch-zoom wrapper (inert unless enablePinchZoom): claims two-finger gestures in the
             capture phase so the inner cursor/tap handlers keep single-finger behavior. */}
         <View style={{ width: plotW, height: H }} {...wrapperProps}>

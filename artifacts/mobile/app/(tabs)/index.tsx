@@ -55,6 +55,7 @@ import {
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
+import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 /** Matches GlucoseGauge's STALE_READING_MS — past this, label from the reading, not the sync. */
@@ -335,6 +336,17 @@ export default function HomeScreen() {
   const pullHapticFiredRef = useRef(false);
   const scrollY = useRef(new Animated.Value(0)).current;
   const scrollViewRef = useRef<ScrollView | null>(null);
+  // ── Help Mode (walkthrough) wiring: path reporting, spotlight anchors, scroll-into-view. The
+  // anchors are refs only — nothing about normal behavior changes; see context/HelpContext. ──
+  useHelpPage();
+  const helpGauge = useHelpAnchor("home.gauge");
+  const helpTrend = useHelpAnchor("home.trend");
+  const helpCgmChip = useHelpAnchor("home.cgmChip");
+  const helpLogsBtn = useHelpAnchor("home.logsBtn");
+  const helpRange = useHelpAnchor("home.rangeToggle");
+  const helpChart = useHelpAnchor("home.chart");
+  const helpNotices = useHelpAnchor("home.notices");
+  useHelpScroll("home", scrollViewRef, { getOffset: () => scrollOffsetRef.current });
   const scrollOffsetRef = useRef(HOME_SCROLL_REST_OFFSET);
   const isManualPullRefreshRef = useRef(false);
   const isDraggingRef = useRef(false);
@@ -1141,6 +1153,7 @@ export default function HomeScreen() {
               "<name>'s Caregiver" and would otherwise wrap to a second line. */}
           {!isViewingLinkedPatient && !isCgmViewerOnly && (
           <Pressable
+            ref={helpCgmChip}
             onPress={() => router.push("/cgm-setup")}
             style={[
               styles.cgmChip,
@@ -1228,6 +1241,8 @@ export default function HomeScreen() {
               ]}
             >
               <GlucoseGauge
+                gaugeHelpRef={helpGauge}
+                trendHelpRef={helpTrend}
                 value={displayGlucose}
                 // Circle + its contents at original size; arrow + colored trend pill keep the +25%;
                 // the grey "Trend"/"Updated…" lines revert to original via mutedTextScale.
@@ -1260,6 +1275,7 @@ export default function HomeScreen() {
                     // even though expo-router keeps the previous params around.
                     router.push({ pathname: "/(tabs)/insulin", params: { tab: "log", t: String(Date.now()) } });
                   }}
+                  ref={helpLogsBtn}
                   style={({ pressed }) => [styles.logsShortcut, { backgroundColor: c.cardElevated, borderColor: c.border, opacity: pressed ? 0.6 : 1 }]}
                 >
                   {/* Control fill + shade, like the other secondary buttons and chips. */}
@@ -1287,6 +1303,8 @@ export default function HomeScreen() {
           {history.length > 1 && (
             <View style={{ paddingHorizontal: Math.round(T.space.lg * padScale), paddingBottom: Math.round(T.space.lg * padScale) }}>
               <CGMChart
+                helpRangeRef={helpRange}
+                helpChartRef={helpChart}
                 readings={history}
                 targetGlucose={targetGlucose}
                 chartHeight={Math.round(264 * padScale)}
@@ -1307,7 +1325,7 @@ export default function HomeScreen() {
           )}
 
           {hasNotices && (
-            <View style={[styles.noticeList, { paddingHorizontal: Math.round(T.space.lg * padScale), paddingBottom: Math.round(T.space.lg * padScale) }]}>
+            <View ref={helpNotices} collapsable={false} style={[styles.noticeList, { paddingHorizontal: Math.round(T.space.lg * padScale), paddingBottom: Math.round(T.space.lg * padScale) }]}>
               {/* The copy deliberately does NOT name a cause — `sessionExpired` only observes that Clerk
                   reports signed-out while we believe otherwise, and a failed cold-start fetch looks
                   identical to a real expiry. Describe the OBSERVABLE state and the remedy only. */}

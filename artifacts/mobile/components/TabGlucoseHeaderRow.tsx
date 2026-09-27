@@ -16,14 +16,16 @@ export function tabGlucoseHeaderPaddingTop(insetsTop: number): number {
 interface RowProps {
   left: React.ReactNode;
   style?: StyleProp<ViewStyle>;
+  /** Help Mode anchor for the glucose pill (see context/HelpContext). */
+  glucoseSlotRef?: (node: View | null) => void;
 }
 
 /** Shared left/right header row — right slot anchors GlucoseStatusPill at a fixed coordinate. */
-export default function TabGlucoseHeaderRow({ left, style }: RowProps) {
+export default function TabGlucoseHeaderRow({ left, style, glucoseSlotRef }: RowProps) {
   return (
     <View style={[styles.row, style]}>
       <View style={styles.left}>{left}</View>
-      <View style={styles.glucoseSlot}>
+      <View ref={glucoseSlotRef} collapsable={false} style={styles.glucoseSlot}>
         <GlucoseStatusPill />
       </View>
     </View>

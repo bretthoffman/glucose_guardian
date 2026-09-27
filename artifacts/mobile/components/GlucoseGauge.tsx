@@ -28,6 +28,9 @@ interface Props {
   updatedLabel?: string;
   /** Fires only for taps INSIDE the gauge circle (circular hit test) — opens Recent Readings. */
   onGaugePress?: () => void;
+  /** Help Mode anchors (context/HelpContext) — attached to the circle area / the trend cluster. */
+  gaugeHelpRef?: (node: View | null) => void;
+  trendHelpRef?: (node: View | null) => void;
   /** Fires for taps on the trend pill (the colored oval) — opens Insights & Recommendations. */
   onTrendPress?: () => void;
   /**
@@ -177,6 +180,8 @@ export function GlucoseGauge({
   updatedLabel,
   onGaugePress,
   onTrendPress,
+  gaugeHelpRef,
+  trendHelpRef,
   contentScale = 1,
   mutedTextScale,
 }: Props) {
@@ -331,6 +336,7 @@ export function GlucoseGauge({
     <View style={styles.outerRow}>
       {/* gauge area stays full `size` so ripple reach + trend alignment are unchanged */}
       <Pressable
+        ref={gaugeHelpRef}
         style={[styles.gaugeArea, { width: size, height: size }]}
         onPress={handleGaugePress}
         disabled={!onGaugePress}
@@ -444,6 +450,7 @@ export function GlucoseGauge({
           {/* One tap target for the whole trend cluster (arrow + caption + pill + updated line),
               sized to its content so it can't bleed into the gauge circle or beyond the cluster. */}
           <Pressable
+            ref={trendHelpRef}
             style={({ pressed }) => [
               styles.trendPressable,
               { opacity: pressed && onTrendPress ? 0.75 : 1 },

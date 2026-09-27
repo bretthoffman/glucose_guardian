@@ -60,6 +60,7 @@ import {
 import { DOSE_INSULIN_TYPE_STORAGE_KEY } from "@/constants/storage-keys";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { ScreenShade } from "@/components/Shade";
+import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 
 type ScreenTab = "predict" | "log";
 
@@ -183,7 +184,7 @@ export default function InsulinScreen() {
   }, [linkParams.tab, linkParams.t]);
   // The tab actually shown: fall back to the first allowed tab when the stored one isn't available
   // (e.g. calculator grant off → default to Log; log grant off → only Dose).
-  const effectiveTab: ScreenTab = availableTabs.includes(screenTab) ? screenTab : (availableTabs[0] ?? "predict");
+  const effectiveTabBase: ScreenTab = availableTabs.includes(screenTab) ? screenTab : (availableTabs[0] ?? "predict");
 
 
   const [carbInput, setCarbInput] = useState("");
@@ -208,6 +209,29 @@ export default function InsulinScreen() {
   const cgmSyncTickRef = useRef(cgmSyncSuccessTick);
   // Scroll to the page bottom after a toggle/card reveals content downward, so it comes into view.
   const scrollRef = useRef<ScrollView>(null);
+  // ── Help Mode wiring. While this page's tour runs, the visible tab follows the SCRIPT (Dose
+  // steps first, then the steps tagged "insulin.logTab" show the Log tab) — view state only, and
+  // the user's real tab choice returns the moment the tour ends. Anchors are refs only. ──
+  const { activeEffects: helpEffects, isTouring } = useHelpPage();
+  const helpTouring = isTouring("insulin");
+  const effectiveTab: ScreenTab = helpTouring
+    ? helpEffects.includes("insulin.logTab") && availableTabs.includes("log")
+      ? "log"
+      : availableTabs.includes("predict")
+        ? "predict"
+        : effectiveTabBase
+    : effectiveTabBase;
+  const helpTabs = useHelpAnchor("insulin.tabs");
+  const helpPill = useHelpAnchor("insulin.glucosePill");
+  const helpSelector = useHelpAnchor("insulin.selector");
+  const helpInputs = useHelpAnchor("insulin.inputs");
+  const helpOnBoard = useHelpAnchor("insulin.onBoard");
+  const helpCalc = useHelpAnchor("insulin.calc");
+  const helpSuggest = useHelpAnchor("insulin.suggest");
+  const helpPredict = useHelpAnchor("insulin.predict");
+  const helpTookDose = useHelpAnchor("insulin.tookDose");
+  const helpDisclaimer = useHelpAnchor("insulin.disclaimer");
+  useHelpScroll("insulin", scrollRef, { enabled: effectiveTab !== "log" });
   const pendingScrollRef = useRef(false);
 
   // ── Insulin type selection (persisted; validated against the profile's configured insulins) ──
@@ -754,6 +778,7 @@ export default function InsulinScreen() {
   const pendingEditedDose = doseEditing ? finalizeManualDoseInput(doseEditText) : null;
   const tookDoseButton = canLog ? (
     <Pressable
+      ref={helpTookDose}
       accessibilityRole="button"
       accessibilityLabel="I just took this dose"
       disabled={doseJustLogged || (pendingEditedDose ?? effectiveDose) <= 0}
@@ -794,8 +819,9 @@ export default function InsulinScreen() {
         style={[styles.screenHeader, { backgroundColor: colors.background }]}
       >
         <TabGlucoseHeaderRow
+          glucoseSlotRef={helpPill}
           left={
-            <View style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
+            <View ref={helpTabs} collapsable={false} style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
               <ControlShade radius={12} />
               {availableTabs.map((t) => (
                 <Pressable
@@ -888,6 +914,7 @@ export default function InsulinScreen() {
       <View style={styles.titleRow}>
         <Text style={[styles.pageTitle, { color: colors.text, flex: 1 }]} numberOfLines={1}>Calculator</Text>
         <Pressable
+          ref={helpSelector}
           accessibilityRole="button"
           accessibilityLabel="Choose insulin type"
           style={({ pressed }) => [
@@ -909,7 +936,7 @@ export default function InsulinScreen() {
         </Pressable>
       </View>
 
-      <View style={[styles.doseCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View ref={helpInputs} collapsable={false} style={[styles.doseCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <CardShade radius={16} />
         {isBasalMode ? (
           /* ── Basal mode: carbs/BG inputs don't apply — show time + live glucose instead ── */
@@ -1027,7 +1054,7 @@ export default function InsulinScreen() {
           which is information too — it says nothing is pending on that side). When neither is active
           the whole strip is absent and the page looks exactly as it did before. ── */}
       {!isBasalMode && showOnBoard && (
-        <View key="on-board" style={styles.onBoardStrip}>
+        <View key="on-board" ref={helpOnBoard} collapsable={false} style={styles.onBoardStrip}>
           {/* Both labels render at ONE size: the size that fits the longer of the two (see barFit).
               Otherwise the longer insulin label shrank alone at large text sizes and the pair mismatched. */}
           <View style={styles.onBoardCell}>
@@ -1067,6 +1094,8 @@ export default function InsulinScreen() {
               tappable pieces live inside it, and when one is open the SAME window extends down to
               wrap the explanation. Each piece stays individually tappable and works as before. ── */}
           <View
+            ref={helpCalc}
+            collapsable={false}
             key="calc-window"
             style={[styles.calcUnified, { backgroundColor: colors.card, borderColor: colors.border }]}
           >
@@ -1138,6 +1167,8 @@ export default function InsulinScreen() {
               suggested dose sits the same 10 below the note — not the full section gap. */}
           <View
             key="suggest"
+            ref={helpSuggest}
+            collapsable={false}
             style={[
               styles.suggestCard,
               (Math.abs(dose.patternDelta) >= 0.005 || dose.cappedAtMax) && { marginTop: CALC_NOTE_GAP },
@@ -1172,6 +1203,7 @@ export default function InsulinScreen() {
                 Dose. Disabled exactly like Took Dose when there's no dose (faded, not clickable). */}
             <View style={[styles.doseActionsRow, { marginTop: 0 }]}>
               <Pressable
+                ref={helpPredict}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: predictDisabled, busy: predicting || drawing }}
                 accessibilityLabel="Predict"
@@ -1374,7 +1406,7 @@ export default function InsulinScreen() {
         </View>
       )}
 
-      <View style={[styles.disclaimer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View ref={helpDisclaimer} collapsable={false} style={[styles.disclaimer, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <CardShade radius={12} />
         <Feather name="info" size={14} color={colors.textMuted} />
         <Text style={[styles.disclaimerText, { color: colors.textMuted }]}>

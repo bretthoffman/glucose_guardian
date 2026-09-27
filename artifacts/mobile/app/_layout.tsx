@@ -23,6 +23,7 @@ import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { convex } from "@/utils/convex-auth-client";
 import UpdatePrompt from "@/components/UpdatePrompt";
+import { HelpProvider } from "@/context/HelpContext";
 import {
   registerNotificationCategories,
   handleNotificationResponse,
@@ -197,9 +198,11 @@ export default function RootLayout() {
                     <PushProvider>
                       <GestureHandlerRootView>
                         <KeyboardProvider>
+                          <HelpProvider>
                           <RootLayoutNav />
                           {/* Global OTA "restart to update" prompt — every screen, every session type. */}
                           <UpdatePrompt />
+                          </HelpProvider>
                         </KeyboardProvider>
                       </GestureHandlerRootView>
                     </PushProvider>

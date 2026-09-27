@@ -50,6 +50,7 @@ import {
 } from "@/services/notifications";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
+import { useHelp, useHelpPage } from "@/context/HelpContext";
 import {
   MEAL_BUCKETS,
   MEAL_BUCKET_HOURS,
@@ -192,6 +193,10 @@ export default function DashboardScreen() {
 
   // Settings popup (opened from the profile/avatar control) + shared profile-photo picker.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Help Mode: entered here; the Dashboard itself has no tour yet (the button lives here), so being
+  // on this page shows the overlay's idle "open a page below" card.
+  useHelpPage();
+  const { enterHelp } = useHelp();
   // Manage Logs popup: paginated view of the full activity log. logsVisibleCount resets on open so
   // nothing loaded stays around after close.
   const [manageLogsOpen, setManageLogsOpen] = useState(false);
@@ -715,6 +720,16 @@ export default function DashboardScreen() {
           <View style={styles.pageTitleWrap}>
             <Text style={[TYPE.pageTitle, { color: colors.text }]}>Dashboard</Text>
           </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Turn on Help Mode"
+            onPress={enterHelp}
+            style={({ pressed }) => [styles.helpBtn, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+          >
+            <ControlShade radius={17} />
+            <Feather name="help-circle" size={15} color={COLORS.primary} />
+            <Text style={[styles.helpBtnText, { color: colors.text }]} maxFontSizeMultiplier={1.2}>Help</Text>
+          </Pressable>
           <View style={styles.profileChipWrap}>
             <ProfileChip
               colors={colors}
@@ -2411,6 +2426,8 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 20, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
   pageHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
   pageTitleWrap: { flex: 1, minWidth: 0, marginRight: 12 },
+  helpBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 17, borderWidth: 1, marginRight: 10 },
+  helpBtnText: { fontSize: 13.5, fontWeight: "600" },
   profileChipWrap: { flexShrink: 0 },
   patientCard: { flexDirection: "row", borderRadius: 16, borderWidth: 1, padding: 14, gap: 14, marginTop: 12, marginBottom: 4 },
   patientCardLeft: { justifyContent: "flex-start" },

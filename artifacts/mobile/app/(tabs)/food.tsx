@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -34,6 +34,7 @@ import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/
 import QuickLookupManager from "@/components/QuickLookupManager";
 import FoodScanner, { type BarcodeLookupState } from "@/components/FoodScanner";
 import { QUICK_LOOKUP_VISIBLE, type QuickFood } from "@/utils/quickFoods";
+import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 
 interface FoodResult {
   foodName: string;
@@ -172,6 +173,16 @@ export default function FoodScreen() {
   // (an add by any co-guardian shows up on every guardian's Food tab within a poll). ──
   const [savedToQuick, setSavedToQuick] = useState(false);
   const [quickManagerOpen, setQuickManagerOpen] = useState(false);
+  // ── Help Mode wiring (refs only; see context/HelpContext + utils/helpScripts). ──
+  useHelpPage();
+  const helpScrollRef = useRef<import("react-native").ScrollView>(null);
+  const helpScrollProps = useHelpScroll("food", helpScrollRef);
+  const helpTrendChip = useHelpAnchor("food.trend");
+  const helpScan = useHelpAnchor("food.scan");
+  const helpSearch = useHelpAnchor("food.search");
+  const helpEstimate = useHelpAnchor("food.estimate");
+  const helpQuick = useHelpAnchor("food.quick");
+  const helpSeeAll = useHelpAnchor("food.seeAll");
   // Camera screen (barcode detection + shutter) and the barcode lookup it drives.
   const [scannerOpen, setScannerOpen] = useState(false);
   const [barcodeLookup, setBarcodeLookup] = useState<BarcodeLookupState>("idle");
@@ -517,7 +528,7 @@ export default function FoodScreen() {
           <TabGlucoseHeaderRow
             left={
               history.length > 1 ? (
-                <View style={[styles.trendChip, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
+                <View ref={helpTrendChip} collapsable={false} style={[styles.trendChip, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
                   {/* Same control fill + shade as the other control-colored chips and buttons. */}
                   <ControlShade radius={12} />
                   <Feather name="activity" size={13} color={colors.textSecondary} />
@@ -542,6 +553,8 @@ export default function FoodScreen() {
         </TabGlucoseHeaderShell>
       )}
       <ScrollView
+        ref={helpScrollRef}
+        {...helpScrollProps}
         {...NO_AUTO_CONTENT_INSETS}
         contentContainerStyle={[
           styles.scroll,
@@ -555,6 +568,7 @@ export default function FoodScreen() {
       >
         {/* ── Scan panel: one big tinted card, a round camera button in the middle. Whole card taps. ── */}
         <Pressable
+          ref={helpScan}
           style={({ pressed }) => [
             styles.scanCard,
             { backgroundColor: withAlpha(COLORS.primary, 0.14), borderColor: withAlpha(COLORS.primary, 0.4), opacity: pressed ? 0.85 : 1 },
@@ -587,7 +601,7 @@ export default function FoodScreen() {
           </View>
         )}
 
-        <View style={styles.searchRow}>
+        <View ref={helpSearch} collapsable={false} style={styles.searchRow}>
         <View style={[styles.searchBar, { flex: 1, marginBottom: 0, backgroundColor: colors.card, borderColor: colors.border }]}>
           <Feather name="search" size={18} color={colors.textMuted} />
           <TextInput
@@ -623,6 +637,7 @@ export default function FoodScreen() {
         </View>
 
         <Pressable
+          ref={helpEstimate}
           style={({ pressed }) => [
             styles.searchBtn,
             { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.85 : 1 },
@@ -880,6 +895,7 @@ export default function FoodScreen() {
         <View style={styles.quickHeader}>
           <Text style={[styles.quickTitle, { color: colors.text }]}>Quick Lookup</Text>
           <Pressable
+            ref={helpSeeAll}
             style={({ pressed }) => [styles.seeAllBtn, { opacity: pressed ? 0.6 : 1 }]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -898,7 +914,7 @@ export default function FoodScreen() {
             Nothing saved yet — look a food up and tap the bookmark to keep it here.
           </Text>
         ) : (
-          <View style={[styles.quickList, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View ref={helpQuick} collapsable={false} style={[styles.quickList, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <CardShade radius={16} />
             {quickFoods.slice(0, QUICK_LOOKUP_VISIBLE).map((food, i, arr) => (
               <QuickFoodRow

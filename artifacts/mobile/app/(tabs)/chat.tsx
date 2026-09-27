@@ -32,6 +32,7 @@ import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { resolveChatSpeaker } from "@/utils/chatSpeaker";
 import { threadRoleLabel } from "@/utils/threadRoleLabel";
 import { AccentShade, CardShade, ControlShade, HeaderShade, ScreenShade } from "@/components/Shade";
+import { useHelpAnchor, useHelpPage } from "@/context/HelpContext";
 
 interface Message {
   id: string;
@@ -250,6 +251,12 @@ export default function ChatScreen() {
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  // ── Help Mode wiring (refs only; see context/HelpContext + utils/helpScripts). ──
+  useHelpPage();
+  const helpMessages = useHelpAnchor("chat.messages");
+  const helpThread = useHelpAnchor("chat.thread");
+  const helpSuggestions = useHelpAnchor("chat.suggestions");
+  const helpInput = useHelpAnchor("chat.input");
   const conversationRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
   const prevSpeakingToParent = useRef(speakingToParent);
 
@@ -592,6 +599,7 @@ export default function ChatScreen() {
       {/* Floating "Messages" bar (top-right), with a total-unread count badge on its left. */}
       {showMessagesBtn && headerH > 0 && (
         <Pressable
+          ref={helpMessages}
           style={[styles.messagesFab, { top: headerH + 8, backgroundColor: colors.card, borderColor: colors.border }]}
           onPress={() => { setActiveThread(null); setShowMessages(true); }}
           accessibilityRole="button"
@@ -639,7 +647,7 @@ export default function ChatScreen() {
       ) : (
        // Padded by the exact keyboard overlap (see useKeyboardInset) — replaces the library
        // KeyboardAvoidingView, which mis-measured on iPad and left the input under the keyboard.
-       <View style={{ flex: 1, paddingBottom: keyboardInset }}>
+       <View ref={helpThread} collapsable={false} style={{ flex: 1, paddingBottom: keyboardInset }}>
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -666,7 +674,7 @@ export default function ChatScreen() {
         renderItem={({ item }) => <MessageBubble message={item} colors={colors} isKidMode={isKidMode} />}
       />
 
-      <View style={[styles.suggestionsRow, { borderTopColor: colors.border }]}>
+      <View ref={helpSuggestions} collapsable={false} style={[styles.suggestionsRow, { borderTopColor: colors.border }]}>
         <FlatList
           horizontal
           data={suggestions}
@@ -691,6 +699,8 @@ export default function ChatScreen() {
           above it (an opaque fill here painted a flat dark block over the page's lighter bottom). The
           hairline above is the only thing marking it off. */}
       <View
+        ref={helpInput}
+        collapsable={false}
         style={[
           styles.inputRow,
           { borderTopColor: colors.border, paddingBottom: keyboardVisible ? 10 : bottomPadding + 84 },

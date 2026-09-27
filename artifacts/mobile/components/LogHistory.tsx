@@ -1,6 +1,6 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -42,6 +42,7 @@ import { filterFoodLogsForDay, filterInsulinLogsForDay } from "@/utils/logDayEnt
 import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
 import { startOfLocalDay } from "@/utils/localDayBoundaries";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { useHelpAnchor, useHelpScroll } from "@/context/HelpContext";
 
 function fmtTime(ts: string) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -69,6 +70,10 @@ export default function LogHistory({
   onLogAdded?: () => void;
 }) {
   const [dayOffset, setDayOffset] = useState(0);
+  // Help Mode: this Log view is toured as part of the INSULIN page's script (see utils/helpScripts);
+  // it registers the page's scroll while mounted so off-screen anchors scroll into view.
+  const helpScrollRef = useRef<import("react-native").ScrollView>(null);
+  const helpScrollProps = useHelpScroll("insulin", helpScrollRef);
   /** True while the chart's touch-hold reading cursor is engaged — freezes page scroll. */
   const [chartCursorActive, setChartCursorActive] = useState(false);
 
@@ -157,9 +162,11 @@ export default function LogHistory({
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
+        ref={helpScrollRef}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         scrollEnabled={!chartCursorActive}
+        {...helpScrollProps}
         {...NO_AUTO_CONTENT_INSETS}
       >
         <DayView
@@ -347,6 +354,12 @@ function DayView({
   const isToday = dayOffset === 0;
   const label = isToday ? "Today" : dayOffset === 1 ? "Yesterday" : fmtDateFull(day);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  // Help Mode anchors (refs only — see utils/helpScripts "insulin.log.*").
+  const helpCalendar = useHelpAnchor("insulin.log.calendar");
+  const helpDayNav = useHelpAnchor("insulin.log.dayNav");
+  const helpDayChart = useHelpAnchor("insulin.log.chart");
+  const helpEvents = useHelpAnchor("insulin.log.events");
+  const helpAddEntry = useHelpAnchor("insulin.log.add");
   const [selectedLog, setSelectedLog] = useState<SelectedLog | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
 
@@ -416,6 +429,7 @@ function DayView({
           Control-styled (not purple): it is a way to move, not a primary action. */}
       <View style={styles.calendarRow}>
         <Pressable
+          ref={helpCalendar}
           style={({ pressed }) => [
             styles.calendarBtn,
             { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
@@ -442,7 +456,7 @@ function DayView({
         onClose={() => setCalendarOpen(false)}
         colors={colors}
       />
-      <View style={styles.dayNav}>
+      <View ref={helpDayNav} collapsable={false} style={styles.dayNav}>
         <Pressable style={styles.navBtn} onPress={onPrev}>
           <Feather name="chevron-left" size={20} color={colors.text} />
         </Pressable>
@@ -452,7 +466,7 @@ function DayView({
         </Pressable>
       </View>
 
-      <View style={styles.graphSection}>
+      <View ref={helpDayChart} collapsable={false} style={styles.graphSection}>
         {status === "loading" ? (
           <View style={[styles.graphLoading, { borderColor: colors.border }]}>
             <ActivityIndicator color={COLORS.primary} />
@@ -499,6 +513,7 @@ function DayView({
         </Text>
         <View style={styles.addWrap}>
           <Pressable
+            ref={helpAddEntry}
             accessibilityRole="button"
             accessibilityLabel="Add an entry"
             accessibilityState={{ expanded: addMenuOpen }}
@@ -550,7 +565,7 @@ function DayView({
       {dayEvents.length === 0 ? (
         <Text style={[styles.logEmptyText, { color: colors.textMuted }]}>No entries logged for this day.</Text>
       ) : (
-        <View style={[styles.eventList, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View ref={helpEvents} collapsable={false} style={[styles.eventList, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <CardShade radius={16} />
           {dayEvents.map((ev, i) => (
             <EventRow
