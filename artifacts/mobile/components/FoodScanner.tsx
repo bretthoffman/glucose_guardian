@@ -1,10 +1,13 @@
 /**
- * FoodScanner — the Food page's camera. ONE screen, two ways out:
- *  - a retail barcode in frame fires `onBarcode` on its own (UPC/EAN/Code 128/ITF-14 — never QR);
- *  - the shutter takes a photo and fires `onPhoto`, which goes through the existing AI analysis.
- * The host runs the barcode lookup and tells this screen how it went (`lookup`): "looking" shows a
- * spinner banner and pauses detection; "notFound" says so and re-arms so the user can try again or
- * just snap a photo of the label instead. On a hit the host closes the screen.
+ * FoodScanner — the Food page's camera, with TWO EXPLICIT MODES on a bottom toggle:
+ *  - "Food": a plain camera. The shutter takes a photo and fires `onPhoto`, which goes through the
+ *    existing AI analysis. Barcode detection is OFF — pointing at a package does nothing here.
+ *  - "Barcode": no shutter. The purple framing box shows, detection runs on every frame, and a
+ *    retail code held in view fires `onBarcode` on its own (UPC/EAN/Code 128/ITF-14 — never QR).
+ * The host runs the barcode lookup and drives `lookup`: "looking" pauses detection and shows a
+ * status pill under the frame; "notFound" says so there and re-arms. On a hit the host closes.
+ *
+ * No instruction banner at the top — the mode toggle says what the camera is doing.
  *
  * Same camera module as the access-code QR scanner (already in the shipped binary). If camera access
  * is denied the host is told, so it can fall back to the system picker.
@@ -17,6 +20,8 @@ import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 
 export type BarcodeLookupState = "idle" | "looking" | "notFound";
+
+type ScanMode = "photo" | "barcode";
 
 /** Retail product codes only. QR is deliberately excluded — it is the access-code scanner's job. */
 const PRODUCT_BARCODES = ["ean13", "ean8", "upc_a", "upc_e", "code128", "itf14"] as const;
@@ -42,12 +47,15 @@ export default function FoodScanner({
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const armedRef = useRef(true);
+  const [mode, setMode] = useState<ScanMode>("photo");
   const [snapping, setSnapping] = useState(false);
   const [lastCode, setLastCode] = useState<string | null>(null);
 
+  // Fresh session per open: photo mode first (the panel's primary promise), scanner re-armed.
   useEffect(() => {
     if (!visible) return;
     armedRef.current = true;
+    setMode("photo");
     setLastCode(null);
     setSnapping(false);
     if (permission && !permission.granted && permission.canAskAgain) void requestPermission();
@@ -62,6 +70,15 @@ export default function FoodScanner({
   useEffect(() => {
     if (lookup !== "looking") armedRef.current = true;
   }, [lookup]);
+
+  const barcodeMode = mode === "barcode";
+
+  const switchMode = (next: ScanMode) => {
+    if (next === mode) return;
+    Haptics.selectionAsync().catch(() => {});
+    armedRef.current = true;
+    setMode(next);
+  };
 
   const handleScan = ({ data }: BarcodeScanningResult) => {
     if (!armedRef.current || snapping) return;
@@ -86,12 +103,12 @@ export default function FoodScanner({
     }
   };
 
-  const banner =
+  const status =
     lookup === "looking"
       ? `Looking up ${lastCode ?? "barcode"}…`
       : lookup === "notFound"
-        ? "Barcode not found — try again, or snap a photo of the label"
-        : "Point at a barcode, or take a photo of your food";
+        ? "Not found — try again, or take a photo of the label"
+        : null;
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -101,8 +118,9 @@ export default function FoodScanner({
             ref={cameraRef}
             style={StyleSheet.absoluteFill}
             facing="back"
-            barcodeScannerSettings={{ barcodeTypes: [...PRODUCT_BARCODES] }}
-            onBarcodeScanned={lookup === "looking" ? undefined : handleScan}
+            // Detection only exists in barcode mode — food mode is a plain camera.
+            barcodeScannerSettings={barcodeMode ? { barcodeTypes: [...PRODUCT_BARCODES] } : undefined}
+            onBarcodeScanned={barcodeMode && lookup !== "looking" ? handleScan : undefined}
           />
         ) : (
           <View style={styles.permissionWrap}>
@@ -120,30 +138,72 @@ export default function FoodScanner({
           </View>
         )}
 
-        <View style={[styles.topBanner, lookup === "notFound" && styles.topBannerWarn]} pointerEvents="none">
-          {lookup === "looking" && <ActivityIndicator color="#fff" size="small" />}
-          <Text style={styles.topBannerText}>{banner}</Text>
-        </View>
+        {/* Barcode mode: the framing box, with the lookup status pill under it. */}
+        {barcodeMode && (
+          <View style={styles.frameWrap} pointerEvents="none">
+            <View style={[styles.frame, lookup === "looking" && { borderColor: "#fff" }]} />
+            {status && (
+              <View style={[styles.statusPill, lookup === "notFound" && styles.statusPillWarn]}>
+                {lookup === "looking" && <ActivityIndicator color="#fff" size="small" />}
+                <Text style={styles.statusText}>{status}</Text>
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={styles.bottomBar}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Cancel"
-            style={({ pressed }) => [styles.sideBtn, { opacity: pressed ? 0.7 : 1 }]}
-            onPress={onClose}
-          >
-            <Text style={styles.sideText}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Take a photo"
-            disabled={!permission?.granted || snapping || lookup === "looking"}
-            style={({ pressed }) => [styles.shutterOuter, { opacity: pressed ? 0.8 : 1 }]}
-            onPress={snap}
-          >
-            <View style={styles.shutterInner}>{snapping ? <ActivityIndicator color={COLORS.primary} /> : <Feather name="camera" size={26} color={COLORS.primary} />}</View>
-          </Pressable>
-          <View style={styles.sideBtn} />
+          {/* Mode toggle — Food (shutter) | Barcode (auto-scan). */}
+          <View style={styles.modeRow}>
+            {(
+              [
+                { key: "photo", label: "Food", icon: "camera" },
+                { key: "barcode", label: "Barcode", icon: "maximize" },
+              ] as const
+            ).map((m) => {
+              const active = mode === m.key;
+              return (
+                <Pressable
+                  key={m.key}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={m.key === "photo" ? "Photo mode — take a picture of your food" : "Barcode mode — scan a package"}
+                  style={[styles.modeBtn, active && styles.modeBtnActive]}
+                  onPress={() => switchMode(m.key)}
+                >
+                  <Feather name={m.icon} size={14} color={active ? "#fff" : "rgba(255,255,255,0.75)"} />
+                  <Text style={[styles.modeText, active && styles.modeTextActive]}>{m.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.actionRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+              style={({ pressed }) => [styles.sideBtn, { opacity: pressed ? 0.7 : 1 }]}
+              onPress={onClose}
+            >
+              <Text style={styles.sideText}>Cancel</Text>
+            </Pressable>
+            {barcodeMode ? (
+              // No shutter in barcode mode — the camera fires on its own; keep the bar's height stable.
+              <View style={styles.shutterOuter} />
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Take a photo"
+                disabled={!permission?.granted || snapping}
+                style={({ pressed }) => [styles.shutterOuter, styles.shutterVisible, { opacity: pressed ? 0.8 : 1 }]}
+                onPress={snap}
+              >
+                <View style={styles.shutterInner}>
+                  {snapping ? <ActivityIndicator color={COLORS.primary} /> : <Feather name="camera" size={26} color={COLORS.primary} />}
+                </View>
+              </Pressable>
+            )}
+            <View style={styles.sideBtn} />
+          </View>
         </View>
       </View>
     </Modal>
@@ -154,18 +214,30 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
   permissionWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, paddingHorizontal: 40 },
   permissionText: { color: "rgba(255,255,255,0.85)", fontSize: 14.5, lineHeight: 21, textAlign: "center" },
-  topBanner: {
-    position: "absolute", top: 0, left: 0, right: 0, paddingTop: 64, paddingBottom: 14, paddingHorizontal: 24,
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "rgba(0,0,0,0.45)",
+  frameWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 18 },
+  frame: { width: 260, height: 190, borderRadius: 22, borderWidth: 3, borderColor: COLORS.primary + "CC" },
+  statusPill: {
+    flexDirection: "row", alignItems: "center", gap: 8, maxWidth: 320,
+    paddingHorizontal: 16, paddingVertical: 9, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.6)",
   },
-  topBannerWarn: { backgroundColor: "rgba(255,159,28,0.55)" },
-  topBannerText: { color: "#fff", fontSize: 15, fontWeight: "700", textAlign: "center", flexShrink: 1 },
+  statusPillWarn: { backgroundColor: "rgba(255,159,28,0.75)" },
+  statusText: { color: "#fff", fontSize: 13.5, fontWeight: "700", textAlign: "center", flexShrink: 1 },
   bottomBar: {
-    position: "absolute", left: 0, right: 0, bottom: 0, paddingBottom: 40, paddingTop: 16, paddingHorizontal: 24,
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "rgba(0,0,0,0.45)",
+    position: "absolute", left: 0, right: 0, bottom: 0, paddingBottom: 40, paddingTop: 14,
+    paddingHorizontal: 24, gap: 14, backgroundColor: "rgba(0,0,0,0.45)",
   },
+  modeRow: {
+    flexDirection: "row", alignSelf: "center", backgroundColor: "rgba(255,255,255,0.14)",
+    borderRadius: 20, padding: 3, gap: 3,
+  },
+  modeBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 17 },
+  modeBtnActive: { backgroundColor: COLORS.primary },
+  modeText: { color: "rgba(255,255,255,0.75)", fontSize: 13.5, fontWeight: "700" },
+  modeTextActive: { color: "#fff" },
+  actionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sideBtn: { width: 84, alignItems: "center", paddingVertical: 12 },
   sideText: { color: "#fff", fontSize: 15.5, fontWeight: "700" },
-  shutterOuter: { width: 76, height: 76, borderRadius: 38, borderWidth: 4, borderColor: "#fff", alignItems: "center", justifyContent: "center" },
+  shutterOuter: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center" },
+  shutterVisible: { borderWidth: 4, borderColor: "#fff" },
   shutterInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
 });
