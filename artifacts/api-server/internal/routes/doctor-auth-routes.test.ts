@@ -23,7 +23,8 @@ vi.mock("../convex-doctor-accounts.js", async (importOriginal) => {
     }
     state.calls.push({ name, args });
     const result = state.results[name];
-    if (result === MISSING) throw new Error(`Could not find public function for '${name}'`);
+    // Production Convex reports a function that isn't deployed only as a generic error.
+    if (result === MISSING) throw new Error("[Request ID: 0123abcd] Server Error");
     return result;
   };
   return {

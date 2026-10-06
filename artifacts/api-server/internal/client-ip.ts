@@ -12,8 +12,3 @@ export function clientIp(req: Request): string | undefined {
   const fromFwd = (Array.isArray(fwd) ? fwd[0] : fwd)?.split(",")[0]?.trim();
   return fromFwd || req.socket?.remoteAddress || undefined;
 }
-
-/** True when a Convex call failed because that function isn't deployed yet. */
-export function isMissingConvexFunction(e: unknown): boolean {
-  return e instanceof Error && /Could not find (public )?function/i.test(e.message);
-}

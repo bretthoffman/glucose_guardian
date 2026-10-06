@@ -24,7 +24,7 @@ import {
 } from "../doctor-auth.js";
 import { answerDoctorQuestion, isAssistantConfigured } from "../doctor-assistant.js";
 import { limitCodeAttempts } from "../code-rate-limit";
-import { clientIp, isMissingConvexFunction } from "../client-ip";
+import { clientIp } from "../client-ip";
 
 const router: IRouter = Router();
 
@@ -493,13 +493,10 @@ router.post("/auth/register", (req, res) => {
           });
       }
     } catch (e) {
-      if (isMissingConvexFunction(e)) {
-        // Never fall back to the old open sign-up.
-        res.status(503).json({ error: "Sign-up isn't available yet. Please try again later." });
-        return;
-      }
+      // Includes "not deployed yet" (production Convex reports that only as "Server Error").
+      // Fails closed: there is no fallback to the old open sign-up.
       console.error("[doctor] POST /auth/register", e);
-      res.status(400).json({ error: e instanceof Error ? e.message : "Registration failed" });
+      res.status(503).json({ error: "Sign-up isn't available right now. Please try again later." });
     }
   })();
 });
@@ -536,8 +533,10 @@ router.post("/auth/login", (req, res) => {
         }
         account = result.result === "ok" ? result.doctor : null;
       } catch (e) {
-        if (!isMissingConvexFunction(e)) throw e;
-        // Backend not deployed yet: the previous check, so sign-in keeps working meanwhile.
+        // Until the Convex deploy the action doesn't exist, and production Convex reports that only
+        // as "Server Error" — so any failure falls back to the previous check. That check never
+        // matches an account already upgraded to scrypt, so it lets in no one the new one wouldn't.
+        console.warn("[doctor] doctorAuthActions.login unavailable; using the previous check", e);
         account = await client.query(api.doctorAccounts.login, {
           serverSecret: getConvexDoctorApiSecret(),
           email,
@@ -687,8 +686,8 @@ router.post("/me/patients/link", requireDoctorAuth, (req, res) => {
           ...(ip ? { clientIp: ip } : {}),
         });
       } catch (e) {
-        if (!isMissingConvexFunction(e)) throw e;
-        // Backend not deployed yet: link without limits, as before.
+        // Not deployed yet (reported only as "Server Error" in production): link as before.
+        console.warn("[doctor] doctorAccounts.linkPatient unavailable; linking without limits", e);
         const link = await client.mutation(api.doctorAccounts.createLink, {
           serverSecret: getConvexDoctorApiSecret(),
           doctorId: asDoctorId(doctorId),
