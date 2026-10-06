@@ -1,5 +1,4 @@
 import { Router, type IRouter, type Response } from "express";
-import type { FunctionReturnType } from "convex/server";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { api } from "../../../../convex/_generated/api.js";
 import {
@@ -519,30 +518,17 @@ router.post("/auth/login", (req, res) => {
 
       const client = createConvexDoctorAccountsClient();
       const ip = clientIp(req);
-      let account: FunctionReturnType<typeof api.doctorAccounts.login>;
-      try {
-        const result = await client.action(api.doctorAuthActions.login, {
-          serverSecret: getConvexDoctorApiSecret(),
-          email,
-          passwordHash,
-          ...(ip ? { clientIp: ip } : {}),
-        });
-        if (result.result === "locked") {
-          sendLocked(res, result.retryAfterMs, "sign-in attempts");
-          return;
-        }
-        account = result.result === "ok" ? result.doctor : null;
-      } catch (e) {
-        // Until the Convex deploy the action doesn't exist, and production Convex reports that only
-        // as "Server Error" — so any failure falls back to the previous check. That check never
-        // matches an account already upgraded to scrypt, so it lets in no one the new one wouldn't.
-        console.warn("[doctor] doctorAuthActions.login unavailable; using the previous check", e);
-        account = await client.query(api.doctorAccounts.login, {
-          serverSecret: getConvexDoctorApiSecret(),
-          email,
-          passwordHash,
-        });
+      const result = await client.action(api.doctorAuthActions.login, {
+        serverSecret: getConvexDoctorApiSecret(),
+        email,
+        passwordHash,
+        ...(ip ? { clientIp: ip } : {}),
+      });
+      if (result.result === "locked") {
+        sendLocked(res, result.retryAfterMs, "sign-in attempts");
+        return;
       }
+      const account = result.result === "ok" ? result.doctor : null;
       if (!account) {
         res.status(401).json({ error: "Invalid email or password" });
         return;
@@ -677,24 +663,12 @@ router.post("/me/patients/link", requireDoctorAuth, (req, res) => {
 
       const client = createConvexDoctorAccountsClient();
       const ip = clientIp(req);
-      let outcome;
-      try {
-        outcome = await client.mutation(api.doctorAccounts.linkPatient, {
-          serverSecret: getConvexDoctorApiSecret(),
-          doctorId: asDoctorId(doctorId),
-          accessCode,
-          ...(ip ? { clientIp: ip } : {}),
-        });
-      } catch (e) {
-        // Not deployed yet (reported only as "Server Error" in production): link as before.
-        console.warn("[doctor] doctorAccounts.linkPatient unavailable; linking without limits", e);
-        const link = await client.mutation(api.doctorAccounts.createLink, {
-          serverSecret: getConvexDoctorApiSecret(),
-          doctorId: asDoctorId(doctorId),
-          accessCode,
-        });
-        outcome = { ok: true as const, link };
-      }
+      const outcome = await client.mutation(api.doctorAccounts.linkPatient, {
+        serverSecret: getConvexDoctorApiSecret(),
+        doctorId: asDoctorId(doctorId),
+        accessCode,
+        ...(ip ? { clientIp: ip } : {}),
+      });
       if (!outcome.ok) {
         if (outcome.reason === "locked") {
           sendLocked(res, outcome.retryAfterMs, "attempts to add a patient");

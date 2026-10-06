@@ -127,13 +127,12 @@ describe("POST /auth/login", () => {
     expect(called("doctorAccounts:createSession")).toEqual([]);
   });
 
-  it("falls back to the previous check until the backend is deployed", async () => {
+  it("fails closed if the sign-in check is unavailable — never the old unlimited check", async () => {
     state.results["doctorAuthActions:login"] = MISSING;
     state.results["doctorAccounts:login"] = profile;
-    state.results["doctorAccounts:createSession"] = { ok: true };
-    expect((await post("/auth/login", body)).status).toBe(200);
-    state.results["doctorAccounts:login"] = null;
-    expect((await post("/auth/login", body)).status).toBe(401);
+    expect((await post("/auth/login", body)).status).toBe(500);
+    expect(called("doctorAccounts:login")).toEqual([]);
+    expect(called("doctorAccounts:createSession")).toEqual([]);
   });
 });
 
@@ -159,10 +158,11 @@ describe("POST /me/patients/link", () => {
     expect((await post("/me/patients/link", { accessCode: "ZZZ999" }, auth)).status).toBe(429);
   });
 
-  it("falls back to unlimited linking until the backend is deployed", async () => {
+  it("fails closed if the limited linking is unavailable — never unlimited linking", async () => {
     state.results["doctorAccounts:linkPatient"] = MISSING;
-    state.results["doctorAccounts:createLink"] = { ...link, alreadyLinked: true };
-    expect((await post("/me/patients/link", { accessCode: "ABC234" }, auth)).status).toBe(200);
+    state.results["doctorAccounts:createLink"] = link;
+    expect((await post("/me/patients/link", { accessCode: "ABC234" }, auth)).status).toBe(400);
+    expect(called("doctorAccounts:createLink")).toEqual([]);
   });
 });
 
