@@ -178,12 +178,10 @@ describe("doctorAccounts.getPatientProfile", () => {
 
 describe("doctorAccounts caregiver titles", () => {
   async function linkedDoctor(t: ReturnType<typeof convexTest>, email = "dr@example.com") {
-    const { doctorId } = await t.mutation(api.doctorAccounts.register, {
-      serverSecret: SECRET,
-      email,
-      passwordHash: "h",
-      displayName: "Dr. Test",
-    });
+    // Accounts come from invites now (doctorAuth.test.ts); here one is inserted directly.
+    const doctorId = await t.run(async (ctx: any) =>
+      ctx.db.insert("doctorAccounts", { email, displayName: "Dr. Test", createdAt: Date.now(), updatedAt: Date.now() }),
+    );
     await t.mutation(api.doctorAccounts.createLink, { serverSecret: SECRET, doctorId, accessCode: CODE });
     return doctorId;
   }

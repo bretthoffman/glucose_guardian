@@ -3,13 +3,11 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { caregiverTitle } from "./schema";
+import { DOCTOR_AUTH_CONFIG } from "./doctorAuth/config";
+import { lockRemainingMs, noteFailure, type ThrottleEntry } from "./doctorAuth/internal";
+import { requireDoctorApiSecret } from "./doctorAuth/secret";
 
-export function requireDoctorApiSecret(provided: string) {
-  const expected = process.env.CONVEX_DOCTOR_API_SECRET;
-  if (!expected || provided !== expected) {
-    throw new Error("Unauthorized doctor API");
-  }
-}
+export { requireDoctorApiSecret };
 
 export function normalizeAccessCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
@@ -40,46 +38,11 @@ export async function findPatientProfileByDoctorCode(ctx: QueryCtx | MutationCtx
   return row;
 }
 
-export const register = mutation({
-  args: {
-    serverSecret: v.string(),
-    email: v.string(),
-    passwordHash: v.string(),
-    displayName: v.string(),
-    title: v.optional(v.string()),
-    firstName: v.optional(v.string()),
-    lastName: v.optional(v.string()),
-    institution: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    requireDoctorApiSecret(args.serverSecret);
-    const email = args.email.trim().toLowerCase();
-    const displayName = args.displayName.trim();
-    if (!email) throw new Error("Email required");
-    if (!displayName) throw new Error("Display name required");
-
-    const existing = await ctx.db
-      .query("doctorAccounts")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .unique();
-    if (existing) throw new Error("Email already registered");
-
-    const now = Date.now();
-    const doctorId = await ctx.db.insert("doctorAccounts", {
-      email,
-      passwordHash: args.passwordHash,
-      displayName,
-      title: args.title?.trim() || undefined,
-      firstName: args.firstName?.trim() || undefined,
-      lastName: args.lastName?.trim() || undefined,
-      institution: args.institution?.trim() || undefined,
-      createdAt: now,
-      updatedAt: now,
-    });
-    return { doctorId };
-  },
-});
-
+/**
+ * Pre-scrypt password check. Superseded by doctorAuthActions.login (scrypt, attempt limits); kept
+ * only as the api-server's fallback while that rolls out, and it never matches an account that has
+ * been upgraded. Remove once every environment runs the new action.
+ */
 export const login = query({
   args: {
     serverSecret: v.string(),
@@ -274,7 +237,12 @@ export const validateSession = query({
       .query("doctorSessions")
       .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
       .unique();
-    if (!session || session.expiresAt < Date.now()) {
+    const now = Date.now();
+    if (
+      !session ||
+      session.expiresAt < now ||
+      now - session.createdAt > DOCTOR_AUTH_CONFIG.SESSION_MAX_AGE_MS
+    ) {
       return null;
     }
     return { doctorId: session.doctorId };
@@ -626,45 +594,52 @@ export const listAccessLog = query({
   },
 });
 
-export const createLink = mutation({
-  args: {
-    serverSecret: v.string(),
-    doctorId: v.id("doctorAccounts"),
-    accessCode: v.string(),
-  },
-  handler: async (ctx, args) => {
-    requireDoctorApiSecret(args.serverSecret);
-    const code = normalizeAccessCode(args.accessCode);
-    if (code.length !== 6) {
-      throw new Error("Access code must be 6 characters");
+type LinkOutcome =
+  | {
+      ok: true;
+      link: {
+        linkId?: Id<"doctorPatientLinks">;
+        accessCode: string;
+        displayName: string;
+        patientUserId: Id<"users">;
+        linkedAt: number;
+        alreadyLinked: boolean;
+        hasData: boolean;
+        syncedAt: string | null;
+      };
     }
+  | { ok: false; reason: "format" | "unknown" };
 
-    const profile = await findPatientProfileByDoctorCode(ctx, code);
-    if (!profile) {
-      throw new Error("Invalid or unknown patient access code");
-    }
-    if (
-      profile.caregiverCode &&
-      normalizeAccessCode(profile.caregiverCode) === code
-    ) {
-      throw new Error("Invalid access code");
-    }
+/** Link a doctor to the patient behind a doctor code (or report why not). */
+async function linkByCode(
+  ctx: MutationCtx,
+  doctorId: Id<"doctorAccounts">,
+  rawCode: string,
+  now: number,
+): Promise<LinkOutcome> {
+  const code = normalizeAccessCode(rawCode);
+  if (code.length !== 6) return { ok: false, reason: "format" };
 
-    const existing = await ctx.db
-      .query("doctorPatientLinks")
-      .withIndex("by_doctorId_accessCode", (q) =>
-        q.eq("doctorId", args.doctorId).eq("accessCode", code),
-      )
+  const profile = await findPatientProfileByDoctorCode(ctx, code);
+  if (!profile) return { ok: false, reason: "unknown" };
+  if (profile.caregiverCode && normalizeAccessCode(profile.caregiverCode) === code) {
+    return { ok: false, reason: "unknown" };
+  }
+
+  const existing = await ctx.db
+    .query("doctorPatientLinks")
+    .withIndex("by_doctorId_accessCode", (q) => q.eq("doctorId", doctorId).eq("accessCode", code))
+    .unique();
+
+  if (existing) {
+    const state = await ctx.db
+      .query("doctorPortalState")
+      .withIndex("by_accessCode", (q) => q.eq("accessCode", code))
       .unique();
-
-    const now = Date.now();
-    if (existing) {
-      const state = await ctx.db
-        .query("doctorPortalState")
-        .withIndex("by_accessCode", (q) => q.eq("accessCode", code))
-        .unique();
-      if (existing.revokedAt == null) {
-        return {
+    if (existing.revokedAt == null) {
+      return {
+        ok: true,
+        link: {
           linkId: existing._id,
           accessCode: code,
           displayName: existing.displayName ?? profile.childName,
@@ -673,45 +648,109 @@ export const createLink = mutation({
           alreadyLinked: true,
           hasData: !!state?.profile,
           syncedAt: state?.syncedAt ?? null,
-        };
-      }
-      await ctx.db.patch(existing._id, {
-        revokedAt: undefined,
-        linkedAt: now,
-        displayName: profile.childName,
-        patientUserId: profile.userId,
-      });
-    } else {
-      await ctx.db.insert("doctorPatientLinks", {
-        doctorId: args.doctorId,
-        accessCode: code,
-        patientUserId: profile.userId,
-        displayName: profile.childName,
-        linkedAt: now,
-      });
+        },
+      };
     }
-
-    await ctx.db.insert("doctorAccessLogs", {
-      doctorId: args.doctorId,
-      accessCode: code,
-      action: "linked",
-      createdAt: now,
+    await ctx.db.patch(existing._id, {
+      revokedAt: undefined,
+      linkedAt: now,
+      displayName: profile.childName,
+      patientUserId: profile.userId,
     });
+  } else {
+    await ctx.db.insert("doctorPatientLinks", {
+      doctorId,
+      accessCode: code,
+      patientUserId: profile.userId,
+      displayName: profile.childName,
+      linkedAt: now,
+    });
+  }
 
-    const state = await ctx.db
-      .query("doctorPortalState")
-      .withIndex("by_accessCode", (q) => q.eq("accessCode", code))
-      .unique();
+  await ctx.db.insert("doctorAccessLogs", {
+    doctorId,
+    accessCode: code,
+    action: "linked",
+    createdAt: now,
+  });
 
-    return {
+  const state = await ctx.db
+    .query("doctorPortalState")
+    .withIndex("by_accessCode", (q) => q.eq("accessCode", code))
+    .unique();
+
+  return {
+    ok: true,
+    link: {
       accessCode: code,
       displayName: profile.childName,
       patientUserId: profile.userId,
-      linkedAt: existing?.revokedAt != null ? now : existing?.linkedAt ?? now,
-      alreadyLinked: existing?.revokedAt == null && !!existing,
+      linkedAt: now,
+      alreadyLinked: false,
       hasData: !!state?.profile,
       syncedAt: state?.syncedAt ?? null,
-    };
+    },
+  };
+}
+
+/**
+ * Pre-limit linking, kept only as the api-server's fallback while linkPatient rolls out.
+ */
+export const createLink = mutation({
+  args: {
+    serverSecret: v.string(),
+    doctorId: v.id("doctorAccounts"),
+    accessCode: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireDoctorApiSecret(args.serverSecret);
+    const outcome = await linkByCode(ctx, args.doctorId, args.accessCode, Date.now());
+    if (!outcome.ok) {
+      throw new Error(
+        outcome.reason === "format"
+          ? "Access code must be 6 characters"
+          : "Invalid or unknown patient access code",
+      );
+    }
+    return outcome.link;
+  },
+});
+
+/**
+ * Link a doctor to a patient by the patient's doctor code, with attempt limits: wrong codes count
+ * against the doctor (10 an hour) and the caller's IP (20), then lock linking for an hour — so
+ * nobody can work through the code space. Failures are returned rather than thrown, so the count
+ * is saved.
+ */
+export const linkPatient = mutation({
+  args: {
+    serverSecret: v.string(),
+    doctorId: v.id("doctorAccounts"),
+    accessCode: v.string(),
+    clientIp: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<LinkOutcome | { ok: false; reason: "locked"; retryAfterMs: number }> => {
+    requireDoctorApiSecret(args.serverSecret);
+    const now = Date.now();
+    const throttle: ThrottleEntry[] = [
+      { key: `link:doctor:${args.doctorId}`, policy: "linkDoctor" },
+      ...(args.clientIp ? [{ key: `link:ip:${args.clientIp}`, policy: "linkIp" as const }] : []),
+    ];
+    const retryAfterMs = await lockRemainingMs(
+      ctx,
+      throttle.map((t) => t.key),
+      now,
+    );
+    if (retryAfterMs > 0) return { ok: false, reason: "locked", retryAfterMs };
+
+    const outcome = await linkByCode(ctx, args.doctorId, args.accessCode, now);
+    if (!outcome.ok) {
+      for (const entry of throttle) await noteFailure(ctx, entry, now);
+    }
+    return outcome;
   },
 });
 

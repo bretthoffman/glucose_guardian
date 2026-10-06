@@ -1,4 +1,5 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Response } from "express";
+import type { FunctionReturnType } from "convex/server";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { api } from "../../../../convex/_generated/api.js";
 import {
@@ -23,6 +24,7 @@ import {
 } from "../doctor-auth.js";
 import { answerDoctorQuestion, isAssistantConfigured } from "../doctor-assistant.js";
 import { limitCodeAttempts } from "../code-rate-limit";
+import { clientIp, isMissingConvexFunction } from "../client-ip";
 
 const router: IRouter = Router();
 
@@ -423,6 +425,17 @@ if (isConvexDoctorConfigured()) {
 
 // ─── Doctor account auth (Phase 1) ───────────────────────────────────────────
 
+/** 429 with a Retry-After, for an attempt limit the backend reported. */
+function sendLocked(res: Response, retryAfterMs: number, what: string): void {
+  const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  res.setHeader("Retry-After", String(seconds));
+  res.status(429).json({
+    error: `Too many ${what}. Try again in ${Math.ceil(seconds / 60)} minute${seconds > 60 ? "s" : ""}.`,
+    retryAfterSeconds: seconds,
+  });
+}
+
+/** Doctor sign-up — by invitation only: the invite code must be one issued for this email. */
 router.post("/auth/register", (req, res) => {
   void (async () => {
     try {
@@ -430,8 +443,9 @@ router.post("/auth/register", (req, res) => {
         res.status(503).json({ error: "Doctor accounts are not configured" });
         return;
       }
-      const { email, passwordHash, displayName, title, firstName, lastName, institution } =
+      const { inviteCode, email, passwordHash, displayName, title, firstName, lastName, institution } =
         req.body as {
+          inviteCode?: string;
           email?: string;
           passwordHash?: string;
           displayName?: string;
@@ -444,10 +458,16 @@ router.post("/auth/register", (req, res) => {
         res.status(400).json({ error: "email, passwordHash, and displayName are required" });
         return;
       }
+      if (!inviteCode?.trim()) {
+        res.status(403).json({ error: "Sign-up is by invitation. Enter the invite code you were sent." });
+        return;
+      }
 
       const client = createConvexDoctorAccountsClient();
-      const result = await client.mutation(api.doctorAccounts.register, {
+      const ip = clientIp(req);
+      const result = await client.action(api.doctorAuthActions.registerWithInvite, {
         serverSecret: getConvexDoctorApiSecret(),
+        inviteCode,
         email,
         passwordHash,
         displayName,
@@ -455,16 +475,31 @@ router.post("/auth/register", (req, res) => {
         firstName,
         lastName,
         institution,
+        ...(ip ? { clientIp: ip } : {}),
       });
-      res.status(201).json(result);
+      switch (result.result) {
+        case "ok":
+          res.status(201).json({ doctorId: result.doctorId });
+          return;
+        case "email_taken":
+          res.status(409).json({ error: "Email already registered" });
+          return;
+        case "locked":
+          sendLocked(res, result.retryAfterMs, "invite attempts");
+          return;
+        default:
+          res.status(403).json({
+            error: "That invite code isn't valid for this email, or it has expired or already been used.",
+          });
+      }
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Registration failed";
-      if (message.includes("already registered")) {
-        res.status(409).json({ error: message });
+      if (isMissingConvexFunction(e)) {
+        // Never fall back to the old open sign-up.
+        res.status(503).json({ error: "Sign-up isn't available yet. Please try again later." });
         return;
       }
       console.error("[doctor] POST /auth/register", e);
-      res.status(400).json({ error: message });
+      res.status(400).json({ error: e instanceof Error ? e.message : "Registration failed" });
     }
   })();
 });
@@ -486,11 +521,29 @@ router.post("/auth/login", (req, res) => {
       }
 
       const client = createConvexDoctorAccountsClient();
-      const account = await client.query(api.doctorAccounts.login, {
-        serverSecret: getConvexDoctorApiSecret(),
-        email,
-        passwordHash,
-      });
+      const ip = clientIp(req);
+      let account: FunctionReturnType<typeof api.doctorAccounts.login>;
+      try {
+        const result = await client.action(api.doctorAuthActions.login, {
+          serverSecret: getConvexDoctorApiSecret(),
+          email,
+          passwordHash,
+          ...(ip ? { clientIp: ip } : {}),
+        });
+        if (result.result === "locked") {
+          sendLocked(res, result.retryAfterMs, "sign-in attempts");
+          return;
+        }
+        account = result.result === "ok" ? result.doctor : null;
+      } catch (e) {
+        if (!isMissingConvexFunction(e)) throw e;
+        // Backend not deployed yet: the previous check, so sign-in keeps working meanwhile.
+        account = await client.query(api.doctorAccounts.login, {
+          serverSecret: getConvexDoctorApiSecret(),
+          email,
+          passwordHash,
+        });
+      }
       if (!account) {
         res.status(401).json({ error: "Invalid email or password" });
         return;
@@ -624,11 +677,34 @@ router.post("/me/patients/link", requireDoctorAuth, (req, res) => {
       }
 
       const client = createConvexDoctorAccountsClient();
-      const link = await client.mutation(api.doctorAccounts.createLink, {
-        serverSecret: getConvexDoctorApiSecret(),
-        doctorId: asDoctorId(doctorId),
-        accessCode,
-      });
+      const ip = clientIp(req);
+      let outcome;
+      try {
+        outcome = await client.mutation(api.doctorAccounts.linkPatient, {
+          serverSecret: getConvexDoctorApiSecret(),
+          doctorId: asDoctorId(doctorId),
+          accessCode,
+          ...(ip ? { clientIp: ip } : {}),
+        });
+      } catch (e) {
+        if (!isMissingConvexFunction(e)) throw e;
+        // Backend not deployed yet: link without limits, as before.
+        const link = await client.mutation(api.doctorAccounts.createLink, {
+          serverSecret: getConvexDoctorApiSecret(),
+          doctorId: asDoctorId(doctorId),
+          accessCode,
+        });
+        outcome = { ok: true as const, link };
+      }
+      if (!outcome.ok) {
+        if (outcome.reason === "locked") {
+          sendLocked(res, outcome.retryAfterMs, "attempts to add a patient");
+          return;
+        }
+        res.status(404).json({ error: "Invalid or unknown patient access code" });
+        return;
+      }
+      const { link } = outcome;
       res.status(link.alreadyLinked ? 200 : 201).json(link);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Link failed";
@@ -750,61 +826,12 @@ router.post("/me/alerts/read", requireDoctorAuth, (req, res) => {
 
 // ─── Legacy code-only login (deprecated; does not grant snapshot access) ─────
 
-router.post("/login", (req, res) => {
-  void (async () => {
-    try {
-      res.setHeader("Deprecation", "true");
-      res.setHeader(
-        "Link",
-        '</api/doctor/auth/login>; rel="successor-version"',
-      );
-
-      const { accessCode } = req.body as { accessCode?: string };
-      if (!accessCode || typeof accessCode !== "string" || accessCode.trim().length < 3) {
-        res.status(401).json({ error: "Invalid access code" });
-        return;
-      }
-      const code = normalizeDoctorAccessCode(accessCode);
-      if (code.length < 3) {
-        res.status(401).json({ error: "Invalid access code" });
-        return;
-      }
-
-      if (isConvexDoctorConfigured()) {
-        const client = createConvexDoctorHttpClient();
-        const secret = getConvexDoctorIngestSecret();
-        const doc = (await client.query(api.doctor.getState, {
-          serverSecret: secret,
-          accessCode: code,
-        })) as ConvexDoctorDoc | null;
-        const snapshot = toPatientSnapshot(doc);
-        res.json({
-          success: true,
-          accessCode: code,
-          patientName: snapshot?.profile?.childName ?? null,
-          hasData: !!doc?.profile,
-          deprecated: true,
-          migration:
-            "Use POST /api/doctor/auth/login, POST /api/doctor/me/patients/link, and Bearer auth on patient routes.",
-        });
-        return;
-      }
-
-      const snapshot = patientStore.get(code);
-      res.json({
-        success: true,
-        accessCode: code,
-        patientName: snapshot?.profile?.childName ?? null,
-        hasData: !!snapshot,
-        deprecated: true,
-        migration:
-          "Use POST /api/doctor/auth/login, POST /api/doctor/me/patients/link, and Bearer auth on patient routes.",
-      });
-    } catch (e) {
-      console.error("[doctor] /login", e);
-      res.status(500).json({ error: "Doctor service error" });
-    }
-  })();
+/**
+ * Retired: the old sign-in by patient access code alone, which confirmed codes and returned
+ * patients' first names to anyone. Doctors sign in with an account (POST /auth/login).
+ */
+router.post("/login", (_req, res) => {
+  res.status(410).json({ error: "This sign-in has been retired. Sign in with your doctor account." });
 });
 
 router.post("/sync", limitCodeAttempts, (req, res) => {

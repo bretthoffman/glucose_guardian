@@ -51,10 +51,13 @@ async function setup() {
   const grandmaCode = await makeCode("Grandma", "caregiver");
   const phoneCode = await makeCode("Bella's phone", "child");
 
-  const { doctorId } = await t.mutation(api.doctorAccounts.register, {
-    serverSecret: SECRET, email: "rivera@example.com", passwordHash: "h", displayName: "Alex Rivera",
-    title: "Dr.", lastName: "Rivera",
-  });
+  // Accounts come from invites now (doctorAuth.test.ts); here one is inserted directly.
+  const doctorId = await t.run(async (ctx: any) =>
+    ctx.db.insert("doctorAccounts", {
+      email: "rivera@example.com", displayName: "Alex Rivera", title: "Dr.", lastName: "Rivera",
+      createdAt: Date.now(), updatedAt: Date.now(),
+    }),
+  );
   await t.mutation(api.doctorAccounts.createLink, { serverSecret: SECRET, doctorId, accessCode: DOCTOR_CODE });
   const doctor = { serverSecret: SECRET, doctorId, accessCode: DOCTOR_CODE };
   await t.mutation(api.doctorAccounts.setCaregiverTitle, { ...doctor, name: "Lincoln Nurse Office", title: "school_nurse" });

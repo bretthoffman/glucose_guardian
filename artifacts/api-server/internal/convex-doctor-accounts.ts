@@ -29,7 +29,8 @@ export function createConvexDoctorAccountsClient(): ConvexHttpClient {
 }
 
 /** Session lifetime for Bearer tokens issued by POST /api/doctor/auth/login. */
-export const DOCTOR_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** Doctor sessions last 12 hours (the backend enforces the same cap on older sessions too). */
+export const DOCTOR_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function normalizeDoctorAccessCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);

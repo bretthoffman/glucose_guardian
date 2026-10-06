@@ -226,7 +226,14 @@ const patientGuardianPins = defineTable({
 /** Doctor portal accounts (separate from patient `users`). */
 const doctorAccounts = defineTable({
   email: v.string(),
-  passwordHash: v.string(),
+  /**
+   * Pre-scrypt stored password value — reversible, so it's replaced by `passwordDigest` at the
+   * doctor's next sign-in (and by doctorAuthActions.migrateLegacyPasswords for everyone else).
+   */
+  passwordHash: v.optional(v.string()),
+  /** scrypt digest of the password (doctorAuth/passwordNode.ts): `scrypt$N$r$p$salt$hash`. */
+  passwordDigest: v.optional(v.string()),
+  passwordUpdatedAt: v.optional(v.number()),
   /** Full name for portal display, e.g. "Dr. Alex Rivera" (composed from the parts below). */
   displayName: v.string(),
   /** Structured name. `title` + `lastName` form the patient-facing byline on treatment proposals. */
@@ -250,6 +257,35 @@ const doctorAccounts = defineTable({
   updatedAt: v.number(),
 })
   .index("by_email", ["email"]);
+
+/**
+ * Doctor sign-up is by invitation only. An admin creates an invite for one email
+ * (doctorAuthActions.createInvite); the code is shown once and stored here only as a SHA-256
+ * hash. Single use, expires after DOCTOR_AUTH_CONFIG.INVITE_VALID_MS.
+ */
+const doctorInvites = defineTable({
+  codeHash: v.string(),
+  email: v.string(),
+  note: v.optional(v.string()),
+  createdAt: v.number(),
+  expiresAt: v.number(),
+  usedAt: v.optional(v.number()),
+  usedByDoctorId: v.optional(v.id("doctorAccounts")),
+  revokedAt: v.optional(v.number()),
+})
+  .index("by_codeHash", ["codeHash"])
+  .index("by_email", ["email"]);
+
+/**
+ * Failed-attempt counters for doctor sign-in, invite redemption and patient linking, keyed like
+ * `login:email:<email>` or `link:ip:<ip>` (policies in doctorAuth/config.ts).
+ */
+const doctorAuthThrottle = defineTable({
+  key: v.string(),
+  failures: v.number(),
+  windowStart: v.number(),
+  lockedUntil: v.optional(v.number()),
+}).index("by_key", ["key"]);
 
 /** Bearer session tokens for doctor API auth (token stored as SHA-256 hash). */
 const doctorSessions = defineTable({
@@ -800,6 +836,8 @@ export default defineSchema({
   pushAlertState,
   emergencyWaits,
   doctorAccounts,
+  doctorInvites,
+  doctorAuthThrottle,
   doctorSessions,
   doctorAlerts,
   doctorAccessLogs,
