@@ -277,3 +277,47 @@ describe("doctor sessions", () => {
     expect(await check()).toBeNull();
   });
 });
+
+describe("removing a doctor account", () => {
+  it("signs it out everywhere and removes its links and alerts, keeping the audit log", async () => {
+    const t = convexTest(schema, modules);
+    const { inviteCode } = await invite(t, "gone@clinic.org");
+    await register(t, inviteCode, "gone@clinic.org", "pw-secret");
+    const doctorId = (await account(t, "gone@clinic.org"))._id;
+    await t.mutation(api.doctorAccounts.createSession, {
+      serverSecret: SECRET,
+      doctorId,
+      tokenHash: "tok",
+      expiresAt: Date.now() + 60 * MIN,
+    });
+    await t.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.insert("doctorPatientLinks", { doctorId, accessCode: CODE, linkedAt: now });
+      await ctx.db.insert("doctorAlerts", { doctorId, accessCode: CODE, kind: "stale_data", message: "x", createdAt: now });
+      await ctx.db.insert("doctorAccessLogs", { doctorId, accessCode: CODE, action: "viewed", createdAt: now });
+    });
+    const remove = (email: string, force?: boolean) =>
+      t.mutation(internal.doctorAuth.internal.removeDoctorAccount, { email, ...(force ? { force } : {}) });
+
+    // Still has a patient: refused unless forced.
+    expect(await remove("gone@clinic.org")).toMatchObject({ removed: false, reason: expect.stringMatching(/has 1 patient/) });
+    expect(await remove(" Gone@Clinic.org ", true)).toEqual({
+      email: "gone@clinic.org",
+      removed: true,
+      sessionsEnded: 1,
+      patientLinks: 1,
+      alerts: 1,
+    });
+
+    expect(await account(t, "gone@clinic.org")).toBeNull();
+    expect(await t.query(api.doctorAccounts.validateSession, { serverSecret: SECRET, tokenHash: "tok" })).toBeNull();
+    expect(await login(t, "gone@clinic.org", "pw-secret")).toEqual({ result: "invalid" });
+    const left = await t.run(async (ctx: any) => ({
+      links: (await ctx.db.query("doctorPatientLinks").collect()).length,
+      alerts: (await ctx.db.query("doctorAlerts").collect()).length,
+      accessLogs: (await ctx.db.query("doctorAccessLogs").collect()).length,
+    }));
+    expect(left).toEqual({ links: 0, alerts: 0, accessLogs: 1 });
+    expect(await remove("gone@clinic.org")).toMatchObject({ removed: false, reason: "no such account" });
+  }, SLOW);
+});

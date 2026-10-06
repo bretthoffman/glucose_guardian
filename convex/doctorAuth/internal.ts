@@ -137,6 +137,58 @@ export const listLegacyPasswordAccounts = internalQuery({
   },
 });
 
+/**
+ * Admin: remove a doctor account (e.g. an unused or test one) along with its sessions — signing it
+ * out everywhere — its patient links, alerts and attempt counters. Access logs and messages stay,
+ * as the audit trail. Refuses an account that still has patients unless `force` is set.
+ *
+ *   npx convex run doctorAuth/internal:removeDoctorAccount '{"email":"old@clinic.org"}' --prod
+ */
+export const removeDoctorAccount = internalMutation({
+  args: { email: v.string(), force: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const email = args.email.trim().toLowerCase();
+    const account = await ctx.db
+      .query("doctorAccounts")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .unique();
+    if (!account) return { email, removed: false as const, reason: "no such account" };
+
+    const doctorId = account._id;
+    const links = await ctx.db
+      .query("doctorPatientLinks")
+      .withIndex("by_doctorId", (q) => q.eq("doctorId", doctorId))
+      .collect();
+    const activePatients = links.filter((l) => l.revokedAt == null).length;
+    if (activePatients > 0 && !args.force) {
+      return {
+        email,
+        removed: false as const,
+        reason: `has ${activePatients} patient${activePatients === 1 ? "" : "s"}; pass "force": true to remove anyway`,
+      };
+    }
+    const sessions = await ctx.db
+      .query("doctorSessions")
+      .withIndex("by_doctorId", (q) => q.eq("doctorId", doctorId))
+      .collect();
+    const alerts = await ctx.db
+      .query("doctorAlerts")
+      .withIndex("by_doctorId", (q) => q.eq("doctorId", doctorId))
+      .collect();
+    for (const row of [...sessions, ...links, ...alerts]) await ctx.db.delete(row._id);
+    await clearThrottle(ctx, `link:doctor:${doctorId}`);
+    await clearThrottle(ctx, `login:email:${email}`);
+    await ctx.db.delete(doctorId);
+    return {
+      email,
+      removed: true as const,
+      sessionsEnded: sessions.length,
+      patientLinks: links.length,
+      alerts: alerts.length,
+    };
+  },
+});
+
 // ─── invites ─────────────────────────────────────────────────────────────────────────────────
 
 function inviteIsOpen(invite: Doc<"doctorInvites">, now: number) {
