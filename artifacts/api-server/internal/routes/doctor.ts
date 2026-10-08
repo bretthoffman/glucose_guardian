@@ -1,4 +1,4 @@
-import { Router, type IRouter, type Response } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { api } from "../../../../convex/_generated/api.js";
 import {
@@ -434,12 +434,177 @@ function sendLocked(res: Response, retryAfterMs: number, what: string): void {
   });
 }
 
-/** Doctor sign-up — by invitation only: the invite code must be one issued for this email. */
+const SIGNUP_UNAVAILABLE = "Sign-up isn't available right now. Please try again later.";
+
+/** The response for a license key that can't take this email (shared by both license steps). */
+function sendLicenseRefusal(
+  res: Response,
+  refusal:
+    | { result: "invalid_license" }
+    | { result: "no_seats" }
+    | { result: "domain_not_allowed"; allowedDomains: string[] }
+    | { result: "email_taken" },
+): void {
+  switch (refusal.result) {
+    case "email_taken":
+      res.status(409).json({ error: "Email already registered", reason: "email_taken" });
+      return;
+    case "domain_not_allowed":
+      res.status(403).json({
+        error: `Use your work email (${refusal.allowedDomains.map((d) => `@${d}`).join(" or ")}).`,
+        reason: "domain_not_allowed",
+        allowedDomains: refusal.allowedDomains,
+      });
+      return;
+    case "no_seats":
+      res.status(403).json({
+        error: "Your organization has used all of its seats. Ask your administrator to add more.",
+        reason: "no_seats",
+      });
+      return;
+    default:
+      res.status(403).json({ error: "That license key isn't valid anymore.", reason: "invalid_license" });
+  }
+}
+
+/**
+ * The home screen's first step: what is this code? A license key answers with the organization
+ * it fills in; an invite only with its kind (it's checked against the email at sign-up).
+ */
+router.post("/auth/access-code", (req, res) => {
+  void (async () => {
+    try {
+      if (!isConvexDoctorAccountsConfigured()) {
+        res.status(503).json({ error: "Doctor accounts are not configured" });
+        return;
+      }
+      const { code } = req.body as { code?: string };
+      if (!code?.trim()) {
+        res.status(400).json({ error: "code is required" });
+        return;
+      }
+      const client = createConvexDoctorAccountsClient();
+      const ip = clientIp(req);
+      const result = await client.action(api.doctorAuthActions.describeAccessCode, {
+        serverSecret: getConvexDoctorApiSecret(),
+        code,
+        ...(ip ? { clientIp: ip } : {}),
+      });
+      if ("result" in result) {
+        sendLocked(res, result.retryAfterMs, "attempts");
+        return;
+      }
+      if (result.kind === "invalid") {
+        res.status(404).json({ error: "That code isn't valid. Check it and try again.", reason: "invalid_code" });
+        return;
+      }
+      res.json(result);
+    } catch (e) {
+      // Includes "not deployed yet"; the portal then falls back to invite sign-up.
+      console.error("[doctor] POST /auth/access-code", e);
+      res.status(503).json({ error: SIGNUP_UNAVAILABLE });
+    }
+  })();
+});
+
+/** License-key sign-up, step 1: email the doctor a code proving they own the address. */
+router.post("/auth/email-code", (req, res) => {
+  void (async () => {
+    try {
+      if (!isConvexDoctorAccountsConfigured()) {
+        res.status(503).json({ error: "Doctor accounts are not configured" });
+        return;
+      }
+      const { licenseKey, email } = req.body as { licenseKey?: string; email?: string };
+      if (!licenseKey?.trim() || !email?.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+        res.status(400).json({ error: "licenseKey and a valid email are required" });
+        return;
+      }
+      const client = createConvexDoctorAccountsClient();
+      const ip = clientIp(req);
+      const result = await client.action(api.doctorAuthActions.sendLicenseEmailCode, {
+        serverSecret: getConvexDoctorApiSecret(),
+        licenseKey,
+        email,
+        ...(ip ? { clientIp: ip } : {}),
+      });
+      switch (result.result) {
+        case "sent":
+          res.json({ sent: true });
+          return;
+        case "locked":
+          sendLocked(res, result.retryAfterMs, "verification emails");
+          return;
+        case "email_unavailable":
+          res.status(503).json({
+            error: "We couldn't send a verification email right now. Please try again later.",
+            reason: "email_unavailable",
+          });
+          return;
+        default:
+          sendLicenseRefusal(res, result);
+      }
+    } catch (e) {
+      console.error("[doctor] POST /auth/email-code", e);
+      res.status(503).json({ error: SIGNUP_UNAVAILABLE });
+    }
+  })();
+});
+
+/** License-key sign-up, step 2 (POST /auth/register with `licenseKey` + `emailCode`). */
+async function registerWithLicense(req: Request, res: Response): Promise<void> {
+  const { licenseKey, emailCode, email, passwordHash, displayName, title, firstName, lastName, specialty } =
+    req.body as Record<string, string | undefined>;
+  if (!email?.trim() || !passwordHash || !displayName?.trim() || !emailCode?.trim()) {
+    res.status(400).json({ error: "email, emailCode, passwordHash, and displayName are required" });
+    return;
+  }
+  const client = createConvexDoctorAccountsClient();
+  const ip = clientIp(req);
+  const result = await client.action(api.doctorAuthActions.registerWithLicense, {
+    serverSecret: getConvexDoctorApiSecret(),
+    licenseKey: licenseKey!,
+    emailCode,
+    email,
+    passwordHash,
+    displayName,
+    title,
+    firstName,
+    lastName,
+    specialty,
+    ...(ip ? { clientIp: ip } : {}),
+  });
+  switch (result.result) {
+    case "ok":
+      res.status(201).json({ doctorId: result.doctorId });
+      return;
+    case "locked":
+      sendLocked(res, result.retryAfterMs, "attempts");
+      return;
+    case "invalid_email_code":
+      res.status(403).json({
+        error: "That verification code isn't right, or it has expired. Check the email or send a new code.",
+        reason: "invalid_email_code",
+      });
+      return;
+    default:
+      sendLicenseRefusal(res, result);
+  }
+}
+
+/**
+ * Doctor sign-up — with an organization's license key (plus the emailed code), or an invite
+ * issued for this email.
+ */
 router.post("/auth/register", (req, res) => {
   void (async () => {
     try {
       if (!isConvexDoctorAccountsConfigured()) {
         res.status(503).json({ error: "Doctor accounts are not configured" });
+        return;
+      }
+      if ((req.body as { licenseKey?: string }).licenseKey?.trim()) {
+        await registerWithLicense(req, res);
         return;
       }
       const { inviteCode, email, passwordHash, displayName, title, firstName, lastName, institution } =
@@ -495,7 +660,7 @@ router.post("/auth/register", (req, res) => {
       // Includes "not deployed yet" (production Convex reports that only as "Server Error").
       // Fails closed: there is no fallback to the old open sign-up.
       console.error("[doctor] POST /auth/register", e);
-      res.status(503).json({ error: "Sign-up isn't available right now. Please try again later." });
+      res.status(503).json({ error: SIGNUP_UNAVAILABLE });
     }
   })();
 });

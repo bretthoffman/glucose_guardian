@@ -253,10 +253,57 @@ const doctorAccounts = defineTable({
    */
   pinHash: v.optional(v.string()),
   pinUpdatedAt: v.optional(v.number()),
+  /** The organization whose license key the account was created with (none for invite sign-ups). */
+  organizationId: v.optional(v.id("doctorOrganizations")),
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index("by_email", ["email"]);
+  .index("by_email", ["email"])
+  .index("by_organizationId", ["organizationId"]);
+
+/**
+ * A licensed organization (clinic, hospital, practice). Its staff sign up with the organization's
+ * license key instead of one invite each; the key fills in the organization, and `seats` and
+ * `allowedDomains` bound who can join. Managed with the admin functions in doctorAuthActions.ts.
+ */
+const doctorOrganizations = defineTable({
+  name: v.string(),
+  /** Shown under the name when a doctor enters the key, e.g. "Charlotte, NC". */
+  location: v.optional(v.string()),
+  /** How many doctor accounts may join with the license key. */
+  seats: v.number(),
+  /** Work-email domains allowed to join (e.g. ["riverside.org"]; subdomains count). Empty = any. */
+  allowedDomains: v.array(v.string()),
+  note: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+}).index("by_name", ["name"]);
+
+/**
+ * License keys, stored only as a SHA-256 hash (the key is shown once, when it's created). An
+ * organization has at most one live key; issuing a new one revokes the old.
+ */
+const doctorLicenseKeys = defineTable({
+  organizationId: v.id("doctorOrganizations"),
+  keyHash: v.string(),
+  createdAt: v.number(),
+  revokedAt: v.optional(v.number()),
+})
+  .index("by_keyHash", ["keyHash"])
+  .index("by_organizationId", ["organizationId"]);
+
+/**
+ * One-time email verification codes for license-key sign-up (a shared key doesn't prove which
+ * email the person owns; this does). Hashed, short-lived, and limited to a few guesses.
+ */
+const doctorEmailCodes = defineTable({
+  email: v.string(),
+  codeHash: v.string(),
+  createdAt: v.number(),
+  expiresAt: v.number(),
+  attempts: v.number(),
+  usedAt: v.optional(v.number()),
+}).index("by_email", ["email"]);
 
 /**
  * Doctor sign-up is by invitation only. An admin creates an invite for one email
@@ -837,6 +884,9 @@ export default defineSchema({
   emergencyWaits,
   doctorAccounts,
   doctorInvites,
+  doctorOrganizations,
+  doctorLicenseKeys,
+  doctorEmailCodes,
   doctorAuthThrottle,
   doctorSessions,
   doctorAlerts,

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { sendEmail } from "./email";
 import {
   internalAction,
   internalMutation,
@@ -186,24 +187,6 @@ export const scan = internalMutation({
 });
 
 // ── Email delivery (Resend; skipped silently when RESEND_API_KEY is unset) ──
-
-const RESEND_URL = "https://api.resend.com/emails";
-const FROM = () => process.env.RESEND_FROM ?? "Glucose Guardian <onboarding@resend.dev>";
-
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return false;
-  try {
-    const res = await fetch(RESEND_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: FROM(), to: [to], subject, html }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
 
 export const getForEmail = internalQuery({
   args: { ids: v.array(v.id("doctorAlerts")) },

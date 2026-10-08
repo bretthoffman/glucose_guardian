@@ -12,6 +12,7 @@ const throttlePolicy = v.union(
   v.literal("linkDoctor"),
   v.literal("linkIp"),
   v.literal("inviteIp"),
+  v.literal("emailCodeSend"),
 );
 
 export type ThrottleEntry = { key: string; policy: ThrottlePolicy };

@@ -100,6 +100,92 @@ describe("POST /auth/register — invitation only", () => {
   });
 });
 
+describe("license-key sign-up", () => {
+  const license = {
+    kind: "license",
+    organization: { name: "Riverside Pediatrics", location: "Charlotte, NC" },
+    allowedDomains: ["riverside.org"],
+    seatsAvailable: true,
+  };
+
+  it("POST /auth/access-code describes a code: license, invite, unknown, locked", async () => {
+    state.results["doctorAuthActions:describeAccessCode"] = license;
+    let res = await post("/auth/access-code", { code: "AAAA-BBBB-CCCC-DDDD" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(license);
+    expect(called("doctorAuthActions:describeAccessCode")[0]!.args).toMatchObject({ clientIp: "203.0.113.9" });
+
+    state.results["doctorAuthActions:describeAccessCode"] = { kind: "invite" };
+    expect(await (await post("/auth/access-code", { code: "X" })).json()).toEqual({ kind: "invite" });
+    state.results["doctorAuthActions:describeAccessCode"] = { kind: "invalid" };
+    res = await post("/auth/access-code", { code: "X" });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ reason: "invalid_code" });
+    state.results["doctorAuthActions:describeAccessCode"] = { result: "locked", retryAfterMs: 60_000 };
+    expect((await post("/auth/access-code", { code: "X" })).status).toBe(429);
+    expect((await post("/auth/access-code", {})).status).toBe(400);
+  });
+
+  it("503 until the backend is deployed (the portal falls back to invites)", async () => {
+    state.results["doctorAuthActions:describeAccessCode"] = MISSING;
+    expect((await post("/auth/access-code", { code: "X" })).status).toBe(503);
+    state.results["doctorAuthActions:sendLicenseEmailCode"] = MISSING;
+    expect((await post("/auth/email-code", { licenseKey: "K", email: "a@riverside.org" })).status).toBe(503);
+  });
+
+  it("POST /auth/email-code sends, or says why not", async () => {
+    const body = { licenseKey: "K", email: "a@riverside.org" };
+    expect((await post("/auth/email-code", { licenseKey: "K", email: "nope" })).status).toBe(400);
+    state.results["doctorAuthActions:sendLicenseEmailCode"] = { result: "sent", organizationName: "R" };
+    expect(await (await post("/auth/email-code", body)).json()).toEqual({ sent: true });
+
+    state.results["doctorAuthActions:sendLicenseEmailCode"] = {
+      result: "domain_not_allowed",
+      allowedDomains: ["riverside.org"],
+    };
+    let res = await post("/auth/email-code", body);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ reason: "domain_not_allowed", allowedDomains: ["riverside.org"] });
+    for (const [result, status, reason] of [
+      ["no_seats", 403, "no_seats"],
+      ["invalid_license", 403, "invalid_license"],
+      ["email_taken", 409, "email_taken"],
+      ["email_unavailable", 503, "email_unavailable"],
+    ] as const) {
+      state.results["doctorAuthActions:sendLicenseEmailCode"] = { result };
+      res = await post("/auth/email-code", body);
+      expect(res.status).toBe(status);
+      expect(await res.json()).toMatchObject({ reason });
+    }
+  });
+
+  it("POST /auth/register with a licenseKey uses the license action, not the invite one", async () => {
+    const body = {
+      licenseKey: "AAAA-BBBB-CCCC-DDDD",
+      emailCode: "123456",
+      email: "a@riverside.org",
+      passwordHash: "pw",
+      displayName: "Dr. Lee",
+      specialty: "Endocrinologist",
+    };
+    expect((await post("/auth/register", { ...body, emailCode: undefined })).status).toBe(400);
+    state.results["doctorAuthActions:registerWithLicense"] = { result: "ok", doctorId: "doc7" };
+    const res = await post("/auth/register", body);
+    expect(res.status).toBe(201);
+    expect(called("doctorAuthActions:registerWithInvite")).toEqual([]);
+    expect(called("doctorAuthActions:registerWithLicense")[0]!.args).toMatchObject({
+      licenseKey: "AAAA-BBBB-CCCC-DDDD",
+      emailCode: "123456",
+      specialty: "Endocrinologist",
+      clientIp: "203.0.113.9",
+    });
+    state.results["doctorAuthActions:registerWithLicense"] = { result: "invalid_email_code" };
+    expect(await (await post("/auth/register", body)).json()).toMatchObject({ reason: "invalid_email_code" });
+    state.results["doctorAuthActions:registerWithLicense"] = MISSING;
+    expect((await post("/auth/register", body)).status).toBe(503);
+  });
+});
+
 describe("POST /auth/login", () => {
   const body = { email: "dr@clinic.org", passwordHash: "pw" };
 

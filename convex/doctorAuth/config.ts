@@ -16,6 +16,10 @@ export const DOCTOR_AUTH_CONFIG = {
 
   /** Invites: single use, tied to one email, and short-lived. */
   INVITE_VALID_MS: 14 * 24 * 60 * 60 * 1000,
+
+  /** License-key sign-up: the emailed code's lifetime and how many guesses it allows. */
+  EMAIL_CODE_VALID_MS: 15 * 60 * 1000,
+  EMAIL_CODE_MAX_ATTEMPTS: 5,
 } as const;
 
 /**
@@ -29,6 +33,8 @@ export const THROTTLE_POLICIES = {
   linkDoctor: { max: 10, windowMs: 60 * 60 * 1000, lockMs: 60 * 60 * 1000 },
   linkIp: { max: 20, windowMs: 60 * 60 * 1000, lockMs: 60 * 60 * 1000 },
   inviteIp: { max: 10, windowMs: 60 * 60 * 1000, lockMs: 60 * 60 * 1000 },
+  /** Verification emails sent to one address (every send counts, not only failures). */
+  emailCodeSend: { max: 5, windowMs: 60 * 60 * 1000, lockMs: 60 * 60 * 1000 },
 } as const;
 
 export type ThrottlePolicy = keyof typeof THROTTLE_POLICIES;

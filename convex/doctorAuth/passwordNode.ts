@@ -67,3 +67,23 @@ export function inviteCodeHash(code: string): string {
   const normalized = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
   return createHash("sha256").update(normalized).digest("hex");
 }
+
+/**
+ * A fresh organization license key, `XXXX-XXXX-XXXX-XXXX` (16 characters, ~79 bits) — longer
+ * than an invite because one key serves a whole organization. Stored with inviteCodeHash.
+ */
+export function newLicenseKey(): string {
+  let raw = "";
+  for (let i = 0; i < 16; i++) raw += INVITE_ALPHABET[randomInt(INVITE_ALPHABET.length)];
+  return raw.match(/.{4}/g)!.join("-");
+}
+
+/** A 6-digit email verification code. */
+export function newEmailCode(): string {
+  return String(randomInt(1_000_000)).padStart(6, "0");
+}
+
+/** Email codes are stored hashed together with the address they were sent to. */
+export function emailCodeHash(email: string, code: string): string {
+  return createHash("sha256").update(`${email}\n${code.replace(/\D/g, "")}`).digest("hex");
+}
