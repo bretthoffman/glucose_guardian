@@ -5,6 +5,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 
 import React, { useRef, useState } from "react";
 import {
+  Modal,
   ActivityIndicator,
   Image,
   Keyboard,
@@ -27,7 +28,7 @@ import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 
 import { getEffectiveTrend, trendTone } from "@/utils/trend";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
-import FoodInsulinModal from "@/components/FoodInsulinModal";
+import { router } from "expo-router";
 import { apiUrl } from "@/utils/api-base-url";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
@@ -146,7 +147,12 @@ export default function FoodScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { carbRatio, targetGlucose, correctionFactor, latestReading, history } = useGlucose();
-  const { addFoodLogEntry, isMinor, quickFoods, saveQuickFood, updateQuickFoodCarbs, alertPrefs } = useAuth();
+  const { addFoodLogEntry, isMinor, quickFoods, saveQuickFood, updateQuickFoodCarbs, alertPrefs, accessCodeRole, accessCodePermissions } = useAuth();
+  // Same grant derivation as the Insulin page (which shows/hides its tabs by these): an access-code
+  // (kid/caregiver) session only gets the actions its grants allow; every account session gets both.
+  const isAccessCodeSession = accessCodeRole != null;
+  const canUseCalculator = !isAccessCodeSession || !!accessCodePermissions?.useCalculator;
+  const canLogMeals = !isAccessCodeSession || !!accessCodePermissions?.log;
   const confirmLog = useCareLogConfirm();
 
   const [query, setQuery] = useState("");
@@ -160,14 +166,12 @@ export default function FoodScreen() {
   const [logged, setLogged] = useState(false);
   const [editedCarbs, setEditedCarbs] = useState<string>("");
 
-  // ── "Calculate Insulin" popup — once THIS analyzed meal's insulin is taken, its button stays
-  // "Insulin Taken" until a NEW analysis replaces the meal (both analyze paths reset it). It used
-  // to re-arm on the next successful CGM sync (~minutes): the same meal card then re-opened the
-  // calculator pre-filled with the same carbs, and since carb insulin is never IOB-reduced it
-  // recommended the ENTIRE meal dose again — an insulin-stacking path. A meal that was dosed
-  // stays dosed; more food means a new analysis or the main calculator. ──
-  const [insulinCalcVisible, setInsulinCalcVisible] = useState(false);
-  const [insulinTaken, setInsulinTaken] = useState(false);
+  // ── "Calculate Insulin" now hands off to the MAIN calculator on the Insulin page — the old
+  // second calculator popup was confusing (two calculators) and double-counted a just-logged meal:
+  // the log sat in active carbs AND its carbs were pre-filled into the input. The handoff is
+  // order-aware (see openMainCalculator): a logged meal arrives as the visual ACTIVE CARBS overlay,
+  // an unlogged one asks first, and only the not-logged path pre-fills real carbs. ──
+  const [calcConfirmVisible, setCalcConfirmVisible] = useState(false);
 
   // ── Quick Lookup chips now live in AuthContext: one mutual list for the whole care circle
   // (an add by any co-guardian shows up on every guardian's Food tab within a poll). ──
@@ -249,7 +253,6 @@ export default function FoodScreen() {
     setGuidance(null);
     setPhotoUri(null);
     setLogged(false);
-    setInsulinTaken(false);
     setSavedToQuick(false);
     try {
       const res = await fetch(apiUrl("/api/food/estimate"), {
@@ -371,7 +374,6 @@ export default function FoodScreen() {
       setPhotoUri(null);
       setGuidance(null);
       setLogged(false);
-      setInsulinTaken(false);
       setSavedToQuick(false);
       setError("");
       setServingsText("1");
@@ -411,7 +413,6 @@ export default function FoodScreen() {
     setGuidance(null);
     setQuery("");
     setLogged(false);
-    setInsulinTaken(false);
     setSavedToQuick(false);
     setError("");
     setIsAnalyzingPhoto(true);
@@ -479,10 +480,11 @@ export default function FoodScreen() {
     }
   }
 
-  function logMeal() {
+  function logMeal(onLogged?: () => void) {
     if (!result) return;
     const carbs = parseFloat(editedCarbs) || result.estimatedCarbs;
     // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
+    // `onLogged` fires only INSIDE that confirmation, so a caregiver who cancels never navigates.
     confirmLog(() => {
       addFoodLogEntry({
         timestamp: new Date().toISOString(),
@@ -498,6 +500,24 @@ export default function FoodScreen() {
       });
       setLogged(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onLogged?.();
+    });
+  }
+
+  /**
+   * Hand off to the MAIN calculator (Insulin page, Dose tab).
+   *  - "active": the meal is logged — the calculator shows the visual-only ACTIVE CARBS overlay on
+   *    its carbs field (the log already counts via active carbs; nothing is pre-filled).
+   *  - "carbs": not logged — the meal's grams are pre-filled into the REAL carbs input.
+   */
+  function openMainCalculator(mode: "active" | "carbs") {
+    const carbs = result ? parseFloat(editedCarbs) || result.estimatedCarbs : 0;
+    router.push({
+      pathname: "/(tabs)/insulin",
+      params:
+        mode === "active"
+          ? { tab: "predict", t: String(Date.now()), mode: "activeCarbs" }
+          : { tab: "predict", t: String(Date.now()), mode: "carbs", carbs: String(carbs) },
     });
   }
 
@@ -819,28 +839,29 @@ export default function FoodScreen() {
             )}
 
             <View style={styles.logActionsRow}>
+              {canUseCalculator && (
               <Pressable
                 style={({ pressed }) => [
                   styles.logBtn,
-                  {
-                    flex: 1,
-                    backgroundColor: insulinTaken ? COLORS.success + "20" : COLORS.primary,
-                    borderColor: insulinTaken ? COLORS.success : "transparent",
-                    borderWidth: insulinTaken ? 1 : 0,
-                    opacity: pressed ? 0.85 : 1,
-                  },
+                  { flex: 1, backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 },
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setInsulinCalcVisible(true);
+                  // Logged already → straight to the calculator (the log shows as active carbs there).
+                  // Not logged → ask first, so the order of actions can't double-count the meal —
+                  // unless this session can't log at all, in which case there's nothing to offer:
+                  // go straight over with the carbs pre-filled.
+                  if (logged) openMainCalculator("active");
+                  else if (!canLogMeals) openMainCalculator("carbs");
+                  else setCalcConfirmVisible(true);
                 }}
-                disabled={insulinTaken}
               >
-                <Feather name={insulinTaken ? "check-circle" : "percent"} size={16} color={insulinTaken ? COLORS.success : "#fff"} />
-                <Text style={[styles.logBtnText, { color: insulinTaken ? COLORS.success : "#fff" }]}>
-                  {insulinTaken ? "Insulin Taken" : "Calculate Insulin"}
-                </Text>
+                <AccentShade radius={14} />
+                <Feather name="percent" size={16} color="#fff" />
+                <Text style={[styles.logBtnText, { color: "#fff" }]}>Calculate Insulin</Text>
               </Pressable>
+              )}
+              {canLogMeals && (
               <Pressable
                 style={({ pressed }) => [
                   styles.logBtn,
@@ -852,7 +873,7 @@ export default function FoodScreen() {
                     opacity: pressed ? 0.85 : 1,
                   },
                 ]}
-                onPress={logMeal}
+                onPress={() => logMeal()}
                 disabled={logged}
               >
                 <Feather name={logged ? "check-circle" : "plus-circle"} size={16} color={logged ? COLORS.success : "#fff"} />
@@ -860,12 +881,13 @@ export default function FoodScreen() {
                   {logged ? "Meal Logged" : "Log This Meal"}
                 </Text>
               </Pressable>
+              )}
             </View>
           </View>
         )}
 
-        {/* Insulin logging on this page happens only through the Calculate Insulin popup —
-            the old post-log "Suggested dose / I Took X Units" card double-logged with it. */}
+        {/* Insulin dosing happens on the Insulin page's main calculator — "Calculate Insulin"
+            hands off there (order-aware), so this page never computes or logs a dose itself. */}
 
         {(isFetchingGuidance || guidance) && result && (
           <View style={[styles.guidanceCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -955,19 +977,58 @@ export default function FoodScreen() {
         colors={colors}
       />
 
-      {/* ── Meal insulin calculator popup — self-contained; never touches the main calculator ── */}
-      <FoodInsulinModal
-        visible={insulinCalcVisible}
-        onClose={() => setInsulinCalcVisible(false)}
-        initialCarbs={result ? parseFloat(editedCarbs) || result.estimatedCarbs : 0}
-        foodName={result?.foodName}
-        colors={colors}
-        onLogged={() => {
-          setInsulinCalcVisible(false);
-          setInsulinTaken(true);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }}
-      />
+      {/* ── "Log this meal first?" — shown when Calculate Insulin is tapped on an UNLOGGED meal.
+          Yes: log it here (button turns green), pause half a second so that's visible, then hand off
+          with the ACTIVE CARBS overlay. No: hand off immediately with the carbs pre-filled for real.
+          ✕: close, nothing changes. ── */}
+      <Modal visible={calcConfirmVisible} transparent animationType="fade" onRequestClose={() => setCalcConfirmVisible(false)} statusBarTranslucent>
+        <View style={styles.confirmBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setCalcConfirmVisible(false)} accessibilityLabel="Close" />
+          <View style={[styles.confirmCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <CardShade radius={18} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              hitSlop={10}
+              onPress={() => setCalcConfirmVisible(false)}
+              style={({ pressed }) => [styles.confirmClose, { backgroundColor: withAlpha(colors.textMuted, 0.18), opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Feather name="x" size={14} color={colors.textSecondary} />
+            </Pressable>
+            <Text style={[styles.confirmTitle, { color: colors.text }]} maxFontSizeMultiplier={1.4}>Log this meal first?</Text>
+            <Text style={[styles.confirmText, { color: colors.textSecondary }]} maxFontSizeMultiplier={1.4}>
+              Would you like to log this meal before switching to the calculator? Logging it counts the
+              carbs as active carbs, so you won't need to type them in again.
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.confirmBtn, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, borderWidth: 1, opacity: pressed ? 0.8 : 1 }]}
+                onPress={() => {
+                  setCalcConfirmVisible(false);
+                  openMainCalculator("carbs");
+                }}
+              >
+                <ControlShade radius={12} />
+                <Text style={[styles.confirmBtnText, { color: colors.text }]} maxFontSizeMultiplier={1.3}>No, don't log it</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.confirmBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
+                onPress={() => {
+                  setCalcConfirmVisible(false);
+                  // The handoff waits for the log to COMMIT (caregiver confirm included), then shows
+                  // the green "Meal Logged" state for a beat before switching pages.
+                  logMeal(() => setTimeout(() => openMainCalculator("active"), 500));
+                }}
+              >
+                <AccentShade radius={12} />
+                <Text style={[styles.confirmBtnText, { color: "#fff" }]} maxFontSizeMultiplier={1.3}>Yes, log it</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -1093,8 +1154,8 @@ function AdultGuidanceView({
   );
 }
 
-// The in-card "Dose Calculation" summary box was removed — the Calculate Insulin popup
-// (FoodInsulinModal) is the single dose surface on this page.
+// The in-card "Dose Calculation" summary box was removed — the Insulin page's main calculator
+// is the single dose surface in the app; "Calculate Insulin" hands off to it.
 
 function StatBox({
   label,
@@ -1267,6 +1328,15 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   logBtnText: { fontSize: 13, fontWeight: "700", textAlign: "center" },
+  // ── "Log this meal first?" confirmation ──
+  confirmBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, backgroundColor: "rgba(3, 9, 24, 0.6)" },
+  confirmCard: { width: "100%", maxWidth: 400, borderRadius: 18, borderWidth: 1, padding: 18, paddingTop: 20, gap: 10 },
+  confirmClose: { position: "absolute", top: 10, right: 10, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", zIndex: 2 },
+  confirmTitle: { fontSize: 17, fontWeight: "700", paddingRight: 28 },
+  confirmText: { fontSize: 13.5, fontWeight: "400", lineHeight: 20 },
+  confirmActions: { flexDirection: "row", gap: 10, marginTop: 6 },
+  confirmBtn: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 12, borderRadius: 12 },
+  confirmBtnText: { fontSize: 13.5, fontWeight: "700", textAlign: "center" },
   guidanceCard: { borderRadius: 16, borderWidth: 1, padding: 18, marginBottom: 24, gap: 14 },
   guidanceHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   guidanceTitle: { flex: 1, fontSize: 16, fontWeight: "700" },

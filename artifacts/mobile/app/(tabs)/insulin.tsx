@@ -175,19 +175,47 @@ export default function InsulinScreen() {
   const sharedBarScale = Math.max(0.75, Math.min(1, barFit[0], barFit[1]));
   const reportCarbsFit = useCallback((need: number) => setBarFit((prev) => (prev[0] === need ? prev : [need, prev[1]])), []);
   const reportInsulinFit = useCallback((need: number) => setBarFit((prev) => (prev[1] === need ? prev : [prev[0], need])), []);
-  // Deep link from the home page's "Logs" shortcut: /(tabs)/insulin?tab=log. The `t` nonce makes a
-  // repeat tap re-run this even though expo-router keeps the previous params; `effectiveTab` below
-  // still guards availability, so a session without the log grant just lands on its allowed tab.
-  const linkParams = useLocalSearchParams<{ tab?: string; t?: string }>();
+  // Deep links. The `t` nonce makes a repeat tap re-run this even though expo-router keeps the
+  // previous params around; `mode` discriminates the Food-page handoffs so a stale `carbs` value
+  // from an earlier visit can never fire. `effectiveTab` below still guards tab availability.
+  //  - home "Logs" shortcut: ?tab=log
+  //  - Food page "Calculate Insulin", meal already logged: ?tab=predict&mode=activeCarbs — shows the
+  //    VISUAL-ONLY "ACTIVE CARBS" overlay on the carbs field (see foodCarbsOverlay below) and clears
+  //    the input, so the just-logged meal can't be typed in a second time.
+  //  - Food page "Calculate Insulin", not logged: ?tab=predict&mode=carbs&carbs=25 — prefills the
+  //    REAL carbs input with the meal's grams (counted by the calculator, still editable).
+  const linkParams = useLocalSearchParams<{ tab?: string; t?: string; mode?: string; carbs?: string }>();
   useEffect(() => {
     if (linkParams.tab === "log") setScreenTab("log");
-  }, [linkParams.tab, linkParams.t]);
+    else if (linkParams.tab === "predict") setScreenTab("predict");
+    if (linkParams.mode === "activeCarbs") {
+      setFoodCarbsOverlay(true);
+      carbDraftRef.current = null;
+      setCarbDraft(null);
+      setCarbInput("");
+    } else if (linkParams.mode === "carbs" && typeof linkParams.carbs === "string") {
+      setFoodCarbsOverlay(false);
+      const clean = linkParams.carbs.replace(/[^0-9.]/g, "");
+      carbDraftRef.current = null;
+      setCarbDraft(null);
+      setCarbInput(clean);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `t` is the re-fire nonce
+  }, [linkParams.tab, linkParams.t, linkParams.mode, linkParams.carbs]);
   // The tab actually shown: fall back to the first allowed tab when the stored one isn't available
   // (e.g. calculator grant off → default to Log; log grant off → only Dose).
   const effectiveTabBase: ScreenTab = availableTabs.includes(screenTab) ? screenTab : (availableTabs[0] ?? "predict");
 
 
   const [carbInput, setCarbInput] = useState("");
+  /**
+   * "ACTIVE CARBS" overlay on the carbs field — set when the Food page hands off a meal that was
+   * ALREADY logged. Purely visual: it paints the on-board carbs grams (amber, same as the on-board
+   * bar) over the input so nobody re-types carbs that are already counted as active carbs below.
+   * It feeds NOTHING into the dose math — the real input underneath is cleared, and the ✕ restores
+   * the normal editable field without touching anything else. Self-hides once the carbs drain.
+   */
+  const [foodCarbsOverlay, setFoodCarbsOverlay] = useState(false);
   const [bgInput, setBgInput] = useState("");
   const [bgManual, setBgManual] = useState(false);
   // ── Deferred input commit ──────────────────────────────────────────────────────────────────
@@ -969,8 +997,37 @@ export default function InsulinScreen() {
           </View>
         ) : (
         <View style={styles.doseInputRow}>
-          {/* Carbs — big tappable number */}
+          {/* Carbs — big tappable number. When `foodCarbsOverlay` is on (arrived from the Food page
+              with the meal already logged), the field is REPLACED visually by the on-board carbs so
+              the same meal can't be typed in again — display only, never part of the math. */}
           <View style={styles.doseInputGroup}>
+            {foodCarbsOverlay && activeCarbs.totalGrams > 0 ? (
+              <>
+                <View style={styles.doseInputHead}>
+                  <MaterialCommunityIcons name="silverware-fork-knife" size={15} color={COLORS.warning} />
+                  <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>ACTIVE CARBS</Text>
+                </View>
+                <View style={styles.doseValueRow}>
+                  <Text style={[styles.doseBigInput, { color: COLORS.warning }]}>{activeCarbs.totalGrams}</Text>
+                  <Text style={[styles.doseUnit, { color: colors.textMuted }]}>g</Text>
+                </View>
+                {/* Invisible hint keeps this column's height identical to the editable state. */}
+                <Text style={[styles.doseHint, { opacity: 0 }]}>Tap to edit</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Dismiss and enter carbs manually"
+                  hitSlop={10}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setFoodCarbsOverlay(false);
+                  }}
+                  style={({ pressed }) => [styles.overlayDismiss, { backgroundColor: withAlpha(colors.textMuted, 0.18), opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Feather name="x" size={12} color={colors.textSecondary} />
+                </Pressable>
+              </>
+            ) : (
+              <>
             <View style={styles.doseInputHead}>
               <MaterialCommunityIcons name="silverware-fork-knife" size={15} color={COLORS.success} />
               <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>CARBS</Text>
@@ -993,6 +1050,8 @@ export default function InsulinScreen() {
               <Text style={[styles.doseUnit, { color: colors.textMuted }]}>g</Text>
             </View>
             <Text style={[styles.doseHint, { color: colors.textMuted }]}>Tap to edit</Text>
+              </>
+            )}
           </View>
 
           <View style={styles.doseInputDivider} />
@@ -1717,6 +1776,8 @@ const styles = StyleSheet.create({
   doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 10 },
   doseInputRow: { flexDirection: "row", gap: 12, paddingVertical: 2 },
   doseInputGroup: { flex: 1, alignItems: "center", gap: 5 },
+  /** The ✕ on the ACTIVE CARBS overlay — top-right corner of the carbs column. */
+  overlayDismiss: { position: "absolute", top: -2, right: 2, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   doseInputHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   doseInputLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
   doseValueRow: { flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 2 },
