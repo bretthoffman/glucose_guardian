@@ -1005,7 +1005,7 @@ export default function InsulinScreen() {
               <>
                 <View style={styles.doseInputHead}>
                   <MaterialCommunityIcons name="silverware-fork-knife" size={15} color={COLORS.warning} />
-                  <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>ACTIVE CARBS</Text>
+                  <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>ACTIVE CARBS</Text>
                 </View>
                 <View style={styles.doseValueRow}>
                   <Text style={[styles.doseBigInput, { color: COLORS.warning }]}>{activeCarbs.totalGrams}</Text>
@@ -1776,8 +1776,9 @@ const styles = StyleSheet.create({
   doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 10 },
   doseInputRow: { flexDirection: "row", gap: 12, paddingVertical: 2 },
   doseInputGroup: { flex: 1, alignItems: "center", gap: 5 },
-  /** The ✕ on the ACTIVE CARBS overlay — top-right corner of the carbs column. */
-  overlayDismiss: { position: "absolute", top: -2, right: 2, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  /** The ✕ on the ACTIVE CARBS overlay — floated up-right into the dose card's padding, clear of
+   *  the centered title (whose accessibility growth is capped) at every text size. */
+  overlayDismiss: { position: "absolute", top: -12, right: -10, width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", zIndex: 2 },
   doseInputHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   doseInputLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
   doseValueRow: { flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 2 },
