@@ -43,13 +43,14 @@ interface Props {
   /** Carbs from the food analysis — pre-fills this popup's own carb field (unlogged meals only). */
   initialCarbs: number;
   /**
-   * TRUE when the analyzed meal was ALREADY logged ("Log This Meal" pressed). The carbs field is then
-   * replaced by a non-dismissible ACTIVE CARBS display (the meal's carbs are counted by the dose
-   * engine's active-carbs term below) and nothing is pre-filled — the one way the same meal could be
-   * counted twice. Unlike the main calculator's overlay, there is no ✕ here: this popup exists only
-   * for the analyzed meal, so there is never a reason to type those carbs again.
+   * Set when the analyzed meal was ALREADY logged ("Log This Meal" pressed): the exact `timestamp`
+   * of that food-log entry. The popup then SETS THAT ENTRY ASIDE in its own active-carbs figure, so
+   * the meal's carbs count exactly once — through the pre-filled carbs input the user can see and
+   * edit — while every OTHER still-absorbing log keeps contributing its uncovered remainder. Showing
+   * the pooled active-carbs total here instead (an earlier design) confused people: a 25 g bar read
+   * as "32 g" because an older snack's 7 g rode along.
    */
-  mealLogged: boolean;
+  excludeLogTimestamp?: string | null;
   /** Shown in the subtitle, e.g. the analyzed food's name. */
   foodName?: string;
   /** Called once the dose is logged — parent closes the popup and turns its button green. */
@@ -61,7 +62,7 @@ export default function FoodInsulinModal({
   visible,
   onClose,
   initialCarbs,
-  mealLogged,
+  excludeLogTimestamp,
   foodName,
   onLogged,
   colors,
@@ -79,17 +80,17 @@ export default function FoodInsulinModal({
   const manualOverrideBeforeEditRef = useRef<number | null>(null);
   const doseInputRef = useRef<TextInput>(null);
 
-  // Fresh calculator per open: live BG, no leftover override. The analyzed carbs pre-fill ONLY when
-  // the meal is NOT logged — a logged meal already counts through the active-carbs term, and
-  // pre-filling it too was the double-dose bug this popup once had.
+  // Fresh calculator per open: analyzed carbs in, live BG, no leftover override. The carbs pre-fill
+  // in BOTH orders of action — when the meal is already logged, `excludeLogTimestamp` keeps its log
+  // out of the active-carbs figure below, so the pre-fill is the meal's only appearance in the math.
   useEffect(() => {
     if (!visible) return;
-    setCarbInput(!mealLogged && initialCarbs > 0 ? String(initialCarbs) : "");
+    setCarbInput(initialCarbs > 0 ? String(initialCarbs) : "");
     setBgInput("");
     setBgManual(false);
     setManualDoseOverride(null);
     setDoseEditing(false);
-  }, [visible, initialCarbs, mealLogged]);
+  }, [visible, initialCarbs]);
 
   /** Locked mealtime insulin: the user's first rapid-acting, else first bolus-capable one. */
   const lockedInsulin = useMemo<InsulinOption | undefined>(() => {
@@ -119,8 +120,10 @@ export default function FoodInsulinModal({
     [insulinLog, visible],
   );
   const activeCarbs = useMemo(
-    () => computeActiveCarbs(foodLog ?? [], Date.now()),
-    [foodLog, visible],
+    // THIS meal's log (if any) is set aside: its carbs live in the editable input instead. Matching
+    // by the entry's timestamp — written by this device and preserved verbatim through sync.
+    () => computeActiveCarbs((foodLog ?? []).filter((f) => f.timestamp !== excludeLogTimestamp), Date.now()),
+    [foodLog, excludeLogTimestamp, visible],
   );
 
   const hasCarbs = carbInput !== "" && parseFloat(carbInput) > 0;
@@ -237,8 +240,8 @@ export default function FoodInsulinModal({
         <CardShade radius={16} />
         <Text style={[styles.title, { color: colors.text }]}>Insulin Calculator</Text>
         <Text style={[styles.sub, { color: colors.textSecondary }]}>
-          {mealLogged
-            ? `${foodName ? `For ${foodName} — ` : ""}already logged, so its carbs are counted below as active carbs.`
+          {excludeLogTimestamp
+            ? `${foodName ? `For ${foodName} — ` : ""}already logged; its log is set aside here so these carbs count once.`
             : foodName
               ? `For ${foodName} — carbs pre-filled from the analysis.`
               : "Carbs pre-filled from the analysis."}
@@ -246,21 +249,6 @@ export default function FoodInsulinModal({
 
         <View style={styles.inputRow}>
           <View style={styles.inputGroup}>
-            {mealLogged && activeCarbs.totalGrams > 0 ? (
-              <>
-                {/* Display only — `carbInput` stays empty; the grams below are the dose engine's own
-                    active-carbs figure, shown here so nobody re-types a meal that's already counted. */}
-                <Text style={[styles.inputLabel, { color: colors.textSecondary }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>
-                  ACTIVE CARBS
-                </Text>
-                <View style={[styles.input, styles.activeCarbsBox, { backgroundColor: colors.backgroundTertiary, borderColor: COLORS.warning + "66" }]}>
-                  <Text style={[styles.activeCarbsValue, { color: COLORS.warning }]} maxFontSizeMultiplier={1.3}>
-                    {activeCarbs.totalGrams} g
-                  </Text>
-                </View>
-              </>
-            ) : (
-              <>
             <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Carbs (g)</Text>
             <TextInput
               style={[styles.input, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border }]}
@@ -270,8 +258,6 @@ export default function FoodInsulinModal({
               placeholder="0"
               placeholderTextColor={colors.textMuted}
             />
-              </>
-            )}
           </View>
           <View style={styles.inputDivider} />
           <View style={styles.inputGroup}>
@@ -434,9 +420,6 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: "row", gap: 12 },
   inputGroup: { flex: 1, gap: 6 },
   inputLabel: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 },
-  /** The logged-meal ACTIVE CARBS display — same box as the input it replaces, amber, not editable. */
-  activeCarbsBox: { justifyContent: "center" },
-  activeCarbsValue: { fontSize: 16, fontWeight: "700" },
   input: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontWeight: "700", textAlign: "center" },
   inputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.15)", marginVertical: 4 },
   liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },

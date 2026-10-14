@@ -194,7 +194,8 @@ export default function InsulinScreen() {
    * term below. Purely visual: it paints the on-board grams (amber, same as the on-board bar) over
    * the input, the input itself is CLEARED the moment the overlay appears (so no hidden leftover
    * value can double-count), and the ✕ dismisses it back to the normal editable field without
-   * touching the math. Dismissal re-arms when the NEXT food log lands; it self-hides as carbs drain.
+   * touching the math. Dismissal re-arms when the NEXT food log lands; it self-hides as carbs drain
+   * — and in any case 15 minutes after the newest log (see overlayFresh below).
    */
   const [activeCarbsOverlayDismissed, setActiveCarbsOverlayDismissed] = useState(false);
   const [bgInput, setBgInput] = useState("");
@@ -350,7 +351,27 @@ export default function InsulinScreen() {
   useEffect(() => {
     setActiveCarbsOverlayDismissed(false);
   }, [newestFoodLogId]);
-  const activeCarbsOverlayVisible = !activeCarbsOverlayDismissed && activeCarbs.totalGrams > 0;
+  /**
+   * The overlay is a JUST-LOGGED reminder, not a permanent face for the field: it shows for
+   * 15 MINUTES after the newest food log (then behaves as if ✕ was tapped). Logs from ANYWHERE in
+   * the care circle count — `foodLog` is the circle's shared pool, so a meal a co-guardian or an
+   * access-code device logs pops the same reminder here. `clockTick` (30 s) drives the expiry.
+   */
+  const OVERLAY_WINDOW_MS = 15 * 60_000;
+  const newestFoodLogAt = useMemo(() => {
+    let newest = 0;
+    for (const f of foodLog) {
+      const t = new Date(f.timestamp).getTime();
+      if (Number.isFinite(t) && t > newest) newest = t;
+    }
+    return newest;
+  }, [foodLog]);
+  const overlayFresh = useMemo(
+    () => newestFoodLogAt > 0 && Date.now() - newestFoodLogAt <= OVERLAY_WINDOW_MS,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- clockTick is the 30s re-evaluation pulse
+    [newestFoodLogAt, clockTick],
+  );
+  const activeCarbsOverlayVisible = !activeCarbsOverlayDismissed && overlayFresh && activeCarbs.totalGrams > 0;
   useEffect(() => {
     // The overlay HIDES the input, so the input must hold nothing while it shows — a value typed
     // before a log landed would otherwise keep feeding the math invisibly.

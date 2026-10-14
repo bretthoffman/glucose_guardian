@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -146,7 +146,7 @@ export default function FoodScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { carbRatio, targetGlucose, correctionFactor, latestReading, history } = useGlucose();
-  const { addFoodLogEntry, isMinor, quickFoods, saveQuickFood, updateQuickFoodCarbs, alertPrefs, accessCodeRole, accessCodePermissions } = useAuth();
+  const { addFoodLogEntry, foodLog, isMinor, quickFoods, saveQuickFood, updateQuickFoodCarbs, alertPrefs, accessCodeRole, accessCodePermissions } = useAuth();
   // Same grant derivation as the Insulin page (which shows/hides its tabs by these): an access-code
   // (kid/caregiver) session only gets the actions its grants allow; every account session gets both.
   const isAccessCodeSession = accessCodeRole != null;
@@ -165,14 +165,15 @@ export default function FoodScreen() {
   const [logged, setLogged] = useState(false);
   const [editedCarbs, setEditedCarbs] = useState<string>("");
 
-  // ── "Calculate Insulin" popup — ORDER-AWARE so the same meal can never be counted twice:
-  // not logged yet → the popup opens with the analyzed carbs pre-filled (a real input);
-  // "Log This Meal" pressed first → the popup opens with its carbs field replaced by the
-  // ACTIVE CARBS display (the log already counts via the dose engine's active-carbs term, so
-  // nothing is pre-filled). Once THIS meal's insulin is taken the button stays "Insulin Taken"
-  // until a new analysis replaces the meal — the anti-stacking rule from before. ──
+  // ── "Calculate Insulin" popup — ORDER-AWARE so the same meal counts exactly once: the analyzed
+  // carbs pre-fill the popup's real input in BOTH orders, and when the meal was logged first the
+  // popup sets THAT log entry aside in its active-carbs math (see excludeLogTimestamp). Once this
+  // meal's insulin is taken the button stays "Insulin Taken" until a new analysis replaces the
+  // meal — the anti-stacking rule from before. ──
   const [insulinCalcVisible, setInsulinCalcVisible] = useState(false);
   const [insulinTaken, setInsulinTaken] = useState(false);
+  /** The timestamp of the entry "Log This Meal" wrote — the popup sets that log aside in its math. */
+  const [loggedEntryTimestamp, setLoggedEntryTimestamp] = useState<string | null>(null);
 
   // ── Quick Lookup chips now live in AuthContext: one mutual list for the whole care circle
   // (an add by any co-guardian shows up on every guardian's Food tab within a poll). ──
@@ -255,6 +256,7 @@ export default function FoodScreen() {
     setPhotoUri(null);
     setLogged(false);
     setInsulinTaken(false);
+    setLoggedEntryTimestamp(null);
     setSavedToQuick(false);
     try {
       const res = await fetch(apiUrl("/api/food/estimate"), {
@@ -377,6 +379,7 @@ export default function FoodScreen() {
       setGuidance(null);
       setLogged(false);
       setInsulinTaken(false);
+      setLoggedEntryTimestamp(null);
       setSavedToQuick(false);
       setError("");
       setServingsText("1");
@@ -417,6 +420,7 @@ export default function FoodScreen() {
     setQuery("");
     setLogged(false);
     setInsulinTaken(false);
+    setLoggedEntryTimestamp(null);
     setSavedToQuick(false);
     setError("");
     setIsAnalyzingPhoto(true);
@@ -489,8 +493,10 @@ export default function FoodScreen() {
     const carbs = parseFloat(editedCarbs) || result.estimatedCarbs;
     // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
     confirmLog(() => {
+      const timestamp = new Date().toISOString();
+      setLoggedEntryTimestamp(timestamp);
       addFoodLogEntry({
-        timestamp: new Date().toISOString(),
+        timestamp,
         foodName: result.foodName,
         estimatedCarbs: carbs,
         insulinUnits: result.insulinUnits ?? 0,
@@ -505,6 +511,17 @@ export default function FoodScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
   }
+
+  // If the entry "Log This Meal" wrote is DELETED (Log page, this device or a sync from another
+  // guardian), the card must stop claiming it's logged — otherwise the popup would keep setting
+  // aside a log that no longer exists while the button stays green.
+  useEffect(() => {
+    if (!loggedEntryTimestamp) return;
+    if (!foodLog.some((f) => f.timestamp === loggedEntryTimestamp)) {
+      setLogged(false);
+      setLoggedEntryTimestamp(null);
+    }
+  }, [foodLog, loggedEntryTimestamp]);
 
   function handleCarbsBlur() {
     const parsed = parseFloat(editedCarbs);
@@ -972,7 +989,7 @@ export default function FoodScreen() {
         visible={insulinCalcVisible}
         onClose={() => setInsulinCalcVisible(false)}
         initialCarbs={result ? parseFloat(editedCarbs) || result.estimatedCarbs : 0}
-        mealLogged={logged}
+        excludeLogTimestamp={logged ? loggedEntryTimestamp : null}
         foodName={result?.foodName}
         colors={colors}
         onLogged={() => {
