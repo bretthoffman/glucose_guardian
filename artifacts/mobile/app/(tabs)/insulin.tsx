@@ -5,6 +5,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Keyboard,
   LayoutAnimation,
@@ -61,6 +62,7 @@ import { DOSE_INSULIN_TYPE_STORAGE_KEY } from "@/constants/storage-keys";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { ScreenShade } from "@/components/Shade";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
+import { findRecentFastActing, STACKING_WINDOW_MS, stackingWarning } from "@/utils/insulinStacking";
 
 type ScreenTab = "predict" | "log";
 
@@ -155,6 +157,9 @@ export default function InsulinScreen() {
   const { targetGlucose, carbRatio, correctionFactor, doseSettingsByTime, history, cgmSyncSuccessTick } = useGlucose();
   const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions, messagingIdentity } = useAuth();
   const confirmLog = useCareLogConfirm();
+  // Fresh insulin log for the stacking guard inside handleTookDose's zero-delay tick.
+  const insulinLogRef = useRef(insulinLog);
+  useEffect(() => { insulinLogRef.current = insulinLog; }, [insulinLog]);
   // A child/caregiver access-code session only sees the tabs its grants allow (dose calculator /
   // logging). Everyone else — owner, co-guardian, doctor, legacy caregiver code — sees both.
   const isAccessCodeSession = accessCodeRole != null;
@@ -771,7 +776,7 @@ export default function InsulinScreen() {
       const wasManual =
         manualDoseOverride != null && !doseAmountsEqual(effectiveDose, systemRecommendedDose);
       // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
-      confirmLog(() => {
+      const proceed = () => confirmLog(() => {
         logInsulinDose({
           timestamp: new Date().toISOString(),
           units: roundToQuarterUnits(effectiveDose),
@@ -797,6 +802,19 @@ export default function InsulinScreen() {
         triggerLogPlusOne();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       });
+      // ── Insulin-stacking guard: a fast-acting dose logged by ANYONE in the circle within the
+      // last 90 minutes gets a confirmation before this (fast-acting) one is logged on top of it.
+      // Basal mode skips it — a basal dose beside a mealtime bolus is normal therapy, not stacking.
+      const recent = !isBasalMode ? findRecentFastActing(insulinLogRef.current ?? []) : null;
+      if (recent) {
+        const w = stackingWarning(recent);
+        Alert.alert(w.title, w.message, [
+          { text: "No", style: "cancel" },
+          { text: "Yes, log it", style: "destructive", onPress: proceed },
+        ]);
+        return;
+      }
+      proceed();
     }, 0);
   }, [
     commitCarb,

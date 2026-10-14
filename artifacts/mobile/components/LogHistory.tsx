@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import React, { useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -43,6 +44,7 @@ import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/ut
 import { startOfLocalDay } from "@/utils/localDayBoundaries";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { useHelpAnchor, useHelpScroll } from "@/context/HelpContext";
+import { findRecentFastActing, isFastActingEntry, STACKING_WINDOW_MS, stackingWarning } from "@/utils/insulinStacking";
 
 function fmtTime(ts: string) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -144,10 +146,11 @@ export default function LogHistory({
 
   const handleLogInsulin = () => {
     if (parsedLogUnits == null || parsedLogUnits <= 0 || parsedLogTime == null) return;
+    const entryTimestamp = combineDayAndTime(selectedDay, parsedLogTime.hours, parsedLogTime.minutes).toISOString();
     // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
-    confirmLog(() => {
+    const proceed = () => confirmLog(() => {
       logInsulinDose({
-        timestamp: combineDayAndTime(selectedDay, parsedLogTime.hours, parsedLogTime.minutes).toISOString(),
+        timestamp: entryTimestamp,
         units: parsedLogUnits,
         type: "manual",
         ...(logPendingLabel ? { insulinType: logPendingLabel } : {}),
@@ -157,6 +160,22 @@ export default function LogHistory({
       onLogAdded?.();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
+    // ── Insulin-stacking guard. Only for a dose being recorded as happening NOW-ish — a backdated
+    // entry (yesterday's missed log) can't stack with anything current. Entries whose selected
+    // insulin is fast-acting (or unlabeled — warn-side) check for another fast-acting dose from
+    // anyone in the circle in the last 90 minutes; see utils/insulinStacking. ──
+    const entryIsNowish = Math.abs(Date.now() - new Date(entryTimestamp).getTime()) <= STACKING_WINDOW_MS;
+    const entryIsFast = isFastActingEntry({ type: "manual", ...(logPendingLabel ? { insulinType: logPendingLabel } : {}) });
+    const recent = entryIsNowish && entryIsFast ? findRecentFastActing(insulinLog ?? []) : null;
+    if (recent) {
+      const w = stackingWarning(recent);
+      Alert.alert(w.title, w.message, [
+        { text: "No", style: "cancel" },
+        { text: "Yes, log it", style: "destructive", onPress: proceed },
+      ]);
+      return;
+    }
+    proceed();
   };
 
   return (

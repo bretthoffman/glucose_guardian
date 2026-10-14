@@ -8,7 +8,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Colors, { COLORS } from "@/constants/colors";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
@@ -36,6 +36,7 @@ import {
 import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import { getEffectiveTrend } from "@/utils/trend";
 import { AccentShade, CardShade } from "@/components/Shade";
+import { findRecentFastActing, STACKING_WINDOW_MS, stackingWarning } from "@/utils/insulinStacking";
 
 interface Props {
   visible: boolean;
@@ -220,7 +221,7 @@ export default function FoodInsulinModal({
       const wasManual =
         manualDoseOverride != null && !doseAmountsEqual(effectiveDose, systemRecommendedDose);
       // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
-      confirmLog(() => {
+      const proceed = () => confirmLog(() => {
         logInsulinDose({
           timestamp: new Date().toISOString(),
           units: roundToQuarterUnits(effectiveDose),
@@ -231,6 +232,18 @@ export default function FoodInsulinModal({
         });
         onLogged();
       });
+      // ── Insulin-stacking guard (same rule as the main calculator): any fast-acting dose from
+      // anyone in the circle within the last 90 minutes asks before another lands on top. ──
+      const recent = findRecentFastActing(insulinLog ?? []);
+      if (recent) {
+        const w = stackingWarning(recent);
+        Alert.alert(w.title, w.message, [
+          { text: "No", style: "cancel" },
+          { text: "Yes, log it", style: "destructive", onPress: proceed },
+        ]);
+        return;
+      }
+      proceed();
     }, 0);
   };
 
