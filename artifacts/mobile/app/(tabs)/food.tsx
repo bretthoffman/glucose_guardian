@@ -488,6 +488,22 @@ export default function FoodScreen() {
     }
   }
 
+  /** Close the analysis card and reset the page — the search-bar ✕ and the card's ✕ share this.
+   *  A meal that was already logged stays logged; only the on-screen analysis is dismissed. */
+  function resetAnalysis() {
+    setQuery("");
+    setResult(null);
+    setGuidance(null);
+    setError("");
+    setPhotoUri(null);
+    setLogged(false);
+    setInsulinTaken(false);
+    setLoggedEntryTimestamp(null);
+    setSavedToQuick(false);
+    setEditedCarbs("");
+    setServingsText("1");
+  }
+
   function logMeal() {
     if (!result) return;
     const carbs = parseFloat(editedCarbs) || result.estimatedCarbs;
@@ -637,7 +653,7 @@ export default function FoodScreen() {
             autoCapitalize="none"
           />
           {query.length > 0 && (
-            <Pressable onPress={() => { setQuery(""); setResult(null); setGuidance(null); setError(""); }}>
+            <Pressable onPress={resetAnalysis} accessibilityRole="button" accessibilityLabel="Clear the search">
               <Feather name="x" size={18} color={colors.textMuted} />
             </Pressable>
           )}
@@ -728,6 +744,20 @@ export default function FoodScreen() {
                 <Text style={[styles.saveQuickBtnText, { color: savedToQuick ? COLORS.success : colors.textMuted }]} numberOfLines={1}>
                   {savedToQuick ? "Saved" : "Save to Quick Lookup"}
                 </Text>
+              </Pressable>
+              {/* Close the analysis — photo results had no way out (the search-bar ✕ only exists
+                  after a text search). Resets the page; an already-saved log stays logged. */}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close this food"
+                hitSlop={10}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  resetAnalysis();
+                }}
+                style={({ pressed }) => [styles.resultClose, { backgroundColor: withAlpha(colors.textMuted, 0.18), opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Feather name="x" size={14} color={colors.textSecondary} />
               </Pressable>
             </View>
 
@@ -1254,6 +1284,7 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
   },
   saveQuickBtnText: { fontSize: 10, fontWeight: "600", flexShrink: 1 },
+  resultClose: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   resultTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   foodName: { fontSize: 20, fontWeight: "700", marginBottom: 4, textTransform: "capitalize" },
   portionText: { fontSize: 13, fontWeight: "400", marginBottom: 6 },

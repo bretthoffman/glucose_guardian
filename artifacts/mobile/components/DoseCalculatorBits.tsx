@@ -70,6 +70,7 @@ export function EditableDoseTotalBadge({
   editing,
   editText,
   inputRef,
+  inputAccessoryViewID,
   colors,
   onStartEdit,
   onChangeEditText,
@@ -81,6 +82,8 @@ export function EditableDoseTotalBadge({
   editing: boolean;
   editText: string;
   inputRef: React.RefObject<TextInput | null>;
+  /** iOS keyboard accessory bar to attach while editing (the Food popup's Done bar). */
+  inputAccessoryViewID?: string;
   colors: (typeof Colors)["light"];
   onStartEdit: () => void;
   onChangeEditText: (text: string) => void;
@@ -107,6 +110,7 @@ export function EditableDoseTotalBadge({
           <>
             <TextInput
               ref={inputRef}
+              inputAccessoryViewID={inputAccessoryViewID}
               value={editText}
               onChangeText={onChangeEditText}
               onBlur={onCompleteEdit}

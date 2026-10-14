@@ -8,7 +8,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, InputAccessoryView, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Colors, { COLORS } from "@/constants/colors";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
@@ -58,6 +58,9 @@ interface Props {
   onLogged: () => void;
   colors: (typeof Colors)["light"];
 }
+
+/** iOS: the numeric keypad has no return key — this accessory bar's Done dismisses it. */
+const KEYPAD_DONE_ID = "food-insulin-calc-done";
 
 export default function FoodInsulinModal({
   visible,
@@ -248,7 +251,7 @@ export default function FoodInsulinModal({
   };
 
   return (
-    <DashboardSectionModal visible={visible} onClose={onClose} accessibilityLabel="Meal insulin calculator">
+    <DashboardSectionModal visible={visible} onClose={onClose} accessibilityLabel="Meal insulin calculator" avoidKeyboard={false}>
       <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <CardShade radius={16} />
         <Text style={[styles.title, { color: colors.text }]}>Insulin Calculator</Text>
@@ -265,6 +268,7 @@ export default function FoodInsulinModal({
             <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Carbs (g)</Text>
             <TextInput
               style={[styles.input, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border }]}
+              inputAccessoryViewID={Platform.OS === "ios" ? KEYPAD_DONE_ID : undefined}
               value={carbInput}
               onChangeText={(v) => setCarbInput(v.replace(/[^0-9.]/g, ""))}
               keyboardType="numeric"
@@ -284,6 +288,7 @@ export default function FoodInsulinModal({
             </View>
             <TextInput
               style={[styles.input, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: bgManual ? COLORS.primary : colors.border }]}
+              inputAccessoryViewID={Platform.OS === "ios" ? KEYPAD_DONE_ID : undefined}
               value={bgManual ? bgInput : doseBg?.label ?? ""}
               onChangeText={(v) => { setBgInput(v.replace(/[^0-9]/g, "")); setBgManual(true); }}
               keyboardType="numeric"
@@ -387,6 +392,7 @@ export default function FoodInsulinModal({
                 )}
               </View>
               <EditableDoseTotalBadge
+                inputAccessoryViewID={Platform.OS === "ios" ? KEYPAD_DONE_ID : undefined}
                 effectiveDose={effectiveDose}
                 systemRecommendedDose={systemRecommendedDose}
                 manualOverrideActive={manualDoseOverride != null}
@@ -421,6 +427,21 @@ export default function FoodInsulinModal({
           </Text>
         )}
       </View>
+      {Platform.OS === "ios" && (
+        <InputAccessoryView nativeID={KEYPAD_DONE_ID}>
+          <View style={[styles.keypadBar, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+              onPress={() => Keyboard.dismiss()}
+              hitSlop={8}
+              style={({ pressed }) => [styles.keypadDone, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Text style={styles.keypadDoneText} maxFontSizeMultiplier={1.3}>Done</Text>
+            </Pressable>
+          </View>
+        </InputAccessoryView>
+      )}
     </DashboardSectionModal>
   );
 }
@@ -433,6 +454,10 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: "row", gap: 12 },
   inputGroup: { flex: 1, gap: 6 },
   inputLabel: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 },
+  /** The keyboard accessory bar: Done on the right, same surface as the card. */
+  keypadBar: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  keypadDone: { paddingHorizontal: 6, paddingVertical: 2 },
+  keypadDoneText: { color: COLORS.primary, fontSize: 16, fontWeight: "700" },
   input: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontWeight: "700", textAlign: "center" },
   inputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.15)", marginVertical: 4 },
   liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },

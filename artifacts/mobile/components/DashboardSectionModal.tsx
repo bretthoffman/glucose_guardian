@@ -34,10 +34,16 @@ interface Props {
   onClose: () => void;
   /** e.g. "Notifications settings" → used for the backdrop + close accessibility labels. */
   accessibilityLabel?: string;
+  /**
+   * Default true: the card lifts above the keyboard (the dashboard editors need it — their inputs
+   * sit deep in long popups). Pass false for a popup whose inputs are near the top and whose card
+   * must NOT shift when the keyboard opens (the Food page's insulin calculator).
+   */
+  avoidKeyboard?: boolean;
   children: React.ReactNode;
 }
 
-export function DashboardSectionModal({ visible, onClose, accessibilityLabel, children }: Props) {
+export function DashboardSectionModal({ visible, onClose, accessibilityLabel, avoidKeyboard = true, children }: Props) {
   const { colors: c, scheme } = useTheme();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -74,7 +80,8 @@ export function DashboardSectionModal({ visible, onClose, accessibilityLabel, ch
             (RCTScrollView `_keyboardWillChangeFrame`), and a Modal renders in its own window, so the
             bottom inset it computes is wrong — that is the "popup scrolls into an endless void" bug. */}
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior={avoidKeyboard && Platform.OS === "ios" ? "padding" : undefined}
+          enabled={avoidKeyboard}
           style={styles.centerCol}
           pointerEvents="box-none"
         >
