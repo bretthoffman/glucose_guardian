@@ -1,0 +1,468 @@
+/**
+ * FoodInsulinModal — the Food page's "Calculate Insulin" popup. Visually it's the Insulin page's
+ * dose calculator card, but fully self-contained: its carb field is pre-filled from the analyzed
+ * meal and shares NO state with the main calculator. The insulin type is locked to the user's
+ * mealtime (short-acting) insulin — displayed, not changeable. IOB/COB aware like the main
+ * calculator, so a dose logged here immediately nets out of the next suggestion everywhere.
+ */
+import { Feather } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import Colors, { COLORS } from "@/constants/colors";
+import { DashboardSectionModal } from "@/components/DashboardSectionModal";
+import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
+import {
+  findInsulinByChipLabel,
+  insulinChipLabel,
+  insulinDisplayLabel,
+  isBolusInsulin,
+  type InsulinOption,
+} from "@/constants/insulin";
+import { useAuth } from "@/context/AuthContext";
+import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
+import { useGlucose } from "@/context/GlucoseContext";
+import { computeDose } from "@/utils/dose";
+import { effectiveDoseSettings } from "@/utils/doseSettings";
+import { computePatternTuning, patternFactorForNow } from "@/utils/doseTuning";
+import type { DoseBreakdown } from "@/utils/dose";
+import {
+  doseAmountsEqual,
+  filterDoseInputText,
+  finalizeManualDoseInput,
+  formatDoseAmount,
+  roundToQuarterUnits,
+} from "@/utils/doseOverride";
+import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
+import { getEffectiveTrend } from "@/utils/trend";
+import { AccentShade, CardShade } from "@/components/Shade";
+
+interface Props {
+  visible: boolean;
+  onClose: () => void;
+  /** Carbs from the food analysis — pre-fills this popup's own carb field (unlogged meals only). */
+  initialCarbs: number;
+  /**
+   * TRUE when the analyzed meal was ALREADY logged ("Log This Meal" pressed). The carbs field is then
+   * replaced by a non-dismissible ACTIVE CARBS display (the meal's carbs are counted by the dose
+   * engine's active-carbs term below) and nothing is pre-filled — the one way the same meal could be
+   * counted twice. Unlike the main calculator's overlay, there is no ✕ here: this popup exists only
+   * for the analyzed meal, so there is never a reason to type those carbs again.
+   */
+  mealLogged: boolean;
+  /** Shown in the subtitle, e.g. the analyzed food's name. */
+  foodName?: string;
+  /** Called once the dose is logged — parent closes the popup and turns its button green. */
+  onLogged: () => void;
+  colors: (typeof Colors)["light"];
+}
+
+export default function FoodInsulinModal({
+  visible,
+  onClose,
+  initialCarbs,
+  mealLogged,
+  foodName,
+  onLogged,
+  colors,
+}: Props) {
+  const { targetGlucose, carbRatio, correctionFactor, doseSettingsByTime, history } = useGlucose();
+  const { profile, insulinLog, foodLog, logInsulinDose, isMinor } = useAuth();
+  const confirmLog = useCareLogConfirm();
+
+  const [carbInput, setCarbInput] = useState("");
+  const [bgInput, setBgInput] = useState("");
+  const [bgManual, setBgManual] = useState(false);
+  const [manualDoseOverride, setManualDoseOverride] = useState<number | null>(null);
+  const [doseEditing, setDoseEditing] = useState(false);
+  const [doseEditText, setDoseEditText] = useState("");
+  const manualOverrideBeforeEditRef = useRef<number | null>(null);
+  const doseInputRef = useRef<TextInput>(null);
+
+  // Fresh calculator per open: live BG, no leftover override. The analyzed carbs pre-fill ONLY when
+  // the meal is NOT logged — a logged meal already counts through the active-carbs term, and
+  // pre-filling it too was the double-dose bug this popup once had.
+  useEffect(() => {
+    if (!visible) return;
+    setCarbInput(!mealLogged && initialCarbs > 0 ? String(initialCarbs) : "");
+    setBgInput("");
+    setBgManual(false);
+    setManualDoseOverride(null);
+    setDoseEditing(false);
+  }, [visible, initialCarbs, mealLogged]);
+
+  /** Locked mealtime insulin: the user's first rapid-acting, else first bolus-capable one. */
+  const lockedInsulin = useMemo<InsulinOption | undefined>(() => {
+    const opts = (profile?.insulinTypes ?? [])
+      .map(findInsulinByChipLabel)
+      .filter((o): o is InsulinOption => o != null);
+    return opts.find((o) => o.type === "rapid") ?? opts.find((o) => isBolusInsulin(o.type));
+  }, [profile?.insulinTypes]);
+
+  const latest = history[history.length - 1];
+
+  const doseBg = useMemo(() => {
+    if (bgManual) {
+      const v = parseFloat(bgInput);
+      if (!isNaN(v) && v > 0) return { n: v, label: bgInput } as const;
+      return null;
+    }
+    if (latest != null && latest.glucose > 0) {
+      return { n: latest.glucose, label: String(latest.glucose) } as const;
+    }
+    return null;
+  }, [bgManual, bgInput, latest?.glucose, latest?.timestamp]);
+
+  // Transient popup — computed per render is fresh enough (no 30s tick needed).
+  const activeInsulin = useMemo(
+    () => computeActiveInsulin(insulinLog ?? [], Date.now()),
+    [insulinLog, visible],
+  );
+  const activeCarbs = useMemo(
+    () => computeActiveCarbs(foodLog ?? [], Date.now()),
+    [foodLog, visible],
+  );
+
+  const hasCarbs = carbInput !== "" && parseFloat(carbInput) > 0;
+
+  // Same live inputs as the main Dose tab: time-of-day effective settings, the 45-min glucose
+  // delta for the IOB-effectiveness check, pattern tuning, and the weight-based safety cap.
+  const effSettings = useMemo(
+    () => effectiveDoseSettings(carbRatio, correctionFactor, doseSettingsByTime, new Date()),
+    [carbRatio, correctionFactor, doseSettingsByTime, visible, latest?.timestamp],
+  );
+
+  const bgDelta45Min = useMemo(() => {
+    if (!latest) return undefined;
+    const nowT = new Date(latest.timestamp).getTime();
+    let best: { deltaFromTarget: number; glucose: number } | null = null;
+    for (const r of history) {
+      const age = (nowT - new Date(r.timestamp).getTime()) / 60_000;
+      if (age < 35 || age > 60) continue;
+      const d = Math.abs(age - 45);
+      if (best == null || d < best.deltaFromTarget) best = { deltaFromTarget: d, glucose: r.glucose };
+    }
+    return best ? latest.glucose - best.glucose : undefined;
+  }, [history, latest]);
+
+  const bucketTuning = useMemo(() => {
+    const tuning = computePatternTuning(insulinLog ?? [], Date.now());
+    return patternFactorForNow(tuning, new Date());
+  }, [insulinLog, visible]);
+
+  const dose = useMemo<DoseBreakdown | null>(() => {
+    const carbs = carbInput === "" ? 0 : parseFloat(carbInput);
+    if (!doseBg || isNaN(carbs) || carbs < 0) return null;
+    const trend = latest ? getEffectiveTrend(history).glucoseTrend : "stable";
+    const prev = history.length >= 2 ? history[history.length - 2].glucose : undefined;
+    return computeDose({
+      carbs,
+      currentBG: doseBg.n,
+      targetBG: targetGlucose,
+      carbRatio: effSettings.carbRatio,
+      correctionFactor: effSettings.correctionFactor,
+      trend,
+      previousBG: prev,
+      insulinKind: lockedInsulin?.type,
+      activeInsulinUnits: activeInsulin.totalUnits,
+      prePeakIobUnits: activeInsulin.prePeakUnits,
+      correctionHoldRemainingMin: activeInsulin.correctionHoldRemainingMin,
+      newestBolusAgeMin: activeInsulin.lastDoseAgeMin,
+      activeCarbsGrams: activeCarbs.totalGrams,
+      bgDelta45Min,
+      weightLbs: profile?.weightLbs,
+      patternFactor: bucketTuning.factor,
+    });
+  }, [carbInput, doseBg, targetGlucose, effSettings, history, latest, lockedInsulin, activeInsulin, activeCarbs, bgDelta45Min, profile?.weightLbs, bucketTuning]);
+
+  const systemRecommendedDose = dose?.totalDose ?? 0;
+  const effectiveDose = manualDoseOverride ?? systemRecommendedDose;
+
+  const completeDoseEdit = useCallback(() => {
+    if (!doseEditing) return;
+    const finalized = finalizeManualDoseInput(doseEditText);
+    if (finalized == null) {
+      setManualDoseOverride(manualOverrideBeforeEditRef.current);
+    } else if (finalized === systemRecommendedDose) {
+      setManualDoseOverride(null);
+    } else {
+      setManualDoseOverride(finalized);
+    }
+    setDoseEditing(false);
+  }, [doseEditing, doseEditText, systemRecommendedDose]);
+
+  const startDoseEdit = useCallback(() => {
+    manualOverrideBeforeEditRef.current = manualDoseOverride;
+    setDoseEditText(formatDoseAmount(manualDoseOverride ?? systemRecommendedDose));
+    setDoseEditing(true);
+    requestAnimationFrame(() => {
+      doseInputRef.current?.focus();
+    });
+  }, [manualDoseOverride, systemRecommendedDose]);
+
+  // Live mirror for the flush-then-log tick below: after committing an open dose edit, the log
+  // must read the RECOMPUTED values, not the ones captured when the tap started.
+  const logStateRef = useRef({ dose, effectiveDose, systemRecommendedDose, manualDoseOverride });
+  useEffect(() => {
+    logStateRef.current = { dose, effectiveDose, systemRecommendedDose, manualDoseOverride };
+  });
+
+  const handleTookInsulin = () => {
+    // Lock in an in-progress dose edit FIRST — tapping straight from the keyboard must log the
+    // number on screen, not the last committed one. (Carbs/BG here commit per keystroke already.)
+    completeDoseEdit();
+    setTimeout(() => {
+      const { dose, effectiveDose, systemRecommendedDose, manualDoseOverride } = logStateRef.current;
+      if (!dose || effectiveDose <= 0) return;
+      const wasManual =
+        manualDoseOverride != null && !doseAmountsEqual(effectiveDose, systemRecommendedDose);
+      // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
+      confirmLog(() => {
+        logInsulinDose({
+          timestamp: new Date().toISOString(),
+          units: roundToQuarterUnits(effectiveDose),
+          type: "bolus",
+          ...(lockedInsulin ? { insulinType: insulinChipLabel(lockedInsulin) } : {}),
+          recommendedUnits: roundToQuarterUnits(systemRecommendedDose),
+          manualOverride: wasManual,
+        });
+        onLogged();
+      });
+    }, 0);
+  };
+
+  return (
+    <DashboardSectionModal visible={visible} onClose={onClose} accessibilityLabel="Meal insulin calculator">
+      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <CardShade radius={16} />
+        <Text style={[styles.title, { color: colors.text }]}>Insulin Calculator</Text>
+        <Text style={[styles.sub, { color: colors.textSecondary }]}>
+          {mealLogged
+            ? `${foodName ? `For ${foodName} — ` : ""}already logged, so its carbs are counted below as active carbs.`
+            : foodName
+              ? `For ${foodName} — carbs pre-filled from the analysis.`
+              : "Carbs pre-filled from the analysis."}
+        </Text>
+
+        <View style={styles.inputRow}>
+          <View style={styles.inputGroup}>
+            {mealLogged && activeCarbs.totalGrams > 0 ? (
+              <>
+                {/* Display only — `carbInput` stays empty; the grams below are the dose engine's own
+                    active-carbs figure, shown here so nobody re-types a meal that's already counted. */}
+                <Text style={[styles.inputLabel, { color: colors.textSecondary }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>
+                  ACTIVE CARBS
+                </Text>
+                <View style={[styles.input, styles.activeCarbsBox, { backgroundColor: colors.backgroundTertiary, borderColor: COLORS.warning + "66" }]}>
+                  <Text style={[styles.activeCarbsValue, { color: COLORS.warning }]} maxFontSizeMultiplier={1.3}>
+                    {activeCarbs.totalGrams} g
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+            <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Carbs (g)</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border }]}
+              value={carbInput}
+              onChangeText={(v) => setCarbInput(v.replace(/[^0-9.]/g, ""))}
+              keyboardType="numeric"
+              placeholder="0"
+              placeholderTextColor={colors.textMuted}
+            />
+              </>
+            )}
+          </View>
+          <View style={styles.inputDivider} />
+          <View style={styles.inputGroup}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Current BG</Text>
+              {latest && !bgManual && (
+                <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}>
+                  <Text style={[styles.liveTagText, { color: COLORS.success }]}>LIVE</Text>
+                </View>
+              )}
+            </View>
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: bgManual ? COLORS.primary : colors.border }]}
+              value={bgManual ? bgInput : doseBg?.label ?? ""}
+              onChangeText={(v) => { setBgInput(v.replace(/[^0-9]/g, "")); setBgManual(true); }}
+              keyboardType="numeric"
+              placeholder="mg/dL"
+              placeholderTextColor={colors.textMuted}
+            />
+          </View>
+        </View>
+
+        {/* Locked mealtime insulin — shows the name, no change button by design. */}
+        <View style={styles.lockedRow}>
+          <Text numberOfLines={1} style={[styles.lockedCurrent, { color: colors.textMuted }]}>
+            Mealtime insulin
+          </Text>
+          <View style={[styles.lockedTag, { backgroundColor: COLORS.primary + "16", borderColor: COLORS.primary + "50" }]}>
+            <Feather name="lock" size={11} color={COLORS.primary} />
+            <Text numberOfLines={1} style={[styles.lockedTagText, { color: COLORS.primary }]}>
+              {lockedInsulin ? insulinDisplayLabel(lockedInsulin) : "No mealtime insulin set"}
+            </Text>
+          </View>
+        </View>
+
+        {dose && doseBg ? (
+          <>
+            <DoseWarningsList warnings={dose.warnings} />
+
+            <View style={[styles.breakdown, { borderTopColor: colors.border }]}>
+              {hasCarbs && (
+                <DoseRow label="Carb Dose" sub={`${parseFloat(carbInput) || 0}g ÷ ${effSettings.carbRatio}g${effSettings.usedOverride ? " (time-of-day)" : ""}`} value={dose.carbInsulin} unit="u" colors={colors} />
+              )}
+              <DoseRow
+                label="Correction"
+                sub={dose.correctionSuppressed
+                  ? "BG below target — suppressed"
+                  : `(${doseBg.label} − ${targetGlucose}) ÷ ${effSettings.correctionFactor}${dose.resistanceBump > 0 ? " · +10% very high" : ""}`}
+                value={dose.correctionInsulin + dose.resistanceBump}
+                unit="u"
+                colors={colors}
+                dimmed={dose.correctionSuppressed}
+              />
+              <DoseRow label="Trend Adj." sub={dose.hyperTrendZeroed ? `${dose.trendLabel} · skipped while high` : dose.trendLabel} value={dose.trendAdjustment} unit="u" colors={colors} signed />
+              {dose.uncoveredCarbInsulin > 0 && (
+                <DoseRow
+                  label="Uncovered Carbs"
+                  sub={`${activeCarbs.totalGrams}g still absorbing · logged ${formatAgeShort(activeCarbs.lastEntryAgeMin)}${activeCarbs.lastEntryAgeMin != null && activeCarbs.lastEntryAgeMin >= 1 ? " ago" : ""}`}
+                  value={dose.uncoveredCarbInsulin}
+                  unit="u"
+                  colors={colors}
+                  signed
+                />
+              )}
+              {dose.activeInsulinUnits > 0 && (
+                <DoseRow
+                  label="Active Insulin"
+                  sub={`${
+                    activeInsulin.doseCount > 1
+                      ? `${activeInsulin.doseCount} recent doses`
+                      : `${formatDoseAmount(activeInsulin.lastDoseUnits ?? 0)}u`
+                  } · taken ${formatAgeShort(activeInsulin.lastDoseAgeMin)}${activeInsulin.lastDoseAgeMin != null && activeInsulin.lastDoseAgeMin >= 1 ? " ago" : ""} · reduces correction only${dose.iobDiscounted ? " · half-credited (BG not falling)" : ""}`}
+                  value={-dose.iobCredit}
+                  unit="u"
+                  colors={colors}
+                  signed
+                />
+              )}
+              {Math.abs(dose.patternDelta) >= 0.005 && (
+                <DoseRow
+                  label="Pattern Adj."
+                  sub={`Recent ${dose.patternDelta > 0 ? "higher" : "lower"} dosing at this time of day`}
+                  value={dose.patternDelta}
+                  unit="u"
+                  colors={colors}
+                  signed
+                />
+              )}
+              {dose.cappedAtMax && (
+                <DoseRow
+                  label="Safety Cap"
+                  sub={`Limited to ${dose.maxDoseCap}u per dose`}
+                  value={dose.totalRaw - dose.subTotal - dose.patternDelta}
+                  unit="u"
+                  colors={colors}
+                  signed
+                />
+              )}
+            </View>
+
+            <View style={[styles.totalRow, { borderTopColor: colors.border }]}>
+              <View style={styles.totalLabelWrap}>
+                <Text style={[styles.totalLabel, { color: colors.textSecondary }]}>
+                  {isMinor
+                    ? "Ask your adult to give:"
+                    : hasCarbs
+                    ? `Insulin to give (with ${parseFloat(carbInput) || 0}g carbs)`
+                    : "Insulin to give (no carbs)"}
+                </Text>
+                {dose.totalRaw !== dose.totalDose && (
+                  <Text style={[styles.roundNote, { color: colors.textMuted }]}>
+                    Raw {dose.totalRaw}u → rounded to nearest ½
+                  </Text>
+                )}
+              </View>
+              <EditableDoseTotalBadge
+                effectiveDose={effectiveDose}
+                systemRecommendedDose={systemRecommendedDose}
+                manualOverrideActive={manualDoseOverride != null}
+                editing={doseEditing}
+                editText={doseEditText}
+                inputRef={doseInputRef}
+                colors={colors}
+                onStartEdit={startDoseEdit}
+                onChangeEditText={(t) => setDoseEditText(filterDoseInputText(t))}
+                onCompleteEdit={completeDoseEdit}
+              />
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="I took this insulin"
+              disabled={(doseEditing ? finalizeManualDoseInput(doseEditText) ?? effectiveDose : effectiveDose) <= 0}
+              style={({ pressed }) => [
+                styles.tookBtn,
+                { backgroundColor: COLORS.primary, opacity: pressed ? 0.8 : effectiveDose <= 0 ? 0.5 : 1 },
+              ]}
+              onPress={handleTookInsulin}
+            >
+              <AccentShade radius={11} />
+              <Feather name="check" size={14} color="#fff" />
+              <Text style={styles.tookBtnText}>I Took This Insulin</Text>
+            </Pressable>
+          </>
+        ) : (
+          <Text style={[styles.prompt, { color: colors.textMuted }]}>
+            No glucose reading available — enter your current BG above to calculate this dose.
+          </Text>
+        )}
+      </View>
+    </DashboardSectionModal>
+  );
+}
+
+const styles = StyleSheet.create({
+  card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 14 },
+  title: { fontSize: 18, fontWeight: "700" },
+  sub: { fontSize: 12, fontWeight: "400", lineHeight: 17, marginTop: -8 },
+
+  inputRow: { flexDirection: "row", gap: 12 },
+  inputGroup: { flex: 1, gap: 6 },
+  inputLabel: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 },
+  /** The logged-meal ACTIVE CARBS display — same box as the input it replaces, amber, not editable. */
+  activeCarbsBox: { justifyContent: "center" },
+  activeCarbsValue: { fontSize: 16, fontWeight: "700" },
+  input: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontWeight: "700", textAlign: "center" },
+  inputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.15)", marginVertical: 4 },
+  liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  liveTagText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.8 },
+
+  lockedRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  lockedCurrent: { fontSize: 11, fontWeight: "500" },
+  lockedTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexShrink: 1,
+  },
+  lockedTagText: { fontSize: 11, fontWeight: "700" },
+
+  breakdown: { borderTopWidth: 1, paddingTop: 12, gap: 10 },
+  totalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, paddingTop: 14, gap: 10 },
+  totalLabelWrap: { flex: 1, minWidth: 0 },
+  totalLabel: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
+  roundNote: { fontSize: 11, fontWeight: "400" },
+
+  tookBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 12, borderRadius: 11 },
+  tookBtnText: { fontSize: 14, fontWeight: "700", color: "#fff" },
+  prompt: { fontSize: 13, fontWeight: "400", lineHeight: 20, textAlign: "center", paddingVertical: 8 },
+});

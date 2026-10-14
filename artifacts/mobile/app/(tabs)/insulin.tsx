@@ -175,33 +175,13 @@ export default function InsulinScreen() {
   const sharedBarScale = Math.max(0.75, Math.min(1, barFit[0], barFit[1]));
   const reportCarbsFit = useCallback((need: number) => setBarFit((prev) => (prev[0] === need ? prev : [need, prev[1]])), []);
   const reportInsulinFit = useCallback((need: number) => setBarFit((prev) => (prev[1] === need ? prev : [prev[0], need])), []);
-  // Deep links. The `t` nonce makes a repeat tap re-run this even though expo-router keeps the
-  // previous params around; `mode` discriminates the Food-page handoffs so a stale `carbs` value
-  // from an earlier visit can never fire. `effectiveTab` below still guards tab availability.
-  //  - home "Logs" shortcut: ?tab=log
-  //  - Food page "Calculate Insulin", meal already logged: ?tab=predict&mode=activeCarbs — shows the
-  //    VISUAL-ONLY "ACTIVE CARBS" overlay on the carbs field (see foodCarbsOverlay below) and clears
-  //    the input, so the just-logged meal can't be typed in a second time.
-  //  - Food page "Calculate Insulin", not logged: ?tab=predict&mode=carbs&carbs=25 — prefills the
-  //    REAL carbs input with the meal's grams (counted by the calculator, still editable).
-  const linkParams = useLocalSearchParams<{ tab?: string; t?: string; mode?: string; carbs?: string }>();
+  // Deep link from the home page's "Logs" shortcut: /(tabs)/insulin?tab=log. The `t` nonce makes a
+  // repeat tap re-run this even though expo-router keeps the previous params; `effectiveTab` below
+  // still guards availability, so a session without the log grant just lands on its allowed tab.
+  const linkParams = useLocalSearchParams<{ tab?: string; t?: string }>();
   useEffect(() => {
     if (linkParams.tab === "log") setScreenTab("log");
-    else if (linkParams.tab === "predict") setScreenTab("predict");
-    if (linkParams.mode === "activeCarbs") {
-      setFoodCarbsOverlay(true);
-      carbDraftRef.current = null;
-      setCarbDraft(null);
-      setCarbInput("");
-    } else if (linkParams.mode === "carbs" && typeof linkParams.carbs === "string") {
-      setFoodCarbsOverlay(false);
-      const clean = linkParams.carbs.replace(/[^0-9.]/g, "");
-      carbDraftRef.current = null;
-      setCarbDraft(null);
-      setCarbInput(clean);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `t` is the re-fire nonce
-  }, [linkParams.tab, linkParams.t, linkParams.mode, linkParams.carbs]);
+  }, [linkParams.tab, linkParams.t]);
   // The tab actually shown: fall back to the first allowed tab when the stored one isn't available
   // (e.g. calculator grant off → default to Log; log grant off → only Dose).
   const effectiveTabBase: ScreenTab = availableTabs.includes(screenTab) ? screenTab : (availableTabs[0] ?? "predict");
@@ -209,13 +189,14 @@ export default function InsulinScreen() {
 
   const [carbInput, setCarbInput] = useState("");
   /**
-   * "ACTIVE CARBS" overlay on the carbs field — set when the Food page hands off a meal that was
-   * ALREADY logged. Purely visual: it paints the on-board carbs grams (amber, same as the on-board
-   * bar) over the input so nobody re-types carbs that are already counted as active carbs below.
-   * It feeds NOTHING into the dose math — the real input underneath is cleared, and the ✕ restores
-   * the normal editable field without touching anything else. Self-hides once the carbs drain.
+   * "ACTIVE CARBS" overlay on the carbs field — shows AUTOMATICALLY whenever a logged meal's carbs
+   * are still active, so nobody re-types carbs that the math already counts through the active-carbs
+   * term below. Purely visual: it paints the on-board grams (amber, same as the on-board bar) over
+   * the input, the input itself is CLEARED the moment the overlay appears (so no hidden leftover
+   * value can double-count), and the ✕ dismisses it back to the normal editable field without
+   * touching the math. Dismissal re-arms when the NEXT food log lands; it self-hides as carbs drain.
    */
-  const [foodCarbsOverlay, setFoodCarbsOverlay] = useState(false);
+  const [activeCarbsOverlayDismissed, setActiveCarbsOverlayDismissed] = useState(false);
   const [bgInput, setBgInput] = useState("");
   const [bgManual, setBgManual] = useState(false);
   // ── Deferred input commit ──────────────────────────────────────────────────────────────────
@@ -364,6 +345,21 @@ export default function InsulinScreen() {
    * identity with no extra wiring.
    */
   const activeCarbsFraction = activeFractionRemaining(activeCarbs.remainingMin, activeCarbs.remainingWindowMin);
+  // A NEW food log re-arms the overlay a previous ✕ dismissed (newest entry id as the signal).
+  const newestFoodLogId = foodLog.length > 0 ? foodLog[foodLog.length - 1]!.id : null;
+  useEffect(() => {
+    setActiveCarbsOverlayDismissed(false);
+  }, [newestFoodLogId]);
+  const activeCarbsOverlayVisible = !activeCarbsOverlayDismissed && activeCarbs.totalGrams > 0;
+  useEffect(() => {
+    // The overlay HIDES the input, so the input must hold nothing while it shows — a value typed
+    // before a log landed would otherwise keep feeding the math invisibly.
+    if (activeCarbsOverlayVisible) {
+      carbDraftRef.current = null;
+      setCarbDraft(null);
+      setCarbInput("");
+    }
+  }, [activeCarbsOverlayVisible]);
   const activeInsulinFraction = activeFractionRemaining(activeInsulin.remainingMin, activeInsulin.remainingWindowMin);
   /** The strip is all-or-nothing: either side being active brings BOTH bars in. */
   const showOnBoard = activeCarbsFraction > 0 || activeInsulinFraction > 0;
@@ -997,11 +993,11 @@ export default function InsulinScreen() {
           </View>
         ) : (
         <View style={styles.doseInputRow}>
-          {/* Carbs — big tappable number. When `foodCarbsOverlay` is on (arrived from the Food page
-              with the meal already logged), the field is REPLACED visually by the on-board carbs so
-              the same meal can't be typed in again — display only, never part of the math. */}
+          {/* Carbs — big tappable number. While a logged meal's carbs are still active the field is
+              REPLACED visually by the on-board grams (display only, never part of the math — the
+              active-carbs term below is what counts them); ✕ restores the editable field. */}
           <View style={styles.doseInputGroup}>
-            {foodCarbsOverlay && activeCarbs.totalGrams > 0 ? (
+            {activeCarbsOverlayVisible ? (
               <>
                 <View style={styles.doseInputHead}>
                   <MaterialCommunityIcons name="silverware-fork-knife" size={15} color={COLORS.warning} />
@@ -1019,7 +1015,7 @@ export default function InsulinScreen() {
                   hitSlop={10}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setFoodCarbsOverlay(false);
+                    setActiveCarbsOverlayDismissed(true);
                   }}
                   style={({ pressed }) => [styles.overlayDismiss, { backgroundColor: withAlpha(colors.textMuted, 0.18), opacity: pressed ? 0.6 : 1 }]}
                 >
