@@ -77,7 +77,6 @@ export function stackingWarning(recent: RecentDose): { title: string; message: s
     message:
       `${recent.units} u of insulin was logged${who} ${mins} ago. Rapid-acting insulin keeps lowering ` +
       `glucose for up to 4 hours after a dose. Taking more while an earlier dose is still working — ` +
-      `"insulin stacking" — can cause severe low blood sugar (hypoglycemia). Check the insulin still ` +
-      `active before adding more.\n\nAre you sure?`,
+      `"insulin stacking" — can cause hypoglycemia.\n\nAre you sure?`,
   };
 }

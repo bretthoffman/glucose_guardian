@@ -43,7 +43,7 @@ describe("stackingWarning", () => {
     expect(w.title).toBe("Insulin may still be active");
     expect(w.message).toContain("2.5 u of insulin was logged by Brian 35 minutes ago");
     expect(w.message).toContain("insulin stacking");
-    expect(w.message).toContain("hypoglycemia");
+    expect(w.message).toContain("can cause hypoglycemia.");
     expect(w.message.endsWith("Are you sure?")).toBe(true);
   });
   it("handles the singular minute and the anonymous author", () => {
