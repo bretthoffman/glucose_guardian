@@ -1347,6 +1347,17 @@ html.gd-lock,html.gd-lock body{overflow:hidden!important;overscroll-behavior:non
 @keyframes ggshim{from{-webkit-mask-position:0 0,100% 0;mask-position:0 0,100% 0}to{-webkit-mask-position:0 0,0% 0;mask-position:0 0,0% 0}}
 @keyframes ggglint{from{background-position:100% 0}to{background-position:0% 0}}
 @media (prefers-reduced-motion: reduce){.cine .amb,.cine .story .stage .iphone .scr::before{animation:none!important}}
+
+/* ── mobile: view + theme switches stay on screen (second row under the top bar) ── */
+@media (max-width:900px){
+  .cine .gnav .gn-mid{display:flex!important;position:absolute!important;left:0;right:0;top:56px;justify-content:center;gap:6px;padding:7px 8px;background:rgba(5,6,12,.96);border-bottom:1px solid rgba(255,255,255,.08);opacity:0;visibility:hidden;transform:translateY(-8px);transition:opacity .25s,transform .25s,visibility .25s}
+  html.gg-mbar .cine .gnav .gn-mid{opacity:1;visibility:visible;transform:none}
+  .cine .gnav .gn-mid .seg-sm{display:flex!important}
+  .cine .gnav .gn-mid .seg button{font-size:12px;padding:6px 10px;min-height:32px;white-space:nowrap}
+  html.gg-mbar .cine .story .stage{top:104px!important}
+}
+@media (max-width:380px){.cine .gnav .gn-mid .seg button{font-size:11px;padding:6px 8px}}
+@media (max-width:900px) and (max-height:740px){html.gg-mbar .cine .story .stage .lens{height:330px!important}html.gg-mbar .cine .story .stage .lens .mover{transform:scale(.54)!important}html.gg-mbar .cine .story .stage .taphint{top:312px!important}}
 </style>
 </helmet>
 <div class="cine {{rootCls}}">
@@ -1664,6 +1675,19 @@ class Component extends DCLogic {
       if ((st0 === 'light' || st0 === 'dark') && st0 !== cur.theme) upd.theme = st0;
       if (upd.view || upd.theme) this.setState(upd);
     } catch (e) {}
+    /* ── mobile: show the view + theme switches under the top bar once the hero's switches scroll away ── */
+    (function () {
+      if (window.__ggMbar) return; window.__ggMbar = true;
+      var html = document.documentElement, tries = 0;
+      var hook = function () {
+        var vb = document.querySelector('.hero-m .vbar');
+        if (!vb) { if (tries++ < 25) setTimeout(hook, 200); return; }
+        var update = function () { var r = vb.getBoundingClientRect(); html.classList.toggle('gg-mbar', window.innerWidth <= 900 && r.bottom < 60); };
+        if ('IntersectionObserver' in window) { new IntersectionObserver(update, { rootMargin: '-60px 0px 0px 0px', threshold: [0, 1] }).observe(vb); }
+        window.addEventListener('scroll', update, { passive: true }); window.addEventListener('resize', update); update();
+      };
+      hook();
+    })();
     /* ── Try-it demo: full-screen, tappable app with the robot as coach ── */
     (function () {
       if (window.__ggDemo) return; window.__ggDemo = true;
