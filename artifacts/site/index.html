@@ -1358,6 +1358,38 @@ html.gd-lock,html.gd-lock body{overflow:hidden!important;overscroll-behavior:non
 }
 @media (max-width:380px){.cine .gnav .gn-mid .seg button{font-size:11px;padding:6px 8px}}
 @media (max-width:900px) and (max-height:740px){html.gg-mbar .cine .story .stage .lens{height:330px!important}html.gg-mbar .cine .story .stage .lens .mover{transform:scale(.54)!important}html.gg-mbar .cine .story .stage .taphint{top:312px!important}}
+
+/* ── phones held sideways (short landscape screens) ── */
+/* A: narrower landscape phones use the mobile rules: phone pinned left, text on the right */
+@media (max-width:900px) and (orientation:landscape) and (max-height:520px){
+  :root:root .cine .story .stage{position:sticky!important;top:56px!important;height:calc(100vh - 56px)!important;width:44%!important;margin:0 0 calc(56px - 100vh) 0!important;padding:0!important;background:none!important;display:block!important;z-index:2}
+  :root:root .cine .story .stage .lens{position:absolute!important;inset:0!important;width:auto!important;height:auto!important;margin:0!important;animation:none!important}
+  :root:root .cine .story .stage .lens .mover{position:absolute!important;left:50%;top:50%;width:284px;height:592px;margin:-296px 0 0 -142px!important;transform:scale(.58)!important}
+  :root:root .cine .story .stage .stglow{left:50%!important;top:50%!important}
+  :root:root .cine .story .stage .taphint,:root:root .cine .story .stage .progress{display:none!important}
+  :root:root .cine .stepsx .step{width:52%!important;max-width:none!important;margin:0 0 0 auto!important;min-height:88vh!important;transform:none!important;padding:0 8px 0 0!important}
+  :root:root .cine .stepsx .step-0{margin-top:0!important}
+  :root:root .cine .stepsx .step h3{font-size:24px!important}
+  :root:root .cine .stepsx .step p{font-size:14.5px!important}
+  /* switches sit inside the top bar instead of a second row */
+  :root:root .cine .gnav .gn-mid{top:0!important;left:50%!important;right:auto!important;height:56px;padding:0!important;background:none!important;border:0!important;transform:translateX(-50%) translateY(-6px)!important}
+  html.gg-mbar:root .cine .gnav .gn-mid{transform:translateX(-50%)!important}
+  :root:root .cine .gnav .gn-mid .seg button{font-size:11px;padding:5px 8px;min-height:28px}
+}
+@media (max-width:900px) and (orientation:landscape) and (max-height:400px){
+  :root:root .cine .story .stage .lens .mover{transform:scale(.52)!important}
+}
+@media (max-width:720px) and (orientation:landscape) and (max-height:520px){
+  :root:root .cine .gnav .gn-mid .seg-sm{display:none!important}
+}
+/* B: wider landscape phones use the desktop layout: scale the pinned phone to the short screen,
+   and keep it out of the way of the headline until you start scrolling */
+@media (min-width:901px) and (max-height:520px){
+  .cine .story .stage{scale:.62;transform-origin:50% 50%}
+  .cine .story.pre .stage{opacity:clamp(0,calc(var(--p) * 2.5 - 1.2),1);transition:opacity .2s}
+  .cine .stepsx .step h3{font-size:26px}
+}
+@media (min-width:901px) and (max-height:420px){.cine .story .stage{scale:.54}}
 </style>
 </helmet>
 <div class="cine {{rootCls}}">
