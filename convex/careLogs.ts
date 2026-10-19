@@ -18,6 +18,7 @@ import { careAccessAllowed, type CareAccess } from "./careSchedule";
 
 const FOOD_CAP = 200;
 const INSULIN_CAP = 500;
+const FINGER_STICK_CAP = 300;
 
 const foodEntryPayload = v.object({
   clientId: v.string(),
@@ -45,6 +46,33 @@ const insulinEntryPayload = v.object({
   recommendedUnits: v.optional(v.number()),
   manualOverride: v.optional(v.boolean()),
 });
+
+const fingerStickReason = v.union(
+  v.literal("seemed_off"),
+  v.literal("symptoms"),
+  v.literal("before_dosing"),
+  v.literal("new_sensor"),
+  v.literal("routine"),
+);
+
+/** A finger-stick (meter) check, plus the CGM reading the device matched to it at log time. */
+const fingerStickEntryPayload = v.object({
+  clientId: v.string(),
+  timestamp: v.string(),
+  glucose: v.number(),
+  cgmGlucose: v.optional(v.number()),
+  cgmTimestamp: v.optional(v.string()),
+  cgmTrend: v.optional(v.string()),
+  reason: v.optional(fingerStickReason),
+  note: v.optional(v.string()),
+});
+
+/** Meter range check: anything outside this is a typo, not a reading (most meters read 20–600). */
+function assertMeterValue(glucose: number) {
+  if (!Number.isFinite(glucose) || glucose < 20 || glucose > 600) {
+    throw new ConvexError("Finger stick readings must be between 20 and 600 mg/dL");
+  }
+}
 
 // ─── auth helpers (kept local; small + self-contained) ───────────────────────────────────────
 
@@ -211,6 +239,15 @@ async function pruneInsulin(ctx: MutationCtx, patientUserId: Id<"users">) {
   for (const row of rows.slice(INSULIN_CAP)) await ctx.db.delete(row._id);
 }
 
+async function pruneFingerSticks(ctx: MutationCtx, patientUserId: Id<"users">) {
+  const rows = await ctx.db
+    .query("careFingerSticks")
+    .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
+    .order("desc")
+    .collect();
+  for (const row of rows.slice(FINGER_STICK_CAP)) await ctx.db.delete(row._id);
+}
+
 // ─── insert helpers (idempotent on clientId) ─────────────────────────────────────────────────
 
 async function upsertFood(
@@ -291,6 +328,35 @@ async function upsertInsulin(
   });
   await pruneInsulin(ctx, patientUserId);
   await notifyCircleOfLog(ctx, patientUserId, auth, actorCode, { kind: "insulin", units: entry.units });
+}
+
+/**
+ * Finger sticks are idempotent on clientId like the other logs. No circle push: a finger stick is a
+ * check, not a treatment, so it doesn't change anyone's dose math and isn't worth an interruption.
+ */
+async function upsertFingerStick(
+  ctx: MutationCtx,
+  patientUserId: Id<"users">,
+  auth: WriteAuth,
+  entry: typeof fingerStickEntryPayload.type,
+) {
+  assertMeterValue(entry.glucose);
+  const existing = await ctx.db
+    .query("careFingerSticks")
+    .withIndex("by_patient_client", (q) =>
+      q.eq("patientUserId", patientUserId).eq("clientId", entry.clientId),
+    )
+    .first();
+  if (existing) return;
+  await ctx.db.insert("careFingerSticks", {
+    patientUserId,
+    ...(auth.authorUserId ? { authorUserId: auth.authorUserId } : {}),
+    ...(auth.authorCode ? { authorCode: auth.authorCode } : {}),
+    authorName: auth.authorName,
+    createdAt: Date.now(),
+    ...entry,
+  });
+  await pruneFingerSticks(ctx, patientUserId);
 }
 
 /**
@@ -378,8 +444,39 @@ export async function copyBucketLogs(
     });
   }
 
+  const sticks = await ctx.db
+    .query("careFingerSticks")
+    .withIndex("by_patient_time", (q) => q.eq("patientUserId", fromPatientUserId))
+    .order("desc")
+    .take(FINGER_STICK_CAP);
+  for (const row of sticks) {
+    const existing = await ctx.db
+      .query("careFingerSticks")
+      .withIndex("by_patient_client", (q) =>
+        q.eq("patientUserId", toPatientUserId).eq("clientId", row.clientId),
+      )
+      .first();
+    if (existing) continue;
+    const auth = bylineFor(row);
+    await ctx.db.insert("careFingerSticks", {
+      patientUserId: toPatientUserId,
+      ...(auth.authorUserId ? { authorUserId: auth.authorUserId } : {}),
+      authorName: auth.authorName,
+      createdAt: row.createdAt,
+      clientId: row.clientId,
+      timestamp: row.timestamp,
+      glucose: row.glucose,
+      ...(row.cgmGlucose != null ? { cgmGlucose: row.cgmGlucose } : {}),
+      ...(row.cgmTimestamp != null ? { cgmTimestamp: row.cgmTimestamp } : {}),
+      ...(row.cgmTrend != null ? { cgmTrend: row.cgmTrend } : {}),
+      ...(row.reason != null ? { reason: row.reason } : {}),
+      ...(row.note != null ? { note: row.note } : {}),
+    });
+  }
+
   await pruneFood(ctx, toPatientUserId);
   await pruneInsulin(ctx, toPatientUserId);
+  await pruneFingerSticks(ctx, toPatientUserId);
 }
 
 // ─── account-authorized mutations (patient + co-guardians) ───────────────────────────────────
@@ -418,6 +515,22 @@ export const addInsulinLog = mutation({
 });
 
 /** Idempotent bulk import — used once to migrate a device's local AsyncStorage logs to the cloud. */
+export const addFingerStick = mutation({
+  args: {
+    ...legacyAuthArgs,
+    patientUserId: v.id("users"),
+    entry: fingerStickEntryPayload,
+  },
+  handler: async (ctx, args) => {
+    const user = await requireUserCompat(ctx, args);
+    const patientUserId =
+      args.patientUserId === user._id ? await circleBucketFor(ctx, user._id) : args.patientUserId;
+    const auth = await resolveAccountWriteAuth(ctx, user._id, patientUserId);
+    if (!auth) throw new ConvexError("Not allowed to log for this patient");
+    await upsertFingerStick(ctx, patientUserId, auth, args.entry);
+  },
+});
+
 export const importLogs = mutation({
   args: {
     ...legacyAuthArgs,
@@ -523,6 +636,22 @@ export const addInsulinLogViaCode = mutation({
   },
 });
 
+export const addFingerStickViaCode = mutation({
+  args: {
+    code: v.string(),
+    entry: fingerStickEntryPayload,
+    authorUserId: v.optional(v.id("users")),
+    passwordHash: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const row = await resolveActiveAccessCode(ctx, args.code);
+    if (!row || !row.permissions.log) throw new ConvexError("This code cannot add logs");
+    if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new ConvexError("Outside this code's schedule");
+    const auth = await viaCodeWriteAuth(ctx, row, args.authorUserId, args.passwordHash);
+    await upsertFingerStick(ctx, row.patientUserId, auth, args.entry);
+  },
+});
+
 // ─── reads ───────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -606,8 +735,32 @@ function mapInsulin(
   };
 }
 
+function mapFingerStick(
+  row: {
+    clientId: string; timestamp: string; glucose: number; cgmGlucose?: number; cgmTimestamp?: string;
+    cgmTrend?: string; reason?: typeof fingerStickReason.type; note?: string;
+    authorUserId?: string; authorCode?: string; authorName: string;
+  },
+  liveNames: Map<string, string>,
+  liveCodeNames?: Map<string, string>,
+) {
+  return {
+    id: row.clientId,
+    timestamp: row.timestamp,
+    glucose: row.glucose,
+    cgmGlucose: row.cgmGlucose,
+    cgmTimestamp: row.cgmTimestamp,
+    cgmTrend: row.cgmTrend,
+    reason: row.reason,
+    note: row.note,
+    authorUserId: row.authorUserId,
+    authorName: bylineFor(row, liveNames, liveCodeNames),
+    authorCode: row.authorCode,
+  };
+}
+
 async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
-  const [food, insulin] = await Promise.all([
+  const [food, insulin, sticks] = await Promise.all([
     ctx.db
       .query("careFoodLogs")
       .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
@@ -618,6 +771,11 @@ async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
       .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
       .order("desc")
       .take(INSULIN_CAP),
+    ctx.db
+      .query("careFingerSticks")
+      .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
+      .order("desc")
+      .take(FINGER_STICK_CAP),
   ]);
   // Re-derive each account-author's CURRENT guardian name once (a circle has ≤4 guardians, so this
   // is a handful of lookups regardless of log count). This makes bylines always show the guardian's
@@ -626,6 +784,7 @@ async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
   const authorIds = new Set<string>();
   for (const r of food) if (r.authorUserId) authorIds.add(r.authorUserId);
   for (const r of insulin) if (r.authorUserId) authorIds.add(r.authorUserId);
+  for (const r of sticks) if (r.authorUserId) authorIds.add(r.authorUserId);
   const liveNames = new Map<string, string>();
   for (const id of authorIds) {
     liveNames.set(id, await guardianDisplayName(ctx, id as Id<"users">));
@@ -635,6 +794,7 @@ async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
   const authorCodes = new Set<string>();
   for (const r of food) if (r.authorCode) authorCodes.add(r.authorCode);
   for (const r of insulin) if (r.authorCode) authorCodes.add(r.authorCode);
+  for (const r of sticks) if (r.authorCode) authorCodes.add(r.authorCode);
   const liveCodeNames = new Map<string, string>();
   for (const code of authorCodes) {
     const row = await ctx.db
@@ -652,6 +812,7 @@ async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
   return {
     foodLog: food.map((r) => mapFood(r, liveNames, liveCodeNames)),
     insulinLog: insulin.map((r) => mapInsulin(r, liveNames, liveCodeNames)),
+    fingerStickLog: sticks.map((r) => mapFingerStick(r, liveNames, liveCodeNames)),
   };
 }
 
@@ -667,7 +828,7 @@ export const listLogs = query({
     const patientUserId =
       args.patientUserId === user._id ? await circleBucketFor(ctx, user._id) : args.patientUserId;
     if (!(await resolveAccountReadAuth(ctx, user._id, patientUserId))) {
-      if (patientUserId !== args.patientUserId) return { foodLog: [], insulinLog: [] };
+      if (patientUserId !== args.patientUserId) return { foodLog: [], insulinLog: [], fingerStickLog: [] };
       return null;
     }
     return await readLogs(ctx, patientUserId);
@@ -815,6 +976,32 @@ export const deleteInsulinLog = mutation({
     const user = await requireUserCompat(ctx, args);
     const patientUserId = await accountEntryAuth(ctx, user._id, args.patientUserId);
     const row = await findInsulinRow(ctx, patientUserId, args.clientId);
+    if (row) await ctx.db.delete(row._id);
+  },
+});
+
+async function findFingerStickRow(ctx: MutationCtx, patientUserId: Id<"users">, clientId: string) {
+  return await ctx.db
+    .query("careFingerSticks")
+    .withIndex("by_patient_client", (q) => q.eq("patientUserId", patientUserId).eq("clientId", clientId))
+    .first();
+}
+
+export const deleteFingerStick = mutation({
+  args: { ...legacyAuthArgs, patientUserId: v.id("users"), clientId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireUserCompat(ctx, args);
+    const patientUserId = await accountEntryAuth(ctx, user._id, args.patientUserId);
+    const row = await findFingerStickRow(ctx, patientUserId, args.clientId);
+    if (row) await ctx.db.delete(row._id);
+  },
+});
+
+export const deleteFingerStickViaCode = mutation({
+  args: { code: v.string(), clientId: v.string() },
+  handler: async (ctx, args) => {
+    const patientUserId = await codeEntryAuth(ctx, args.code);
+    const row = await findFingerStickRow(ctx, patientUserId, args.clientId);
     if (row) await ctx.db.delete(row._id);
   },
 });

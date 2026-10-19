@@ -12,6 +12,7 @@ import AccessLockScreen from "@/components/AccessLockScreen";
 import NurseMenu from "@/components/NurseMenu";
 import EmergencyWaitPrompt from "@/components/EmergencyWaitPrompt";
 import HelpOverlay from "@/components/HelpOverlay";
+import { WhatsNewPrompt } from "@/components/WhatsNew";
 
 // Derive the tab-bar props type from expo-router's Tabs so we don't import @react-navigation directly
 // (it isn't hoisted in this workspace). VISUAL ONLY — navigation behavior uses the standard pattern.
@@ -152,6 +153,8 @@ export default function TabLayout() {
       <EmergencyWaitPrompt />
       {/* Help Mode spotlight — draws over every page, stops above the tab bar so tabs stay live. */}
       <HelpOverlay />
+      {/* "What's new" — once per update, after it installs; history lives on the Dashboard. */}
+      <WhatsNewPrompt />
     </>
   );
 }

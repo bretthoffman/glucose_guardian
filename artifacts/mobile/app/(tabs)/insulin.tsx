@@ -46,6 +46,7 @@ import LogHistory from "@/components/LogHistory";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
+import LogFingerStickModal from "@/components/LogFingerStickModal";
 import DosePredictionChart from "@/components/DosePredictionChart";
 import { runPrediction, type PredictionResult, type StrengthLabel } from "@/utils/predictionClient";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
@@ -157,6 +158,9 @@ export default function InsulinScreen() {
   const { targetGlucose, carbRatio, correctionFactor, doseSettingsByTime, history, cgmSyncSuccessTick } = useGlucose();
   const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions, messagingIdentity } = useAuth();
   const confirmLog = useCareLogConfirm();
+  // "Enter finger stick" shortcut from a "verify with a finger stick" dose warning. Informational
+  // only — logging one never changes the dose shown here.
+  const [fingerStickOpen, setFingerStickOpen] = useState(false);
   // Fresh insulin log for the stacking guard inside handleTookDose's zero-delay tick.
   const insulinLogRef = useRef(insulinLog);
   useEffect(() => { insulinLogRef.current = insulinLog; }, [insulinLog]);
@@ -1139,7 +1143,10 @@ export default function InsulinScreen() {
         )}
 
         {!isBasalMode && dose && (
-          <DoseWarningsList warnings={dose.warnings} />
+          <DoseWarningsList
+            warnings={dose.warnings}
+            onEnterFingerStick={canLog ? () => setFingerStickOpen(true) : undefined}
+          />
         )}
       </View>
 
@@ -1552,6 +1559,14 @@ export default function InsulinScreen() {
           </View>
         </View>
       </DashboardSectionModal>
+
+      <LogFingerStickModal
+        visible={fingerStickOpen}
+        onClose={() => setFingerStickOpen(false)}
+        selectedDay={new Date()}
+        initialReason="before_dosing"
+        colors={colors}
+      />
     </View>
   );
 }

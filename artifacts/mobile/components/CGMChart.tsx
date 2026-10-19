@@ -144,6 +144,12 @@ interface CGMChartProps {
   /** Makes log markers tappable — fired with the marker so the host can open its detail popup. */
   onEventMarkerPress?: (marker: PositionedChartMarker) => void;
   /**
+   * Finger-stick (meter) checks, drawn at their own glucose value with a dashed link to the CGM
+   * reading from the same moment so the gap is visible at a glance.
+   */
+  fingerStickMarkers?: { id: string; timestamp: string; glucose: number; cgmGlucose?: number }[];
+  onFingerStickPress?: (id: string) => void;
+  /**
    * Log-page only: two-finger pinch zooms into a slice of the day (the full day is the maximum
    * zoom-out) and two-finger drag pans while zoomed. Requires `calendarDayWindow`.
    */
@@ -170,6 +176,8 @@ export function CGMChart({
   onCursorActiveChange,
   eventMarkers,
   onEventMarkerPress,
+  fingerStickMarkers,
+  onFingerStickPress,
   enablePinchZoom = false,
   axisGap: axisGapProp,
   hostPaddingRight,
@@ -676,6 +684,61 @@ export function CGMChart({
               />
             </Pressable>
           ))}
+
+          {/* Finger sticks: a purple drop at the meter value, dashed to the Dexcom value. */}
+          {(fingerStickMarkers ?? []).map((m) => {
+            const t = new Date(m.timestamp).getTime();
+            if (!Number.isFinite(t) || t < windowStart || t >= windowStart + windowMs) return null;
+            const x = ((t - windowStart) / windowMs) * plotW;
+            const y = Math.max(0, Math.min(H, plotY(m.glucose)));
+            const cgmY = m.cgmGlucose != null ? Math.max(0, Math.min(H, plotY(m.cgmGlucose))) : null;
+            const size = Math.round(18 * markerScale);
+            return (
+              <React.Fragment key={`fs-${m.id}`}>
+                {cgmY != null && Math.abs(cgmY - y) > 2 && (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      left: x - 0.75,
+                      top: Math.min(y, cgmY),
+                      height: Math.abs(cgmY - y),
+                      borderLeftWidth: 1.5,
+                      borderStyle: "dashed",
+                      borderColor: COLORS.primaryLight,
+                    }}
+                  />
+                )}
+                <Pressable
+                  pointerEvents={onFingerStickPress ? "auto" : "none"}
+                  disabled={!onFingerStickPress}
+                  onPress={onFingerStickPress ? () => onFingerStickPress(m.id) : undefined}
+                  onTouchStart={onFingerStickPress ? (e) => e.stopPropagation() : undefined}
+                  onTouchMove={onFingerStickPress ? (e) => e.stopPropagation() : undefined}
+                  onTouchEnd={onFingerStickPress ? (e) => e.stopPropagation() : undefined}
+                  accessibilityRole={onFingerStickPress ? "button" : undefined}
+                  accessibilityLabel={`Finger stick ${m.glucose}${m.cgmGlucose != null ? `, Dexcom ${Math.round(m.cgmGlucose)}` : ""}`}
+                  hitSlop={8}
+                  style={({ pressed }) => ({
+                    position: "absolute",
+                    left: x - size / 2,
+                    top: y - size / 2,
+                    width: size,
+                    height: size,
+                    borderRadius: size / 2,
+                    backgroundColor: COLORS.primary,
+                    borderWidth: 2,
+                    borderColor: c.pointCenter,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: pressed && onFingerStickPress ? 0.6 : 1,
+                  })}
+                >
+                  <MaterialCommunityIcons name="water" size={Math.round(10 * markerScale)} color="#fff" />
+                </Pressable>
+              </React.Fragment>
+            );
+          })}
 
           {selectedPoint && (
             <CgmChartCursorOverlay

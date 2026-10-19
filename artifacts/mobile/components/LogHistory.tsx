@@ -20,6 +20,8 @@ import LogFoodModal from "@/components/LogFoodModal";
 import { AccentShade, CardShade, ControlShade } from "@/components/Shade";
 import CalendarPicker from "@/components/CalendarPicker";
 import LogDetailModal, { type SelectedLog } from "@/components/LogDetailModal";
+import LogFingerStickModal, { FingerStickDetailModal } from "@/components/LogFingerStickModal";
+import { compareFingerStick, comparisonShort } from "@/utils/fingerStick";
 import { canEditExistingLogs } from "@/utils/logEditPermission";
 import type { ChartEventMarker } from "@/utils/chartEventMarkers";
 import {
@@ -30,7 +32,7 @@ import {
 } from "@/constants/insulin";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
-import type { FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
+import type { FingerStickEntry, FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 import { useDayGlucoseReadings } from "@/hooks/useDayGlucoseReadings";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import {
@@ -80,7 +82,7 @@ export default function LogHistory({
   const [chartCursorActive, setChartCursorActive] = useState(false);
 
   const { targetGlucose, cgmSyncSuccessTick } = useGlucose();
-  const { foodLog, insulinLog, logInsulinDose, alertPrefs, account, caregiverSession, caregiverCloudCode, accessCodeRole, accessCodePermissions, profile } = useAuth();
+  const { foodLog, insulinLog, fingerStickLog, logInsulinDose, alertPrefs, account, caregiverSession, caregiverCloudCode, accessCodeRole, accessCodePermissions, profile } = useAuth();
 
   // Edit/delete rights — see utils/logEditPermission for the rule and why the "Add logs" grant is
   // the gate for both caregiver identities. Guardians, co-guardians and child codes always may.
@@ -203,6 +205,8 @@ export default function LogHistory({
           alertPrefs={alertPrefs}
           foodLog={foodLog}
           insulinLog={insulinLog}
+          fingerStickLog={fingerStickLog}
+          onFingerStickLogged={() => onLogAdded?.()}
           myUserId={myUserId}
           myCode={myCode}
           canEditLogs={canEditLogs}
@@ -335,6 +339,8 @@ function DayView({
   alertPrefs,
   foodLog,
   insulinLog,
+  fingerStickLog,
+  onFingerStickLogged,
   myUserId,
   myCode,
   canEditLogs,
@@ -359,6 +365,9 @@ function DayView({
   };
   foodLog: FoodLogEntry[];
   insulinLog: InsulinLogEntry[];
+  fingerStickLog: FingerStickEntry[];
+  /** Fired after a finger stick is logged from this day's Add Entry menu. */
+  onFingerStickLogged?: () => void;
   myUserId: string | null;
   myCode: string | null;
   /** False for caregiver viewers — hides the detail popup's Edit/Delete controls. */
@@ -380,6 +389,8 @@ function DayView({
   const helpEvents = useHelpAnchor("insulin.log.events");
   const helpAddEntry = useHelpAnchor("insulin.log.add");
   const [selectedLog, setSelectedLog] = useState<SelectedLog | null>(null);
+  const [selectedStick, setSelectedStick] = useState<FingerStickEntry | null>(null);
+  const [fingerStickOpen, setFingerStickOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   const { readings, status, bounds, retry } = useDayGlucoseReadings({
@@ -398,6 +409,15 @@ function DayView({
     [insulinLog, bounds.startMs, bounds.endMs],
   );
 
+  const daySticks = useMemo(
+    () =>
+      (fingerStickLog ?? []).filter((e) => {
+        const t = new Date(e.timestamp).getTime();
+        return t >= bounds.startMs && t < bounds.endMs;
+      }),
+    [fingerStickLog, bounds.startMs, bounds.endMs],
+  );
+
   /**
    * Food and insulin merged into ONE list, NEWEST FIRST — the most recent log is what someone opens
    * this page to see, so scrolling to the bottom of a busy day to find it was backwards. Deliberately
@@ -410,8 +430,15 @@ function DayView({
       [
         ...dayFood.map((f) => ({ kind: "food" as const, ts: new Date(f.timestamp).getTime(), data: f })),
         ...dayInsulin.map((i) => ({ kind: "insulin" as const, ts: new Date(i.timestamp).getTime(), data: i })),
+        ...daySticks.map((f) => ({ kind: "fingerStick" as const, ts: new Date(f.timestamp).getTime(), data: f })),
       ].sort((a, b) => b.ts - a.ts),
-    [dayFood, dayInsulin],
+    [dayFood, dayInsulin, daySticks],
+  );
+
+  /** Finger sticks sit on the graph at their own (meter) value, linked to the Dexcom reading. */
+  const stickMarkers = useMemo(
+    () => daySticks.map((f) => ({ id: f.id, timestamp: f.timestamp, glucose: f.glucose, cgmGlucose: f.cgmGlucose })),
+    [daySticks],
   );
 
   /** This day's logs as baseline markers for the graph — insulin first (it wins the on-line spot).
@@ -514,6 +541,11 @@ function DayView({
             onCursorActiveChange={onCursorActiveChange}
             eventMarkers={dayMarkers}
             onEventMarkerPress={openMarkerLog}
+            fingerStickMarkers={stickMarkers}
+            onFingerStickPress={(id) => {
+              const hit = daySticks.find((f) => f.id === id);
+              if (hit) setSelectedStick(hit);
+            }}
             enablePinchZoom
             // The page scroll pads 16; the digits end 8 from the PAGE edge and the plot takes the rest.
             hostPaddingRight={16}
@@ -576,6 +608,18 @@ function DayView({
                 <MaterialCommunityIcons name="silverware-fork-knife" size={18} color={COLORS.accent} />
                 <Text style={[styles.addMenuText, { color: colors.text }]}>Food Log</Text>
               </Pressable>
+              <Pressable
+                accessibilityRole="menuitem"
+                style={({ pressed }) => [styles.addMenuItem, { borderBottomWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  setAddMenuOpen(false);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setFingerStickOpen(true);
+                }}
+              >
+                <MaterialCommunityIcons name="water-plus-outline" size={18} color={COLORS.primary} />
+                <Text style={[styles.addMenuText, { color: colors.text }]}>Finger Stick</Text>
+              </Pressable>
             </View>
           )}
         </View>
@@ -594,9 +638,10 @@ function DayView({
               colors={colors}
               myUserId={myUserId}
               myCode={myCode}
-              onPress={() =>
-                setSelectedLog(ev.kind === "food" ? { kind: "food", data: ev.data } : { kind: "insulin", data: ev.data })
-              }
+              onPress={() => {
+                if (ev.kind === "fingerStick") setSelectedStick(ev.data);
+                else setSelectedLog(ev.kind === "food" ? { kind: "food", data: ev.data } : { kind: "insulin", data: ev.data });
+              }}
             />
           ))}
         </View>
@@ -611,6 +656,24 @@ function DayView({
           onClose={() => setSelectedLog(null)}
         />
       )}
+      {selectedStick && (
+        <FingerStickDetailModal
+          key={selectedStick.id}
+          entry={selectedStick}
+          colors={colors}
+          canEdit={canEditLogs}
+          byline={authorByline(selectedStick, myUserId, myCode).replace(/^ · /, "")}
+          onClose={() => setSelectedStick(null)}
+        />
+      )}
+      <LogFingerStickModal
+        visible={fingerStickOpen}
+        onClose={() => setFingerStickOpen(false)}
+        selectedDay={day}
+        dayReadings={readings}
+        colors={colors}
+        onLogged={onFingerStickLogged}
+      />
     </View>
   );
 }
@@ -641,7 +704,8 @@ function authorByline(
 
 type DayEvent =
   | { kind: "food"; ts: number; data: FoodLogEntry }
-  | { kind: "insulin"; ts: number; data: InsulinLogEntry };
+  | { kind: "insulin"; ts: number; data: InsulinLogEntry }
+  | { kind: "fingerStick"; ts: number; data: FingerStickEntry };
 
 /** "Today, Sep 14, 2026" / "Yesterday, Sep 13, 2026" / "Sat, Sep 12, 2026" — under the Event Log title. */
 function fmtEventDate(d: Date, dayOffset: number): string {
@@ -671,6 +735,7 @@ function EventRow({
   onPress: () => void;
 }) {
   const isFood = event.kind === "food";
+  const isStick = event.kind === "fingerStick";
   let title: string;
   let sub: string;
   let right: string | null = null;
@@ -683,6 +748,19 @@ function EventRow({
     // with it is an insulin fact, not a food fact — it lives in the detail popup, not on this line.
     sub = `${f.estimatedCarbs} g carbs${authorByline(f, myUserId, myCode)}`;
     edited = !!f.edited;
+  } else if (event.kind === "fingerStick") {
+    const fs = event.data;
+    title = `Finger stick ${fs.glucose}`;
+    const parts: string[] = [];
+    if (fs.cgmGlucose != null) {
+      parts.push(`Dexcom ${Math.round(fs.cgmGlucose)}`);
+      parts.push(comparisonShort(compareFingerStick(fs.glucose, fs.cgmGlucose)));
+    } else {
+      parts.push("no Dexcom reading then");
+    }
+    const byline = authorByline(fs, myUserId, myCode).replace(/^ · /, "");
+    if (byline) parts.push(byline);
+    sub = parts.join(" · ");
   } else {
     const ins = event.data;
     const opt = ins.insulinType ? findInsulinByChipLabel(ins.insulinType) : undefined;
@@ -699,6 +777,7 @@ function EventRow({
     edited = !!ins.edited;
   }
   const accent = isFood ? COLORS.accent : COLORS.primary;
+  const iconName = isFood ? "silverware-fork-knife" : isStick ? "water-plus-outline" : "needle";
   return (
     <Pressable
       onPress={onPress}
@@ -711,7 +790,7 @@ function EventRow({
     >
       <Text style={[styles.eventTime, { color: colors.textSecondary }]}>{fmtTime(event.data.timestamp)}</Text>
       <View style={[styles.eventIcon, { backgroundColor: accent + "22" }]}>
-        <MaterialCommunityIcons name={isFood ? "silverware-fork-knife" : "needle"} size={17} color={accent} />
+        <MaterialCommunityIcons name={iconName} size={17} color={accent} />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={styles.eventTitleRow}>

@@ -14,7 +14,19 @@ import {
   formatSuggestedDoseLine,
 } from "@/utils/doseOverride";
 
-export function DoseWarningsList({ warnings }: { warnings: DoseWarning[] }) {
+/** Warnings that ask the user to check with a meter get an "Enter finger stick" shortcut. */
+export function warningAsksForFingerStick(message: string): boolean {
+  return /finger stick/i.test(message);
+}
+
+export function DoseWarningsList({
+  warnings,
+  onEnterFingerStick,
+}: {
+  warnings: DoseWarning[];
+  /** When set, warnings that mention a finger stick show a button that opens the Finger Stick form. */
+  onEnterFingerStick?: () => void;
+}) {
   return (
     <>
       {warnings.map((w, i) => {
@@ -30,7 +42,20 @@ export function DoseWarningsList({ warnings }: { warnings: DoseWarning[] }) {
             {/* Same ramp the tinted pills use, in THIS note's color — the level→color rule above is untouched. */}
             <TintShade color={color} radius={10} />
             <Feather name={isInfo ? "info" : "alert-triangle"} size={13} color={color} />
-            <Text style={[styles.doseWarningText, { color }]}>{w.message}</Text>
+            <View style={{ flex: 1, gap: 8 }}>
+              <Text style={[styles.doseWarningText, { color, flex: 0 }]}>{w.message}</Text>
+              {onEnterFingerStick && warningAsksForFingerStick(w.message) && (
+                <Pressable
+                  onPress={onEnterFingerStick}
+                  accessibilityRole="button"
+                  accessibilityLabel="Enter finger stick"
+                  style={({ pressed }) => [styles.fingerStickBtn, { opacity: pressed ? 0.8 : 1 }]}
+                >
+                  <Feather name="droplet" size={13} color="#fff" />
+                  <Text style={styles.fingerStickBtnText}>Enter finger stick</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
         );
       })}
@@ -149,6 +174,11 @@ export function EditableDoseTotalBadge({
 const styles = StyleSheet.create({
   doseWarning: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1 },
   doseWarningText: { flex: 1, fontSize: 12, fontWeight: "500", lineHeight: 17 },
+  fingerStickBtn: {
+    alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: COLORS.primary, borderRadius: 9, paddingVertical: 7, paddingHorizontal: 11,
+  },
+  fingerStickBtnText: { color: "#fff", fontSize: 12.5, fontWeight: "700" },
 
   doseRowItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   doseRowLabel: { fontSize: 14, fontWeight: "600" },

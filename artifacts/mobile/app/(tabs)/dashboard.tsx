@@ -27,6 +27,7 @@ import TreatmentProposalCard from "@/components/TreatmentProposalCard";
 import { SettingsModal } from "@/components/SettingsModal";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DashboardGroup, DashboardRow } from "@/components/DashboardGroupList";
+import { WhatsNewHistoryModal } from "@/components/WhatsNew";
 import CareCirclePanel from "@/components/CareCirclePanel";
 import A1CEstimateCard from "@/components/A1CEstimateCard";
 import {
@@ -190,6 +191,7 @@ export default function DashboardScreen() {
 
   // The single section popup that is open (null = none). Mutually exclusive with the Settings popup.
   const [openSection, setOpenSection] = useState<DashboardSectionKey | null>(null);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
 
   // Settings popup (opened from the profile/avatar control) + shared profile-photo picker.
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -900,6 +902,19 @@ export default function DashboardScreen() {
             })}
           </DashboardGroup>
         ))}
+
+        {/* App updates — open to every session type. Lives outside the role-gated groups on purpose. */}
+        <DashboardGroup title="App" colors={colors}>
+          <DashboardRow
+            title="What's new"
+            icon="gift"
+            color={COLORS.primaryLight}
+            colors={colors}
+            onPress={() => setWhatsNewOpen(true)}
+            last
+          />
+        </DashboardGroup>
+        <WhatsNewHistoryModal visible={whatsNewOpen} onClose={() => setWhatsNewOpen(false)} />
 
         {/* Notifications is available to kid/caregiver code sessions too — each device owns its
             alert preferences; only Emergency Text Alerts renders locked to the owner's setting. */}

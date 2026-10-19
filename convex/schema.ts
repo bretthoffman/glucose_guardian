@@ -759,6 +759,40 @@ const careInsulinLogs = defineTable({
   .index("by_patient_time", ["patientUserId", "timestamp"])
   .index("by_patient_client", ["patientUserId", "clientId"]);
 
+/**
+ * Finger sticks (blood-glucose meter checks) in the Care Circle shared log bucket. Same authorship and
+ * idempotency model as careFoodLogs/careInsulinLogs (`clientId` is the device-generated entry id).
+ * `cgm*` is the CGM reading the logging device matched to this moment, stored as it was seen so the
+ * comparison never shifts if CGM history is later re-synced. Read-only context for the user: these
+ * values are never an input to dose math.
+ */
+const careFingerSticks = defineTable({
+  patientUserId: v.id("users"),
+  authorUserId: v.optional(v.id("users")),
+  authorCode: v.optional(v.string()),
+  authorName: v.string(),
+  clientId: v.string(),
+  timestamp: v.string(),
+  /** Meter reading, mg/dL. */
+  glucose: v.number(),
+  cgmGlucose: v.optional(v.number()),
+  cgmTimestamp: v.optional(v.string()),
+  cgmTrend: v.optional(v.string()),
+  reason: v.optional(
+    v.union(
+      v.literal("seemed_off"),
+      v.literal("symptoms"),
+      v.literal("before_dosing"),
+      v.literal("new_sensor"),
+      v.literal("routine"),
+    ),
+  ),
+  note: v.optional(v.string()),
+  createdAt: v.number(),
+})
+  .index("by_patient_time", ["patientUserId", "timestamp"])
+  .index("by_patient_client", ["patientUserId", "clientId"]);
+
 // ─── Care Circle direct messaging ────────────────────────────────────────────────────────────
 // In-app messaging between ANY two participants of one patient's circle: guardian (owner or
 // co-guardian) ↔ access code (kid/caregiver), code ↔ code, and guardian ↔ guardian (co-guardians).
@@ -878,6 +912,7 @@ export default defineSchema({
   caregiverLinks,
   careFoodLogs,
   careInsulinLogs,
+  careFingerSticks,
   careMessages,
   pushTokens,
   pushAlertState,
