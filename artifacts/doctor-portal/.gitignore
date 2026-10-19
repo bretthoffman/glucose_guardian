@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+.vercel/
+lib/api-client-react/dist/
+lib/api-client-react/tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# This repo has no Convex backend — it lives in the glucose_guardian project.
+# Ignore any stray Convex codegen so it can't be committed here by accident.
+convex/
+
+# Claude Code machine-local settings (keep launch.json shareable)
+.claude/settings.local.json

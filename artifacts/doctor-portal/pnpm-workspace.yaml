@@ -1,0 +1,6 @@
+packages:
+  - .
+  - lib/api-client-react
+allowBuilds:
+  '@clerk/shared': false
+  esbuild: false

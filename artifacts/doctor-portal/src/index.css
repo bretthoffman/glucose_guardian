@@ -1,0 +1,200 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');
+@import "tailwindcss";
+
+/* `dark:` utilities follow the `.dark` class on <html> (set by public/theme-init.js + src/lib/theme.tsx). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+  --font-display: 'Outfit', sans-serif;
+
+  /* Colors resolve through the raw tokens below (:root = light, .dark = dark). */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-xl: 1rem;
+  --radius-lg: 0.75rem;
+  --radius-md: 0.5rem;
+  --radius-sm: 0.25rem;
+
+  /* `animate-fade-in`: tab switches, and live values (e.g. a new CGM reading) as they update. */
+  --animate-fade-in: fade-in 0.45s ease-out;
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(3px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+:root {
+  color-scheme: light;
+
+  /* Light: clean clinical palette (slate neutrals, white cards). */
+  --background: hsl(210 40% 98%); /* #F8FAFC slate-50 */
+  --foreground: hsl(222 47% 11%); /* #0F172A slate-900 */
+
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(222 47% 11%);
+
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(222 47% 11%);
+
+  --primary: hsl(221 83% 53%); /* #2563EB blue-600 (AA on white) */
+  --primary-foreground: hsl(0 0% 100%);
+
+  --secondary: hsl(210 40% 94%); /* between slate-100/200 */
+  --secondary-foreground: hsl(222 47% 11%);
+
+  --muted: hsl(210 40% 96%); /* #F1F5F9 slate-100 */
+  --muted-foreground: hsl(215 19% 38%); /* ~#4F5D73, AA on white & slate-50 */
+
+  --accent: hsl(192 91% 36%); /* #0891B2 cyan-600 */
+  --accent-foreground: hsl(0 0% 100%);
+
+  --destructive: hsl(0 72% 51%); /* #DC2626 red-600 */
+  --destructive-foreground: hsl(0 0% 100%);
+
+  --success: hsl(161 94% 30%); /* #059669 emerald-600 */
+  --success-foreground: hsl(0 0% 100%);
+
+  --warning: hsl(32 95% 44%); /* #D97706 amber-600 */
+  --warning-foreground: hsl(0 0% 100%);
+
+  --border: hsl(214 32% 89%); /* ~slate-200 */
+  --input: hsl(213 27% 84%); /* slate-300 */
+  --ring: hsl(221 83% 53%);
+
+  --scrollbar-thumb: hsl(213 27% 80%);
+  --chart-avg: hsl(213 94% 68%); /* average-glucose dashed line (blue-400) */
+  --bg-glow-a: hsla(221, 83%, 53%, 0.04);
+  --bg-glow-b: hsla(192, 91%, 36%, 0.04);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Dark: the portal's original palette (unchanged). */
+  --background: hsl(222 47% 11%); /* #0F172A */
+  --foreground: hsl(210 40% 98%); /* #F1F5F9 */
+
+  --card: hsl(217 33% 17%); /* #1E293B */
+  --card-foreground: hsl(210 40% 98%);
+
+  --popover: hsl(217 33% 17%);
+  --popover-foreground: hsl(210 40% 98%);
+
+  --primary: hsl(217 91% 60%); /* #3B82F6 */
+  --primary-foreground: hsl(0 0% 100%);
+
+  --secondary: hsl(215 25% 27%); /* #334155 */
+  --secondary-foreground: hsl(210 40% 98%);
+
+  --muted: hsl(217 33% 17%);
+  --muted-foreground: hsl(215 16% 65%); /* #94A3B8 */
+
+  --accent: hsl(190 95% 39%); /* #06B6D4 */
+  --accent-foreground: hsl(0 0% 100%);
+
+  --destructive: hsl(0 84% 60%); /* #EF4444 */
+  --destructive-foreground: hsl(0 0% 100%);
+
+  --success: hsl(160 84% 39%); /* #10B981 */
+  --success-foreground: hsl(0 0% 100%);
+
+  --warning: hsl(38 92% 50%); /* #F59E0B */
+  --warning-foreground: hsl(0 0% 100%);
+
+  --border: hsl(215 25% 27%); /* #334155 */
+  --input: hsl(215 25% 27%);
+  --ring: hsl(217 91% 60%);
+
+  --scrollbar-thumb: hsl(215 25% 27%);
+  --chart-avg: #93C5FD; /* blue-300 */
+  --bg-glow-a: hsla(217, 91%, 60%, 0.05);
+  --bg-glow-b: hsla(190, 95%, 39%, 0.05);
+}
+
+@layer base {
+  /* Tailwind v4 defaults a bare `border` to currentColor (v3 used gray-200); shadcn components
+     expect the theme border color. */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-border, currentColor);
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    /* Subtle background texture for depth */
+    background-image: 
+      radial-gradient(at 0% 0%, var(--bg-glow-a) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, var(--bg-glow-b) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tight;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-card/80 backdrop-blur-xl border border-border/50 shadow-lg shadow-slate-900/5 dark:shadow-xl dark:shadow-black/20;
+  }
+  
+  .nav-link {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-200;
+  }
+  
+  .nav-link-active {
+    @apply bg-primary/15 text-primary border border-primary/20 shadow-inner;
+  }
+  
+  .nav-link-inactive {
+    @apply text-muted-foreground hover:bg-secondary hover:text-foreground;
+  }
+  
+  /* Custom scrollbar (theme-aware) */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full border-2 border-background;
+    background-color: var(--scrollbar-thumb);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground;
+  }
+}
