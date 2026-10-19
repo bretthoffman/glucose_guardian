@@ -1,5 +1,9 @@
 packages:
   - artifacts/*
+  # The doctor portal is a SELF-CONTAINED pnpm project (its own lockfile + workspace file) merged in
+  # from its old repo — excluded here so the outer workspace never manages its dependencies. Install
+  # and build it from inside artifacts/doctor-portal; its Vercel project uses that as its root.
+  - '!artifacts/doctor-portal'
   - lib/*
   - lib/integrations/*
   - scripts
