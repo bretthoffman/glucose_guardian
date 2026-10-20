@@ -19,6 +19,7 @@ import { careAccessAllowed, type CareAccess } from "./careSchedule";
 const FOOD_CAP = 200;
 const INSULIN_CAP = 500;
 const FINGER_STICK_CAP = 300;
+const PEN_CAP = 200;
 
 const foodEntryPayload = v.object({
   clientId: v.string(),
@@ -66,6 +67,49 @@ const fingerStickEntryPayload = v.object({
   reason: v.optional(fingerStickReason),
   note: v.optional(v.string()),
 });
+
+const penEndReason = v.union(
+  v.literal("used_up"),
+  v.literal("lost"),
+  v.literal("damaged"),
+  v.literal("temperature"),
+  v.literal("reached_limit"),
+  v.literal("other"),
+);
+
+/** An insulin pen in use (or ended). The whole pen is sent on every save — it is small and editable. */
+const penPayload = v.object({
+  clientId: v.string(),
+  insulinLabel: v.string(),
+  name: v.optional(v.string()),
+  openedOn: v.string(),
+  goodForDays: v.number(),
+  endedOn: v.optional(v.string()),
+  endReason: v.optional(penEndReason),
+});
+
+const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Shape checks so a typo can't store a pen that breaks every device's countdown. */
+function cleanPen(p: typeof penPayload.type): typeof penPayload.type {
+  if (!LOCAL_DATE.test(p.openedOn)) throw new ConvexError("Opened date must be YYYY-MM-DD");
+  if (p.endedOn != null && !LOCAL_DATE.test(p.endedOn)) throw new ConvexError("End date must be YYYY-MM-DD");
+  if (!Number.isInteger(p.goodForDays) || p.goodForDays < 1 || p.goodForDays > 120) {
+    throw new ConvexError("A pen is good for 1 to 120 days");
+  }
+  const insulinLabel = p.insulinLabel.trim().slice(0, 80);
+  if (!insulinLabel) throw new ConvexError("Pick an insulin");
+  const name = p.name?.trim().slice(0, 30);
+  return {
+    clientId: p.clientId,
+    insulinLabel,
+    ...(name ? { name } : {}),
+    openedOn: p.openedOn,
+    goodForDays: p.goodForDays,
+    ...(p.endedOn ? { endedOn: p.endedOn } : {}),
+    ...(p.endReason ? { endReason: p.endReason } : {}),
+  };
+}
 
 /** Meter range check: anything outside this is a typo, not a reading (most meters read 20–600). */
 function assertMeterValue(glucose: number) {
@@ -248,6 +292,18 @@ async function pruneFingerSticks(ctx: MutationCtx, patientUserId: Id<"users">) {
   for (const row of rows.slice(FINGER_STICK_CAP)) await ctx.db.delete(row._id);
 }
 
+async function prunePens(ctx: MutationCtx, patientUserId: Id<"users">) {
+  const rows = await ctx.db
+    .query("carePens")
+    .withIndex("by_patient_opened", (q) => q.eq("patientUserId", patientUserId))
+    .order("desc")
+    .collect();
+  // Only ENDED pens are ever pruned — an open pen is never dropped, however old.
+  const ended = rows.filter((r) => r.endedOn != null);
+  const keepEnded = Math.max(0, PEN_CAP - (rows.length - ended.length));
+  for (const row of ended.slice(keepEnded)) await ctx.db.delete(row._id);
+}
+
 // ─── insert helpers (idempotent on clientId) ─────────────────────────────────────────────────
 
 async function upsertFood(
@@ -357,6 +413,46 @@ async function upsertFingerStick(
     ...entry,
   });
   await pruneFingerSticks(ctx, patientUserId);
+}
+
+/**
+ * Pens are saved whole: a new clientId inserts, a known one is updated in place (edit / end). The
+ * byline stays the person who started the pen. No circle push — reminders are local to each device.
+ */
+async function savePenRow(
+  ctx: MutationCtx,
+  patientUserId: Id<"users">,
+  auth: WriteAuth,
+  pen: typeof penPayload.type,
+) {
+  const clean = cleanPen(pen);
+  const existing = await ctx.db
+    .query("carePens")
+    .withIndex("by_patient_client", (q) => q.eq("patientUserId", patientUserId).eq("clientId", clean.clientId))
+    .first();
+  const now = Date.now();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      insulinLabel: clean.insulinLabel,
+      name: clean.name,
+      openedOn: clean.openedOn,
+      goodForDays: clean.goodForDays,
+      endedOn: clean.endedOn,
+      endReason: clean.endReason,
+      updatedAt: now,
+    });
+    return;
+  }
+  await ctx.db.insert("carePens", {
+    patientUserId,
+    ...(auth.authorUserId ? { authorUserId: auth.authorUserId } : {}),
+    ...(auth.authorCode ? { authorCode: auth.authorCode } : {}),
+    authorName: auth.authorName,
+    createdAt: now,
+    updatedAt: now,
+    ...clean,
+  });
+  await prunePens(ctx, patientUserId);
 }
 
 /**
@@ -474,9 +570,38 @@ export async function copyBucketLogs(
     });
   }
 
+  const pens = await ctx.db
+    .query("carePens")
+    .withIndex("by_patient_opened", (q) => q.eq("patientUserId", fromPatientUserId))
+    .order("desc")
+    .take(PEN_CAP);
+  for (const row of pens) {
+    const existing = await ctx.db
+      .query("carePens")
+      .withIndex("by_patient_client", (q) => q.eq("patientUserId", toPatientUserId).eq("clientId", row.clientId))
+      .first();
+    if (existing) continue;
+    const auth = bylineFor(row);
+    await ctx.db.insert("carePens", {
+      patientUserId: toPatientUserId,
+      ...(auth.authorUserId ? { authorUserId: auth.authorUserId } : {}),
+      authorName: auth.authorName,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      clientId: row.clientId,
+      insulinLabel: row.insulinLabel,
+      ...(row.name != null ? { name: row.name } : {}),
+      openedOn: row.openedOn,
+      goodForDays: row.goodForDays,
+      ...(row.endedOn != null ? { endedOn: row.endedOn } : {}),
+      ...(row.endReason != null ? { endReason: row.endReason } : {}),
+    });
+  }
+
   await pruneFood(ctx, toPatientUserId);
   await pruneInsulin(ctx, toPatientUserId);
   await pruneFingerSticks(ctx, toPatientUserId);
+  await prunePens(ctx, toPatientUserId);
 }
 
 // ─── account-authorized mutations (patient + co-guardians) ───────────────────────────────────
@@ -528,6 +653,22 @@ export const addFingerStick = mutation({
     const auth = await resolveAccountWriteAuth(ctx, user._id, patientUserId);
     if (!auth) throw new ConvexError("Not allowed to log for this patient");
     await upsertFingerStick(ctx, patientUserId, auth, args.entry);
+  },
+});
+
+export const savePen = mutation({
+  args: {
+    ...legacyAuthArgs,
+    patientUserId: v.id("users"),
+    pen: penPayload,
+  },
+  handler: async (ctx, args) => {
+    const user = await requireUserCompat(ctx, args);
+    const patientUserId =
+      args.patientUserId === user._id ? await circleBucketFor(ctx, user._id) : args.patientUserId;
+    const auth = await resolveAccountWriteAuth(ctx, user._id, patientUserId);
+    if (!auth) throw new ConvexError("Not allowed to log for this patient");
+    await savePenRow(ctx, patientUserId, auth, args.pen);
   },
 });
 
@@ -652,6 +793,22 @@ export const addFingerStickViaCode = mutation({
   },
 });
 
+export const savePenViaCode = mutation({
+  args: {
+    code: v.string(),
+    pen: penPayload,
+    authorUserId: v.optional(v.id("users")),
+    passwordHash: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const row = await resolveActiveAccessCode(ctx, args.code);
+    if (!row || !row.permissions.log) throw new ConvexError("This code cannot add logs");
+    if (!careAccessAllowed(row.access as CareAccess, Date.now())) throw new ConvexError("Outside this code's schedule");
+    const auth = await viaCodeWriteAuth(ctx, row, args.authorUserId, args.passwordHash);
+    await savePenRow(ctx, row.patientUserId, auth, args.pen);
+  },
+});
+
 // ─── reads ───────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -759,8 +916,33 @@ function mapFingerStick(
   };
 }
 
+function mapPen(
+  row: {
+    clientId: string; insulinLabel: string; name?: string; openedOn: string; goodForDays: number;
+    endedOn?: string; endReason?: typeof penEndReason.type; createdAt: number;
+    authorUserId?: string; authorCode?: string; authorName: string;
+  },
+  liveNames: Map<string, string>,
+  liveCodeNames?: Map<string, string>,
+) {
+  return {
+    id: row.clientId,
+    // `timestamp` = when the pen was started; lets the shared merge helpers order pens like logs.
+    timestamp: new Date(row.createdAt).toISOString(),
+    insulinLabel: row.insulinLabel,
+    name: row.name,
+    openedOn: row.openedOn,
+    goodForDays: row.goodForDays,
+    endedOn: row.endedOn,
+    endReason: row.endReason,
+    authorUserId: row.authorUserId,
+    authorName: bylineFor(row, liveNames, liveCodeNames),
+    authorCode: row.authorCode,
+  };
+}
+
 async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
-  const [food, insulin, sticks] = await Promise.all([
+  const [food, insulin, sticks, pens] = await Promise.all([
     ctx.db
       .query("careFoodLogs")
       .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
@@ -776,6 +958,11 @@ async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
       .withIndex("by_patient_time", (q) => q.eq("patientUserId", patientUserId))
       .order("desc")
       .take(FINGER_STICK_CAP),
+    ctx.db
+      .query("carePens")
+      .withIndex("by_patient_opened", (q) => q.eq("patientUserId", patientUserId))
+      .order("desc")
+      .take(PEN_CAP),
   ]);
   // Re-derive each account-author's CURRENT guardian name once (a circle has ≤4 guardians, so this
   // is a handful of lookups regardless of log count). This makes bylines always show the guardian's
@@ -785,6 +972,7 @@ async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
   for (const r of food) if (r.authorUserId) authorIds.add(r.authorUserId);
   for (const r of insulin) if (r.authorUserId) authorIds.add(r.authorUserId);
   for (const r of sticks) if (r.authorUserId) authorIds.add(r.authorUserId);
+  for (const r of pens) if (r.authorUserId) authorIds.add(r.authorUserId);
   const liveNames = new Map<string, string>();
   for (const id of authorIds) {
     liveNames.set(id, await guardianDisplayName(ctx, id as Id<"users">));
@@ -795,6 +983,7 @@ async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
   for (const r of food) if (r.authorCode) authorCodes.add(r.authorCode);
   for (const r of insulin) if (r.authorCode) authorCodes.add(r.authorCode);
   for (const r of sticks) if (r.authorCode) authorCodes.add(r.authorCode);
+  for (const r of pens) if (r.authorCode) authorCodes.add(r.authorCode);
   const liveCodeNames = new Map<string, string>();
   for (const code of authorCodes) {
     const row = await ctx.db
@@ -813,6 +1002,7 @@ async function readLogs(ctx: QueryCtx, patientUserId: Id<"users">) {
     foodLog: food.map((r) => mapFood(r, liveNames, liveCodeNames)),
     insulinLog: insulin.map((r) => mapInsulin(r, liveNames, liveCodeNames)),
     fingerStickLog: sticks.map((r) => mapFingerStick(r, liveNames, liveCodeNames)),
+    penLog: pens.map((r) => mapPen(r, liveNames, liveCodeNames)),
   };
 }
 
@@ -828,7 +1018,7 @@ export const listLogs = query({
     const patientUserId =
       args.patientUserId === user._id ? await circleBucketFor(ctx, user._id) : args.patientUserId;
     if (!(await resolveAccountReadAuth(ctx, user._id, patientUserId))) {
-      if (patientUserId !== args.patientUserId) return { foodLog: [], insulinLog: [], fingerStickLog: [] };
+      if (patientUserId !== args.patientUserId) return { foodLog: [], insulinLog: [], fingerStickLog: [], penLog: [] };
       return null;
     }
     return await readLogs(ctx, patientUserId);
@@ -1002,6 +1192,33 @@ export const deleteFingerStickViaCode = mutation({
   handler: async (ctx, args) => {
     const patientUserId = await codeEntryAuth(ctx, args.code);
     const row = await findFingerStickRow(ctx, patientUserId, args.clientId);
+    if (row) await ctx.db.delete(row._id);
+  },
+});
+
+async function findPenRow(ctx: MutationCtx, patientUserId: Id<"users">, clientId: string) {
+  return await ctx.db
+    .query("carePens")
+    .withIndex("by_patient_client", (q) => q.eq("patientUserId", patientUserId).eq("clientId", clientId))
+    .first();
+}
+
+/** "Delete, added by mistake" — the row goes away entirely (an ENDED pen stays for History). */
+export const deletePen = mutation({
+  args: { ...legacyAuthArgs, patientUserId: v.id("users"), clientId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireUserCompat(ctx, args);
+    const patientUserId = await accountEntryAuth(ctx, user._id, args.patientUserId);
+    const row = await findPenRow(ctx, patientUserId, args.clientId);
+    if (row) await ctx.db.delete(row._id);
+  },
+});
+
+export const deletePenViaCode = mutation({
+  args: { code: v.string(), clientId: v.string() },
+  handler: async (ctx, args) => {
+    const patientUserId = await codeEntryAuth(ctx, args.code);
+    const row = await findPenRow(ctx, patientUserId, args.clientId);
     if (row) await ctx.db.delete(row._id);
   },
 });

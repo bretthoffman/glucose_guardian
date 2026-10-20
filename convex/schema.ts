@@ -799,6 +799,41 @@ const careFingerSticks = defineTable({
   .index("by_patient_time", ["patientUserId", "timestamp"])
   .index("by_patient_client", ["patientUserId", "clientId"]);
 
+/**
+ * Insulin pens in use (Insulin page → Pens). One row per pen: which insulin, an optional name
+ * ("Home", "School"), the local calendar date it was opened, and how many days it's good for once
+ * opened (prefilled from the label, editable). Ending a pen keeps the row for History. Shared in the
+ * circle bucket like the logs; `clientId` is the device id and the edit/delete key.
+ */
+const carePens = defineTable({
+  patientUserId: v.id("users"),
+  authorUserId: v.optional(v.id("users")),
+  authorCode: v.optional(v.string()),
+  authorName: v.string(),
+  clientId: v.string(),
+  /** Insulin chip label, e.g. "Humalog · 100 u/mL" (same labels as Insulin Settings). */
+  insulinLabel: v.string(),
+  name: v.optional(v.string()),
+  /** Local calendar date, YYYY-MM-DD. */
+  openedOn: v.string(),
+  goodForDays: v.number(),
+  endedOn: v.optional(v.string()),
+  endReason: v.optional(
+    v.union(
+      v.literal("used_up"),
+      v.literal("lost"),
+      v.literal("damaged"),
+      v.literal("temperature"),
+      v.literal("reached_limit"),
+      v.literal("other"),
+    ),
+  ),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index("by_patient_opened", ["patientUserId", "openedOn"])
+  .index("by_patient_client", ["patientUserId", "clientId"]);
+
 // ─── Care Circle direct messaging ────────────────────────────────────────────────────────────
 // In-app messaging between ANY two participants of one patient's circle: guardian (owner or
 // co-guardian) ↔ access code (kid/caregiver), code ↔ code, and guardian ↔ guardian (co-guardians).
@@ -919,6 +954,7 @@ export default defineSchema({
   careFoodLogs,
   careInsulinLogs,
   careFingerSticks,
+  carePens,
   careMessages,
   pushTokens,
   pushAlertState,

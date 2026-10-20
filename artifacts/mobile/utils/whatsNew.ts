@@ -34,3 +34,29 @@ export function formatNoteDate(date: string, now: Date = new Date()): string {
   const label = `${MONTHS[mo - 1] ?? ""} ${d}`;
   return y === now.getFullYear() ? label : `${label}, ${y}`;
 }
+
+/**
+ * The notes this device hasn't seen, newest first: everything newer than `lastSeenId` (so someone
+ * who skipped two updates sees both), or just the newest when nothing was ever seen.
+ */
+export function unseenNotes<T extends NoteLike>(notes: T[], lastSeenId: string | null): T[] {
+  if (notes.length === 0) return [];
+  if (lastSeenId == null) return [notes[0]!];
+  const i = notes.findIndex((n) => n.id === lastSeenId);
+  return i < 0 ? [] : notes.slice(0, i);
+}
+
+/** Several unseen notes as one sheet: newest date, items in order with repeated titles dropped. */
+export function combineNotes<I extends { title: string }, T extends NoteLike & { items: I[] }>(notes: T[]): T | null {
+  if (notes.length === 0) return null;
+  const seen = new Set<string>();
+  const items: I[] = [];
+  for (const n of notes) {
+    for (const it of n.items) {
+      if (seen.has(it.title)) continue;
+      seen.add(it.title);
+      items.push(it);
+    }
+  }
+  return { ...notes[0]!, items };
+}

@@ -8,7 +8,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, InputAccessoryView, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { InputAccessoryView, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Colors, { COLORS } from "@/constants/colors";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
@@ -36,7 +36,8 @@ import {
 import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import { getEffectiveTrend } from "@/utils/trend";
 import { AccentShade, CardShade } from "@/components/Shade";
-import { findRecentFastActing, STACKING_WINDOW_MS, stackingWarning } from "@/utils/insulinStacking";
+import { findRecentFastActing } from "@/utils/insulinStacking";
+import { useStackingGuard } from "@/components/StackingWarningModal";
 
 interface Props {
   visible: boolean;
@@ -74,6 +75,7 @@ export default function FoodInsulinModal({
   const { targetGlucose, carbRatio, correctionFactor, doseSettingsByTime, history } = useGlucose();
   const { profile, insulinLog, foodLog, logInsulinDose, isMinor } = useAuth();
   const confirmLog = useCareLogConfirm();
+  const { askStacking, stackingModal } = useStackingGuard();
 
   const [carbInput, setCarbInput] = useState("");
   const [bgInput, setBgInput] = useState("");
@@ -236,17 +238,9 @@ export default function FoodInsulinModal({
         onLogged();
       });
       // ── Insulin-stacking guard (same rule as the main calculator): any fast-acting dose from
-      // anyone in the circle within the last 90 minutes asks before another lands on top. ──
+      // anyone in the circle within the last 2 hours asks before another lands on top. ──
       const recent = findRecentFastActing(insulinLog ?? []);
-      if (recent) {
-        const w = stackingWarning(recent);
-        Alert.alert(w.title, w.message, [
-          { text: "No", style: "cancel" },
-          { text: "Yes, log it", style: "destructive", onPress: proceed },
-        ]);
-        return;
-      }
-      proceed();
+      askStacking(recent, insulinLog ?? [], proceed);
     }, 0);
   };
 
@@ -442,6 +436,7 @@ export default function FoodInsulinModal({
           </View>
         </InputAccessoryView>
       )}
+      {stackingModal}
     </DashboardSectionModal>
   );
 }

@@ -264,6 +264,45 @@ function buildNotificationPrompt(
   }
 }
 
+/**
+ * Insulin pen reminders (utils/pens → penReminders), scheduled on THIS device for 9 AM local on each
+ * date. Replaces every pen reminder already scheduled, so calling it with the current list is always
+ * safe (an ended or edited pen's old reminders go away). Never asks for permission — if this device
+ * hasn't allowed notifications, it quietly does nothing.
+ */
+export async function syncPenReminders(
+  reminders: { key: string; date: string; title: string; body: string }[],
+  hour = 9,
+): Promise<void> {
+  if (isWeb) return;
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    for (const n of scheduled) {
+      const data = (n.content.data ?? {}) as Record<string, unknown>;
+      if (data.kind === "pen_reminder") await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    }
+    const perm = await Notifications.getPermissionsAsync();
+    if (perm.status !== "granted") return;
+    const now = Date.now();
+    for (const r of reminders) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(r.date);
+      if (!m) continue;
+      const at = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), hour, 0, 0);
+      if (at.getTime() <= now) continue;
+      await Notifications.scheduleNotificationAsync({
+        content: { title: r.title, body: r.body, data: { kind: "pen_reminder", key: r.key }, sound: true },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: at,
+          ...(Platform.OS === "android" ? { channelId: "default" } : {}),
+        },
+      });
+    }
+  } catch {
+    /* reminders are best-effort; the Pens card still shows the countdown */
+  }
+}
+
 export function handleNotificationResponse(
   response: Notifications.NotificationResponse
 ) {
@@ -291,6 +330,10 @@ export function handleNotificationResponse(
   }
   if (kind === "care_log") {
     router.push("/(tabs)");
+    return;
+  }
+  if (kind === "pen_reminder") {
+    router.push("/(tabs)/insulin");
     return;
   }
 

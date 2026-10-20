@@ -50,3 +50,25 @@ describe("RELEASE_NOTES", () => {
     expect([...dates].sort().reverse()).toEqual(dates);
   });
 });
+
+import { combineNotes, unseenNotes } from "./whatsNew";
+describe("unseenNotes / combineNotes", () => {
+  const notes = [
+    { id: "c", date: "2026-10-21", items: [{ title: "Pens" }, { title: "What's new" }] },
+    { id: "b", date: "2026-10-20", items: [{ title: "Favorites" }, { title: "What's new" }] },
+    { id: "a", date: "2026-10-19", items: [{ title: "Finger sticks" }] },
+  ];
+  it("only what came after the last one seen", () => {
+    expect(unseenNotes(notes, "b").map((n) => n.id)).toEqual(["c"]);
+    expect(unseenNotes(notes, "a").map((n) => n.id)).toEqual(["c", "b"]);
+    expect(unseenNotes(notes, "c")).toEqual([]);
+    expect(unseenNotes(notes, null).map((n) => n.id)).toEqual(["c"]);
+    expect(unseenNotes(notes, "zzz")).toEqual([]);
+  });
+  it("skipped updates become one sheet with the newest date and no repeats", () => {
+    const one = combineNotes(unseenNotes(notes, "a"));
+    expect(one?.date).toBe("2026-10-21");
+    expect(one?.items.map((i) => i.title)).toEqual(["Pens", "What's new", "Favorites"]);
+    expect(combineNotes([])).toBeNull();
+  });
+});

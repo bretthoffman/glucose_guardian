@@ -5,7 +5,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Keyboard,
   LayoutAnimation,
@@ -47,6 +46,7 @@ import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGluc
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
 import LogFingerStickModal from "@/components/LogFingerStickModal";
+import PensCard from "@/components/PensCard";
 import DosePredictionChart from "@/components/DosePredictionChart";
 import { runPrediction, type PredictionResult, type StrengthLabel } from "@/utils/predictionClient";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
@@ -63,7 +63,8 @@ import { DOSE_INSULIN_TYPE_STORAGE_KEY } from "@/constants/storage-keys";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { ScreenShade } from "@/components/Shade";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
-import { findRecentFastActing, STACKING_WINDOW_MS, stackingWarning } from "@/utils/insulinStacking";
+import { findRecentFastActing } from "@/utils/insulinStacking";
+import { useStackingGuard } from "@/components/StackingWarningModal";
 
 type ScreenTab = "predict" | "log";
 
@@ -158,6 +159,7 @@ export default function InsulinScreen() {
   const { targetGlucose, carbRatio, correctionFactor, doseSettingsByTime, history, cgmSyncSuccessTick } = useGlucose();
   const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions, messagingIdentity } = useAuth();
   const confirmLog = useCareLogConfirm();
+  const { askStacking, stackingModal } = useStackingGuard();
   // "Enter finger stick" shortcut from a "verify with a finger stick" dose warning. Informational
   // only — logging one never changes the dose shown here.
   const [fingerStickOpen, setFingerStickOpen] = useState(false);
@@ -807,18 +809,10 @@ export default function InsulinScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       });
       // ── Insulin-stacking guard: a fast-acting dose logged by ANYONE in the circle within the
-      // last 90 minutes gets a confirmation before this (fast-acting) one is logged on top of it.
+      // last 2 hours opens "Beware of insulin stacking" before this (fast-acting) one is logged.
       // Basal mode skips it — a basal dose beside a mealtime bolus is normal therapy, not stacking.
       const recent = !isBasalMode ? findRecentFastActing(insulinLogRef.current ?? []) : null;
-      if (recent) {
-        const w = stackingWarning(recent);
-        Alert.alert(w.title, w.message, [
-          { text: "No", style: "cancel" },
-          { text: "Yes, log it", style: "destructive", onPress: proceed },
-        ]);
-        return;
-      }
-      proceed();
+      askStacking(recent, insulinLogRef.current ?? [], proceed);
     }, 0);
   }, [
     commitCarb,
@@ -830,6 +824,7 @@ export default function InsulinScreen() {
     cgmSyncSuccessTick,
     triggerLogPlusOne,
     confirmLog,
+    askStacking,
   ]);
 
   function openChat(prompt: string) {
@@ -1494,6 +1489,11 @@ export default function InsulinScreen() {
           </>
         )}
 
+      {/* Insulin pen countdown — under Suggested Dose (Bolus and Basal). */}
+      {!doctorSession && (
+        <PensCard colors={colors} canEdit={canLog} insulinLabels={profile?.insulinTypes ?? []} />
+      )}
+
       {history.length === 0 && (
         <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <CardShade radius={16} />
@@ -1567,6 +1567,7 @@ export default function InsulinScreen() {
         initialReason="before_dosing"
         colors={colors}
       />
+      {stackingModal}
     </View>
   );
 }

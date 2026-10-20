@@ -11,7 +11,7 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
@@ -21,7 +21,7 @@ import { AccentShade, CardShade } from "@/components/Shade";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
-import { formatNoteDate, whatsNewAction } from "@/utils/whatsNew";
+import { combineNotes, formatNoteDate, unseenNotes, whatsNewAction } from "@/utils/whatsNew";
 
 type Palette = (typeof Colors)["light"];
 
@@ -32,14 +32,16 @@ export function WhatsNewPrompt() {
   const { isLoading, insulinLog, foodLog, fingerStickLog } = useAuth();
   const [note, setNote] = useState<ReleaseNote | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [checked, setChecked] = useState(false);
+  // Decide ONCE per launch, after the boot load. A ref (not state) on purpose: an earlier version
+  // kept this in state, so marking it re-ran the effect, whose cleanup cancelled the pending sheet —
+  // and the note had already been marked seen, so the sheet never appeared at all.
+  const decided = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasExistingData = insulinLog.length > 0 || foodLog.length > 0 || fingerStickLog.length > 0;
 
   useEffect(() => {
-    if (isLoading || checked) return;
-    setChecked(true);
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (isLoading || decided.current) return;
+    decided.current = true;
     (async () => {
       let lastSeen: string | null = null;
       try {
@@ -50,18 +52,25 @@ export function WhatsNewPrompt() {
       const latest = RELEASE_NOTES[0];
       const action = whatsNewAction(RELEASE_NOTES, lastSeen, hasExistingData);
       if (action === "none" || !latest) return;
-      AsyncStorage.setItem(WHATS_NEW_SEEN_STORAGE_KEY, latest.id).catch(() => {});
-      if (action === "show") {
-        timer = setTimeout(() => {
-          if (!cancelled) setNote(latest);
-        }, SHOW_DELAY_MS);
+      if (action === "markSeen") {
+        AsyncStorage.setItem(WHATS_NEW_SEEN_STORAGE_KEY, latest.id).catch(() => {});
+        return;
       }
+      // Only what changed since this device last looked (several skipped updates → one sheet).
+      const sheet = combineNotes(unseenNotes(RELEASE_NOTES, lastSeen));
+      if (!sheet) return;
+      timer.current = setTimeout(() => {
+        setNote(sheet);
+        // Marked seen when it actually shows, so a launch that's closed early asks again next time.
+        AsyncStorage.setItem(WHATS_NEW_SEEN_STORAGE_KEY, latest.id).catch(() => {});
+      }, SHOW_DELAY_MS);
     })();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [isLoading, checked, hasExistingData]);
+  }, [isLoading, hasExistingData]);
+
+  // Cancel only on unmount — never because a dependency changed.
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
 
   return (
     <>

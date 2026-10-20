@@ -17,6 +17,7 @@ import { FAVORITE_FOODS_STORAGE_KEY, GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTIN
 import { apiUrl } from "@/utils/api-base-url";
 import type { DoseSettingsByTime } from "@/utils/doseSettings";
 import { mergeCloudLogs } from "@/utils/careLogsMerge";
+import { mergePens, type PenEndReason } from "@/utils/pens";
 import { generateAccessCode } from "@/utils/accessCodeGen";
 import { splitSharedProfilePatch } from "@/utils/sharedProfilePatch";
 import { patchTouchesBackend, rollbackSyncedKeys } from "@/utils/alertPrefsSync";
@@ -161,6 +162,28 @@ export interface FingerStickEntry {
   cgmTrend?: string;
   reason?: FingerStickReason;
   note?: string;
+  authorUserId?: string;
+  authorName?: string;
+}
+
+/**
+ * An insulin pen in use (Insulin page → Pens): which insulin, an optional name ("Home"), the LOCAL
+ * date it was opened, and how many days it's good for once opened. Ending it keeps it for History.
+ * Countdown rules: utils/pens. Shared in the circle bucket like the logs.
+ */
+export interface PenEntry {
+  id: string;
+  /** When it was started (ISO) — orders pens alongside logs in the shared merge helpers. */
+  timestamp: string;
+  authorCode?: string;
+  /** LOCAL-ONLY sync marker — see the note on {@link InsulinLogEntry.pendingSync}. */
+  pendingSync?: boolean;
+  insulinLabel: string;
+  name?: string;
+  openedOn: string;
+  goodForDays: number;
+  endedOn?: string;
+  endReason?: PenEndReason;
   authorUserId?: string;
   authorName?: string;
 }
@@ -359,6 +382,12 @@ export interface AuthContextType {
   fingerStickLog: FingerStickEntry[];
   logFingerStick: (entry: Omit<FingerStickEntry, "id">) => void;
   deleteFingerStickEntry: (id: string) => void;
+  /** Insulin pens (open and ended) for the displayed patient. */
+  penLog: PenEntry[];
+  /** Start, edit or end a pen — the whole pen is saved (new id → new pen). */
+  savePen: (pen: Omit<PenEntry, "timestamp" | "authorUserId" | "authorName" | "authorCode" | "pendingSync"> & { timestamp?: string }) => void;
+  /** "Delete, added by mistake". */
+  deletePen: (id: string) => void;
   logout: () => Promise<void>;
   signOut: () => Promise<void>;
   /**
@@ -467,6 +496,7 @@ const CGM_KEY = "@gluco_guardian_cgm";
 const FOOD_LOG_KEY = "@gluco_guardian_food_log";
 const INSULIN_LOG_KEY = "@gluco_guardian_insulin_log";
 const FINGER_STICK_LOG_KEY = "@gluco_guardian_finger_stick_log";
+const PEN_LOG_KEY = "@gluco_guardian_pen_log";
 /** Per-account marker (suffixed with the Convex userId) so local→cloud log migration runs once. */
 const LOGS_MIGRATED_KEY_PREFIX = "@gluco_guardian_logs_migrated_";
 const EMERGENCY_CONTACTS_KEY = "@gluco_guardian_emergency_contacts";
@@ -598,6 +628,23 @@ function toFingerStickPayload(e: FingerStickEntry) {
     ...(e.reason != null ? { reason: e.reason } : {}),
     ...(e.note != null && e.note.trim() !== "" ? { note: e.note.trim() } : {}),
   };
+}
+
+function toPenPayload(p: PenEntry) {
+  return {
+    clientId: p.id,
+    insulinLabel: p.insulinLabel,
+    ...(p.name && p.name.trim() ? { name: p.name.trim() } : {}),
+    openedOn: p.openedOn,
+    goodForDays: p.goodForDays,
+    ...(p.endedOn ? { endedOn: p.endedOn } : {}),
+    ...(p.endReason ? { endReason: p.endReason } : {}),
+  };
+}
+
+/** Pens from a cloud read; a backend that predates pens has no `penLog` → null (keep local). */
+function remotePens(remote: { penLog?: unknown } | null | undefined): PenEntry[] | null {
+  return Array.isArray(remote?.penLog) ? (remote.penLog as PenEntry[]) : null;
 }
 
 /** Cloud reads from a backend that predates finger sticks have no `fingerStickLog` — treat as empty. */
@@ -798,6 +845,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [foodLog, setFoodLog] = useState<FoodLogEntry[]>([]);
   const [insulinLog, setInsulinLog] = useState<InsulinLogEntry[]>([]);
   const [fingerStickLog, setFingerStickLog] = useState<FingerStickEntry[]>([]);
+  const [penLog, setPenLog] = useState<PenEntry[]>([]);
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [alertPrefs, setAlertPrefsState] = useState<AlertPreferences>(DEFAULT_ALERT_PREFS);
   const [caregiverSession, setCaregiverSession] = useState(false);
@@ -833,6 +881,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [viewedFoodLog, setViewedFoodLog] = useState<FoodLogEntry[]>([]);
   const [viewedInsulinLog, setViewedInsulinLog] = useState<InsulinLogEntry[]>([]);
   const [viewedFingerStickLog, setViewedFingerStickLog] = useState<FingerStickEntry[]>([]);
+  const [viewedPenLog, setViewedPenLog] = useState<PenEntry[]>([]);
   /** When a Caregiver (nurse) is viewing a linked child, the access code powering it (null else). */
   const [nurseViewCode, setNurseViewCode] = useState<string | null>(null);
   /** The viewed child's shared emergency contacts, inherited read-only while a nurse views them. */
@@ -849,6 +898,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const insulinLogRef = useRef(insulinLog);
   const foodLogRef = useRef(foodLog);
   const fingerStickLogRef = useRef(fingerStickLog);
+  const penLogRef = useRef(penLog);
+  const viewedPenLogRef = useRef<PenEntry[]>([]);
   const alertPrefsRef = useRef(alertPrefs);
   const doctorMessagesRef = useRef(doctorMessages);
   const therapyProposalRef = useRef(therapyProposal);
@@ -895,6 +946,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { insulinLogRef.current = insulinLog; }, [insulinLog]);
   useEffect(() => { foodLogRef.current = foodLog; }, [foodLog]);
   useEffect(() => { fingerStickLogRef.current = fingerStickLog; }, [fingerStickLog]);
+  useEffect(() => { penLogRef.current = penLog; }, [penLog]);
+  useEffect(() => { viewedPenLogRef.current = viewedPenLog; }, [viewedPenLog]);
   useEffect(() => { alertPrefsRef.current = alertPrefs; }, [alertPrefs]);
   useEffect(() => { doctorMessagesRef.current = doctorMessages; }, [doctorMessages]);
   useEffect(() => { therapyProposalRef.current = therapyProposal; }, [therapyProposal]);
@@ -1009,6 +1062,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           FOOD_LOG_KEY,
           INSULIN_LOG_KEY,
           FINGER_STICK_LOG_KEY,
+          PEN_LOG_KEY,
           EMERGENCY_CONTACTS_KEY,
           ALERT_PREFS_KEY,
         ]);
@@ -1219,6 +1273,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } catch {
             /* ignore corrupt cache — the cloud copy repopulates it */
           }
+        }
+        try {
+          const storedPens = await AsyncStorage.getItem(PEN_LOG_KEY);
+          if (storedPens) setPenLog(JSON.parse(storedPens));
+        } catch {
+          /* ignore corrupt cache — the cloud copy repopulates it */
         }
         if (storedContacts) setEmergencyContacts(JSON.parse(storedContacts));
         if (storedAlertPrefs) setAlertPrefsState({ ...DEFAULT_ALERT_PREFS, ...JSON.parse(storedAlertPrefs) });
@@ -1435,6 +1495,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const effectiveFoodLog = isViewingLinkedPatient ? viewedFoodLog : foodLog;
   const effectiveInsulinLog = isViewingLinkedPatient ? viewedInsulinLog : insulinLog;
   const effectiveFingerStickLog = isViewingLinkedPatient ? viewedFingerStickLog : fingerStickLog;
+  const effectivePenLog = isViewingLinkedPatient ? viewedPenLog : penLog;
   const viewingPatientName = isViewingLinkedPatient ? viewedProfile.childName : null;
   /** Doctor sync + report paths must see the INHERITED profile (owner's child data + doctor code). */
   const effectiveProfileRef = useRef<UserProfile | null>(null);
@@ -1601,6 +1662,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.setItem(FINGER_STICK_LOG_KEY, JSON.stringify(next)).catch(() => {});
           return next;
         });
+        const hydratedPens = remotePens(remote);
+        if (hydratedPens) {
+          setPenLog((prev) => {
+            const next = mergePens(hydratedPens, prev);
+            AsyncStorage.setItem(PEN_LOG_KEY, JSON.stringify(next)).catch(() => {});
+            return next;
+          });
+        }
 
         // 4) Refresh this account's own profile so a co-guardian's edit to shared fields (which
         // lands on the OWNER's document) reaches the owner's device without a re-login. Skipped
@@ -1664,6 +1733,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setViewedFoodLog((prev) => mergeCloudLogs(remote.foodLog as FoodLogEntry[], prev, 200));
         setViewedInsulinLog((prev) => mergeCloudLogs(remote.insulinLog as InsulinLogEntry[], prev, 500));
         setViewedFingerStickLog((prev) => mergeCloudLogs(remoteFingerSticks(remote), prev, 300));
+        const viewedPens = remotePens(remote);
+        if (viewedPens) setViewedPenLog((prev) => mergePens(viewedPens, prev));
       } catch {
         /* offline or outside the link's schedule — keep prior view */
       }
@@ -1691,6 +1762,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setFoodLog([]);
           setInsulinLog([]);
           setFingerStickLog([]);
+          setPenLog([]);
           return;
         }
         // Merge (don't replace) so this device's own just-logged entry survives a racing poll until
@@ -1699,6 +1771,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setFoodLog((prev) => mergeCloudLogs(remote.foodLog as FoodLogEntry[], prev, 200));
         setInsulinLog((prev) => mergeCloudLogs(remote.insulinLog as InsulinLogEntry[], prev, 500));
         setFingerStickLog((prev) => mergeCloudLogs(remoteFingerSticks(remote), prev, 300));
+        const codePensFetched = remotePens(remote);
+        if (codePensFetched) setPenLog((prev) => mergePens(codePensFetched, prev));
       } catch {
         /* offline — keep prior */
       }
@@ -1808,6 +1882,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setViewedFoodLog([]);
     setViewedInsulinLog([]);
     setViewedFingerStickLog([]);
+    setViewedPenLog([]);
     setViewedEmergencyContacts([]);
     setAccessLock(null);
     setNurseViewCode(null);
@@ -1892,6 +1967,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setFoodLog([]);
     setInsulinLog([]);
     setFingerStickLog([]);
+    setPenLog([]);
     setEmergencyContacts([]);
     profileRef.current = nextProfile;
     setProfile(nextProfile);
@@ -1914,6 +1990,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       FOOD_LOG_KEY,
       INSULIN_LOG_KEY,
       FINGER_STICK_LOG_KEY,
+      PEN_LOG_KEY,
       EMERGENCY_CONTACTS_KEY,
     ]);
     if (nextProfile && !preservedCachedProfile) {
@@ -2035,6 +2112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setFoodLog([]);
     setInsulinLog([]);
     setFingerStickLog([]);
+    setPenLog([]);
     setEmergencyContacts([]);
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
     setCaregiverSession(false);
@@ -2057,6 +2135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       FOOD_LOG_KEY,
       INSULIN_LOG_KEY,
       FINGER_STICK_LOG_KEY,
+      PEN_LOG_KEY,
       EMERGENCY_CONTACTS_KEY,
       ALERT_PREFS_KEY,
       CAREGIVER_CODE_KEY,
@@ -2770,6 +2849,123 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  /**
+   * Pens use the same routing as the logs (nurse-via-code → code session → viewed patient → own
+   * circle bucket). A save sends the whole pen; a new id starts a pen, a known id edits/ends it.
+   */
+  const savePen = useCallback(
+    (input: Omit<PenEntry, "timestamp" | "authorUserId" | "authorName" | "authorCode" | "pendingSync"> & { timestamp?: string }) => {
+      const acc = accountRef.current;
+      const codeWrite = codeWriteRef.current;
+      const nurseWrite = nurseWriteRef.current;
+      const upsert = (prev: PenEntry[]): PenEntry[] => {
+        const existing = prev.find((p) => p.id === input.id);
+        const next: PenEntry = existing
+          ? { ...existing, ...input, timestamp: existing.timestamp, pendingSync: true }
+          : {
+              ...input,
+              timestamp: input.timestamp ?? new Date().toISOString(),
+              pendingSync: true,
+              ...(acc?.convexUserId ? { authorUserId: acc.convexUserId } : {}),
+              ...(codeWrite && !nurseWrite ? { authorCode: codeWrite.code } : {}),
+              authorName: deriveOwnAuthorName(profileRef.current, acc),
+            };
+        // Optional fields cleared by the edit must really go (e.g. a removed name).
+        if (!input.name) delete next.name;
+        if (!input.endedOn) { delete next.endedOn; delete next.endReason; }
+        return existing ? prev.map((p) => (p.id === input.id ? next : p)) : [next, ...prev];
+      };
+      // Computed from the refs (not inside a state updater) so the payload exists before the send.
+      const send = (
+        list: React.MutableRefObject<PenEntry[]>,
+        setList: React.Dispatch<React.SetStateAction<PenEntry[]>>,
+        storageKey: string | null,
+      ) => {
+        const next = upsert(list.current);
+        list.current = next;
+        setList(next);
+        if (storageKey) AsyncStorage.setItem(storageKey, JSON.stringify(next)).catch(() => {});
+        const p = next.find((x) => x.id === input.id);
+        return p ? toPenPayload(p) : null;
+      };
+      if (nurseWrite && acc?.convexUserId) {
+        if (!nurseWrite.canLog) return;
+        const payload = send(viewedPenLogRef, setViewedPenLog, null);
+        if (!payload) return;
+        createConvexAuthClient()
+          .mutation(api.careLogs.savePenViaCode, { code: nurseWrite.code, pen: payload, authorUserId: acc.convexUserId as Id<"users">, passwordHash: acc.passwordHash })
+          .then(() => clearPendingMarker(setViewedPenLog, input.id, null))
+          .catch(() => {});
+        return;
+      }
+      if (codeWrite) {
+        if (!codeWrite.canLog) return;
+        const payload = send(penLogRef, setPenLog, null);
+        if (!payload) return;
+        createConvexAuthClient()
+          .mutation(api.careLogs.savePenViaCode, { code: codeWrite.code, pen: payload })
+          .then(() => clearPendingMarker(setPenLog, input.id, null))
+          .catch(() => {});
+        return;
+      }
+      const viewing = viewingPatientIdRef.current;
+      const targetPatientId = viewing ?? circleAnchorRef.current ?? acc?.convexUserId ?? null;
+      const payload = viewing ? send(viewedPenLogRef, setViewedPenLog, null) : send(penLogRef, setPenLog, PEN_LOG_KEY);
+      if (!payload || !acc?.convexUserId || !targetPatientId) return;
+      createConvexAuthClient()
+        .mutation(api.careLogs.savePen, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          patientUserId: targetPatientId as Id<"users">,
+          pen: payload,
+        })
+        .then(() =>
+          viewing ? clearPendingMarker(setViewedPenLog, input.id, null) : clearPendingMarker(setPenLog, input.id, PEN_LOG_KEY),
+        )
+        .catch(() => {});
+    },
+    [],
+  );
+
+  const deletePen = useCallback((id: string) => {
+    const acc = accountRef.current;
+    const nurseWrite = nurseWriteRef.current;
+    const codeWrite = codeWriteRef.current;
+    const drop = (prev: PenEntry[]) => prev.filter((p) => p.id !== id);
+    if (nurseWrite && acc?.convexUserId) {
+      if (!nurseWrite.canLog) return;
+      setViewedPenLog(drop);
+      createConvexAuthClient().mutation(api.careLogs.deletePenViaCode, { code: nurseWrite.code, clientId: id }).catch(() => {});
+      return;
+    }
+    if (codeWrite) {
+      if (!codeWrite.canLog) return;
+      setPenLog(drop);
+      createConvexAuthClient().mutation(api.careLogs.deletePenViaCode, { code: codeWrite.code, clientId: id }).catch(() => {});
+      return;
+    }
+    const targetPatientId = viewingPatientIdRef.current ?? circleAnchorRef.current ?? acc?.convexUserId ?? null;
+    if (viewingPatientIdRef.current) {
+      setViewedPenLog(drop);
+    } else {
+      setPenLog((prev) => {
+        const next = drop(prev);
+        AsyncStorage.setItem(PEN_LOG_KEY, JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+    }
+    if (acc?.convexUserId && targetPatientId) {
+      createConvexAuthClient()
+        .mutation(api.careLogs.deletePen, {
+          userId: acc.convexUserId as Id<"users">,
+          passwordHash: acc.passwordHash,
+          patientUserId: targetPatientId as Id<"users">,
+          clientId: id,
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     await clerkSignOut().catch(() => {});
     clearSessionOverlay();
@@ -2781,6 +2977,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setFoodLog([]);
     setInsulinLog([]);
     setFingerStickLog([]);
+    setPenLog([]);
     setEmergencyContacts([]);
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
     setIsSignedIn(false);
@@ -2797,6 +2994,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setViewedFoodLog([]);
     setViewedInsulinLog([]);
     setViewedFingerStickLog([]);
+    setViewedPenLog([]);
     // The doctor thread and any pending dose proposal are CLINICAL content belonging to the account
     // that just left. They were previously the only state with no clearing path at all, so the next
     // person on the phone was shown the previous guardian's conversation with their doctor — and
@@ -2812,6 +3010,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       FOOD_LOG_KEY,
       INSULIN_LOG_KEY,
       FINGER_STICK_LOG_KEY,
+      PEN_LOG_KEY,
       EMERGENCY_CONTACTS_KEY,
       ALERT_PREFS_KEY,
       SESSION_KEY,
@@ -3194,6 +3393,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setFoodLog([]);
     setInsulinLog([]);
     setFingerStickLog([]);
+    setPenLog([]);
     // Drop the owner's borrowed thresholds so they can't bleed into the next (real-account) sign-in.
     setAlertPrefsState(DEFAULT_ALERT_PREFS);
     // Manual caregiver/child sign-out — forget the persisted access code so it won't auto-restore.
@@ -3207,6 +3407,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         FOOD_LOG_KEY,
         INSULIN_LOG_KEY,
         FINGER_STICK_LOG_KEY,
+        PEN_LOG_KEY,
         EMERGENCY_CONTACTS_KEY,
         ALERT_PREFS_KEY,
       ]);
@@ -3351,6 +3552,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setViewedFoodLog([]);
       setViewedInsulinLog([]);
       setViewedFingerStickLog([]);
+      setViewedPenLog([]);
       setViewedProfile(nextProfile);
       setViewingPatientId(patientUserId);
       return true;
@@ -3408,6 +3610,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setViewedFoodLog([]);
         setViewedInsulinLog([]);
         setViewedFingerStickLog([]);
+        setViewedPenLog([]);
         setViewedProfile(nextProfile);
         // Inherit THIS child's alert thresholds (in-memory only — never persisted to the nurse's
         // account). Keep the nurse's own notification toggles; only the 4 thresholds are borrowed.
@@ -3441,6 +3644,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setViewedFoodLog([]);
     setViewedInsulinLog([]);
     setViewedFingerStickLog([]);
+    setViewedPenLog([]);
     setAccessLock(null);
     // Nurse kid-view teardown: clear the code + its borrowed permissions/settings so the menu resets.
     if (nurseViewCodeRef.current) {
@@ -3686,6 +3890,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.setItem(FINGER_STICK_LOG_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
+    const livePens = remotePens(liveLogs);
+    if (livePens) {
+      setPenLog((prev) => {
+        const next = mergePens(livePens, prev);
+        AsyncStorage.setItem(PEN_LOG_KEY, JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+    }
 
     // RETRY unsynced writes. A fresh cloud snapshot that still doesn't contain a `pendingSync` entry
     // proves that entry never landed — the mutation died with the app before the in-memory queue
@@ -3742,6 +3954,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .catch(() => {});
       }
     }
+    // Pens: a save still pending (new, edited or ended) is re-sent whole — saving is idempotent.
+    if (livePens) {
+      for (const p of penLogRef.current) {
+        if (!p.pendingSync) continue;
+        client
+          .mutation(api.careLogs.savePen, {
+            userId: acc.convexUserId as Id<"users">,
+            passwordHash: acc.passwordHash,
+            patientUserId: target as Id<"users">,
+            pen: toPenPayload(p),
+          })
+          .then(() => clearPendingMarker(setPenLog, p.id, PEN_LOG_KEY))
+          .catch(() => {});
+      }
+    }
   }, [liveLogs]);
 
   // ── LIVE logs for VIEWER sessions — the same real-time treatment the owner gets above.
@@ -3766,12 +3993,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setFoodLog([]);
       setInsulinLog([]);
       setFingerStickLog([]);
+      setPenLog([]);
       return;
     }
     setFoodLog((prev) => mergeCloudLogs(codeLogs.foodLog as FoodLogEntry[], prev, 200));
     setInsulinLog((prev) => mergeCloudLogs(codeLogs.insulinLog as InsulinLogEntry[], prev, 500));
     const codeSticks = remoteFingerSticks(codeLogs);
     setFingerStickLog((prev) => mergeCloudLogs(codeSticks, prev, 300));
+    const codePens = remotePens(codeLogs);
+    if (codePens) setPenLog((prev) => mergePens(codePens, prev));
 
     // Retry unsynced writes made in this code session — closes the gap left by the pendingSync work,
     // which could preserve a caregiver's entry locally but had no subscription to retry it on.
@@ -3804,6 +4034,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .catch(() => {});
       }
     }
+    if (codePens) {
+      for (const p of penLogRef.current) {
+        if (!p.pendingSync) continue;
+        client
+          .mutation(api.careLogs.savePenViaCode, { code: write.code, pen: toPenPayload(p) })
+          .then(() => clearPendingMarker(setPenLog, p.id, null))
+          .catch(() => {});
+      }
+    }
   }, [codeLogs, codeLogsCode]);
 
   // A nurse views a child through the child's access code; a co-guardian through their account link.
@@ -3828,6 +4067,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setViewedFoodLog((prev) => mergeCloudLogs(remote.foodLog as FoodLogEntry[], prev, 200));
     setViewedInsulinLog((prev) => mergeCloudLogs(remote.insulinLog as InsulinLogEntry[], prev, 500));
     setViewedFingerStickLog((prev) => mergeCloudLogs(remoteFingerSticks(remote), prev, 300));
+    const liveViewedPens = remotePens(remote);
+    if (liveViewedPens) setViewedPenLog((prev) => mergePens(liveViewedPens, prev));
   }, [viewedCodeLogs, viewedLinkLogs, viewingPatientId]);
 
   const messagingIdentity: MessagingIdentity = useMemo(() => {
@@ -3889,6 +4130,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         fingerStickLog: effectiveFingerStickLog,
         logFingerStick,
         deleteFingerStickEntry,
+        penLog: effectivePenLog,
+        savePen,
+        deletePen,
         logout,
         signOut,
         abandonSignup,

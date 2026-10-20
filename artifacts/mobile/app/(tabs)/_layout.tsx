@@ -13,6 +13,8 @@ import NurseMenu from "@/components/NurseMenu";
 import EmergencyWaitPrompt from "@/components/EmergencyWaitPrompt";
 import HelpOverlay from "@/components/HelpOverlay";
 import { WhatsNewPrompt } from "@/components/WhatsNew";
+import PenReminders from "@/components/PenReminders";
+import { penNeedsAttention, toLocalDate } from "@/utils/pens";
 
 // Derive the tab-bar props type from expo-router's Tabs so we don't import @react-navigation directly
 // (it isn't hoisted in this workspace). VISUAL ONLY — navigation behavior uses the standard pattern.
@@ -47,7 +49,9 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const { scheme, colors: c } = useTheme();
   const styles = useMemo(() => makeStyles(c, scheme === "dark"), [c, scheme]);
-  const { isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions, isCaregiverAccount, isViewingLinkedPatient, doctorMessages } = useAuth();
+  const { isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions, isCaregiverAccount, isViewingLinkedPatient, doctorMessages, penLog } = useAuth();
+  // Small amber dot on the Insulin tab when an open pen is within 3 days, due, or overdue.
+  const penDot = !doctorSession && penNeedsAttention(penLog, toLocalDate(new Date()));
   const { unreadCount: careUnread } = useMessages();
   // Red "!" on the Chat tab for any unread message: the guardian's doctor thread (guardian-only) or
   // any cross-account thread (applies to guardians AND access-code / nurse sessions).
@@ -102,6 +106,13 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
               <View style={[styles.slot, focused && styles.slotActive]}>
                 <View style={styles.iconWrap}>
                   <MaterialCommunityIcons name={meta.icon} size={TAB_ICON_SIZE} color={focused ? TAB_ICON_BODY : color} />
+                  {route.name === "insulin" && penDot && (
+                    <View
+                      style={styles.penDot}
+                      accessible
+                      accessibilityLabel="An insulin pen needs changing soon"
+                    />
+                  )}
                   {route.name === "chat" && hasUnreadDoctorChat && (
                     <View style={styles.chatAlertBadge}>
                       <Text style={styles.chatAlertBadgeText}>!</Text>
@@ -155,6 +166,8 @@ export default function TabLayout() {
       <HelpOverlay />
       {/* "What's new" — once per update, after it installs; history lives on the Dashboard. */}
       <WhatsNewPrompt />
+      {/* Pen reminders — schedules this device's 3-day / 1-day / change-day notifications. */}
+      <PenReminders />
     </>
   );
 }
@@ -215,5 +228,16 @@ const makeStyles = (c: ThemeColors, isDark: boolean) => StyleSheet.create({
     borderColor: c.card,
   },
   chatAlertBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800", lineHeight: 12 },
+  penDot: {
+    position: "absolute",
+    top: -3,
+    right: -5,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: "#FF9F1C",
+    borderWidth: 1.5,
+    borderColor: c.card,
+  },
   label: { fontSize: 10.5, fontWeight: T.font.medium, letterSpacing: 0.1 },
 });

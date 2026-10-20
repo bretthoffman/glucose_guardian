@@ -28,6 +28,27 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-20b",
+    date: "2026-10-20",
+    items: [
+      {
+        icon: "clock",
+        title: "Pen countdown",
+        body: "On the Insulin page, start a pen when you open it and we'll count down the days until it's time to change it.",
+      },
+      {
+        icon: "bell",
+        title: "Pen reminders",
+        body: "You'll get a reminder 3 days before, the day before, and the day to change the pen.",
+      },
+      {
+        icon: "alert-triangle",
+        title: "Insulin stacking reminder",
+        body: "If insulin was logged in the last 2 hours, you'll see how much is still working before you log more.",
+      },
+    ],
+  },
+  {
     id: "2026-10-20",
     date: "2026-10-20",
     items: [
