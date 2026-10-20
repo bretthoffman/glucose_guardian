@@ -213,14 +213,14 @@ const food: HelpStep[] = [
     anchor: "food.quick",
     title: "Quick Lookup",
     text:
-      "Your saved foods — one tap re-runs the lookup with its carbs shown on the right. After any result, \"Save to Quick Lookup\" adds it here for next time.",
+      "Recent shows the last foods logged; Favorites shows the ones you saved. Tap a food to look it up again with its carbs. The pencil fixes a log or a favorite's carbs, and the heart adds or removes a favorite.",
   },
   {
     id: "food.seeAll",
     anchor: "food.seeAll",
     title: "See All",
     text:
-      "The full saved list. Swipe a row left to delete it; press and drag the ≡ handle to reorder — the first eight are the ones that show on this page.",
+      "All your favorites. Swipe a row left to delete it; press and drag the ≡ handle to reorder — the first eight are the ones that show on this page.",
   },
 ];
 

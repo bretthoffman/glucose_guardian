@@ -29,3 +29,6 @@ export const QUICK_FOODS_STORAGE_KEY = "@gluco_guardian_quick_foods";
 
 /** Device-level: the id of the newest release note this device has already shown (What's new). */
 export const WHATS_NEW_SEEN_STORAGE_KEY = "@gluco_guardian_whats_new_seen";
+
+/** Device-level: which Food page Quick Lookup tab was used last ("recent" | "favorites"). */
+export const FOOD_QUICK_TAB_STORAGE_KEY = "@gluco_guardian_food_quick_tab";

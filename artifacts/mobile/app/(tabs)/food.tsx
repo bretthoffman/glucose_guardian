@@ -1,4 +1,5 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -6,6 +7,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -22,7 +24,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { T, glucoseTone, withAlpha } from "@/constants/theme";
 import { useGlucose } from "@/context/GlucoseContext";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, type FoodLogEntry } from "@/context/AuthContext";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 
 import { getEffectiveTrend, trendTone } from "@/utils/trend";
@@ -32,8 +34,24 @@ import { apiUrl } from "@/utils/api-base-url";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
 import QuickLookupManager from "@/components/QuickLookupManager";
+import LogDetailModal from "@/components/LogDetailModal";
+import EditFavoriteModal from "@/components/EditFavoriteModal";
+import { canEditExistingLogs } from "@/utils/logEditPermission";
+import { FOOD_QUICK_TAB_STORAGE_KEY } from "@/constants/storage-keys";
 import FoodScanner, { type BarcodeLookupState } from "@/components/FoodScanner";
-import { QUICK_LOOKUP_VISIBLE, type QuickFood } from "@/utils/quickFoods";
+import {
+  QUICK_LOOKUP_VISIBLE,
+  findQuickFood,
+  formatCarbs,
+  formatRecentWhen,
+  isQuickFood,
+  mealInsulinUnits,
+  recentFoods,
+  splitFoodName,
+  type QuickFood,
+} from "@/utils/quickFoods";
+
+type QuickTab = "recent" | "favorites";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 
 interface FoodResult {
@@ -79,44 +97,93 @@ interface MealGuidance {
 }
 
 /**
- * One Quick Lookup row: name · carbs (big number, small unit) · chevron. Compact on purpose — eight
- * of these plus the header must fit a phone screen cleanly — and the name never wraps.
+ * One Quick Lookup row (Recent or Favorites): a bold title with a small second line, the carbs, then
+ * a pencil (edit) and a heart (favorite). Tapping the name/carbs looks the food up, as before.
+ * The second line is the logged time on Recent, and the part of a long name that was in parentheses
+ * on Favorites.
  */
 function QuickFoodRow({
-  food,
+  title,
+  detail,
+  carbs,
   selected,
+  isFavorite,
   last,
   colors,
   onPress,
+  onEdit,
+  onToggleFavorite,
+  editLabel,
 }: {
-  food: QuickFood;
+  title: string;
+  detail?: string;
+  carbs?: number;
   selected: boolean;
+  isFavorite: boolean;
   last: boolean;
   colors: (typeof Colors)["light"];
   onPress: () => void;
+  /** Omitted when this session may not edit (the pencil is hidden). */
+  onEdit?: () => void;
+  onToggleFavorite: () => void;
+  editLabel: string;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`Look up ${food.name}`}
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.quickRow,
         !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-        { opacity: pressed ? 0.7 : 1 },
       ]}
     >
-      <Text style={[styles.quickRowName, { color: selected ? COLORS.primary : colors.text }]} numberOfLines={1}>
-        {food.name}
-      </Text>
-      <View style={styles.quickRowCarbs}>
-        <Text style={[styles.quickRowCarbsValue, { color: food.carbs != null ? colors.text : colors.textMuted }]}>
-          {food.carbs != null ? food.carbs : "—"}
-        </Text>
-        <Text style={[styles.quickRowCarbsUnit, { color: colors.textMuted }]}>g carbs</Text>
-      </View>
-      <Feather name="chevron-right" size={18} color={colors.textMuted} />
-    </Pressable>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Look up ${title}`}
+        style={({ pressed }) => [styles.quickRowMain, { opacity: pressed ? 0.7 : 1 }]}
+      >
+        <View style={styles.quickRowText}>
+          <Text style={[styles.quickRowName, { color: selected ? COLORS.primary : colors.text }]} numberOfLines={1}>
+            {title}
+          </Text>
+          {detail ? (
+            <Text style={[styles.quickRowDetail, { color: colors.textSecondary }]} numberOfLines={1}>
+              {detail}
+            </Text>
+          ) : null}
+        </View>
+        <View style={styles.quickRowCarbs}>
+          <Text style={[styles.quickRowCarbsValue, { color: carbs != null ? colors.text : colors.textMuted }]}>
+            {carbs != null ? formatCarbs(carbs) : "—"}
+          </Text>
+          <Text style={[styles.quickRowCarbsUnit, { color: colors.textSecondary }]}>g carbs</Text>
+        </View>
+      </Pressable>
+      {onEdit ? (
+        <Pressable
+          onPress={onEdit}
+          accessibilityRole="button"
+          accessibilityLabel={editLabel}
+          hitSlop={4}
+          style={({ pressed }) => [styles.quickIconBtn, { opacity: pressed ? 0.6 : 1 }]}
+        >
+          <Feather name="edit-2" size={16} color={colors.textSecondary} />
+        </Pressable>
+      ) : null}
+      <Pressable
+        onPress={onToggleFavorite}
+        accessibilityRole="button"
+        accessibilityState={{ selected: isFavorite }}
+        accessibilityLabel={isFavorite ? `Remove ${title} from Favorites` : `Add ${title} to Favorites`}
+        hitSlop={4}
+        style={({ pressed }) => [styles.quickIconBtn, { opacity: pressed ? 0.6 : 1 }]}
+      >
+        <MaterialCommunityIcons
+          name={isFavorite ? "heart" : "heart-outline"}
+          size={20}
+          color={isFavorite ? COLORS.primaryLight : colors.textSecondary}
+        />
+      </Pressable>
+    </View>
   );
 }
 
@@ -146,13 +213,23 @@ export default function FoodScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { carbRatio, targetGlucose, correctionFactor, latestReading, history } = useGlucose();
-  const { addFoodLogEntry, foodLog, isMinor, quickFoods, saveQuickFood, updateQuickFoodCarbs, alertPrefs, accessCodeRole, accessCodePermissions } = useAuth();
+  const {
+    addFoodLogEntry, foodLog, isMinor, quickFoods, saveQuickFood, updateQuickFoodCarbs, removeQuickFood, alertPrefs,
+    accessCodeRole, accessCodePermissions, profile, caregiverSession,
+  } = useAuth();
   // Same grant derivation as the Insulin page (which shows/hides its tabs by these): an access-code
   // (kid/caregiver) session only gets the actions its grants allow; every account session gets both.
   const isAccessCodeSession = accessCodeRole != null;
   const canUseCalculator = !isAccessCodeSession || !!accessCodePermissions?.useCalculator;
   const canLogMeals = !isAccessCodeSession || !!accessCodePermissions?.log;
   const confirmLog = useCareLogConfirm();
+  // Same rule as the Log page: who may correct an existing entry (the Recent tab's pencil).
+  const canEditLogs = canEditExistingLogs({
+    isCaregiverAccount: profile?.accountRole === "caregiver",
+    caregiverSession,
+    accessCodeRole,
+    canAddLogs: !!accessCodePermissions?.log,
+  });
 
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<FoodResult | null>(null);
@@ -179,6 +256,62 @@ export default function FoodScreen() {
   // (an add by any co-guardian shows up on every guardian's Food tab within a poll). ──
   const [savedToQuick, setSavedToQuick] = useState(false);
   const [quickManagerOpen, setQuickManagerOpen] = useState(false);
+  /**
+   * The saved/recent name the current lookup came from. The AI may return a slightly different
+   * foodName, so logging updates THIS favorite's carbs (the "carbs don't stick" fix).
+   */
+  const [quickSource, setQuickSource] = useState<string | null>(null);
+  // ── Recent / Favorites tabs. The last tab used is remembered on this device; until then Recent
+  // shows when there's anything logged, Favorites otherwise. ──
+  const [quickTabChoice, setQuickTabChoice] = useState<QuickTab | null>(null);
+  useEffect(() => {
+    AsyncStorage.getItem(FOOD_QUICK_TAB_STORAGE_KEY)
+      .then((v) => {
+        if (v === "recent" || v === "favorites") setQuickTabChoice((cur) => cur ?? v);
+      })
+      .catch(() => {});
+  }, []);
+  const recentList = recentFoods(foodLog, QUICK_LOOKUP_VISIBLE);
+  const quickTab: QuickTab = quickTabChoice ?? (recentList.length > 0 ? "recent" : "favorites");
+  const chooseQuickTab = (tab: QuickTab) => {
+    if (tab === quickTab) return;
+    Haptics.selectionAsync();
+    setQuickTabChoice(tab);
+    AsyncStorage.setItem(FOOD_QUICK_TAB_STORAGE_KEY, tab).catch(() => {});
+  };
+  const [editingLog, setEditingLog] = useState<FoodLogEntry | null>(null);
+  const [editingFavorite, setEditingFavorite] = useState<QuickFood | null>(null);
+  const [favoriteToast, setFavoriteToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+  }, []);
+  const flashFavoriteToast = (text: string) => {
+    setFavoriteToast(text);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setFavoriteToast(null), 1800);
+  };
+  function addFavorite(name: string, carbs?: number) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    saveQuickFood(name, carbs);
+    flashFavoriteToast("Added to Favorites");
+  }
+  function confirmRemoveFavorite(name: string) {
+    Alert.alert("Remove from Favorites?", splitFoodName(name).title, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          removeQuickFood(name);
+          flashFavoriteToast("Removed from Favorites");
+        },
+      },
+    ]);
+  }
+  const toggleFavorite = (name: string, carbs?: number) =>
+    isQuickFood(quickFoods, name) ? confirmRemoveFavorite(name) : addFavorite(name, carbs);
   // ── Help Mode wiring (refs only; see context/HelpContext + utils/helpScripts). ──
   useHelpPage();
   const helpScrollRef = useRef<import("react-native").ScrollView>(null);
@@ -197,7 +330,9 @@ export default function FoodScreen() {
 
   function saveToQuickLookup() {
     if (!result || savedToQuick) return;
-    saveQuickFood(result.foodName, result.estimatedCarbs);
+    // Save the number on screen — if it was corrected, the correction is what should stick.
+    const edited = parseFloat(editedCarbs);
+    saveQuickFood(result.foodName, Number.isFinite(edited) && edited >= 0 ? edited : result.estimatedCarbs);
     setSavedToQuick(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
@@ -243,7 +378,12 @@ export default function FoodScreen() {
     setIsFetchingGuidance(false);
   }
 
-  async function search(food: string) {
+  /**
+   * `startCarbs`: the saved/last-logged carbs when the lookup comes from a Quick Lookup row — the
+   * card starts from that number instead of a fresh estimate, so a corrected value (5.5 g, not the
+   * estimate's 45 g) sticks. `source` is that row's name (see quickSource).
+   */
+  async function search(food: string, opts?: { startCarbs?: number; source?: string }) {
     // Estimate Carbs button + Quick Lookup chips both route here — dismiss the keyboard on tap.
     Keyboard.dismiss();
     const q = food.trim();
@@ -258,6 +398,7 @@ export default function FoodScreen() {
     setInsulinTaken(false);
     setLoggedEntryTimestamp(null);
     setSavedToQuick(false);
+    setQuickSource(opts?.source ?? null);
     try {
       const res = await fetch(apiUrl("/api/food/estimate"), {
         method: "POST",
@@ -265,14 +406,19 @@ export default function FoodScreen() {
         body: JSON.stringify({ foodName: q }),
       });
       const data: FoodResult = await res.json();
-      const insulinUnits = Math.round((data.estimatedCarbs / carbRatio) * 10) / 10;
-      const finalResult = { ...data, insulinUnits, fromPhoto: false };
+      const startCarbs =
+        opts?.startCarbs != null && Number.isFinite(opts.startCarbs) && opts.startCarbs >= 0 ? opts.startCarbs : data.estimatedCarbs;
+      const insulinUnits = mealInsulinUnits(startCarbs, carbRatio);
+      const finalResult = { ...data, estimatedCarbs: startCarbs, insulinUnits, fromPhoto: false };
       setResult(finalResult);
-      setEditedCarbs(data.estimatedCarbs.toString());
-      // A quick food tapped before it had carbs on file (older saves) learns them now, in place.
-      updateQuickFoodCarbs(q, data.estimatedCarbs);
+      setEditedCarbs(formatCarbs(startCarbs));
+      setSavedToQuick(isQuickFood(quickFoods, data.foodName) || (opts?.source != null && isQuickFood(quickFoods, opts.source)));
+      // A favorite that has no carbs on file yet (older saves) learns them now. One that HAS carbs is
+      // never overwritten by a fresh estimate — that was the "45 g keeps coming back" bug.
+      const saved = findQuickFood(quickFoods, opts?.source ?? q);
+      if (saved && saved.carbs == null) updateQuickFoodCarbs(saved.name, data.estimatedCarbs);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      await fetchGuidance(data.estimatedCarbs);
+      await fetchGuidance(startCarbs);
     } catch {
       setError("Could not estimate. Please try again.");
     } finally {
@@ -381,6 +527,7 @@ export default function FoodScreen() {
       setInsulinTaken(false);
       setLoggedEntryTimestamp(null);
       setSavedToQuick(false);
+      setQuickSource(null);
       setError("");
       setServingsText("1");
       setResult(result);
@@ -422,6 +569,7 @@ export default function FoodScreen() {
     setInsulinTaken(false);
     setLoggedEntryTimestamp(null);
     setSavedToQuick(false);
+    setQuickSource(null);
     setError("");
     setIsAnalyzingPhoto(true);
 
@@ -500,13 +648,15 @@ export default function FoodScreen() {
     setInsulinTaken(false);
     setLoggedEntryTimestamp(null);
     setSavedToQuick(false);
+    setQuickSource(null);
     setEditedCarbs("");
     setServingsText("1");
   }
 
   function logMeal() {
     if (!result) return;
-    const carbs = parseFloat(editedCarbs) || result.estimatedCarbs;
+    const parsedCarbs = parseFloat(editedCarbs);
+    const carbs = Number.isFinite(parsedCarbs) && parsedCarbs >= 0 ? parsedCarbs : result.estimatedCarbs;
     // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
     confirmLog(() => {
       const timestamp = new Date().toISOString();
@@ -515,7 +665,9 @@ export default function FoodScreen() {
         timestamp,
         foodName: result.foodName,
         estimatedCarbs: carbs,
-        insulinUnits: result.insulinUnits ?? 0,
+        // Recorded insulin follows the carbs actually logged (it used to keep the first estimate's
+        // number even after the carbs were corrected). A record only — dose math is unchanged.
+        insulinUnits: mealInsulinUnits(carbs, carbRatio),
         confidence: result.confidence,
         fromPhoto: !!result.fromPhoto,
         photoUri: photoUri ?? undefined,
@@ -524,6 +676,9 @@ export default function FoodScreen() {
         absorption: result.absorption,
       });
       setLogged(true);
+      // The number you log is the number this favorite keeps.
+      const fav = findQuickFood(quickFoods, quickSource ?? result.foodName) ?? findQuickFood(quickFoods, result.foodName);
+      if (fav && fav.carbs !== carbs) updateQuickFoodCarbs(fav.name, carbs);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
   }
@@ -724,25 +879,25 @@ export default function FoodScreen() {
               )}
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Save to quick lookup"
+                accessibilityLabel="Add to Favorites"
                 disabled={savedToQuick}
                 onPress={saveToQuickLookup}
                 style={({ pressed }) => [
                   styles.saveQuickBtn,
                   {
-                    borderColor: savedToQuick ? COLORS.success : colors.border,
-                    backgroundColor: savedToQuick ? COLORS.success + "18" : "transparent",
+                    borderColor: savedToQuick ? COLORS.primaryLight : colors.border,
+                    backgroundColor: savedToQuick ? COLORS.primary + "1F" : "transparent",
                     opacity: pressed ? 0.7 : 1,
                   },
                 ]}
               >
-                <Feather
-                  name={savedToQuick ? "check" : "bookmark"}
-                  size={11}
-                  color={savedToQuick ? COLORS.success : colors.textMuted}
+                <MaterialCommunityIcons
+                  name={savedToQuick ? "heart" : "heart-outline"}
+                  size={12}
+                  color={savedToQuick ? COLORS.primaryLight : colors.textMuted}
                 />
-                <Text style={[styles.saveQuickBtnText, { color: savedToQuick ? COLORS.success : colors.textMuted }]} numberOfLines={1}>
-                  {savedToQuick ? "Saved" : "Save to Quick Lookup"}
+                <Text style={[styles.saveQuickBtnText, { color: savedToQuick ? COLORS.primaryLight : colors.textMuted }]} numberOfLines={1}>
+                  {savedToQuick ? "In Favorites" : "Add to Favorites"}
                 </Text>
               </Pressable>
               {/* Close the analysis — photo results had no way out (the search-bar ✕ only exists
@@ -960,31 +1115,102 @@ export default function FoodScreen() {
             }}
             hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel="See all quick lookup foods"
+            accessibilityLabel="See all favorites"
           >
             <Text style={[styles.seeAllText, { color: COLORS.primary }]}>See All</Text>
             <Feather name="chevron-right" size={16} color={COLORS.primary} />
           </Pressable>
         </View>
-        {quickFoods.length === 0 ? (
+        <View
+          accessibilityRole="tablist"
+          style={[styles.quickTabs, { backgroundColor: colors.card, borderColor: colors.border }]}
+        >
+          {(["recent", "favorites"] as const).map((tab) => {
+            const active = quickTab === tab;
+            return (
+              <Pressable
+                key={tab}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                onPress={() => chooseQuickTab(tab)}
+                style={({ pressed }) => [
+                  styles.quickTab,
+                  { backgroundColor: active ? COLORS.primary : "transparent", opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                {active && <AccentShade radius={10} />}
+                <Text style={[styles.quickTabText, { color: active ? "#fff" : colors.textSecondary }]}>
+                  {tab === "recent" ? "Recent" : "Favorites"}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {quickTab === "recent" ? (
+          recentList.length === 0 ? (
+            <Text style={[styles.quickEmpty, { color: colors.textMuted }]}>
+              Nothing logged yet — foods you log will show up here.
+            </Text>
+          ) : (
+            <View ref={helpQuick} collapsable={false} style={[styles.quickList, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <CardShade radius={16} />
+              {recentList.map((entry, i, arr) => {
+                const fav = findQuickFood(quickFoods, entry.foodName);
+                const startCarbs = fav?.carbs ?? entry.estimatedCarbs;
+                return (
+                  <QuickFoodRow
+                    key={entry.id}
+                    title={splitFoodName(entry.foodName).title}
+                    detail={formatRecentWhen(entry.timestamp)}
+                    carbs={entry.estimatedCarbs}
+                    selected={result?.foodName?.toLowerCase() === entry.foodName.toLowerCase()}
+                    isFavorite={!!fav}
+                    last={i === arr.length - 1}
+                    colors={colors}
+                    onPress={() => search(entry.foodName, { startCarbs, source: entry.foodName })}
+                    onEdit={canEditLogs ? () => setEditingLog(entry) : undefined}
+                    editLabel={`Edit this log: ${entry.foodName}`}
+                    onToggleFavorite={() => toggleFavorite(entry.foodName, entry.estimatedCarbs)}
+                  />
+                );
+              })}
+            </View>
+          )
+        ) : quickFoods.length === 0 ? (
           <Text style={[styles.quickEmpty, { color: colors.textMuted }]}>
-            Nothing saved yet — look a food up and tap the bookmark to keep it here.
+            No favorites yet — tap the heart on a food to keep it here.
           </Text>
         ) : (
           <View ref={helpQuick} collapsable={false} style={[styles.quickList, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <CardShade radius={16} />
-            {quickFoods.slice(0, QUICK_LOOKUP_VISIBLE).map((food, i, arr) => (
-              <QuickFoodRow
-                key={food.name}
-                food={food}
-                selected={result?.foodName?.toLowerCase() === food.name.toLowerCase()}
-                last={i === arr.length - 1}
-                colors={colors}
-                onPress={() => search(food.name)}
-              />
-            ))}
+            {quickFoods.slice(0, QUICK_LOOKUP_VISIBLE).map((food, i, arr) => {
+              const parts = splitFoodName(food.name);
+              return (
+                <QuickFoodRow
+                  key={food.name}
+                  title={parts.title}
+                  detail={parts.detail}
+                  carbs={food.carbs}
+                  selected={result?.foodName?.toLowerCase() === food.name.toLowerCase()}
+                  isFavorite
+                  last={i === arr.length - 1}
+                  colors={colors}
+                  onPress={() => search(food.name, { startCarbs: food.carbs, source: food.name })}
+                  onEdit={() => setEditingFavorite(food)}
+                  editLabel={`Edit favorite: ${food.name}`}
+                  onToggleFavorite={() => confirmRemoveFavorite(food.name)}
+                />
+              );
+            })}
           </View>
         )}
+        {favoriteToast ? (
+          <View accessibilityLiveRegion="polite" style={[styles.favToast, { backgroundColor: COLORS.primary + "26", borderColor: COLORS.primary + "66" }]}>
+            <MaterialCommunityIcons name="heart" size={14} color={COLORS.primaryLight} />
+            <Text style={[styles.favToastText, { color: colors.text }]}>{favoriteToast}</Text>
+          </View>
+        ) : null}
       </ScrollView>
 
       <FoodScanner
@@ -1007,10 +1233,41 @@ export default function FoodScreen() {
         onClose={() => setQuickManagerOpen(false)}
         onPick={(name) => {
           setQuickManagerOpen(false);
-          search(name);
+          search(name, { startCarbs: findQuickFood(quickFoods, name)?.carbs, source: name });
         }}
         colors={colors}
       />
+
+      {/* Recent tab pencil — the Log page's own edit window, opened straight into editing. A food
+          that's also a favorite gets the corrected carbs too. */}
+      {editingLog && (
+        <LogDetailModal
+          key={editingLog.id}
+          entry={{ kind: "food", data: editingLog }}
+          colors={colors}
+          canEdit={canEditLogs}
+          startInEditing
+          editNote={
+            isQuickFood(quickFoods, editingLog.foodName)
+              ? "Also updates this food in Favorites, so it uses these carbs next time."
+              : undefined
+          }
+          onSaved={({ foodName, carbs }) => {
+            const fav = findQuickFood(quickFoods, editingLog.foodName) ?? findQuickFood(quickFoods, foodName);
+            if (fav && carbs != null && fav.carbs !== carbs) updateQuickFoodCarbs(fav.name, carbs);
+          }}
+          onClose={() => setEditingLog(null)}
+        />
+      )}
+      {editingFavorite && (
+        <EditFavoriteModal
+          key={editingFavorite.name}
+          food={editingFavorite}
+          colors={colors}
+          onSave={(carbs) => updateQuickFoodCarbs(editingFavorite.name, carbs)}
+          onClose={() => setEditingFavorite(null)}
+        />
+      )}
 
       {/* ── Meal insulin calculator popup — same dose engine as the main calculator, order-aware:
           `mealLogged` decides whether the analyzed carbs pre-fill (not logged) or show as the
@@ -1378,10 +1635,19 @@ const styles = StyleSheet.create({
   quickEmpty: { fontSize: 13, lineHeight: 18 },
   /** The window around the rows — same box as the Event Log list. */
   quickList: { borderRadius: 16, borderWidth: 1, overflow: "hidden" },
-  // 44pt rows: eight of them (plus the header) fit a phone screen with the scan panel above.
-  quickRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9, paddingHorizontal: 14, minHeight: 44 },
-  quickRowName: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: "600" },
+  quickTabs: { flexDirection: "row", gap: 4, padding: 4, borderRadius: 14, borderWidth: 1, marginBottom: 10 },
+  quickTab: { flex: 1, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  quickTabText: { fontSize: 15, fontWeight: "700" },
+  // Two-line rows: name + time/detail, carbs, then pencil and heart (each a 40×44 target).
+  quickRow: { flexDirection: "row", alignItems: "center", paddingRight: 4, minHeight: 56 },
+  quickRowMain: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9, paddingLeft: 14, minHeight: 56 },
+  quickRowText: { flex: 1, minWidth: 0, gap: 1 },
+  quickRowName: { fontSize: 14.5, fontWeight: "700" },
+  quickRowDetail: { fontSize: 12, fontWeight: "500" },
   quickRowCarbs: { alignItems: "flex-end", flexShrink: 0 },
   quickRowCarbsValue: { fontSize: 16, fontWeight: "700", lineHeight: 18 },
   quickRowCarbsUnit: { fontSize: 10.5, fontWeight: "500" },
+  quickIconBtn: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
+  favToast: { alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 7, marginTop: 10, borderRadius: 99, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7 },
+  favToastText: { fontSize: 13.5, fontWeight: "600" },
 });

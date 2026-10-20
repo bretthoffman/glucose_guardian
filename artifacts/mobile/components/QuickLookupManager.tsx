@@ -65,7 +65,7 @@ export default function QuickLookupManager({
           <CardShade radius={16} />
           <View style={styles.header}>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[styles.title, { color: colors.text }]}>Quick Lookup</Text>
+              <Text style={[styles.title, { color: colors.text }]}>Favorites</Text>
               <Text style={[styles.hint, { color: colors.textSecondary }]}>
                 {quickFoods.length} saved · the first {QUICK_LOOKUP_VISIBLE} show on the Food page. Swipe left to delete, drag ≡ to reorder.
               </Text>
@@ -83,7 +83,7 @@ export default function QuickLookupManager({
 
           {quickFoods.length === 0 ? (
             <Text style={[styles.empty, { color: colors.textMuted }]}>
-              Nothing saved yet. Look a food up on the Food page and tap the bookmark to add it here.
+              No favorites yet. Tap the heart on a food on the Food page to add it here.
             </Text>
           ) : (
             <ScrollView

@@ -109,3 +109,97 @@ export function quickFoodsFromServer(items: unknown, names: unknown): QuickFood[
   }
   return null;
 }
+
+// ── Food page Quick Lookup: Recent / Favorites ──────────────────────────────────────────────────
+// "Favorites" is the saved list above (same data, new name on screen). "Recent" is derived from the
+// food log — nothing new is stored.
+
+/** True when `name` is on the saved (Favorites) list, ignoring case and outer spaces. */
+export function isQuickFood(list: QuickFood[], name: string): boolean {
+  return list.some((f) => sameName(f.name, name));
+}
+
+/** The saved entry for `name`, if any. */
+export function findQuickFood(list: QuickFood[], name: string): QuickFood | undefined {
+  return list.find((f) => sameName(f.name, name));
+}
+
+/**
+ * Split a long saved name into a bold title and a smaller detail line at its first "(":
+ * "Two plain toaster waffles (frozen/boxed-style)" → title "Two plain toaster waffles",
+ * detail "frozen/boxed-style". Names without parentheses come back whole.
+ */
+export function splitFoodName(name: string): { title: string; detail?: string } {
+  const trimmed = name.trim();
+  const open = trimmed.indexOf("(");
+  if (open <= 0) return { title: trimmed };
+  const title = trimmed.slice(0, open).trim();
+  const detail = trimmed.slice(open + 1).replace(/\)\s*$/, "").trim();
+  if (!title) return { title: trimmed };
+  return detail ? { title, detail } : { title };
+}
+
+/** Carbs as shown in a row: whole numbers stay whole, otherwise one decimal (5.5, not 5.50). */
+export function formatCarbs(carbs: number): string {
+  if (!Number.isFinite(carbs)) return "—";
+  const r = Math.round(carbs * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+export interface RecentFoodSource {
+  id: string;
+  timestamp: string;
+  foodName: string;
+  estimatedCarbs: number;
+}
+
+/**
+ * The most recent DIFFERENT foods from the log, newest first: each food appears once, as its latest
+ * entry (that entry is what the row's pencil edits).
+ */
+export function recentFoods<T extends RecentFoodSource>(log: T[], limit = QUICK_LOOKUP_VISIBLE): T[] {
+  const sorted = log
+    .filter((e) => e.foodName?.trim() && Number.isFinite(new Date(e.timestamp).getTime()))
+    .slice()
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const e of sorted) {
+    const key = e.foodName.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(e);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function clock(d: Date): string {
+  const h = d.getHours();
+  const m = d.getMinutes();
+  return `${h % 12 === 0 ? 12 : h % 12}:${m < 10 ? "0" : ""}${m} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/** "Today · 8:05 AM" / "Yesterday · 7:40 PM" / "Sun · 9:00 AM" (this past week) / "Oct 3 · 9:00 AM". */
+export function formatRecentWhen(timestamp: string, now: Date = new Date()): string {
+  const d = new Date(timestamp);
+  if (!Number.isFinite(d.getTime())) return "";
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(now) - startOf(d)) / 86_400_000);
+  const day =
+    days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 7 ? DAYS[d.getDay()] : `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  return `${day} · ${clock(d)}`;
+}
+
+/**
+ * Insulin recorded WITH a logged meal (a record, not a dose recommendation): the meal's logged carbs
+ * ÷ the carb ratio, to 0.1 u — the same formula the Log page's "Log Food" uses. Computed from the
+ * carbs actually logged, so editing the carbs before logging can't leave a stale number behind.
+ */
+export function mealInsulinUnits(carbs: number, carbRatio: number): number {
+  if (!Number.isFinite(carbs) || !Number.isFinite(carbRatio) || carbRatio <= 0 || carbs <= 0) return 0;
+  return Math.round((carbs / carbRatio) * 10) / 10;
+}
