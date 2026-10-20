@@ -12,7 +12,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
 import { RELEASE_NOTES, type ReleaseNote } from "@/constants/releaseNotes";
@@ -37,6 +37,7 @@ export function WhatsNewPrompt() {
   // and the note had already been marked seen, so the sheet never appeared at all.
   const decided = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
   const hasExistingData = insulinLog.length > 0 || foodLog.length > 0 || fingerStickLog.length > 0;
 
   useEffect(() => {
@@ -60,6 +61,7 @@ export function WhatsNewPrompt() {
       const sheet = combineNotes(unseenNotes(RELEASE_NOTES, lastSeen));
       if (!sheet) return;
       timer.current = setTimeout(() => {
+        if (!mounted.current) return;
         setNote(sheet);
         // Marked seen when it actually shows, so a launch that's closed early asks again next time.
         AsyncStorage.setItem(WHATS_NEW_SEEN_STORAGE_KEY, latest.id).catch(() => {});
@@ -69,6 +71,7 @@ export function WhatsNewPrompt() {
 
   // Cancel only on unmount — never because a dependency changed.
   useEffect(() => () => {
+    mounted.current = false;
     if (timer.current) clearTimeout(timer.current);
   }, []);
 
@@ -95,11 +98,30 @@ function usePalette(): { colors: Palette; isDark: boolean } {
 }
 
 function WhatsNewSheet({ note, onClose, onSeeAll }: { note: ReleaseNote | null; onClose: () => void; onSeeAll: () => void }) {
+  if (!note) return null;
+  return <WhatsNewSheetBody note={note} onClose={onClose} onSeeAll={onSeeAll} />;
+}
+
+/**
+ * Drawn as an overlay on top of the tabs, NOT a native <Modal>: right after an update restarts the
+ * app, iOS can silently refuse to present a modal while the launch screen is still going away — the
+ * sheet then only appeared on a later refresh. A plain view always shows.
+ */
+function WhatsNewSheetBody({ note, onClose, onSeeAll }: { note: ReleaseNote; onClose: () => void; onSeeAll: () => void }) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = usePalette();
-  if (!note) return null;
+  const slide = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    Animated.timing(slide, { toValue: 0, duration: 280, useNativeDriver: true }).start();
+    // Android back button closes it, like a modal would.
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [slide, onClose]);
   return (
-    <Modal visible transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+    <View style={[StyleSheet.absoluteFill, styles.overlay]}>
       <View style={styles.sheetHost}>
         <Pressable
           style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "rgba(0,0,0,0.6)" : "rgba(15,25,45,0.38)" }]}
@@ -107,11 +129,12 @@ function WhatsNewSheet({ note, onClose, onSeeAll }: { note: ReleaseNote | null; 
           accessibilityRole="button"
           accessibilityLabel="Close What's new"
         />
-        <View
+        <Animated.View
           accessibilityViewIsModal
           style={[
             styles.sheet,
             { backgroundColor: colors.card, borderColor: colors.border, paddingBottom: insets.bottom + 20 },
+            { transform: [{ translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [0, 600] }) }] },
           ]}
         >
           <View style={[styles.grabber, { backgroundColor: colors.border }]} />
@@ -143,9 +166,9 @@ function WhatsNewSheet({ note, onClose, onSeeAll }: { note: ReleaseNote | null; 
           <Pressable onPress={onSeeAll} accessibilityRole="button" style={styles.linkBtn}>
             <Text style={[styles.linkText, { color: COLORS.primaryLight }]}>See all updates</Text>
           </Pressable>
-        </View>
+        </Animated.View>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -200,6 +223,7 @@ export function WhatsNewHistoryModal({ visible, onClose }: { visible: boolean; o
 }
 
 const styles = StyleSheet.create({
+  overlay: { zIndex: 1000, elevation: 1000 },
   sheetHost: { flex: 1, justifyContent: "flex-end" },
   sheet: {
     borderTopLeftRadius: 28, borderTopRightRadius: 28, borderWidth: 1, borderBottomWidth: 0,
