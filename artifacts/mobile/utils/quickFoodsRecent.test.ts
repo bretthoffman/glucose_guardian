@@ -87,3 +87,28 @@ describe("mealInsulinUnits", () => {
     expect(mealInsulinUnits(NaN, 10)).toBe(0);
   });
 });
+
+import { favoritesFromServer } from "./quickFoods";
+describe("favoritesFromServer", () => {
+  it("an empty list stays empty (no starter foods); missing means unknown", () => {
+    expect(favoritesFromServer([])).toEqual([]);
+    expect(favoritesFromServer(null)).toBeNull();
+    expect(favoritesFromServer(undefined)).toBeNull();
+    expect(favoritesFromServer([{ name: "Apple", carbs: 25 }, { name: " " }, "Rice"])).toEqual([{ name: "Apple", carbs: 25 }, { name: "Rice" }]);
+  });
+});
+
+import { editQuickFood } from "./quickFoods";
+describe("editQuickFood", () => {
+  const list = [{ name: "1 waffle cookie", carbs: 45 }, { name: "Apple", carbs: 25 }, { name: "Waffle cookie" }];
+  it("changes name and carbs in place", () => {
+    expect(editQuickFood(list, "apple", "Green apple", 20)).toEqual([{ name: "1 waffle cookie", carbs: 45 }, { name: "Green apple", carbs: 20 }, { name: "Waffle cookie" }]);
+  });
+  it("drops a different favorite that ends up with the same name", () => {
+    expect(editQuickFood(list, "1 waffle cookie", "waffle cookie", 5.5)).toEqual([{ name: "waffle cookie", carbs: 5.5 }, { name: "Apple", carbs: 25 }]);
+  });
+  it("blank name keeps the old one; unknown food leaves the list alone", () => {
+    expect(editQuickFood(list, "Apple", "  ", 30)[1]).toEqual({ name: "Apple", carbs: 30 });
+    expect(editQuickFood(list, "Pear", "Pear", 1)).toBe(list);
+  });
+});

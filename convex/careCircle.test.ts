@@ -457,6 +457,38 @@ describe("merged co-guardian care (one pool, owner-inherited settings)", () => {
     expect(ctx2?.quickFoods).toEqual(["Rice", "pizza", "Apple"]);
   });
 
+  it("Favorites start empty, are shared across the circle, and never touch the old Quick Lookup list", async () => {
+    const { t, patient, member } = await linked();
+    await t.mutation(api.careCircle.setQuickFoods, { userId: patient, passwordHash: HASH_A, foods: ["Pizza", "Rice"] });
+    // Nothing hearted yet: no Favorites, even though the old list has items.
+    const before = await t.query(api.careCircle.circleContext, { userId: member, passwordHash: HASH_B });
+    expect(before?.favoriteFoods).toBeNull();
+    expect(before?.quickFoods).toEqual(["Pizza", "Rice"]);
+    // The member hearts two foods (with a duplicate, a blank and a bad carb value mixed in).
+    await t.mutation(api.careCircle.setFavoriteFoods, {
+      userId: member,
+      passwordHash: HASH_B,
+      items: [{ name: " 1 waffle cookie ", carbs: 5.5 }, { name: "Apple" }, { name: "apple", carbs: 20 }, { name: "  " }, { name: "Soup", carbs: -3 }],
+    });
+    const owner = await t.query(api.careCircle.circleContext, { userId: patient, passwordHash: HASH_A });
+    expect(owner?.favoriteFoods).toEqual([{ name: "1 waffle cookie", carbs: 5.5 }, { name: "Apple" }, { name: "Soup" }]);
+    expect(owner?.quickFoods).toEqual(["Pizza", "Rice"]);
+    // Clearing Favorites leaves an empty list (not a starter list).
+    await t.mutation(api.careCircle.setFavoriteFoods, { userId: patient, passwordHash: HASH_A, items: [] });
+    const cleared = await t.query(api.careCircle.circleContext, { userId: member, passwordHash: HASH_B });
+    expect(cleared?.favoriteFoods).toEqual([]);
+  });
+
+  it("a departing member keeps a copy of the circle's Favorites", async () => {
+    const { t, patient, member } = await linked();
+    await t.mutation(api.careCircle.setFavoriteFoods, { userId: patient, passwordHash: HASH_A, items: [{ name: "Apple", carbs: 25 }] });
+    const circle = await t.query(api.careCircle.getCircle, { userId: member, passwordHash: HASH_B, patientUserId: patient });
+    const myLink = circle?.coGuardians.find((c) => c.isMe);
+    await t.mutation(api.careCircle.revokeLink, { userId: member, passwordHash: HASH_B, linkId: myLink!.linkId });
+    const solo = await t.query(api.careCircle.circleContext, { userId: member, passwordHash: HASH_B });
+    expect(solo?.favoriteFoods).toEqual([{ name: "Apple", carbs: 25 }]);
+  });
+
   it("leaves the departing member with the circle's current settings — minus the doctor code", async () => {
     const { t, patient, member } = await linked();
     await t.mutation(api.patientProfile.replace, {

@@ -13,7 +13,7 @@ import React, {
 } from "react";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { CarePermissions } from "../../../convex/careSchedule";
-import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY, QUICK_FOODS_STORAGE_KEY } from "@/constants/storage-keys";
+import { FAVORITE_FOODS_STORAGE_KEY, GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY, QUICK_FOODS_STORAGE_KEY } from "@/constants/storage-keys";
 import { apiUrl } from "@/utils/api-base-url";
 import type { DoseSettingsByTime } from "@/utils/doseSettings";
 import { mergeCloudLogs } from "@/utils/careLogsMerge";
@@ -22,11 +22,9 @@ import { splitSharedProfilePatch } from "@/utils/sharedProfilePatch";
 import { patchTouchesBackend, rollbackSyncedKeys } from "@/utils/alertPrefsSync";
 import { resolveLogConfirmName } from "@/utils/careLogConfirm";
 import {
-  DEFAULT_QUICK_FOODS,
   insertQuickFood,
+  favoritesFromServer,
   parseStoredQuickFoods,
-  quickFoodNames,
-  quickFoodsFromServer,
   removeQuickFood as removeQuickFoodFromList,
   updateQuickFoodCarbs as updateQuickFoodCarbsInList,
   type QuickFood,
@@ -828,7 +826,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /** Bumped to force an immediate circle re-hydrate (e.g. right after joining/leaving a circle). */
   const [hydrateNonce, setHydrateNonce] = useState(0);
   /** Quick Lookup meals — hydrated from the circle pool for cloud accounts. */
-  const [quickFoods, setQuickFoods] = useState<QuickFood[]>(DEFAULT_QUICK_FOODS);
+  // Favorites (shown as "Favorites" on the Food page). Start EMPTY — only what someone hearts.
+  const [quickFoods, setQuickFoods] = useState<QuickFood[]>([]);
   const [viewingPatientId, setViewingPatientId] = useState<string | null>(null);
   const [viewedProfile, setViewedProfile] = useState<UserProfile | null>(null);
   const [viewedFoodLog, setViewedFoodLog] = useState<FoodLogEntry[]>([]);
@@ -869,7 +868,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { circleSharedRef.current = circleShared; }, [circleShared]);
   const emergencyContactsRef = useRef<EmergencyContact[]>([]);
   useEffect(() => { emergencyContactsRef.current = emergencyContacts; }, [emergencyContacts]);
-  const quickFoodsRef = useRef<QuickFood[]>(DEFAULT_QUICK_FOODS);
+  const quickFoodsRef = useRef<QuickFood[]>([]);
   useEffect(() => { quickFoodsRef.current = quickFoods; }, [quickFoods]);
   /** Set on every local profile commit so the hydrate poll never clobbers an in-flight edit. */
   const lastProfileCommitAtRef = useRef(0);
@@ -1184,7 +1183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(CAREGIVER_CODE_KEY),
           AsyncStorage.getItem(CARE_MEMBERSHIPS_KEY),
           AsyncStorage.getItem(CIRCLE_SHARED_KEY),
-          AsyncStorage.getItem(QUICK_FOODS_STORAGE_KEY),
+          AsyncStorage.getItem(FAVORITE_FOODS_STORAGE_KEY),
         ]);
 
         if (storedSession === "true" && !storedAccount) {
@@ -1519,28 +1518,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Trust the server's own verdict, not the presence of shared data: a member whose owner
             // has no profile row yields `shared: null` and would otherwise look like an owner.
             setCircleRole(circle.isOwner ? "owner" : "member");
-            const serverQuickFoods = quickFoodsFromServer(circle.quickFoodItems, circle.quickFoods);
-            if (serverQuickFoods) {
-              const pool = serverQuickFoods.slice(0, QUICK_FOODS_MAX);
-              const next = pool.length > 0 ? pool : DEFAULT_QUICK_FOODS;
+            // Favorites: the circle's own list (empty is a real answer — no starter foods). The old
+            // Quick Lookup list (`quickFoods`/`quickFoodItems`) is deliberately not read any more.
+            const serverFavorites = favoritesFromServer(circle.favoriteFoods);
+            if (serverFavorites) {
+              const next = serverFavorites.slice(0, QUICK_FOODS_MAX);
               setQuickFoods(next);
-              AsyncStorage.setItem(QUICK_FOODS_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+              AsyncStorage.setItem(FAVORITE_FOODS_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
             } else if (circle.isOwner && quickFoodsRef.current.length > 0) {
-              // Seed the pool once from this device's list (owner only — a joiner's old local list
-              // must never displace the owner's).
+              // Seed the pool once from this device's Favorites (owner only — a joiner's old local
+              // list must never displace the owner's).
               client
-                .mutation(api.careCircle.setQuickFoods, {
-                  userId,
-                  passwordHash,
-                  foods: quickFoodNames(quickFoodsRef.current),
-                  items: quickFoodsRef.current,
-                })
+                .mutation(api.careCircle.setFavoriteFoods, { userId, passwordHash, items: quickFoodsRef.current })
                 .catch(() => {});
             } else if (!circle.isOwner) {
-              // Member of a circle whose pool isn't seeded yet: show the clean default list, never
-              // this device's pre-link leftovers (the owner's list becomes THE list on join).
-              setQuickFoods(DEFAULT_QUICK_FOODS);
-              AsyncStorage.setItem(QUICK_FOODS_STORAGE_KEY, JSON.stringify(DEFAULT_QUICK_FOODS)).catch(() => {});
+              // Member of a circle with no Favorites yet: empty, never this device's leftovers.
+              setQuickFoods([]);
+              AsyncStorage.setItem(FAVORITE_FOODS_STORAGE_KEY, "[]").catch(() => {});
             }
             if (Array.isArray(circle.emergencyContacts)) {
               const pool = circle.emergencyContacts as EmergencyContact[];
@@ -1894,7 +1888,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCircleShared(null);
     setCircleRole(null);
     circleSharedRef.current = null;
-    setQuickFoods(DEFAULT_QUICK_FOODS);
+    setQuickFoods([]);
     setFoodLog([]);
     setInsulinLog([]);
     setFingerStickLog([]);
@@ -1914,6 +1908,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       CARE_MEMBERSHIPS_KEY,
       CIRCLE_SHARED_KEY,
       QUICK_FOODS_STORAGE_KEY,
+      FAVORITE_FOODS_STORAGE_KEY,
       GLUCOSE_HISTORY_STORAGE_KEY,
       GLUCOSE_SETTINGS_STORAGE_KEY,
       FOOD_LOG_KEY,
@@ -2049,7 +2044,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCircleShared(null);
     setCircleRole(null);
     circleSharedRef.current = null;
-    setQuickFoods(DEFAULT_QUICK_FOODS);
+    setQuickFoods([]);
     setAccount(acc);
     setIsSignedIn(true);
     await AsyncStorage.multiSet([
@@ -2068,6 +2063,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       CARE_MEMBERSHIPS_KEY,
       CIRCLE_SHARED_KEY,
       QUICK_FOODS_STORAGE_KEY,
+      FAVORITE_FOODS_STORAGE_KEY,
       GLUCOSE_HISTORY_STORAGE_KEY,
       GLUCOSE_SETTINGS_STORAGE_KEY,
     ]);
@@ -2795,7 +2791,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCircleShared(null);
     setCircleRole(null);
     circleSharedRef.current = null;
-    setQuickFoods(DEFAULT_QUICK_FOODS);
+    setQuickFoods([]);
     setViewingPatientId(null);
     setViewedProfile(null);
     setViewedFoodLog([]);
@@ -2824,6 +2820,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       CARE_MEMBERSHIPS_KEY,
       CIRCLE_SHARED_KEY,
       QUICK_FOODS_STORAGE_KEY,
+      FAVORITE_FOODS_STORAGE_KEY,
       GLUCOSE_HISTORY_STORAGE_KEY,
       GLUCOSE_SETTINGS_STORAGE_KEY,
       DOCTOR_MESSAGES_KEY,
@@ -2913,14 +2910,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setQuickFoods((prev) => {
       const next = update(prev).slice(0, QUICK_FOODS_MAX);
       if (next === prev) return prev;
-      AsyncStorage.setItem(QUICK_FOODS_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+      AsyncStorage.setItem(FAVORITE_FOODS_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
       const acc = accountRef.current;
       if (acc?.convexUserId && !caregiverSessionRef.current) {
         createConvexAuthClient()
-          .mutation(api.careCircle.setQuickFoods, {
+          .mutation(api.careCircle.setFavoriteFoods, {
             userId: acc.convexUserId as Id<"users">,
             passwordHash: acc.passwordHash,
-            foods: quickFoodNames(next),
             items: next,
           })
           .catch(() => {});

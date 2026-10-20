@@ -4,7 +4,7 @@
  * every co-guardian + access-code viewer and updates/removes the entry from the shared dose math.
  * An edit stamps the entry `edited: true` (shown as "Edited" on the row).
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,20 +33,11 @@ export default function LogDetailModal({
   colors,
   canEdit,
   onClose,
-  startInEditing = false,
-  editNote,
-  onSaved,
 }: {
   entry: SelectedLog;
   colors: (typeof Colors)["light"];
   canEdit: boolean;
   onClose: () => void;
-  /** Open straight into edit mode (the Food page's pencil); Cancel then closes the window. */
-  startInEditing?: boolean;
-  /** A short line shown under the edit fields (e.g. that a favorite is updated too). */
-  editNote?: string;
-  /** Called after a food edit is committed, with the saved name and carbs. */
-  onSaved?: (saved: { foodName: string; carbs?: number }) => void;
 }) {
   const insets = useSafeAreaInsets();
   const { scheme } = useTheme();
@@ -84,22 +75,8 @@ export default function LogDetailModal({
     setEditing(true);
   };
 
-  // The Food page's pencil opens this window already editing.
-  const openedEditing = useRef(false);
-  useEffect(() => {
-    if (startInEditing && canEdit && !openedEditing.current) {
-      openedEditing.current = true;
-      startEdit();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const cancelEdit = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (startInEditing) {
-      onClose();
-      return;
-    }
     setEditing(false); // discard — nothing was applied
   };
 
@@ -114,14 +91,12 @@ export default function LogDetailModal({
     if (entry.kind === "food") {
       const c = parseFloat(carbs);
       const u = parseFloat(units);
-      const savedName = foodName.trim() || entry.data.foodName;
       editFoodLogEntry(entry.data.id, {
-        foodName: savedName,
+        foodName: foodName.trim() || entry.data.foodName,
         ...(Number.isFinite(c) ? { estimatedCarbs: Math.max(0, c) } : {}),
         ...(Number.isFinite(u) ? { insulinUnits: Math.max(0, u) } : {}),
         ...(newTimestamp ? { timestamp: newTimestamp } : {}),
       });
-      onSaved?.({ foodName: savedName, ...(Number.isFinite(c) ? { carbs: Math.max(0, c) } : {}) });
     } else {
       const u = parseFloat(units);
       editInsulinLogEntry(entry.data.id, {
@@ -251,12 +226,6 @@ export default function LogDetailModal({
                 )}
                 <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Time</Text>
                 <TextInput style={fieldStyle} value={timeText} onChangeText={setTimeText} placeholder="9:51 AM" placeholderTextColor={colors.textMuted} autoCapitalize="characters" />
-                {editNote ? (
-                  <View style={[styles.editNote, { backgroundColor: COLORS.primary + "18" }]}>
-                    <Feather name="heart" size={13} color={COLORS.primaryLight} />
-                    <Text style={[styles.editNoteText, { color: colors.textSecondary }]}>{editNote}</Text>
-                  </View>
-                ) : null}
               </View>
             ) : (
               <View style={{ flex: 1 }}>
@@ -288,8 +257,6 @@ export default function LogDetailModal({
 }
 
 const styles = StyleSheet.create({
-  editNote: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 10, padding: 10, marginTop: 4 },
-  editNoteText: { flex: 1, fontSize: 12.5, lineHeight: 17 },
   backdrop: { flex: 1, justifyContent: "center", paddingHorizontal: 14 },
   card: { width: "100%", maxWidth: 480, alignSelf: "center", borderRadius: 16, borderWidth: 1, padding: 16, gap: 14, shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 18, shadowOffset: { width: 0, height: 12 } },
   topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },

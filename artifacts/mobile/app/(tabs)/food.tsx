@@ -34,13 +34,13 @@ import { apiUrl } from "@/utils/api-base-url";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
 import QuickLookupManager from "@/components/QuickLookupManager";
-import LogDetailModal from "@/components/LogDetailModal";
-import EditFavoriteModal from "@/components/EditFavoriteModal";
+import EditFoodModal from "@/components/EditFoodModal";
 import { canEditExistingLogs } from "@/utils/logEditPermission";
 import { FOOD_QUICK_TAB_STORAGE_KEY } from "@/constants/storage-keys";
 import FoodScanner, { type BarcodeLookupState } from "@/components/FoodScanner";
 import {
   QUICK_LOOKUP_VISIBLE,
+  editQuickFood,
   findQuickFood,
   formatCarbs,
   formatRecentWhen,
@@ -214,7 +214,8 @@ export default function FoodScreen() {
   const colors = isDark ? Colors.dark : Colors.light;
   const { carbRatio, targetGlucose, correctionFactor, latestReading, history } = useGlucose();
   const {
-    addFoodLogEntry, foodLog, isMinor, quickFoods, saveQuickFood, updateQuickFoodCarbs, removeQuickFood, alertPrefs,
+    addFoodLogEntry, editFoodLogEntry, foodLog, isMinor, quickFoods, saveQuickFood, updateQuickFoodCarbs, removeQuickFood,
+    reorderQuickFoods, alertPrefs,
     accessCodeRole, accessCodePermissions, profile, caregiverSession,
   } = useAuth();
   // Same grant derivation as the Insulin page (which shows/hides its tabs by these): an access-code
@@ -1238,33 +1239,46 @@ export default function FoodScreen() {
         colors={colors}
       />
 
-      {/* Recent tab pencil — the Log page's own edit window, opened straight into editing. A food
-          that's also a favorite gets the corrected carbs too. */}
+      {/* Pencil: one small name + carbs box for both tabs. Recent fixes that log (the insulin recorded
+          with it is recalculated from the new carbs — same formula as logging); time and insulin stay
+          on the Log page. Favorites change the saved food only. */}
       {editingLog && (
-        <LogDetailModal
+        <EditFoodModal
           key={editingLog.id}
-          entry={{ kind: "food", data: editingLog }}
+          title="Edit log"
+          initialName={editingLog.foodName}
+          initialCarbs={editingLog.estimatedCarbs}
+          notes={[
+            ...(isQuickFood(quickFoods, editingLog.foodName)
+              ? ["Also updates this food in Favorites, so it uses these carbs next time."]
+              : []),
+            "To change the time or insulin, use the Log page.",
+          ]}
           colors={colors}
-          canEdit={canEditLogs}
-          startInEditing
-          editNote={
-            isQuickFood(quickFoods, editingLog.foodName)
-              ? "Also updates this food in Favorites, so it uses these carbs next time."
-              : undefined
-          }
-          onSaved={({ foodName, carbs }) => {
-            const fav = findQuickFood(quickFoods, editingLog.foodName) ?? findQuickFood(quickFoods, foodName);
-            if (fav && carbs != null && fav.carbs !== carbs) updateQuickFoodCarbs(fav.name, carbs);
+          onSave={(name, carbs) => {
+            const entry = editingLog;
+            confirmLog(() => {
+              editFoodLogEntry(entry.id, {
+                foodName: name,
+                estimatedCarbs: carbs,
+                insulinUnits: mealInsulinUnits(carbs, carbRatio),
+              });
+              const fav = findQuickFood(quickFoods, entry.foodName);
+              if (fav && fav.carbs !== carbs) updateQuickFoodCarbs(fav.name, carbs);
+            });
           }}
           onClose={() => setEditingLog(null)}
         />
       )}
       {editingFavorite && (
-        <EditFavoriteModal
+        <EditFoodModal
           key={editingFavorite.name}
-          food={editingFavorite}
+          title="Edit favorite"
+          initialName={editingFavorite.name}
+          initialCarbs={editingFavorite.carbs}
+          notes={["This is what it starts from next time you tap it. Past logs don't change."]}
           colors={colors}
-          onSave={(carbs) => updateQuickFoodCarbs(editingFavorite.name, carbs)}
+          onSave={(name, carbs) => reorderQuickFoods(editQuickFood(quickFoods, editingFavorite.name, name, carbs))}
           onClose={() => setEditingFavorite(null)}
         />
       )}

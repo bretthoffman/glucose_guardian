@@ -203,3 +203,22 @@ export function mealInsulinUnits(carbs: number, carbRatio: number): number {
   if (!Number.isFinite(carbs) || !Number.isFinite(carbRatio) || carbRatio <= 0 || carbs <= 0) return 0;
   return Math.round((carbs / carbRatio) * 10) / 10;
 }
+
+/** Favorites as the server hands them over: an array (possibly empty) → the list; anything else → null. */
+export function favoritesFromServer(items: unknown): QuickFood[] | null {
+  if (!Array.isArray(items)) return null;
+  return items.map(normalizeQuickFood).filter((f): f is QuickFood => f != null);
+}
+
+/**
+ * Rename and/or re-carb one favorite in place (the Favorites pencil). If the new name matches a
+ * DIFFERENT favorite, that duplicate is dropped so the list never holds the same food twice.
+ */
+export function editQuickFood(list: QuickFood[], oldName: string, newName: string, carbs?: number): QuickFood[] {
+  const name = newName.trim() || oldName.trim();
+  const i = list.findIndex((f) => sameName(f.name, oldName));
+  if (i < 0) return list;
+  const edited: QuickFood =
+    carbs != null && Number.isFinite(carbs) && carbs >= 0 ? { name, carbs } : list[i]!.carbs != null ? { name, carbs: list[i]!.carbs } : { name };
+  return list.flatMap((f, j) => (j === i ? [edited] : sameName(f.name, name) ? [] : [f]));
+}

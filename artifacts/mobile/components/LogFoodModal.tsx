@@ -5,7 +5,6 @@
  * logs to the day being viewed (locked Date row) at an editable time, so meals can be backlogged.
  */
 import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useState } from "react";
 import {
@@ -19,13 +18,12 @@ import {
 } from "react-native";
 import Colors, { COLORS } from "@/constants/colors";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
-import { QUICK_FOODS_STORAGE_KEY } from "@/constants/storage-keys";
 import { useAuth } from "@/context/AuthContext";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import { useGlucose } from "@/context/GlucoseContext";
 import { apiUrl } from "@/utils/api-base-url";
 import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
-import { DEFAULT_QUICK_FOODS, parseStoredQuickFoods, QUICK_LOOKUP_VISIBLE, type QuickFood } from "@/utils/quickFoods";
+import { QUICK_LOOKUP_VISIBLE } from "@/utils/quickFoods";
 import { CardShade } from "@/components/Shade";
 
 interface FoodLookupResult {
@@ -57,7 +55,8 @@ export default function LogFoodModal({
   onLogged: () => void;
   colors: (typeof Colors)["light"];
 }) {
-  const { addFoodLogEntry } = useAuth();
+  // Favorites from the shared list (empty until someone hearts a food — then they show as chips).
+  const { addFoodLogEntry, quickFoods } = useAuth();
   const confirmLog = useCareLogConfirm();
   const { carbRatio } = useGlucose();
 
@@ -67,10 +66,8 @@ export default function LogFoodModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [timeText, setTimeText] = useState("");
-  const [quickFoods, setQuickFoods] = useState<QuickFood[]>(DEFAULT_QUICK_FOODS);
 
-  // Fresh popup per open: clear lookup state, prefill the time with the device clock, and pull
-  // the user's current Quick Lookup list (shared with the Food page).
+  // Fresh popup per open: clear lookup state and prefill the time with the device clock.
   useEffect(() => {
     if (!visible) return;
     setQuery("");
@@ -79,12 +76,6 @@ export default function LogFoodModal({
     setError("");
     setIsLoading(false);
     setTimeText(formatTimeInputText(new Date()));
-    AsyncStorage.getItem(QUICK_FOODS_STORAGE_KEY)
-      .then((raw) => {
-        const stored = parseStoredQuickFoods(raw);
-        if (stored) setQuickFoods(stored);
-      })
-      .catch(() => {});
   }, [visible]);
 
   async function search(food: string) {

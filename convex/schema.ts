@@ -673,6 +673,12 @@ const careShared = defineTable({
    * app versions that predate carbs on quick foods; new clients read this and fall back to names.
    */
   quickFoodItems: v.optional(v.array(v.object({ name: v.string(), carbs: v.optional(v.number()) }))),
+  /**
+   * The Food page's Favorites (name + carbs, in display order). Separate from the old Quick Lookup
+   * list above on purpose: Favorites start EMPTY and only hold what someone hearts. The old list is
+   * left as it was (older app versions still read it).
+   */
+  favoriteFoods: v.optional(v.array(v.object({ name: v.string(), carbs: v.optional(v.number()) }))),
   emergencyContacts: v.optional(
     v.array(
       v.object({

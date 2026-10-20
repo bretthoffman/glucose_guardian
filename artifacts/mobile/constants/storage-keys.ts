@@ -32,3 +32,9 @@ export const WHATS_NEW_SEEN_STORAGE_KEY = "@gluco_guardian_whats_new_seen";
 
 /** Device-level: which Food page Quick Lookup tab was used last ("recent" | "favorites"). */
 export const FOOD_QUICK_TAB_STORAGE_KEY = "@gluco_guardian_food_quick_tab";
+
+/**
+ * Favorites (Food page). Replaces the old Quick Lookup list on screen; a NEW key on purpose so
+ * Favorites start empty — the old `QUICK_FOODS_STORAGE_KEY` list is no longer shown.
+ */
+export const FAVORITE_FOODS_STORAGE_KEY = "@gluco_guardian_favorite_foods";

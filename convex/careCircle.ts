@@ -422,6 +422,7 @@ async function snapshotSharedToMember(
       patientUserId: memberUserId,
       quickFoods: pool.quickFoods,
       quickFoodItems: pool.quickFoodItems,
+      favoriteFoods: pool.favoriteFoods,
       emergencyContacts: pool.emergencyContacts,
       updatedAt: now,
     };
@@ -739,6 +740,7 @@ export const circleContext = query({
       shared,
       quickFoods: pool?.quickFoods ?? null,
       quickFoodItems: pool?.quickFoodItems ?? null,
+      favoriteFoods: pool?.favoriteFoods ?? null,
       emergencyContacts: pool?.emergencyContacts ?? null,
     };
   },
@@ -865,6 +867,36 @@ export const setQuickFoods = mutation({
     const foods = items.map((i) => i.name);
     if (existing) await ctx.db.patch(existing._id, { quickFoods: foods, quickFoodItems: items, updatedAt: Date.now() });
     else await ctx.db.insert("careShared", { patientUserId: anchor, quickFoods: foods, quickFoodItems: items, updatedAt: Date.now() });
+  },
+});
+
+/**
+ * Replace the circle's Favorites (mutual: any guardian may update it). Starts empty for every
+ * circle — nothing is copied from the old Quick Lookup list. Names trimmed, blanks dropped,
+ * duplicates (case-insensitive) collapsed to the first, carbs kept only when a sane number.
+ */
+export const setFavoriteFoods = mutation({
+  args: {
+    ...legacyAuthArgs,
+    items: v.array(v.object({ name: v.string(), carbs: v.optional(v.number()) })),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireUserCompat(ctx, args);
+    const { anchor } = await circleAnchorFor(ctx, user._id);
+    const existing = await getCareSharedRow(ctx, anchor);
+    const seen = new Set<string>();
+    const items: { name: string; carbs?: number }[] = [];
+    for (const i of args.items) {
+      const name = i.name.trim();
+      const key = name.toLowerCase();
+      if (!name || seen.has(key)) continue;
+      seen.add(key);
+      const carbs = typeof i.carbs === "number" && Number.isFinite(i.carbs) && i.carbs >= 0 && i.carbs <= 1000 ? i.carbs : undefined;
+      items.push(carbs != null ? { name, carbs } : { name });
+      if (items.length >= MAX_QUICK_FOODS) break;
+    }
+    if (existing) await ctx.db.patch(existing._id, { favoriteFoods: items, updatedAt: Date.now() });
+    else await ctx.db.insert("careShared", { patientUserId: anchor, favoriteFoods: items, updatedAt: Date.now() });
   },
 });
 
