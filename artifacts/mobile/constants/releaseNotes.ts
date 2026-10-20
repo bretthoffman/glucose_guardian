@@ -28,6 +28,27 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-20",
+    date: "2026-10-20",
+    items: [
+      {
+        icon: "clock",
+        title: "Recent and Favorites",
+        body: "Quick Lookup on the Food page now has two tabs: foods you logged lately, and the ones you saved.",
+      },
+      {
+        icon: "heart",
+        title: "Edit or favorite in one tap",
+        body: "Tap the pencil to fix a log or a favorite's carbs. Tap the heart to add or remove a favorite.",
+      },
+      {
+        icon: "check-circle",
+        title: "Your carbs stick",
+        body: "When you correct a food's carbs, that's the number it starts from next time.",
+      },
+    ],
+  },
+  {
     id: "2026-10-19",
     date: "2026-10-19",
     items: [
