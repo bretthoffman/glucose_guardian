@@ -56,6 +56,7 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
+import { CloseButton } from "@/components/CloseButton";
 
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 /** Matches GlucoseGauge's STALE_READING_MS — past this, label from the reading, not the sync. */
@@ -180,15 +181,7 @@ function TrendAlertBanner({
       title={title}
       message={message}
       trailing={
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setDismissed(true);
-          }}
-          hitSlop={10}
-        >
-          <Feather name="x" size={16} color={c.textMuted} />
-        </Pressable>
+        <CloseButton onPress={() => setDismissed(true)} accessibilityLabel="Dismiss" size={28} hitSlop={10} />
       }
     />
   );

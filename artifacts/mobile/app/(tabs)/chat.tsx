@@ -33,6 +33,7 @@ import { threadRoleLabel } from "@/utils/threadRoleLabel";
 import { AccentShade, CardShade, ControlShade, HeaderShade, ScreenShade } from "@/components/Shade";
 import { useHelpAnchor, useHelpPage } from "@/context/HelpContext";
 import { BrandMark } from "@/components/BrandLogo";
+import { CloseButton } from "@/components/CloseButton";
 
 interface Message {
   id: string;
@@ -484,9 +485,9 @@ export default function ChatScreen() {
         <View style={{ width: 44 }} />
         <Text style={[styles.modalTitle, { color: colors.text }]}>Messages</Text>
         {onClose ? (
-          <Pressable style={styles.modalCloseBtn} onPress={onClose}>
-            <Feather name="x" size={20} color={colors.textSecondary} />
-          </Pressable>
+          <View style={styles.modalCloseBtn}>
+            <CloseButton onPress={onClose} accessibilityLabel="Close messages" size={36} />
+          </View>
         ) : (
           <View style={{ width: 44 }} />
         )}

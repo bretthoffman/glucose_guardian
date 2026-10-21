@@ -65,6 +65,7 @@ import { ScreenShade } from "@/components/Shade";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 import { findRecentFastActing } from "@/utils/insulinStacking";
 import { useStackingGuard } from "@/components/StackingWarningModal";
+import { CloseButton } from "@/components/CloseButton";
 
 type ScreenTab = "predict" | "log";
 
@@ -1047,18 +1048,7 @@ export default function InsulinScreen() {
                 </View>
                 {/* Invisible hint keeps this column's height identical to the editable state. */}
                 <Text style={[styles.doseHint, { opacity: 0 }]}>Tap to edit</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Dismiss and enter carbs manually"
-                  hitSlop={10}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setActiveCarbsOverlayDismissed(true);
-                  }}
-                  style={({ pressed }) => [styles.overlayDismiss, { backgroundColor: withAlpha(colors.textMuted, 0.18), opacity: pressed ? 0.6 : 1 }]}
-                >
-                  <Feather name="x" size={12} color={colors.textSecondary} />
-                </Pressable>
+                <CloseButton onPress={() => setActiveCarbsOverlayDismissed(true)} accessibilityLabel="Dismiss and enter carbs manually" size={26} hitSlop={10} style={styles.overlayDismiss} />
               </>
             ) : (
               <>
@@ -1829,7 +1819,7 @@ const styles = StyleSheet.create({
   doseInputGroup: { flex: 1, alignItems: "center", gap: 5 },
   /** The ✕ on the ACTIVE CARBS overlay — floated up-right into the dose card's padding, clear of
    *  the centered title (whose accessibility growth is capped) at every text size. */
-  overlayDismiss: { position: "absolute", top: -12, right: -10, width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", zIndex: 2 },
+  overlayDismiss: { position: "absolute", top: -13, right: -11, zIndex: 2 },
   doseInputHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   doseInputLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
   doseValueRow: { flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 2 },

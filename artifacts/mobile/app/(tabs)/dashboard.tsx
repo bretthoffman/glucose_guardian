@@ -60,6 +60,7 @@ import {
   type DoseSettingsByTime,
   type MealBucket,
 } from "@/utils/doseSettings";
+import { CloseButton } from "@/components/CloseButton";
 
 // Icon shown on each compact section card (presentation only; section availability lives in the pure
 // `utils/dashboardSections` helper). One entry per DashboardSectionKey.
@@ -2228,15 +2229,7 @@ export default function DashboardScreen() {
                   {insulinLog.length > 0 ? ` · ${insulinLog.length} insulin dose${insulinLog.length !== 1 ? "s" : ""}` : ""}
                 </Text>
               </View>
-              <Pressable
-                onPress={() => setManageLogsOpen(false)}
-                hitSlop={12}
-                style={[styles.manageCloseBtn, { backgroundColor: withAlpha(colors.textMuted, 0.2) }]}
-                accessibilityRole="button"
-                accessibilityLabel="Close manage logs"
-              >
-                <Feather name="x" size={16} color={colors.textSecondary} />
-              </Pressable>
+              <CloseButton onPress={() => setManageLogsOpen(false)} accessibilityLabel="Close manage logs" size={34} />
             </View>
 
             <FlatList

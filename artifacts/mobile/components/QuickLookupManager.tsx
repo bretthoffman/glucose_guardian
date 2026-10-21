@@ -22,6 +22,7 @@ import { useAuth } from "@/context/AuthContext";
 import { moveQuickFood, QUICK_LOOKUP_VISIBLE, type QuickFood } from "@/utils/quickFoods";
 import { AccentShade, CardShade } from "@/components/Shade";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { CloseButton } from "@/components/CloseButton";
 
 const ROW_H = 52;
 
@@ -70,15 +71,7 @@ export default function QuickLookupManager({
                 {quickFoods.length} saved · the first {QUICK_LOOKUP_VISIBLE} show on the Food page. Swipe left to delete, drag ≡ to reorder.
               </Text>
             </View>
-            <Pressable
-              onPress={onClose}
-              hitSlop={12}
-              style={[styles.closeBtn, { backgroundColor: withAlpha(colors.textMuted, 0.2) }]}
-              accessibilityRole="button"
-              accessibilityLabel="Close quick lookup"
-            >
-              <Feather name="x" size={16} color={colors.textSecondary} />
-            </Pressable>
+            <CloseButton onPress={onClose} accessibilityLabel="Close quick lookup" size={34} />
           </View>
 
           {quickFoods.length === 0 ? (
