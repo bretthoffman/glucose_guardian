@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#05060c">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%2234 12 134 178%22%3E%3Cpath fill=%22%2322c8f0%22 d=%22M97 16C70 44 38 84 38 124c0 36 28 62 62 62 18 0 34-7 46-19-18 9-42 9-58-3-18-14-26-30-26-46 0-26 22-54 42-76 4-8 0-20-7-26z%22/%3E%3Cpath fill=%22%232ef2c6%22 d=%22M114 46c-6 6-8 16-2 24 14 18 26 34 26 54 0 22-18 42-40 44 22 8 48 2 60-20 6-10 8-18 6-30-4-24-24-48-44-70-2-2-4-3-6-2z%22/%3E%3Cpath fill=%22%232f80ff%22 d=%22M100 76s-20 26-20 44a20 20 0 0 0 40 0c0-18-20-44-20-44z%22/%3E%3C/svg%3E">
 
+<script>/* This page only hosts the Schools and Doctors pages now; anything else goes to the main site. */(function(){try{var h=(location.hash||"").replace("#","");var pg=null;try{pg=localStorage.getItem("gg_open_page")}catch(e){}if(h!=="schools"&&h!=="doctors"&&pg!=="schools"&&pg!=="doctors"){location.replace("index.html")}}catch(e){}})();</script>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -601,7 +602,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <!-- Local nav -->
 <nav aria-label="Glucose Guardian" style="position: sticky; top: 0; z-index: 20; background: rgba(251,251,253,0.85); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid rgba(0,0,0,0.12)">
 <div class="wrap" style="display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 52px; flex-wrap: wrap">
-<a href="#top" onClick="{{goHome}}" style="font-size: 21px; font-weight: 600; color: #1d1d1f; letter-spacing: -0.02em">Glucose Guardian</a>
+<a href="index.html" style="font-size: 21px; font-weight: 600; color: #1d1d1f; letter-spacing: -0.02em">Glucose Guardian</a>
 <div style="display: flex; align-items: center; gap: 18px; flex-wrap: wrap; font-size: 12px">
 <sc-if value="{{isHome}}" hint-placeholder-val="{{ true }}">
 <a href="#day" style="color: #1d1d1f">A day</a>
@@ -1135,7 +1136,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-bookmark"></use></svg>Save to Quick Lookup</span><span class="fa-x">×</span></div>
 <div class="fa-head"><div class="fa-title"><b>{{fa.title}}</b><span>{{fa.portion}}</span><span class="fa-conf {{fa.confCls}}">● {{fa.conf}}</span></div><div class="fa-carbs"><b>{{fa.carbs}}</b><span>g carbs</span><i>tap to edit</i></div></div>
 <div class="fa-macro"><svg><use href="#i-pie"></use></svg>{{fa.macros}}</div>
-<sc-if value="{{fa.slow}}" hint-placeholder-val="{{ false }}"><div class="fa-note"><svg style="color: var(--o-tx)"><use href="#i-clock"></use></svg><span>High fat/protein meals digest slowly — glucose can keep rising 3–4 hours after eating. Recheck in about 2 hours; a delayed rise may need a small follow-up correction.</span></div></sc-if>
+<sc-if value="{{fa.slow}}" hint-placeholder-val="{{ false }}"><div class="fa-note"><svg style="color: var(--o-tx)"><use href="#i-clock"></use></svg><span>High fat/protein meals digest slowly, so glucose can keep rising 3–4 hours after eating. Recheck in about 2 hours; a delayed rise may need a small follow-up correction.</span></div></sc-if>
 <div class="fa-btns"><button type="button" class="a-btn2" onClick="{{goCalc}}"><svg><use href="#i-pct"></use></svg>Calculate Insulin</button><span class="a-btn2"><svg><use href="#i-plusc"></use></svg>Log This Meal</span></div>
 </div>
 </div>
@@ -1759,7 +1760,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="eyebrow" style="color: #7dd3fc">Glucose Guardian for Schools and Organizations</div>
 <h1 style="font-size: clamp(44px, 7vw, 84px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.03">Every student.<br>One screen.</h1>
 <p style="font-size: clamp(20px, 2.6vw, 28px); font-weight: 600; max-width: 760px; line-height: 1.25; color: #7dd3fc">Built for school nurses, teachers, aides, and camp staff.</p>
-<p style="font-size: 17px; color: #a1a1a6; max-width: 640px; line-height: 1.5">A Caregiver account shows every student you look after — their live reading, the carbs and insulin still working, and the full view whenever their family allows it. No more calling home to ask for a number.</p>
+<p style="font-size: 17px; color: #a1a1a6; max-width: 640px; line-height: 1.5">A Caregiver account shows every student you look after: their live reading, the carbs and insulin still working, and the full view whenever their family allows it. No more calling home to ask for a number.</p>
 <div style="display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 8px">
 <a href="#contact" class="btn" style="background: #0369a1; color: #fff">Bring it to your school</a>
 <a href="#menu" class="btn" style="background: transparent; color: #2997ff; box-shadow: inset 0 0 0 1px #2997ff">See the Caregiver Menu</a>
@@ -1773,7 +1774,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div style="display: flex; flex-direction: column; gap: 12px; align-items: center; text-align: center">
 <div class="eyebrow" style="color: #0369a1">Try the nurse’s view</div>
 <h2 class="h2">Tap in. Just like they do.</h2>
-<p class="lede" style="color: #6e6e73; max-width: 680px">This is the Caregiver Menu a school nurse sees. Tap a student to open their dashboard — then check recent readings, fix a log, or snap lunch.</p>
+<p class="lede" style="color: #6e6e73; max-width: 680px">This is the Caregiver Menu a school nurse sees. Tap a student to open their dashboard, then check recent readings, fix a log, or snap lunch.</p>
 <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 8px">
 <div role="group" aria-label="Device" style="display: flex; gap: 4px; background: #f0f0f5; border-radius: 980px; padding: 4px">
 <sc-for list="{{nDevBtns}}" as="db" hint-placeholder-count="2">
@@ -1915,7 +1916,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-bookmark"></use></svg>Save to Quick Lookup</span><span class="fa-x">×</span></div>
 <div class="fa-head"><div class="fa-title"><b>{{nfa.title}}</b><span>{{nfa.portion}}</span><span class="fa-conf {{nfa.confCls}}">● {{nfa.conf}}</span></div><div class="fa-carbs"><b>{{nfa.carbs}}</b><span>g carbs</span><i>tap to edit</i></div></div>
 <div class="fa-macro"><svg><use href="#i-pie"></use></svg>{{nfa.macros}}</div>
-<sc-if value="{{nfa.slow}}" hint-placeholder-val="{{ false }}"><div class="fa-note"><svg style="color: var(--o-tx)"><use href="#i-clock"></use></svg><span>High fat/protein meals digest slowly — glucose can keep rising 3–4 hours after eating. Recheck in about 2 hours; a delayed rise may need a small follow-up correction.</span></div></sc-if>
+<sc-if value="{{nfa.slow}}" hint-placeholder-val="{{ false }}"><div class="fa-note"><svg style="color: var(--o-tx)"><use href="#i-clock"></use></svg><span>High fat/protein meals digest slowly, so glucose can keep rising 3–4 hours after eating. Recheck in about 2 hours; a delayed rise may need a small follow-up correction.</span></div></sc-if>
 <div class="fa-btns"><button type="button" class="a-btn2" onClick="{{nGoCalc}}"><svg><use href="#i-pct"></use></svg>Calculate Insulin</button><span class="a-btn2"><svg><use href="#i-plusc"></use></svg>Log This Meal</span></div>
 </div>
 </div>
@@ -1927,7 +1928,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="ic" role="dialog" aria-label="Insulin Calculator">
 <span class="ic-x">×</span>
 <h4>Insulin Calculator</h4>
-<div class="ic-sub">For {{nic.nameLow}} — carbs pre-filled from the analysis.</div>
+<div class="ic-sub">For {{nic.nameLow}}. Carbs pre-filled from the analysis.</div>
 <div class="ic-in"><div><div class="ic-l">CARBS (G)</div><div class="ic-box">{{nic.carbs}}</div></div><div class="ic-sep"></div><div><div class="ic-l">CURRENT BG <span class="live">LIVE</span></div><div class="ic-box">{{nic.bg}}</div></div></div>
 <div class="ic-ins"><span>Mealtime insulin</span><span class="ic-lock"><svg><use href="#i-lock"></use></svg>Lispro · Rapid‑Acting</span></div>
 <sc-if value="{{nc.warnShow}}" hint-placeholder-val="{{ false }}"><div class="a-warn danger">ⓘ {{nc.warnText}}</div></sc-if>
@@ -2002,20 +2003,25 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div style="display: flex; flex-direction: column; gap: 12px; max-width: 800px">
 <div class="eyebrow" style="color: #0369a1">Already in the health office</div>
 <h2 class="h2">What school nurses reach for most.</h2>
-<p class="lede" style="color: #6e6e73">[Two school nurses at our daughter’s school use Glucose Guardian every day.] These are the features they told us they can’t do without.</p>
+<p class="lede" style="color: #6e6e73">Our daughter’s school nurse uses Glucose Guardian during the school day. Here’s what it gives a health office.</p>
 </div>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px">
-<div class="card"><h3>Recent readings, at a tap.</h3><p>Tap the glucose circle to see every reading before you walked in — so you’re never starting from a single number.</p></div>
+<div class="card"><h3>Recent readings, at a tap.</h3><p>Tap the glucose circle to see every reading before you walked in, so you’re never starting from a single number.</p></div>
 <div class="card"><h3>The whole day, including home.</h3><p>The log shows breakfast at home, what was given, and who gave it. Flip back a day to see how things have been going.</p></div>
 <div class="card"><h3>Fix a mistake in seconds.</h3><p>Typed 20 instead of 2.0? Open the entry, edit it, and save. It’s marked “Edited,” so the family sees exactly what changed.</p></div>
-<div class="card"><h3>Snap lunch. The math is done.</h3><p>Take a photo of the tray. Carbs are estimated and the insulin is calculated from the family’s own settings — every step shown.</p></div>
-<div class="card"><h3>Every student on one list.</h3><p>The Caregiver Menu shows each student’s reading and the carbs and insulin still working — tap one to open their dashboard.</p></div>
-<div class="card"><h3>On the health office iPad.</h3><p>The same app runs on iPhone, Android, and iPad — including the iPad most schools already have.</p></div>
+<div class="card"><h3>Snap lunch. The math is done.</h3><p>Take a photo of the tray. Carbs are estimated and the insulin is calculated from the family’s own settings, with every step shown.</p></div>
+<div class="card"><h3>Every student on one list.</h3><p>The Caregiver Menu shows each student’s reading and the carbs and insulin still working. Tap one to open their dashboard.</p></div>
+<div class="card"><h3>On the health office iPad.</h3><p>The same app runs on iPhone and iPad, including the iPad most schools already have.</p></div>
 </div>
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px">
-<figure class="card" style="margin: 0; gap: 16px; background: #0b1424; color: #fff"><blockquote style="margin: 0; font-size: 19px; font-weight: 600; line-height: 1.4">“[Quote from school nurse #1]”</blockquote><figcaption style="font-size: 14px; color: #a1a1a6">[Name], school nurse, [School]</figcaption></figure>
-<figure class="card" style="margin: 0; gap: 16px; background: #0b1424; color: #fff"><blockquote style="margin: 0; font-size: 19px; font-weight: 600; line-height: 1.4">“[Quote from school nurse #2]”</blockquote><figcaption style="font-size: 14px; color: #a1a1a6">[Name], school nurse, [School]</figcaption></figure>
-</div>
+<figure class="card" style="margin: 0; gap: 18px; background: #0b1424; color: #fff; padding: 40px">
+<blockquote style="margin: 0; display: flex; flex-direction: column; gap: 16px">
+<p style="margin: 0; font-size: clamp(20px, 2.2vw, 26px); font-weight: 600; line-height: 1.4; letter-spacing: -0.01em; color: #fff">“As a school nurse, I am always looking for tools that make managing diabetes at school safer, easier, and more efficient. Glucose Guardian has been an incredible resource! The app’s ability to calculate carbohydrates, log insulin doses, and communicate with parents in real time has made diabetes management so much more streamlined.</p>
+<p style="margin: 0; font-size: 17px; line-height: 1.6; color: #c7c7cc">One of my favorite features is the ability to keep everyone on the same page. Having information readily available and being able to communicate updates with parents in real time provides an added level of confidence, collaboration, and peace of mind throughout the school day.</p>
+<p style="margin: 0; font-size: 17px; line-height: 1.6; color: #c7c7cc">As a school nurse, I appreciate technology that not only simplifies daily tasks but also supports better communication between school staff and families. Glucose Guardian does exactly that! It has been a wonderful tool, and I am so impressed with the thought and purpose behind its features. I would highly recommend Glucose Guardian to other families and school nurses looking for ways to make diabetes management more organized and connected.</p>
+<p style="margin: 0; font-size: 17px; line-height: 1.6; color: #c7c7cc">Glucose Guardian is truly making a difference in the day‑to‑day management of diabetes!”</p>
+</blockquote>
+<figcaption style="font-size: 15px; color: #7dd3fc; font-weight: 600">Holly Legette <span style="color: #a1a1a6; font-weight: 400">· School nurse, William Reevels Elementary School</span></figcaption>
+</figure>
 </div>
 </section>
 
@@ -2027,10 +2033,10 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <h2 class="h2">Ready before the first bell.</h2>
 </div>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 32px">
-<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0369a1; line-height: 1">1</div><h3 style="font-size: 21px; font-weight: 700">Choose “Caregiver.”</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Download the app and pick Caregiver at sign‑up — for a nurse, teacher, or aide watching over one or more kids.</p></div>
+<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0369a1; line-height: 1">1</div><h3 style="font-size: 21px; font-weight: 700">Choose “Caregiver.”</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Download the app and pick Caregiver at sign‑up. It’s for a nurse, teacher, or aide watching over one or more kids.</p></div>
 <div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0369a1; line-height: 1">2</div><h3 style="font-size: 21px; font-weight: 700">Add your organization.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Your name and, if you like, your school or clinic. No child profile, CGM, or dosing setup.</p></div>
 <div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0369a1; line-height: 1">3</div><h3 style="font-size: 21px; font-weight: 700">Add each student.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Each family shares an 8‑character access code from their Care Circle. Type it or scan its QR.</p></div>
-<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0369a1; line-height: 1">4</div><h3 style="font-size: 21px; font-weight: 700">Tap in when needed.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Open a student for their readings, logs, and chat — then come back to your list.</p></div>
+<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0369a1; line-height: 1">4</div><h3 style="font-size: 21px; font-weight: 700">Tap in when needed.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Open a student for their readings, logs, and chat, then come back to your list.</p></div>
 </div>
 </div>
 </section>
@@ -2044,10 +2050,10 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <p class="lede" style="color: #6e6e73">Every student’s code carries its own permissions and schedule, set by their guardian. You never see more than they’ve shared.</p>
 </div>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px">
-<div class="card"><h3>Permissions, per student.</h3><p>View readings, view logs, add logs, use the calculator, and chat — each one on or off.</p></div>
-<div class="card"><h3>School hours, automatically.</h3><p>A code can follow a weekly schedule. Outside it, that student shows “Locked” on your menu — no data, nothing to remember.</p></div>
+<div class="card"><h3>Permissions, per student.</h3><p>View readings, view logs, add logs, use the calculator, and chat. Each one on or off.</p></div>
+<div class="card"><h3>School hours, automatically.</h3><p>A code can follow a weekly schedule. Outside it, that student shows “Locked” on your menu: no data, nothing to remember.</p></div>
 <div class="card"><h3>Every log is signed.</h3><p>Meals and doses you add show “by School nurse,” so families see exactly who gave what, and when.</p></div>
-<div class="card"><h3>Message the family.</h3><p>Each student’s chat keeps the family — and their care team — in the same thread, during your hours.</p></div>
+<div class="card"><h3>Message the family.</h3><p>Each student’s chat keeps the family and their care team in the same thread, during your hours.</p></div>
 <div class="card"><h3>Live, not a snapshot.</h3><p>New readings, opened or closed windows, and retired codes show up on your list the moment they change.</p></div>
 <div class="card"><h3>Easy to tidy up.</h3><p>When a student moves on, remove them from your list. The family can add you back with a new code anytime.</p></div>
 </div>
@@ -2059,6 +2065,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="wrap" style="display: flex; flex-direction: column; gap: 24px; max-width: 880px">
 <h2 class="h2">Questions from schools.</h2>
 <div>
+<details><summary><span>Which CGMs does it work with?</span><span aria-hidden="true">+</span></summary><p>Right now, Glucose Guardian works with Dexcom CGMs only. The family turns on Sharing in the Dexcom app and connects their Dexcom account, and the readings show up on your menu.</p></details>
 <details><summary><span>Does each nurse need their own account?</span><span aria-hidden="true">+</span></summary><p>Yes. Each nurse, teacher, or aide signs up as a Caregiver and adds the students they look after.</p></details>
 <details><summary><span>Where do the access codes come from?</span><span aria-hidden="true">+</span></summary><p>From each student’s guardian, in the Care Circle section of their Dashboard. Codes are 8 characters and can be shared by text or QR.</p></details>
 <details><summary><span>Can a nurse change a student’s insulin settings?</span><span aria-hidden="true">+</span></summary><p>No. Insulin settings belong to the primary guardian. A nurse can use the calculator only if the family allows it.</p></details>
@@ -2080,7 +2087,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 </div>
 </div>
 </section>
-<section class="gg-back" aria-label="Back to Glucose Guardian"><div class="wrap gg-back-in"><div class="gg-back-tx"><span class="gg-back-k">Glucose Guardian</span><b>See the whole story — for families and for anyone managing their own diabetes.</b><span>Walk through a day with the app: live readings, snapping a meal, the dose math, and the care circle.</span></div><a href="index.html" class="btn gg-back-btn">Back to Glucose Guardian ›</a></div></section>
+<section class="gg-back" aria-label="Back to Glucose Guardian"><div class="wrap gg-back-in"><div class="gg-back-tx"><span class="gg-back-k">Glucose Guardian</span><b>See the whole story, for families and for anyone managing their own diabetes.</b><span>Walk through a day with the app: live readings, snapping a meal, the dose math, and the care circle.</span></div><a href="index.html" class="btn gg-back-btn">Back to Glucose Guardian ›</a></div></section>
 </sc-if>
 
 <sc-if value="{{isDoctors}}" hint-placeholder-val="{{ false }}">
@@ -2090,7 +2097,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="eyebrow" style="color: #7dd3fc">Glucose Guardian for Clinicians</div>
 <h1 style="font-size: clamp(44px, 7vw, 84px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.03">The whole picture.<br>Between visits.</h1>
 <p style="font-size: clamp(20px, 2.6vw, 28px); font-weight: 600; max-width: 760px; line-height: 1.25; color: #7dd3fc">Your patients’ glucose, insulin, and meals in one place.</p>
-<p style="font-size: 17px; color: #a1a1a6; max-width: 660px; line-height: 1.5">The Diabetes Care Portal shows what families log in Glucose Guardian — every reading, meal, and dose, and who gave it — so you can spot patterns, message the family, and propose changes they approve in the app.</p>
+<p style="font-size: 17px; color: #a1a1a6; max-width: 660px; line-height: 1.5">The Diabetes Care Portal shows what families log in Glucose Guardian (every reading, meal, and dose, and who gave it) so you can spot patterns, message the family, and propose changes they approve in the app.</p>
 <div style="display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 8px">
 <a href="#tour" class="btn" style="background: #0369a1; color: #fff">Try the real portal</a>
 <a href="#doc-contact" class="btn" style="background: transparent; color: #2997ff; box-shadow: inset 0 0 0 1px #2997ff">Request access</a>
@@ -2104,7 +2111,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div style="flex: 1 1 380px; display: flex; flex-direction: column; gap: 18px">
 <div class="eyebrow" style="color: #0369a1">Try it yourself</div>
 <h2 class="h2">Walk through the real portal.</h2>
-<p class="lede" style="color: #6e6e73">No screenshots — open the actual portal in demo mode and click around. It’s loaded with five made‑up patients, needs no account, and saves nothing.</p>
+<p class="lede" style="color: #6e6e73">No screenshots. Open the actual portal in demo mode and click around. It’s loaded with five made‑up patients, needs no account, and saves nothing.</p>
 <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px">
 <li style="display: flex; gap: 14px; align-items: flex-start"><span style="width: 30px; height: 30px; border-radius: 50%; background: #0369a1; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none">1</span><span style="font-size: 17px; line-height: 1.45"><b>Open the portal.</b> <span style="color: #6e6e73">It opens in a new tab.</span></span></li>
 <li style="display: flex; gap: 14px; align-items: flex-start"><span style="width: 30px; height: 30px; border-radius: 50%; background: #0369a1; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none">2</span><span style="font-size: 17px; line-height: 1.45"><b>Choose “Try the demo.”</b> <span style="color: #6e6e73">You’ll land on a sample patient list, sorted by urgency.</span></span></li>
@@ -2143,7 +2150,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div style="display: flex; flex-direction: column; gap: 12px; max-width: 800px">
 <div class="eyebrow" style="color: #0369a1">Private by design</div>
 <h2 class="h2">Easy to find. Closed to everyone else.</h2>
-<p class="lede" style="color: #6e6e73">Anyone can read about the portal here. Only invited clinicians can sign in — and they only see the patients whose families linked them.</p>
+<p class="lede" style="color: #6e6e73">Anyone can read about the portal here. Only invited clinicians can sign in, and they only see the patients whose families linked them.</p>
 </div>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px">
 <div class="card"><h3>A key to get in.</h3><p>Accounts start with a license key or invite code from your organization’s administrator. A license key sets up your organization.</p></div>
@@ -2159,13 +2166,13 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <h2 class="h2">Built for a full panel of patients.</h2>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px">
 <div class="card" style="background: #f5f5f7"><h3>Sorted by urgency.</h3><p>Your patient list puts who needs you first, with an “Attention needed” strip for changes awaiting a caregiver or just approved.</p></div>
-<div class="card" style="background: #f5f5f7"><h3>Your patient at a glance.</h3><p>Current glucose, estimated A1C / GMI, time in range, insulin today, and the full CGM trace — on every screen.</p></div>
+<div class="card" style="background: #f5f5f7"><h3>Your patient at a glance.</h3><p>Current glucose, estimated A1C / GMI, time in range, insulin today, and the full CGM trace, on every screen.</p></div>
 <div class="card" style="background: #f5f5f7"><h3>Make the Overview yours.</h3><p>Show or hide any card. The rest reflow, and cards open deeper tools like full trends.</p></div>
 <div class="card" style="background: #f5f5f7"><h3>Trends from 3 days to a year.</h3><p>See whether control is improving or slipping, with plain‑language insights on what’s driving the A1C.</p></div>
-<div class="card" style="background: #f5f5f7"><h3>Every meal, dose, and response.</h3><p>Pick any day: carbs, insulin given, glucose before and after, and who logged it — parent or school nurse.</p></div>
+<div class="card" style="background: #f5f5f7"><h3>Every meal, dose, and response.</h3><p>Pick any day: carbs, insulin given, glucose before and after, and who logged it: parent or school nurse.</p></div>
 <div class="card" style="background: #f5f5f7"><h3>Clinical flags.</h3><p>Post‑meal highs and possible under‑boluses are called out, so patterns don’t hide in the data.</p></div>
 <div class="card" style="background: #f5f5f7"><h3>Propose, don’t override.</h3><p>Suggest carb‑ratio and correction changes and compare periods. Nothing changes until the caregiver confirms in the app.</p></div>
-<div class="card" style="background: #f5f5f7"><h3>Message the care circle.</h3><p>Chat with parents — and the school nurse — right from the patient’s chart.</p></div>
+<div class="card" style="background: #f5f5f7"><h3>Message the care circle.</h3><p>Chat with parents and the school nurse right from the patient’s chart.</p></div>
 <div class="card" style="background: #f5f5f7"><h3>Ask about a patient.</h3><p>A built‑in assistant answers questions about the patient you’re viewing, from their own data.</p></div>
 </div>
 </div>
@@ -2192,10 +2199,11 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="wrap" style="display: flex; flex-direction: column; gap: 24px; max-width: 880px">
 <h2 class="h2">Questions from clinicians.</h2>
 <div>
+<details><summary><span>Where does the glucose data come from?</span><span aria-hidden="true">+</span></summary><p>From the family’s Dexcom CGM. Right now, Glucose Guardian works with Dexcom CGMs only.</p></details>
 <details><summary><span>Who can sign in to the portal?</span><span aria-hidden="true">+</span></summary><p>Clinicians with a license key or invite code from their organization. The demo is open to anyone, but it only contains made‑up sample patients.</p></details>
 <details><summary><span>How do I add a patient?</span><span aria-hidden="true">+</span></summary><p>The family shares a Doctor Code from their Glucose Guardian app. You enter it in the portal and the patient appears on your list.</p></details>
 <details><summary><span>Can I change a patient’s settings?</span><span aria-hidden="true">+</span></summary><p>You can propose carb‑ratio, correction, and target changes. They take effect only after the caregiver confirms in the app.</p></details>
-<details><summary><span>Can I message the school nurse?</span><span aria-hidden="true">+</span></summary><p>Yes — parents and caregivers tagged as School Nurse in the care circle can be messaged from the patient’s chart.</p></details>
+<details><summary><span>Can I message the school nurse?</span><span aria-hidden="true">+</span></summary><p>Yes. Parents and caregivers tagged as School Nurse in the care circle can be messaged from the patient’s chart.</p></details>
 <details><summary><span>Does it replace clinical judgment?</span><span aria-hidden="true">+</span></summary><p>No. Glucose Guardian provides estimates and summaries only and does not replace medical advice.</p></details>
 <details><summary><span>What does it cost for a practice?</span><span aria-hidden="true">+</span></summary><p>[PRICING FOR CLINICS AND ORGANIZATIONS.]</p></details>
 </div>
@@ -2213,7 +2221,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 </div>
 </div>
 </section>
-<section class="gg-back" aria-label="Back to Glucose Guardian"><div class="wrap gg-back-in"><div class="gg-back-tx"><span class="gg-back-k">Glucose Guardian</span><b>See the whole story — for families and for anyone managing their own diabetes.</b><span>Walk through a day with the app: live readings, snapping a meal, the dose math, and the care circle.</span></div><a href="index.html" class="btn gg-back-btn">Back to Glucose Guardian ›</a></div></section>
+<section class="gg-back" aria-label="Back to Glucose Guardian"><div class="wrap gg-back-in"><div class="gg-back-tx"><span class="gg-back-k">Glucose Guardian</span><b>See the whole story, for families and for anyone managing their own diabetes.</b><span>Walk through a day with the app: live readings, snapping a meal, the dose math, and the care circle.</span></div><a href="index.html" class="btn gg-back-btn">Back to Glucose Guardian ›</a></div></section>
 </sc-if>
 
 <!-- Footer -->
@@ -2223,7 +2231,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <p>Dexcom is a registered trademark of Dexcom, Inc. iPhone and App Store are trademarks of Apple Inc. Android and Google Play are trademarks of Google LLC.</p>
 <div style="display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-top: 1px solid #d2d2d7; padding-top: 14px">
 <span>Copyright © 2026 Glucose Guardian LLC. All rights reserved.</span>
-<span style="display: flex; gap: 18px; flex-wrap: wrap"><a href="#top" onClick="{{goSchools}}" style="color: #424245">For Schools &amp; Organizations</a><a href="#top" onClick="{{goDoctors}}" style="color: #424245">For Doctors</a><a href="#top" onClick="{{goHome}}" style="color: #424245">For Families</a><a href="#top" style="color: #424245">Privacy Policy</a><a href="#top" style="color: #424245">Terms of Use</a><a href="#top" style="color: #424245">Contact</a></span>
+<span style="display: flex; gap: 18px; flex-wrap: wrap"><a href="#top" onClick="{{goSchools}}" style="color: #424245">For Schools &amp; Organizations</a><a href="#top" onClick="{{goDoctors}}" style="color: #424245">For Doctors</a><a href="index.html" style="color: #424245">For Families</a></span>
 </div>
 </div>
 </footer>
@@ -2316,7 +2324,7 @@ class Component extends DCLogic {
         by1: 'by Mom', by2: 'by Dad', av1: 'D', av2: 'G', av3: 'N', shared: 'Dad, Grandma, and the school nurse see this now.',
         cap4: 'See what’s still working.', shot: 'sent to Grandma', groupName: 'Family group',
         t1: 'Did she eat all her lunch??', t2: 'what was her number at 10?', t3: 'sending a screenshot', missed: 'School Nurse',
-        row4b: 'The school nurse', row4: '— on during school hours, off after',
+        row4b: 'The school nurse', row4: ': on during school hours, off after',
         note2: 'Falling fast · Mia', note3: 'Grandma logged lunch', code1: 'Grandma',
         msgHead: 'Ask Glucose Guardian. Message your circle.',
         msgLede: 'A stubborn high at 4 p.m.? Ask the built‑in assistant what to check. Wondering how lunch went? Message the school nurse — right next to the logs she just added.',
@@ -2328,7 +2336,7 @@ class Component extends DCLogic {
         cgLede: 'Invite up to three co‑guardians, each with their own account — a spouse, a co‑parent, a grandparent who helps every day. At work while she’s home with your kid? You see every reading, meal, and dose as it happens, and either of you can log, fix, or dose.',
         cgA: 'Mom’s phone · at home', cgB: 'Dad’s phone · at work', roleOwner: 'Guardian',
         cgLog: [['6:04 PM', '#i-syr', 'Insulin', '4.5u · Lispro · Rapid‑Acting · by Mom', 'NEW'], ['6:02 PM', '#i-fork', 'Spaghetti & meatballs', '62 g carbs · by Mom'], ['11:58 AM', '#i-syr', 'Insulin', '2u · Lispro · Rapid‑Acting · by School nurse'], ['11:55 AM', '#i-fork', 'Turkey sandwich', '32 g carbs · by School nurse']],
-        inbox: [['#i-pulse', 'Doctor', '', 'See you at the 3‑month visit.', '10/9'], ['#i-brief', 'School nurse', 'Caregiver', 'Checked her — 128 and steady. Off to PE!', '1:04 PM'], ['#i-user', 'Dad', 'Co‑Guardian', 'I’ll grab her at 3.', '12:40 PM'], ['#i-brief', 'Grandma', 'Caregiver', 'No messages yet', '']]
+        inbox: [['#i-pulse', 'Doctor', '', 'See you at the 3‑month visit.', '10/9'], ['#i-brief', 'School nurse', 'Caregiver', 'Checked her. 128 and steady. Off to PE!', '1:04 PM'], ['#i-user', 'Dad', 'Co‑Guardian', 'I’ll grab her at 3.', '12:40 PM'], ['#i-brief', 'Grandma', 'Caregiver', 'No messages yet', '']]
       },
       me: {
         isParent: false, title: 'Robert', managing: 'Your diabetes companion', owner: 'you',
@@ -2394,9 +2402,9 @@ class Component extends DCLogic {
     var dose = Math.round(raw * 2) / 2;
     var warn = null;
     if (isLow) warn = ['w', 'Glucose is low' + (falling ? ' and falling' : '') + '. Consider fast‑acting carbs (juice or glucose tabs) instead of giving insulin.'];
-    else if (isHigh) warn = ['w', (falling ? 'Glucose is high but already falling. Verify with a finger stick and monitor closely after dosing.' : 'Glucose is high. Verify with a finger stick if possible and monitor closely.') + (veryHigh ? ' Check for ketones — the suggestion includes a small extra correction.' : '')];
-    else if (below) warn = falling ? ['w', 'Glucose is below your target and falling. No correction is added — have a small snack instead of insulin and monitor closely.'] : ['i', 'BG is below target (120 mg/dL). No correction added — consider a small snack instead.'];
-    else if (falling) warn = ['w', 'Glucose is falling, so a trend adjustment is applied — monitor closely after dosing.'];
+    else if (isHigh) warn = ['w', (falling ? 'Glucose is high but already falling. Verify with a finger stick and monitor closely after dosing.' : 'Glucose is high. Verify with a finger stick if possible and monitor closely.') + (veryHigh ? ' Check for ketones. The suggestion includes a small extra correction.' : '')];
+    else if (below) warn = falling ? ['w', 'Glucose is below your target and falling. No correction is added. Have a small snack instead of insulin and monitor closely.'] : ['i', 'BG is below target (120 mg/dL). No correction added. Consider a small snack instead.'];
+    else if (falling) warn = ['w', 'Glucose is falling, so a trend adjustment is applied. Monitor closely after dosing.'];
     var rc = function (v) { return v < 70 || v >= 300 ? 'lo' : v <= 180 ? 'ok' : 'hi'; };
     var rl = function (v) { return v < 70 ? 'Low' : v <= 180 ? 'In Range' : v >= 300 ? 'Very High' : 'Above Range'; };
     var calc = {
@@ -2437,7 +2445,7 @@ class Component extends DCLogic {
       fut: fv.map(function (v, i) { return (131 + i * 131 / 12).toFixed(1) + ',' + yOf(v); }).join(' '),
       endY: yOf(fv[12]),
       outCls: goesLow ? 'a-pout low' : 'a-pout',
-      outText: goesLow ? '⚠ Projected to drop below 70 mg/dL — this dose may be too much.' : 'In 2 hours: about ' + endV + ' mg/dL',
+      outText: goesLow ? '⚠ Projected to drop below 70 mg/dL. This dose may be too much.' : 'In 2 hours: about ' + endV + ' mg/dL',
       aria: 'Projected glucose if ' + finalDose + ' units are given now: about ' + endV + ' mg/dL in two hours' + (goesLow ? ', dipping below 70' : '')
     };
     var trends = ['rapidly_falling', 'falling', 'stable', 'rising', 'rapidly_rising'].map(function (k) {
@@ -2459,7 +2467,7 @@ class Component extends DCLogic {
       var sumTo = function (k) { var x = 0; for (var i = 1; i < k; i++) x += parts[i]; return cU + Math.max(0, x); };
       var defs = [
         ['Carb Dose', carbsG + 'g ÷ ' + CR + 'g', r2(cU) + ' u', '', false],
-        ['Correction', below ? 'BG below target — suppressed' : '(' + bgV + ' − ' + TGT + ') ÷ ' + ISF + (bu ? ' · +10% over 300' : ''), below ? '0 u' : sg(co + bu), '', below],
+        ['Correction', below ? 'BG below target (suppressed)' : '(' + bgV + ' − ' + TGT + ') ÷ ' + ISF + (bu ? ' · +10% over 300' : ''), below ? '0 u' : sg(co + bu), '', below],
         ['Trend Adj.', tLabels[trendK] + (tZero ? ' · not applied above 250' : ''), sg(tt), tt !== 0 ? 'var(--o-tx)' : '', tt === 0],
         ['Uncovered Carbs', 'None still absorbing', '0 u', '', true],
         ['Active Insulin', 'No recent doses', '0 u', '', true]
@@ -2468,7 +2476,7 @@ class Component extends DCLogic {
         nameLow: name, carbs: carbsG, bg: bgV, done: st >= 6, fin: fin,
         rows: defs.map(function (d, i) { return { label: d[0], sub: d[1], val: d[2], color: d[3] || 'var(--a-tx)', cls: d[4] ? 'ic-r dim' : 'ic-r', op: i < st ? '1' : '0.18', bg: (i === st - 1 && st < 6) ? 'rgba(124,108,246,.2)' : 'transparent' }; }),
         dose: st <= 0 ? '0' : st >= 6 ? String(fin) : String(r2(sumTo(st))),
-        raw: st < 6 ? 'Adding it up…' : low ? 'Glucose is low — treat the low first' : 'Raw ' + r2(rawV) + 'u → rounded to nearest ½',
+        raw: st < 6 ? 'Adding it up…' : low ? 'Glucose is low. Treat the low first' : 'Raw ' + r2(rawV) + 'u → rounded to nearest ½',
         btnCls: (low || st < 6) ? 'a-btn2 off' : 'a-btn2'
       };
     };
@@ -2526,7 +2534,7 @@ class Component extends DCLogic {
         toggle: function () { var next = Object.assign({}, self.state && self.state.perms); next[d[0]] = !on; self.setState({ perms: next }); } };
     });
     var sched = s.sched || 'schedule';
-    var schedSubs = { always: 'Always on', schedule: 'M T W T F · 7:30 AM–3:00 PM', once: 'Today only · 3:00 PM–9:00 PM', off: 'Paused — access is locked' };
+    var schedSubs = { always: 'Always on', schedule: 'M T W T F · 7:30 AM–3:00 PM', once: 'Today only · 3:00 PM–9:00 PM', off: 'Paused: access is locked' };
     var scheds = [['always', 'Always'], ['schedule', 'Schedule'], ['once', 'One‑time'], ['off', 'Off']].map(function (d) {
       var on = d[0] === sched;
       return { label: d[1], pressed: on ? 'true' : 'false', bg: on ? '#6d5ef5' : 'transparent', fg: on ? '#fff' : 'var(--a-sub)', border: on ? '#6d5ef5' : 'var(--a-line)', pick: function () { self.setState({ sched: d[0] }); } };
@@ -2537,7 +2545,7 @@ class Component extends DCLogic {
     var alertDefs = {
       urgentLow: ['Urgent low', p.isParent ? 'Urgent low · Mia' : 'Urgent low', '52 mg/dL and falling ↓. Treat now.', 'Critical alert — sounds even on silent', '#e11d48', '#fda4af'],
       high: ['High', p.isParent ? 'High · Mia' : 'High', '262 mg/dL and rising ↗', 'Your high‑alert sound', '#d97706', '#fcd34d'],
-      fallFast: ['Falling fast', p.isParent ? 'Falling fast · Mia' : 'Falling fast', '96 mg/dL ↓↓ — dropping quickly', 'Trend alert', '#6d5ef5', '#c4b5fd'],
+      fallFast: ['Falling fast', p.isParent ? 'Falling fast · Mia' : 'Falling fast', '96 mg/dL ↓↓, dropping quickly', 'Trend alert', '#6d5ef5', '#c4b5fd'],
       caregiver: ['Backup', p.isParent ? 'Mia’s school nurse was alerted' : 'Jordan was alerted', 'Urgent low at 52 mg/dL. You didn’t respond in the wait window.', 'Caregiver emergency alert', '#0369a1', '#7dd3fc']
     };
     var alertKey = s.alert || 'urgentLow';
@@ -2564,7 +2572,7 @@ class Component extends DCLogic {
         rows: lr([['7:12 AM', '#i-syr', 'Insulin', '3u · Lispro · Rapid‑Acting · by you', 'NEW'], ['7:10 AM', '#i-fork', 'Oatmeal with berries', '41 g carbs · from photo · by you'], ['10:02 PM', '#i-syr', 'Insulin', '18u · Glargine · Long‑Acting · by you']]) },
       { time: '12:30 PM', place: 'At work', title: 'Scan, don’t guess.', text: 'Grab a packaged lunch, scan the barcode, and it’s in your log.', screen: 'log', bg: 146, trend: 'stable',
         rows: lr([['12:31 PM', '#i-syr', 'Insulin', '2.5u · Lispro · Rapid‑Acting · by you', 'NEW'], ['12:30 PM', '#i-fork', 'Turkey wrap', '38 g carbs · barcode · by you'], ['7:10 AM', '#i-fork', 'Oatmeal with berries', '41 g carbs · from photo · by you']]) },
-      { time: '3:15 PM', place: 'Meeting', title: 'A quiet heads‑up.', text: 'Dropping fast in the middle of a meeting? A trend alert taps you early — with your own sound.', screen: 'glucose', greet: 'Good afternoon', bg: 96, trend: 'rapidly_falling', start: 150, xl: ['9:15 AM', '12:15 PM'], banner: ['Falling fast', '96 mg/dL ↓↓ — dropping quickly'], bannerIcon: '#6d5ef5' },
+      { time: '3:15 PM', place: 'Meeting', title: 'A quiet heads‑up.', text: 'Dropping fast in the middle of a meeting? A trend alert taps you early — with your own sound.', screen: 'glucose', greet: 'Good afternoon', bg: 96, trend: 'rapidly_falling', start: 150, xl: ['9:15 AM', '12:15 PM'], banner: ['Falling fast', '96 mg/dL ↓↓, dropping quickly'], bannerIcon: '#6d5ef5' },
       { time: '1:40 AM', place: 'Asleep', title: 'Backup when you need it.', text: 'If an urgent low hits and you don’t respond, the person you chose — a partner, roommate, or parent — gets the alert.', screen: 'glucose', greet: 'Good night', bg: 54, trend: 'falling', start: 132, xl: ['7:40 PM', '10:40 PM'], banner: ['Urgent low', '54 mg/dL and falling. Treat now.'], bannerIcon: '#e11d48' }
     ];
     var daySteps = p.isParent ? parentDay : meDay;
@@ -2605,7 +2613,7 @@ class Component extends DCLogic {
       msgs: mk([
         ['them', p.hello, '4:12 PM'],
         ['me', isP ? 'Mia’s at 262 and her last dose isn’t bringing her down. What should I do?' : 'I’m at 262 and my last dose isn’t bringing me down. What should I do?', '4:12 PM'],
-        ['them', 'Before giving more:\n1. Confirm with a finger stick.\n2. Check ketones — ' + (isP ? 'she’s' : 'you’re') + ' over 250.\n3. Check the injection site or pen.', '4:12 PM'],
+        ['them', 'Before giving more:\n1. Confirm with a finger stick.\n2. Check ketones, since ' + (isP ? 'she’s' : 'you’re') + ' over 250.\n3. Check the injection site or pen.', '4:12 PM'],
         ['act', 'Open the calculator →']
       ]) };
     var inboxThread = { label: 'Messages', kind: 'inbox', aria: 'The Messages inbox with the doctor, co-guardians, and caregivers' };
@@ -2614,10 +2622,10 @@ class Component extends DCLogic {
       aria: 'A message thread with the school nurse about lunch and checking before PE',
       msgs: mk([
         ['time', 'Today 12:02 PM'],
-        ['them', 'Lunch is logged. She finished the whole sandwich — she was 141 before, and I gave 2 units.', '12:02 PM'],
-        ['me', 'Thank you! She has PE at 1 — can you check her before she goes?', '12:03 PM'],
+        ['them', 'Lunch is logged. She finished the whole sandwich. She was 141 before, and I gave 2 units.', '12:02 PM'],
+        ['me', 'Thank you! She has PE at 1. Can you check her before she goes?', '12:03 PM'],
         ['them', 'Will do.', '12:03 PM'],
-        ['them', 'Checked her — 128 and steady. Snack is in her bag. Off to PE!', '1:04 PM'],
+        ['them', 'Checked her. 128 and steady. Snack is in her bag. Off to PE!', '1:04 PM'],
         ['me', 'You’re the best. Thank you!', '1:05 PM']
       ])
     } : {
@@ -2626,7 +2634,7 @@ class Component extends DCLogic {
       msgs: mk([
         ['time', 'Today 1:44 AM'],
         ['them', 'Got your low alert. You OK?', '1:44 AM'],
-        ['me', 'Yeah — had juice. 96 now and climbing.', '1:46 AM'],
+        ['me', 'Yeah, had juice. 96 now and climbing.', '1:46 AM'],
         ['them', 'Good. Go back to sleep, I’ll keep an eye on it.', '1:46 AM'],
         ['them', 'Steady the rest of the night. Coffee’s on.', '7:02 AM']
       ])
@@ -2758,9 +2766,9 @@ class Component extends DCLogic {
       });
       nsObj.parent = k.guardian;
       var threadsByKid = {
-        Mia: [['time', 'Today 12:02 PM'], ['me', 'Hi! Mia was 141 before lunch and ate the whole turkey sandwich. I logged 32 g and gave 2 units.', '12:02 PM'], ['them', 'Perfect, thank you! She has PE at 1 — can you check her before she goes?', '12:04 PM'], ['me', 'Will do. She’s 128 and steady right now.', '12:39 PM'], ['them', 'You’re the best. Thank you!', '12:40 PM']],
+        Mia: [['time', 'Today 12:02 PM'], ['me', 'Hi! Mia was 141 before lunch and ate the whole turkey sandwich. I logged 32 g and gave 2 units.', '12:02 PM'], ['them', 'Perfect, thank you! She has PE at 1. Can you check her before she goes?', '12:04 PM'], ['me', 'Will do. She’s 128 and steady right now.', '12:39 PM'], ['them', 'You’re the best. Thank you!', '12:40 PM']],
         Leo: [['time', 'Today 12:30 PM'], ['me', 'Leo is 212 and rising. He had a granola bar at 10:20 that wasn’t on the plan.', '12:30 PM'], ['them', 'That was from his backpack, sorry! Please go ahead with his correction from his plan.', '12:33 PM'], ['me', 'Got it. I’ll log it and recheck in an hour.', '12:34 PM']],
-        Ava: [['time', 'Today 12:31 PM'], ['me', 'Ava dropped to 64 before lunch. I gave her a juice box — rechecking in 15 minutes.', '12:32 PM'], ['them', 'Thank you for catching that! Let me know her number.', '12:33 PM'], ['me', 'Will do. Holding her lunch insulin until she’s back up.', '12:34 PM']],
+        Ava: [['time', 'Today 12:31 PM'], ['me', 'Ava dropped to 64 before lunch. I gave her a juice box. Rechecking in 15 minutes.', '12:32 PM'], ['them', 'Thank you for catching that! Let me know her number.', '12:33 PM'], ['me', 'Will do. Holding her lunch insulin until she’s back up.', '12:34 PM']],
         Noah: [['them', 'Hi! Noah has practice today.', '2:58 PM']]
       };
       nsObj.msgs = mk(threadsByKid[k.first] || []);
@@ -2778,7 +2786,7 @@ class Component extends DCLogic {
       return { label: t[1], icon: t[2], cls: on ? 'on' : '', pressed: on ? 'true' : 'false',
         pick: function () { if (t[0] === 'dash') return; self.setState({ nTab: t[0], nRead: false, nLog: null, nSnap: 'cam', nDay: 0, nGuide: null }); } };
     });
-    nsObj.aria = !kidSel ? 'Caregiver Menu on ' + (nDev === 'pad' ? 'iPad' : 'iPhone') + ' — tap a student to open their dashboard' : kLocked ? 'Locked: outside the access window for ' + kidSel.name : 'Viewing ' + kidSel.name + '’s ' + ({ glucose: 'glucose dashboard', log: 'log', food: 'food camera and calculator', chat: 'chat' }[nTab] || 'dashboard');
+    nsObj.aria = !kidSel ? 'Caregiver Menu on ' + (nDev === 'pad' ? 'iPad' : 'iPhone') + '. Tap a student to open their dashboard' : kLocked ? 'Locked: outside the access window for ' + kidSel.name : 'Viewing ' + kidSel.name + '’s ' + ({ glucose: 'glucose dashboard', log: 'log', food: 'food camera and calculator', chat: 'chat' }[nTab] || 'dashboard');
     var lm = { editing: false, notEditing: true };
     if (logRow) {
       var lv = s.nEditing ? s.nVal : valOf(logRow), lins = logRow[2] === 'ins';
@@ -2800,7 +2808,7 @@ class Component extends DCLogic {
     });
     var guideDefs = [
       ['Open a student', 'Tap Mia on the Caregiver Menu to see her dashboard.', { nKid: 0, nTab: 'glucose', nRead: false, nLog: null }],
-      ['See recent readings', 'Tap the glucose circle — every reading before you came in.', { nKid: 0, nTab: 'glucose', nRead: true, nSeenRead: true, nLog: null }],
+      ['See recent readings', 'Tap the glucose circle to see every reading before you came in.', { nKid: 0, nTab: 'glucose', nRead: true, nSeenRead: true, nLog: null }],
       ['Check breakfast at home', 'The log shows what Mom logged at 7:05 AM.', { nKid: 0, nTab: 'log', nDay: 0, nRead: false, nLog: 'm4', nEditing: false }],
       ['Fix a log', 'Someone typed 20u instead of 2u. Edit it and save.', { nKid: 0, nTab: 'log', nDay: 0, nRead: false, nLog: 'm1', nEditing: true, nVal: nEdits.m1 != null ? nEdits.m1 : 20 }],
       ['Snap lunch, get the dose', 'Photo → carbs → the insulin math, then it’s logged.', { nKid: 0, nTab: 'food', nSnap: 'cam', nRead: false, nLog: null }],
@@ -2819,17 +2827,17 @@ class Component extends DCLogic {
       step(1);
     };
     // ── Doctors page: link to the live portal (set PORTAL_URL to the portal's web address) ──
-    var PORTAL_URL = 'https://glucose-guardian-frontend.vercel.app/';
-    var portal = PORTAL_URL ? { href: PORTAL_URL, target: '_blank', note: 'Opens the live portal in demo mode — no real patient data.' } : { href: '#tour', target: '_self', note: '[Portal web address goes here]' };
+    var PORTAL_URL = 'https://portal.glucoseguardian.io/';
+    var portal = PORTAL_URL ? { href: PORTAL_URL, target: '_blank', note: 'Opens the live portal. Tap Try the demo to look around with sample patients, no real data.' } : { href: '#tour', target: '_self', note: '[Portal web address goes here]' };
     // ── Doctors page: portal tour ──
     var dImgs = {"light": {"list": "portal/light-list.jpg", "overview": "portal/light-overview.jpg", "chart": "portal/light-chart.jpg", "insulin": "portal/light-insulin.jpg", "orders": "portal/light-orders.jpg", "messages": "portal/light-messages.jpg", "home": "portal/light-home.jpg"}, "dark": {"list": "portal/dark-list.jpg", "overview": "portal/dark-overview.jpg", "chart": "portal/dark-chart.jpg", "insulin": "portal/dark-insulin.jpg", "orders": "portal/dark-orders.jpg", "messages": "portal/dark-messages.jpg", "home": "portal/dark-home.jpg"}};
     var dDefs = [
       ['list', 'Your patients', 'Your patients, sorted by urgency.', 'Every linked patient with their latest reading, estimated A1C, and time in range. “Attention needed” flags changes awaiting a caregiver or just approved.'],
-      ['overview', 'Overview', 'Your patient at a glance.', 'Current glucose, estimated A1C / GMI, time in range, insulin today, and the full CGM trace — with the care circle, including the school nurse, in the sidebar.'],
+      ['overview', 'Overview', 'Your patient at a glance.', 'Current glucose, estimated A1C / GMI, time in range, insulin today, and the full CGM trace, with the care circle, including the school nurse, in the sidebar.'],
       ['chart', 'CGM / A1C Trends', 'Trends from 3 days to a year.', 'See whether control is improving or slipping, with plain‑language insights on what’s driving the A1C.'],
-      ['insulin', 'Daily Review', 'Every meal, dose, and response.', 'Pick any day. Each meal shows its carbs, the insulin given, glucose before and after, and who logged it — with clinical flags and the ratios used that day.'],
+      ['insulin', 'Daily Review', 'Every meal, dose, and response.', 'Pick any day. Each meal shows its carbs, the insulin given, glucose before and after, and who logged it, with clinical flags and the ratios used that day.'],
       ['orders', 'Treatment Settings', 'Propose changes. Compare the results.', 'Suggest carb‑ratio and correction changes and compare periods side by side. Changes take effect only after the caregiver confirms in the app.'],
-      ['messages', 'Messages', 'Message the care circle.', 'Chat with the parents — and the school nurse — right from the patient’s chart.'],
+      ['messages', 'Messages', 'Message the care circle.', 'Chat with the parents and the school nurse right from the patient’s chart.'],
       ['home', 'Sign in', 'Private by design.', 'Clinicians sign in with a license key or invite code from their organization. Anyone can try the demo with five sample patients — nothing real, nothing saved.']
     ];
     var dIdx = s.dTab || 0;
@@ -2877,12 +2885,12 @@ class Component extends DCLogic {
       dTabs: dTabs, dCur: dCur, portal: portal,
       dPrev: function () { self.setState({ dTab: (dIdx + dDefs.length - 1) % dDefs.length }); },
       dNext: function () { self.setState({ dTab: (dIdx + 1) % dDefs.length }); },
-      goDoctors: function (e) { if (e && e.preventDefault) e.preventDefault(); self.setState({ page: 'doctors' }); try { window.scrollTo(0, 0); } catch (err) {} },
+      goDoctors: function (e) { if (e && e.preventDefault) e.preventDefault(); (function(){try{history.replaceState(null,'','#doctors')}catch(e){}})(), self.setState({ page: 'doctors' }); try { window.scrollTo(0, 0); } catch (err) {} },
       navCta: s.page === 'schools' ? 'Contact us' : s.page === 'doctors' ? 'Request access' : 'Join the beta',
       navCtaHref: s.page === 'schools' ? '#contact' : s.page === 'doctors' ? '#doc-contact' : 'https://testflight.apple.com/join/jnr9HbAa',
       navCtaTarget: (s.page === 'schools' || s.page === 'doctors') ? '_self' : '_blank',
       navCtaBg: (s.page === 'schools' || s.page === 'doctors') ? '#0369a1' : (this.props.accent ?? '#6d5ef5'),
-      goSchools: function (e) { if (e && e.preventDefault) e.preventDefault(); self.setState({ page: 'schools' }); try { window.scrollTo(0, 0); } catch (err) {} },
+      goSchools: function (e) { if (e && e.preventDefault) e.preventDefault(); (function(){try{history.replaceState(null,'','#schools')}catch(e){}})(), self.setState({ page: 'schools' }); try { window.scrollTo(0, 0); } catch (err) {} },
       goHome: function (e) { if (e && e.preventDefault) e.preventDefault(); self.setState({ page: 'home' }); try { window.scrollTo(0, 0); } catch (err) {} },
       themeCls: dark ? 't-dark' : 't-light',
       themeBtns: themeBtns,
