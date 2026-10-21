@@ -579,7 +579,8 @@ body{background:#05060c}
 .step p{margin:0;font-size:18px;line-height:1.5;color:#a1a1a6}
 .step .num{font-size:13px;color:#6e6e73}
 .spacer{height:600px}
-.sv{position:absolute;inset:0;opacity:0;transition:opacity .45s ease;pointer-events:none}
+.sv{position:absolute;inset:0;opacity:0;transition:opacity .45s ease;pointer-events:none}.stage .sv{z-index:2}.cine .story .stage .sv.sv-on,.story .stage .sv.sv-on{z-index:1;transition:none!important;transform:none!important}
+
 .stage .tapdot{animation:none}
 .win{opacity:calc(clamp(0,(var(--t) - var(--a)) * 30,1) * clamp(0,(var(--b) - var(--t)) * 30,1))}
 .after{opacity:clamp(var(--o0,0),(var(--t) - var(--a)) * 14,1);transform:translateY(calc(clamp(0,(var(--a) - var(--t)) * 60,1) * 8px))}
@@ -2148,6 +2149,19 @@ class Component extends DCLogic {
         story.setAttribute('data-step', String(k));
         story.classList.toggle('ggodd', k % 2 === 1);
         story.style.setProperty('--t', t.toFixed(3));
+        // Each phone screen keeps its OWN progress. The active screen tracks the scroll; the one that
+        // just went inactive freezes at its last state (finished when moving on, start when going back)
+        // instead of snapping to the new step's t=0 while it fades out (that was the "flash and reset").
+        var SV = ['glucose', 'readings', 'pred', 'log', 'food', 'calc', 'dose', 'chat', 'dash', 'ins', 'care', 'alerts'];
+        var svOn = story.querySelector('.stage .sv-' + SV[k]);
+        if (svOn) {
+          if (self._svOn && self._svOn !== svOn) {
+            self._svOn.style.setProperty('--t', k > self._svK ? '0.999' : '0');
+            self._svOn.classList.remove('sv-on');
+          }
+          svOn.classList.add('sv-on'); svOn.style.setProperty('--t', t.toFixed(3));
+          self._svOn = svOn; self._svK = k;
+        }
         var A = [0, 300, 550, 850, 1150, 1300, 1650, 2300, 2450, 2600, 2700, 3500, 3700]; story.style.setProperty('--gx', (A[k] + (A[k + 1] - A[k]) * t).toFixed(1));
         steps.forEach(function (el, i) { el.classList.toggle('on', i === k); });
         story.querySelectorAll('.pd').forEach(function (d, i) { d.classList.toggle('done', i <= k); });
