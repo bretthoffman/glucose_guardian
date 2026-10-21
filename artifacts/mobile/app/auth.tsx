@@ -281,7 +281,9 @@ export default function AuthScreen() {
                 styles.tabIndicator,
                 { backgroundColor: COLORS.primary, left: tabIndicatorLeft },
               ]}
-            />
+            >
+              <AccentShade radius={10} />
+            </Animated.View>
             <Pressable
               style={styles.tab}
               onPress={() => {
@@ -487,8 +489,8 @@ export default function AuthScreen() {
                 style={styles.caregiverLink}
                 onPress={() => { setShowDoctorEntry(true); setDoctorError(""); }}
               >
-                <Feather name="activity" size={14} color="#6366F1" />
-                <Text style={[styles.caregiverLinkText, { color: "#6366F1" }]}>
+                <Feather name="activity" size={14} color="#2F6BFF" />
+                <Text style={[styles.caregiverLinkText, { color: "#2F6BFF" }]}>
                   Doctor / Provider? Enter your code →
                 </Text>
               </Pressable>
@@ -499,8 +501,8 @@ export default function AuthScreen() {
               <Text style={[styles.caregiverFormSub, { color: "rgba(255,255,255,0.55)" }]}>
                 Enter the 6-character doctor code to access editing permissions
               </Text>
-              <View style={[styles.caregiverInputWrap, { backgroundColor: "rgba(255,255,255,0.06)", borderColor: doctorError ? COLORS.danger : "rgba(99,102,241,0.35)" }]}>
-                <Feather name="activity" size={15} color="rgba(99,102,241,0.7)" />
+              <View style={[styles.caregiverInputWrap, { backgroundColor: "rgba(255,255,255,0.06)", borderColor: doctorError ? COLORS.danger : "rgba(47,107,255,0.35)" }]}>
+                <Feather name="activity" size={15} color="rgba(47,107,255,0.7)" />
                 <TextInput
                   style={[styles.caregiverInput, { color: "#fff" }]}
                   value={doctorCode}
@@ -524,7 +526,7 @@ export default function AuthScreen() {
                   <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, fontWeight: "500" }}>Cancel</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.caregiverSubmitBtn, { backgroundColor: doctorCode.length === 6 ? "#6366F1" : "rgba(255,255,255,0.12)", opacity: doctorCode.length === 6 ? 1 : 0.6 }]}
+                  style={[styles.caregiverSubmitBtn, { backgroundColor: doctorCode.length === 6 ? "#2F6BFF" : "rgba(255,255,255,0.12)", opacity: doctorCode.length === 6 ? 1 : 0.6 }]}
                   disabled={doctorCode.length < 6}
                   onPress={() => {
                     const ok = enterDoctorMode(doctorCode);

@@ -81,7 +81,7 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         icon: "trending-up",
         title: "See them on your graph",
-        body: "Finger sticks show as purple drops on the Log graph, next to the Dexcom reading.",
+        body: "Finger sticks show as blue drops on the Log graph, next to the Dexcom reading.",
       },
       {
         icon: "zap",

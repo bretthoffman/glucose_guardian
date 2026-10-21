@@ -14,6 +14,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Colors, { COLORS } from "@/constants/colors";
 import { useTheme } from "@/context/ThemeContext";
+import { AccentShade } from "@/components/Shade";
 import type { InsulinLogEntry } from "@/context/AuthContext";
 import { computeActiveInsulin } from "@/utils/onBoard";
 import { stackingWarning, type RecentDose, type StackingWarningCopy } from "@/utils/insulinStacking";
@@ -64,6 +65,7 @@ function StackingWarningModal({
             onPress={onCancel}
             style={({ pressed }) => [styles.cancelBtn, { opacity: pressed ? 0.85 : 1 }]}
           >
+            <AccentShade radius={14} />
             <Text style={styles.cancelText}>Cancel insulin log</Text>
           </Pressable>
           <Pressable
@@ -71,7 +73,7 @@ function StackingWarningModal({
             onPress={onLog}
             style={({ pressed }) => [styles.logBtn, { borderColor: COLORS.primaryLight + "99", opacity: pressed ? 0.7 : 1 }]}
           >
-            <Text style={[styles.logText, { color: isDark ? "#C9C0FF" : COLORS.primary }]}>Log insulin</Text>
+            <Text style={[styles.logText, { color: isDark ? "#BFE6FF" : COLORS.primary }]}>Log insulin</Text>
           </Pressable>
         </View>
       </View>

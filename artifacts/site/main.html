@@ -15,13 +15,15 @@
 <x-dc>
 <helmet>
 <style>
+:root{--brand-grad:linear-gradient(120deg,#14c8f0 0%,#2f86ff 55%,#2f6bff 100%);--brand-soft:linear-gradient(120deg,rgba(20,200,240,.20) 0%,rgba(47,134,255,.06) 55%,rgba(47,107,255,.16) 100%)}
+
 body{margin:0;background:#fff;color:#1d1d1f;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Helvetica,sans-serif;-webkit-font-smoothing:antialiased}
 a{color:#0066cc;text-decoration:none}a:hover{color:#004c99;text-decoration:underline}
 h1,h2,h3,p{margin:0}
 
 /* ── App theme tokens (driven by the page's Light / Dark switch) ── */
-.t-dark{--a-bg:#0a1324;--a-head:#0f1a2e;--a-card:#111c32;--a-card2:#1a2742;--a-line:#1f2b45;--a-tx:#ffffff;--a-sub:#9aa3b2;--a-mut:#6b7891;--a-pur:#7c6cf6;--a-purtx:#a99bff;--a-pursoft:#262a5a;--a-segbg:#18233c;--a-rng:#3a4866;--a-tab:#0f1a2e;--a-tabtx:#7d8799;--a-tabon:#262a5a;--a-tabontx:#a99bff;--tab-shadow:none;--g-tx:#34d399;--g-bg:#0d2a24;--g-bd:#1f6f50;--o-tx:#f5a524;--o-bg:#2a2010;--o-bd:#8a5a1a;--o-fill:#2a2420;--r-tx:#f87171;--r-bg:#2a1824;--r-bd:#9b3b4a;--w-tx:#f5b544;--w-bg:#241d10;--w-bd:#c08a2a;--z-hi:#5b2a3d;--z-mid:#5a4126;--z-ok:#123d39;--grid:#1f2b45;--axis:#9aa3b2;--ico-bg:#1e2547;--input:#111c32;--bub:#16223a;--chip:#16223a;--sw-off:#3a4458;--a-btnalt:#4a43a3;--a-btnalttx:#c7c0ff}
-.t-light{--a-bg:#eef1f8;--a-head:#f7f8fc;--a-card:#ffffff;--a-card2:#f3f5fa;--a-line:#e3e8f0;--a-tx:#0f172a;--a-sub:#64748b;--a-mut:#94a3b8;--a-pur:#6d5ef5;--a-purtx:#5b47e0;--a-pursoft:#ebe7ff;--a-segbg:#e9ecf4;--a-rng:#e4e6ec;--a-tab:#ffffff;--a-tabtx:#64748b;--a-tabon:#e9e5ff;--a-tabontx:#6d5ef5;--tab-shadow:0 6px 18px rgba(15,23,42,0.08);--g-tx:#10b981;--g-bg:#ddf6ec;--g-bd:#a7e3c8;--o-tx:#e08a1e;--o-bg:#fff3e2;--o-bd:#f5cf9d;--o-fill:#fff4e6;--r-tx:#ef4444;--r-bg:#fbe4e6;--r-bd:#f3a3a8;--w-tx:#d97706;--w-bg:#fdf3e3;--w-bd:#f0b84a;--z-hi:#f8c4c4;--z-mid:#f8dcb5;--z-ok:#c9efe0;--grid:#e5e9f0;--axis:#64748b;--ico-bg:#ebe7ff;--input:#ffffff;--bub:#eef0f7;--chip:#f3f5fa;--sw-off:#d1d5db;--a-btnalt:#e9e5ff;--a-btnalttx:#5b47e0}
+.t-dark{--a-bg:#0a1324;--a-head:#0f1a2e;--a-card:#111c32;--a-card2:#1a2742;--a-line:#1f2b45;--a-tx:#ffffff;--a-sub:#9aa3b2;--a-mut:#6b7891;--a-pur:#2f80ff;--a-purtx:#5cc8ff;--a-pursoft:#123056;--a-segbg:#18233c;--a-rng:#3a4866;--a-tab:#0f1a2e;--a-tabtx:#7d8799;--a-tabon:#123056;--a-tabontx:#5cc8ff;--tab-shadow:none;--g-tx:#34d399;--g-bg:#0d2a24;--g-bd:#1f6f50;--o-tx:#f5a524;--o-bg:#2a2010;--o-bd:#8a5a1a;--o-fill:#2a2420;--r-tx:#f87171;--r-bg:#2a1824;--r-bd:#9b3b4a;--w-tx:#f5b544;--w-bg:#241d10;--w-bd:#c08a2a;--z-hi:#5b2a3d;--z-mid:#5a4126;--z-ok:#123d39;--grid:#1f2b45;--axis:#9aa3b2;--ico-bg:#132a4c;--input:#111c32;--bub:#16223a;--chip:#16223a;--sw-off:#3a4458;--a-btnalt:#1b4a86;--a-btnalttx:#c6e8ff}
+.t-light{--a-bg:#eef1f8;--a-head:#f7f8fc;--a-card:#ffffff;--a-card2:#f3f5fa;--a-line:#e3e8f0;--a-tx:#0f172a;--a-sub:#64748b;--a-mut:#94a3b8;--a-pur:#1f6fe6;--a-purtx:#0b63d6;--a-pursoft:#e2efff;--a-segbg:#e9ecf4;--a-rng:#e4e6ec;--a-tab:#ffffff;--a-tabtx:#64748b;--a-tabon:#e2efff;--a-tabontx:#1f6fe6;--tab-shadow:0 6px 18px rgba(15,23,42,0.08);--g-tx:#10b981;--g-bg:#ddf6ec;--g-bd:#a7e3c8;--o-tx:#e08a1e;--o-bg:#fff3e2;--o-bd:#f5cf9d;--o-fill:#fff4e6;--r-tx:#ef4444;--r-bg:#fbe4e6;--r-bd:#f3a3a8;--w-tx:#d97706;--w-bg:#fdf3e3;--w-bd:#f0b84a;--z-hi:#f8c4c4;--z-mid:#f8dcb5;--z-ok:#c9efe0;--grid:#e5e9f0;--axis:#64748b;--ico-bg:#e2efff;--input:#ffffff;--bub:#eef0f7;--chip:#f3f5fa;--sw-off:#d1d5db;--a-btnalt:#e2efff;--a-btnalttx:#0b63d6}
 
 /* ── Devices ── */
 .iphone{position:relative;width:284px;height:592px;border-radius:60px;padding:9px;box-sizing:border-box;flex:none;background:linear-gradient(135deg,#ffb27a 0%,#d9541a 22%,#f7843f 46%,#b8410f 76%,#f29a5c 100%);box-shadow:0 44px 90px rgba(0,0,0,.38),0 0 0 .5px rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,220,190,.55)}
@@ -60,13 +62,13 @@ h1,h2,h3,p{margin:0}
 .a-topbar{display:flex;align-items:center;gap:8px}
 .a-seg{display:flex;flex:1;background:var(--a-segbg);border-radius:12px;padding:3px;font-size:11.5px;font-weight:600}
 .a-seg div{flex:1;text-align:center;padding:8px 0;color:var(--a-sub);border-radius:10px;display:flex;align-items:center;justify-content:center;gap:4px}
-.a-seg .on{background:linear-gradient(#8072f7,#6d5ef5);color:#fff}.a-seg svg{width:11px;height:11px}
+.a-seg .on{background:var(--brand-grad);color:#fff}.a-seg svg{width:11px;height:11px}
 .a-bgp{font-size:8.5px;font-weight:700;border-radius:12px;padding:4px 7px;text-align:center;line-height:1.25;border:1px solid;flex:none;min-width:52px}
 .a-bgp b{font-size:13px}.a-bgp i{font-style:normal;font-weight:500;font-size:8px}
 .a-calbtn{align-self:center;width:28px;height:28px;border-radius:9px;background:var(--a-card2);border:1px solid var(--a-line);display:flex;align-items:center;justify-content:center;color:var(--a-tx)}.a-calbtn svg{width:13px;height:13px}
 .a-dayrow{display:flex;justify-content:space-between;align-items:center;padding:0 6px;font-size:18px}.a-dayrow b{font-size:16px}.a-dayrow .dim{color:var(--a-mut)}
 .a-dateline{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:600;color:var(--a-sub)}
-.a-add{font-size:9.5px;font-weight:700;color:var(--a-tx);border:1.5px solid var(--a-pur);border-radius:10px;padding:5px 9px;background:var(--a-pursoft)}
+.a-add{font-size:9.5px;font-weight:700;color:var(--a-tx);border:1.5px solid var(--a-pur);border-radius:10px;padding:5px 9px;background:var(--brand-soft),var(--a-pursoft)}
 .a-list{padding:0 10px}
 .a-row{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--a-line);font-size:11px}
 .a-row:last-child{border-bottom:0}
@@ -77,11 +79,11 @@ h1,h2,h3,p{margin:0}
 .a-chev{color:var(--a-mut);font-size:14px;flex:none}
 .a-tabbar{position:absolute;left:8px;right:8px;bottom:10px;display:flex;gap:2px;background:var(--a-tab);border:1px solid var(--a-line);border-radius:22px;padding:5px;box-shadow:var(--tab-shadow);z-index:5}
 .a-tab{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0 5px;border-radius:14px;font-size:8px;font-weight:600;color:var(--a-tabtx);white-space:nowrap}
-.a-tab svg{width:15px;height:15px}.a-tab.on{background:var(--a-tabon);color:var(--a-tabontx)}
+.a-tab svg{width:15px;height:15px}.a-tab.on{background:var(--brand-soft),var(--a-tabon);color:var(--a-tabontx)}
 .a-alert{border-radius:16px;padding:10px 12px;font-size:9.5px;line-height:1.4;border:1px solid var(--r-bd);background:var(--r-bg)}.a-alert b{display:block;color:var(--r-tx);font-size:11px;margin-bottom:2px}
 .a-warn{border:1px solid var(--w-bd);background:var(--w-bg);color:var(--w-tx);border-radius:12px;padding:8px 10px;font-size:9.5px;line-height:1.4;margin-top:8px}
 .a-warn.danger{border-color:var(--r-bd);background:var(--r-bg);color:var(--r-tx)}
-.a-warn.info{border-color:var(--a-pur);background:var(--a-pursoft);color:var(--a-purtx)}
+.a-warn.info{border-color:var(--a-pur);background:var(--brand-soft),var(--a-pursoft);color:var(--a-purtx)}
 .a-sec{font-size:8.5px;font-weight:700;letter-spacing:.1em;color:var(--a-sub)}
 .a-calchead{display:flex;justify-content:space-between;align-items:center}.a-calchead b{font-size:15px}
 .a-inschip{font-size:9px;font-weight:600;border:1px solid var(--a-line);background:var(--a-card);border-radius:10px;padding:6px 8px;display:inline-flex;gap:4px;align-items:center}.a-inschip svg{width:10px;height:10px;color:var(--a-pur)}
@@ -91,14 +93,14 @@ h1,h2,h3,p{margin:0}
 .live{color:var(--g-tx);background:var(--g-bg);border-radius:5px;padding:1px 4px;font-size:7px;letter-spacing:.08em}
 .a-math{display:flex;justify-content:space-between;align-items:center;padding:12px 8px;text-align:center}
 .a-math .l{font-size:7.5px;color:var(--a-sub);font-weight:600}.a-math .v{font-size:14px;font-weight:800;margin:2px 0}.a-math .s{font-size:7.5px;color:var(--a-sub)}.a-math .op{font-size:12px;color:var(--a-sub)}
-.v-b{color:#3b82f6}.v-g{color:#10b981}.v-o{color:#f59e0b}.v-p{color:#8b5cf6}
+.v-b{color:#3b82f6}.v-g{color:#10b981}.v-o{color:#f59e0b}.v-p{color:#2f80ff}
 .a-sugg{padding:12px}.a-sugg-row{display:flex;justify-content:space-between;align-items:center}.a-sugg-row b{font-size:10px;letter-spacing:.08em}
-.a-dosebox{border:2px solid var(--a-pur);background:var(--a-pursoft);border-radius:12px;padding:3px 14px;font-size:22px;font-weight:800;text-align:center}.a-dosebox small{font-size:9.5px;font-weight:500;color:var(--a-sub)}
+.a-dosebox{border:2px solid var(--a-pur);background:var(--brand-soft),var(--a-pursoft);border-radius:12px;padding:3px 14px;font-size:22px;font-weight:800;text-align:center}.a-dosebox small{font-size:9.5px;font-weight:500;color:var(--a-sub)}
 .a-tap{font-size:8px;color:var(--a-sub);text-align:center;margin-top:3px}
 .a-btns{display:flex;gap:6px;margin-top:10px}
-.a-btn2{flex:1;font:inherit;font-size:9.5px;font-weight:700;color:#fff;background:linear-gradient(#8072f7,#6d5ef5);border:0;border-radius:11px;padding:10px 0;text-align:center;cursor:pointer}
+.a-btn2{flex:1;font:inherit;font-size:9.5px;font-weight:700;color:#fff;background:var(--brand-grad);border:0;border-radius:11px;padding:10px 0;text-align:center;cursor:pointer}
 .a-btn2.off{opacity:.45;cursor:default}
-.a-btn2.alt{background:var(--a-btnalt);color:var(--a-btnalttx)}
+.a-btn2.alt{background:var(--brand-soft),var(--a-btnalt);color:var(--a-btnalttx)}
 .a-step{width:24px;height:24px;border-radius:50%;border:1px solid var(--a-line);background:var(--a-card2);color:var(--a-tx);font:inherit;font-size:14px;font-weight:700;line-height:1;cursor:pointer;padding:0;flex:none}
 .a-man{font-size:7.5px;font-weight:700;letter-spacing:.12em;color:var(--a-purtx);margin-bottom:3px}
 .a-x{border:0;background:transparent;color:var(--a-sub);font-size:17px;line-height:1;cursor:pointer;padding:2px 4px}
@@ -109,7 +111,7 @@ h1,h2,h3,p{margin:0}
 .draw{stroke-dasharray:1;stroke-dashoffset:1;animation:gg-draw 1s ease-out forwards}
 @keyframes gg-draw{to{stroke-dashoffset:0}}
 .a-chathead{display:flex;align-items:center;gap:9px;padding:46px 12px 10px;background:var(--a-head);border-bottom:1px solid var(--a-line)}
-.a-gg{width:34px;height:34px;border-radius:50%;background:var(--a-pursoft);display:flex;align-items:center;justify-content:center;flex:none}.a-gg svg{width:17px;height:17px}
+.a-gg{width:34px;height:34px;border-radius:50%;background:var(--brand-soft),var(--a-pursoft);display:flex;align-items:center;justify-content:center;flex:none}.a-gg svg{width:17px;height:17px}
 .a-chathead .f1{flex:1;min-width:0}.a-chathead .f1 b{display:block;font-size:13px}.a-chathead .f1 span{font-size:9px;color:var(--g-tx);font-weight:600}
 .a-chathead .f1 i{font-size:9px;color:var(--a-sub)}
 .a-back{font-size:22px;color:var(--a-pur);line-height:1}
@@ -117,8 +119,8 @@ h1,h2,h3,p{margin:0}
 .a-msgs{position:absolute;left:10px;right:10px;top:150px;display:flex;flex-direction:column;justify-content:flex-end;gap:7px;overflow:hidden}
 .a-bub{max-width:84%;border-radius:16px;padding:8px 11px;font-size:11px;line-height:1.42;white-space:pre-line}
 .a-them{align-self:flex-start;background:var(--bub);border:1px solid var(--a-line);color:var(--a-tx);border-bottom-left-radius:5px}
-.a-me{align-self:flex-end;background:#6d5ef5;color:#fff;border-bottom-right-radius:5px}
-.a-act{align-self:flex-start;background:var(--a-pursoft);color:var(--a-purtx);border:1.5px solid var(--a-pur);font-weight:700}
+.a-me{align-self:flex-end;background:var(--brand-grad);color:#fff;border-bottom-right-radius:5px}
+.a-act{align-self:flex-start;background:var(--brand-soft),var(--a-pursoft);color:var(--a-purtx);border:1.5px solid var(--a-pur);font-weight:700}
 .a-tsep{align-self:center;font-size:8.5px;color:var(--a-mut);padding:0}
 .a-bt{display:block;font-size:7.5px;opacity:.6;margin-top:3px}
 .a-chips{position:absolute;left:0;right:0;bottom:114px;display:flex;gap:6px;padding:7px 10px;border-top:1px solid var(--a-line);border-bottom:1px solid var(--a-line);overflow:hidden;background:var(--a-bg)}
@@ -138,12 +140,12 @@ h1,h2,h3,p{margin:0}
 .a-set{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--a-line);font-size:11px}.a-set:last-child{border-bottom:0}
 .a-set b{display:block;font-size:11.5px}.a-set span{font-size:8.5px;color:var(--a-sub)}.a-set em{font-style:normal;font-weight:700;color:var(--a-purtx);font-size:11.5px}
 .a-ins{display:inline-block;border:1px solid var(--a-line);background:var(--a-card);border-radius:10px;padding:6px 9px;font-size:9.5px;font-weight:600}
-.a-ins.on{border:1.5px solid var(--a-pur);background:var(--a-pursoft);color:var(--a-purtx)}
+.a-ins.on{border:1.5px solid var(--a-pur);background:var(--brand-soft),var(--a-pursoft);color:var(--a-purtx)}
 .a-code{font-size:15px;font-weight:800;color:var(--a-purtx);letter-spacing:.18em}
 .a-links{display:flex;gap:12px;font-size:10px;font-weight:700;color:var(--a-purtx)}.a-links .rt{color:var(--r-tx)}
 .sw{width:30px;height:18px;border-radius:9px;position:relative;border:0;padding:0;cursor:pointer;flex:none;transition:background .2s}
 .sw span{position:absolute;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .2s}
-.a-btnfull{background:linear-gradient(#8072f7,#6d5ef5);color:#fff;border-radius:12px;padding:10px 0;text-align:center;font-size:11.5px;font-weight:700}
+.a-btnfull{background:var(--brand-grad);color:#fff;border-radius:12px;padding:10px 0;text-align:center;font-size:11.5px;font-weight:700}
 .a-toast{position:absolute;z-index:6;top:44px;left:10px;right:10px;border-radius:16px;padding:10px 12px;display:flex;gap:10px;align-items:center;background:#10b981;color:#fff;font-size:10.5px;line-height:1.35;box-shadow:0 10px 24px rgba(0,0,0,0.3)}
 .a-toast .ck{width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-weight:800;flex:none}
 .a-banner{position:absolute;z-index:6;top:42px;left:10px;right:10px;background:rgba(245,245,247,0.96);color:#1d1d1f;border-radius:18px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start;box-shadow:0 10px 24px rgba(0,0,0,0.35)}
@@ -172,7 +174,7 @@ details p{font-size:17px;color:#424245;line-height:1.55;margin-top:14px}
 .pill-btn{min-height:44px;padding:0 16px;border-radius:980px;border:0;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px}
 .pill-btn svg{width:14px;height:14px}
 .pill-btn:focus-visible,.sw:focus-visible,input[type=range]:focus-visible{outline:2px solid #2997ff;outline-offset:2px}
-input[type=range]{width:100%;accent-color:#6d5ef5;height:28px;cursor:pointer}
+input[type=range]{width:100%;accent-color:#1f6fe6;height:28px;cursor:pointer}
 .note{border-radius:18px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start;text-align:left;font-size:13px;line-height:1.4}
 .phones{display:flex;justify-content:center;align-items:center;gap:40px;flex-wrap:wrap}
 figure.dev{margin:0;display:flex;flex-direction:column;align-items:center;gap:16px}
@@ -184,7 +186,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 @keyframes gg-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 @keyframes gg-popin{0%{opacity:0;transform:scale(.6)}70%{opacity:1;transform:scale(1.06)}100%{opacity:1;transform:none}}
 .syncdots{display:flex;gap:6px}
-.syncdots span{width:8px;height:8px;border-radius:50%;background:#6d5ef5;opacity:.25;animation:gg-sync 1.4s ease-in-out infinite}
+.syncdots span{width:8px;height:8px;border-radius:50%;background:#1f6fe6;opacity:.25;animation:gg-sync 1.4s ease-in-out infinite}
 .syncdots span:nth-child(2){animation-delay:.15s}.syncdots span:nth-child(3){animation-delay:.3s}.syncdots span:nth-child(4){animation-delay:.45s}.syncdots span:nth-child(5){animation-delay:.6s}
 @keyframes gg-sync{0%,100%{opacity:.25}50%{opacity:1}}
 .spin{width:13px;height:13px;border:2px solid rgba(255,255,255,0.35);border-top-color:#fff;border-radius:50%;animation:gg-spin .8s linear infinite;display:inline-block}
@@ -204,10 +206,10 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 .camseg{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:2px;background:rgba(255,255,255,0.14);border-radius:980px;padding:3px;white-space:nowrap}
 .camseg span,.camseg button{font:inherit;font-size:11px;font-weight:700;border:0;display:inline-flex;align-items:center;gap:5px;border-radius:980px;padding:6px 12px;cursor:pointer}
 .camseg svg{width:12px;height:12px}
-.camseg-on{background:#6d5ef5;color:#fff}.camseg-off{background:transparent;color:#e5e7eb}
+.camseg-on{background:var(--brand-grad);color:#fff}.camseg-off{background:transparent;color:#e5e7eb}
 .camcancel{position:absolute;left:20px;bottom:30px;font-size:12px;font-weight:600;color:#fff}
 .camshutter{position:absolute;left:50%;bottom:12px;width:56px;height:56px;margin-left:-28px;border-radius:50%;border:2.5px solid #fff;background:transparent;padding:3px;box-sizing:border-box;cursor:pointer;display:block}
-.camshutter span{display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:50%;background:#fff;color:#6d5ef5}
+.camshutter span{display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:50%;background:#fff;color:#1f6fe6}
 .camshutter svg{width:20px;height:20px}
 .shutter:active{transform:scale(.92)}
 
@@ -245,13 +247,13 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 @keyframes gg-kc{0%,39.33%{opacity:0;transform:translateY(8px)}41.00%,100%{opacity:1;transform:none}}
 @keyframes gg-kb{0%,41.67%{opacity:0;transform:translateY(8px)}43.33%,100%{opacity:1;transform:none}}
 @keyframes gg-a1{0%,46.67%{opacity:0;transform:translateY(8px)}48.33%,100%{opacity:1;transform:none}}
-@keyframes gg-h1{0%,46.67%{background:transparent}47.67%,51.00%{background:rgba(124,108,246,.22)}52.67%,100%{background:transparent}}
+@keyframes gg-h1{0%,46.67%{background:transparent}47.67%,51.00%{background:rgba(47,128,255,.22)}52.67%,100%{background:transparent}}
 @keyframes gg-a2{0%,51.33%{opacity:0;transform:translateY(8px)}53.00%,100%{opacity:1;transform:none}}
-@keyframes gg-h2{0%,51.33%{background:transparent}52.33%,55.67%{background:rgba(124,108,246,.22)}57.33%,100%{background:transparent}}
+@keyframes gg-h2{0%,51.33%{background:transparent}52.33%,55.67%{background:rgba(47,128,255,.22)}57.33%,100%{background:transparent}}
 @keyframes gg-a3{0%,56.00%{opacity:0;transform:translateY(8px)}57.67%,100%{opacity:1;transform:none}}
-@keyframes gg-h3{0%,56.00%{background:transparent}57.00%,60.33%{background:rgba(124,108,246,.22)}62.00%,100%{background:transparent}}
+@keyframes gg-h3{0%,56.00%{background:transparent}57.00%,60.33%{background:rgba(47,128,255,.22)}62.00%,100%{background:transparent}}
 @keyframes gg-a4{0%,60.67%{opacity:0;transform:translateY(8px)}62.33%,100%{opacity:1;transform:none}}
-@keyframes gg-h4{0%,60.67%{background:transparent}61.67%,65.00%{background:rgba(124,108,246,.22)}66.67%,100%{background:transparent}}
+@keyframes gg-h4{0%,60.67%{background:transparent}61.67%,65.00%{background:rgba(47,128,255,.22)}66.67%,100%{background:transparent}}
 @keyframes gg-k5{0%,65.33%{opacity:0;transform:scale(.6)}67.00%{opacity:1;transform:scale(1.08)}68.00%,100%{opacity:1;transform:none}}
 @keyframes gg-k5s{0%,67.33%{opacity:0;transform:translateY(4px)}69.00%,100%{opacity:1;transform:none}}
 @keyframes gg-k6{0%,70.00%{transform:none;filter:none}70.50%{transform:scale(.93);filter:brightness(1.25)}71.50%,100%{transform:none;filter:none}}
@@ -267,11 +269,11 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 /* Caregiver Menu (school nurse) */
 .nm-head{display:flex;align-items:center;gap:10px;padding:46px 14px 10px}
 .nm-head b{display:block;font-size:19px;font-weight:800;letter-spacing:-0.02em}.nm-head span{font-size:10px;color:var(--a-sub)}
-.nm-av{width:36px;height:36px;border-radius:50%;background:var(--a-pursoft);color:var(--a-pur);display:flex;align-items:center;justify-content:center;flex:none}.nm-av svg{width:17px;height:17px}
+.nm-av{width:36px;height:36px;border-radius:50%;background:var(--brand-soft),var(--a-pursoft);color:var(--a-pur);display:flex;align-items:center;justify-content:center;flex:none}.nm-av svg{width:17px;height:17px}
 .nm-list{padding:0 12px;display:flex;flex-direction:column;gap:8px}
 .nm-card{background:var(--a-card);border:1px solid var(--a-line);border-radius:16px;overflow:hidden}
 .nm-top{display:flex;align-items:center;gap:9px;padding:9px 10px}
-.nm-ini{width:32px;height:32px;border-radius:50%;background:var(--a-pursoft);color:var(--a-pur);font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;flex:none}
+.nm-ini{width:32px;height:32px;border-radius:50%;background:var(--brand-soft),var(--a-pursoft);color:var(--a-pur);font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;flex:none}
 .nm-name{flex:1;min-width:0}.nm-name b{display:block;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.nm-name span{font-size:9.5px;color:var(--a-sub)}
 .nm-ring{width:44px;height:44px;border-radius:50%;border:3.5px solid;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;flex:none;line-height:1}
 .nm-ring b{font-size:13px}.nm-ring span{font-size:6.5px;color:var(--a-mut);margin-top:1px}
@@ -279,7 +281,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 .nm-act>div{flex:1;padding:6px 10px}.nm-act>div+div{border-left:1px solid var(--a-line)}
 .nm-al{font-size:7px;font-weight:700;letter-spacing:.08em;color:var(--a-mut);display:flex;gap:3px;align-items:center}.nm-al svg{width:9px;height:9px}
 .nm-av2{font-size:13px;font-weight:800}.nm-ago{font-size:7.5px;color:var(--a-mut)}.nm-none{font-size:9px;color:var(--a-mut);margin-top:2px}
-.nm-add{margin:2px 0 0;border:1.5px solid var(--a-pur);background:var(--a-pursoft);color:var(--a-purtx);border-radius:14px;padding:10px 0;text-align:center;font-size:11.5px;font-weight:700}
+.nm-add{margin:2px 0 0;border:1.5px solid var(--a-pur);background:var(--brand-soft),var(--a-pursoft);color:var(--a-purtx);border-radius:14px;padding:10px 0;text-align:center;font-size:11.5px;font-weight:700}
 
 /* Nurse simulator */
 .ipad{position:relative;width:600px;height:800px;border-radius:42px;padding:13px;box-sizing:border-box;flex:none;background:linear-gradient(135deg,#f2f2f5,#c9c9ce 50%,#e6e6ea);box-shadow:0 44px 90px rgba(0,0,0,.3),inset 0 0 0 1px rgba(255,255,255,.7)}
@@ -297,20 +299,43 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 .ipad .a-tabbar{left:50%;right:auto;width:460px;margin-left:-230px}
 .nb{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;text-align:inherit;cursor:pointer;display:block;width:100%}
 .nb:focus-visible{outline:2px solid #2997ff;outline-offset:2px}
-.vb{display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:11px;border:1px solid rgba(124,108,246,.4);background:rgba(124,108,246,.12);font-size:10px}
-.vb svg{width:12px;height:12px;color:#7c6cf6;flex:none}.vb span{flex:1;color:var(--a-sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.vb b{color:#7c6cf6}
+/* Nurse demo: Insulin page (Dose) with Pens, and the finger stick sheet */
+.a-seg .nb{flex:1;text-align:center;padding:8px 0;color:var(--a-sub);border-radius:10px;display:flex;align-items:center;justify-content:center;gap:4px;font-size:11.5px;font-weight:600;width:auto}
+.a-seg .nb.on{background:var(--brand-grad);color:#fff}
+.nd-card{padding:10px 11px;display:flex;flex-direction:column;gap:9px}
+.nd-in{display:flex;align-items:stretch;gap:8px}.nd-in>div:not(.ic-sep){flex:1}
+.nd-sug{display:flex;align-items:center;justify-content:space-between}.nd-sug b{font-size:10px;letter-spacing:.06em}
+.nd-btns{display:flex;gap:6px}.nd-btns span{flex:1;text-align:center;border-radius:11px;padding:9px 0;font-size:9.5px;font-weight:700}
+.nd-alt{background:var(--brand-soft),var(--a-btnalt);color:var(--a-btnalttx)}.nd-main{background:var(--brand-grad);color:#fff}
+.nd-pens{padding:10px 11px;display:flex;flex-direction:column;gap:7px}
+.nd-ph{display:flex;justify-content:space-between;align-items:center}.nd-ph b{font-size:10px;letter-spacing:.08em;color:var(--a-sub)}.nd-ph span{font-size:10px;font-weight:600;color:var(--a-purtx)}
+.nd-pen{display:flex;align-items:center;gap:9px}.nd-rw{position:relative;width:34px;height:34px;flex:none}.nd-ring{width:34px;height:34px;display:block}.nd-rn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--a-tx)}
+.nd-pt{flex:1;min-width:0}.nd-pt b{display:block;font-size:11.5px}.nd-pt span{display:block;font-size:9px;margin-top:1px}
+.nd-start{display:block;text-align:center;border-radius:11px;padding:9px 0;font-size:10.5px;font-weight:700;color:#fff;background:var(--brand-grad)}
+.ic.fs{gap:8px}.ic.fs .ic-x{position:absolute;top:8px;right:10px}
+.fs-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10.5px;color:var(--a-sub);border:1px solid var(--a-line);border-radius:10px;padding:7px 9px}.fs-row b{color:var(--a-tx)}
+.fs-val{font-size:20px;font-weight:800;color:var(--a-tx);border:1.5px solid var(--a-pur);border-radius:9px;padding:2px 14px;min-width:70px;text-align:center}
+.fs-l{font-size:9.5px;font-weight:600;color:var(--a-sub)}
+.fs-chips{display:flex;flex-wrap:wrap;gap:5px}.fs-chips span{font-size:9px;border:1px solid var(--a-line);border-radius:999px;padding:5px 9px;color:var(--a-sub)}.fs-chips span.on{background:var(--brand-grad);border-color:transparent;color:#fff}
+.fs-log{align-self:flex-end;width:auto!important;border-radius:10px;padding:7px 16px!important;font-size:11px;font-weight:700;color:#fff!important;background:var(--brand-grad)!important}
+
+/* Tappable app parts are <button class="nb …">; the reset above must not undo their own layout. */
+.nb.a-tab{display:flex;flex-direction:column;align-items:center;justify-content:center;width:auto;padding:6px 0 5px;font-size:8px;font-weight:600;color:var(--a-tabtx)}.nb.a-tab.on{color:var(--a-tabontx)}
+.nb.a-row{display:flex;align-items:center;gap:9px;padding:9px 0;font-size:11px;color:inherit;text-align:left}
+.vb{display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:11px;border:1px solid rgba(47,128,255,.4);background:rgba(47,128,255,.12);font-size:10px}
+.vb svg{width:12px;height:12px;color:#2f80ff;flex:none}.vb span{flex:1;color:var(--a-sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.vb b{color:#2f80ff}
 .pulse{animation:gg-pulse 1.8s ease-out infinite}
-@keyframes gg-pulse{0%{box-shadow:0 0 0 0 rgba(124,108,246,.55)}100%{box-shadow:0 0 0 14px rgba(124,108,246,0)}}
-.tapme{position:absolute;left:10px;top:118px;font-size:8px;font-weight:700;color:#fff;background:#7c6cf6;border-radius:8px;padding:3px 7px;z-index:2}
+@keyframes gg-pulse{0%{box-shadow:0 0 0 0 rgba(47,128,255,.55)}100%{box-shadow:0 0 0 14px rgba(47,128,255,0)}}
+.tapme{position:absolute;left:10px;top:118px;font-size:8px;font-weight:700;color:#fff;background:#2f80ff;border-radius:8px;padding:3px 7px;z-index:2}
 .scrim{position:absolute;inset:0;z-index:8;display:flex;align-items:center;justify-content:center;padding:0 12px;background:rgba(0,0,0,.6)}
 .t-light .scrim{background:rgba(15,25,45,.38)}
-.lm-card{width:100%;max-width:420px;background:var(--a-card);border:1px solid rgba(124,108,246,.4);border-radius:16px;padding:12px;box-sizing:border-box;box-shadow:0 20px 40px rgba(0,0,0,.3)}
+.lm-card{width:100%;max-width:420px;background:var(--a-card);border:1px solid rgba(47,128,255,.4);border-radius:16px;padding:12px;box-sizing:border-box;box-shadow:0 20px 40px rgba(0,0,0,.3)}
 .lm-top{display:flex;gap:6px;align-items:center}
 .lm-btn{font:inherit;font-size:10px;font-weight:700;border:0;border-radius:9px;padding:6px 10px;cursor:pointer}
-.lm-edit{background:rgba(109,94,245,.16);color:#7c6cf6}.lm-del{background:rgba(239,68,68,.14);color:#ef4444}
+.lm-edit{background:rgba(31,111,230,.16);color:#2f80ff}.lm-del{background:rgba(239,68,68,.14);color:#ef4444}
 .lm-x{margin-left:auto;width:26px;height:26px;border-radius:50%;border:0;background:rgba(148,163,184,.22);color:var(--a-sub);cursor:pointer;font-size:14px;line-height:1}
 .lm-body{display:flex;gap:10px;align-items:flex-start;margin-top:12px}
-.lm-ico{width:42px;height:42px;border-radius:12px;background:var(--a-pursoft);display:flex;align-items:center;justify-content:center;font-size:19px;flex:none}
+.lm-ico{width:42px;height:42px;border-radius:12px;background:var(--brand-soft),var(--a-pursoft);display:flex;align-items:center;justify-content:center;font-size:19px;flex:none}
 .lm-t{font-size:14px;font-weight:700}.lm-d{font-size:10px;color:var(--a-sub);margin-top:3px}.lm-m{font-size:10px;color:var(--a-mut);margin-top:3px}.lm-m i{font-weight:500}
 .lm-f{font-size:9px;color:var(--a-mut);margin:6px 0 3px}
 .lm-in{display:flex;align-items:center;gap:6px}.lm-field{flex:1;border:1.5px solid var(--a-pur);background:var(--a-card2);border-radius:10px;padding:7px 10px;font-size:14px;font-weight:700}
@@ -318,11 +343,11 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 .rr-dot{width:8px;height:8px;border-radius:50%;flex:none}.rr-v{font-size:13px;font-weight:700}.rr-v small{font-size:9px;font-weight:400;color:var(--a-mut)}
 .rr-l{flex:1;font-size:10px;font-weight:600}.rr-t{font-size:9.5px;color:var(--a-sub)}
 .lk{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:0 28px;text-align:center}
-.lk-ico{width:66px;height:66px;border-radius:50%;background:var(--a-pursoft);color:var(--a-pur);display:flex;align-items:center;justify-content:center}.lk-ico svg{width:28px;height:28px}
+.lk-ico{width:66px;height:66px;border-radius:50%;background:var(--brand-soft),var(--a-pursoft);color:var(--a-pur);display:flex;align-items:center;justify-content:center}.lk-ico svg{width:28px;height:28px}
 .lk b{font-size:17px}.lk p{font-size:11px;color:var(--a-sub);line-height:1.45;max-width:260px}
 .guide{font:inherit;text-align:left;cursor:pointer;border-radius:18px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start;width:100%;transition:background .2s,border-color .2s}
 .guide b{display:block;font-size:16px;color:#1d1d1f}.guide span{display:block;font-size:13px;color:#6e6e73;line-height:1.4;margin-top:2px}
-.guide i{font-style:normal;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex:none}
+.guide i span{color:inherit;margin:0;font-size:inherit;line-height:1}.guide i{font-style:normal;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex:none}
 
 /* Android hero: looping chat (27s) */
 .cm{overflow:hidden;margin-top:7px;flex:none}
@@ -359,7 +384,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 .fa-card{background:var(--a-card);border:1px solid var(--a-line);border-radius:18px;padding:9px;display:flex;flex-direction:column;gap:7px}
 .fa-img{width:100%;height:112px;object-fit:cover;border-radius:12px;display:block}
 .fa-row{display:flex;align-items:center;gap:5px}
-.fa-ai{display:inline-flex;align-items:center;gap:4px;font-size:8.5px;font-weight:700;color:var(--a-purtx);background:var(--a-pursoft);border-radius:8px;padding:4px 7px}
+.fa-ai{display:inline-flex;align-items:center;gap:4px;font-size:8.5px;font-weight:700;color:var(--a-purtx);background:var(--brand-soft),var(--a-pursoft);border-radius:8px;padding:4px 7px}
 .fa-ai svg,.fa-save svg{width:10px;height:10px}
 .fa-save{display:inline-flex;align-items:center;gap:3px;font-size:7.5px;color:var(--a-sub);border:1px solid var(--a-line);border-radius:8px;padding:3px 6px;margin-left:auto;white-space:nowrap}
 .fa-x{width:18px;height:18px;border-radius:50%;background:var(--a-card2);color:var(--a-sub);font-size:11px;display:flex;align-items:center;justify-content:center;flex:none}
@@ -399,11 +424,11 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 .gg-fa2{animation-name:gg-fa2}.gg-s4ov{animation-name:gg-s4ov}.gg-r1{animation-name:gg-r1}.gg-r2{animation-name:gg-r2}.gg-r3{animation-name:gg-r3}.gg-r4{animation-name:gg-r4}.gg-r5{animation-name:gg-r5}.gg-dv0{animation-name:gg-dv0}.gg-dv1{animation-name:gg-dv1}.gg-dv2{animation-name:gg-dv2}.gg-dv3{animation-name:gg-dv3}.gg-rw0{animation-name:gg-rw0}.gg-rw1{animation-name:gg-rw1}
 @keyframes gg-fa2{0%,25.00%{opacity:0}26.67%,100%{opacity:1}}
 @keyframes gg-s4ov{0%,77.67%{opacity:1}79.00%,100%{opacity:0}}
-@keyframes gg-r1{0%,41.33%{opacity:.18;background:transparent}42.33%,44.67%{opacity:1;background:rgba(124,108,246,.22)}45.83%,100%{opacity:1;background:transparent}}
-@keyframes gg-r2{0%,46.00%{opacity:.18;background:transparent}47.00%,49.33%{opacity:1;background:rgba(124,108,246,.22)}50.50%,100%{opacity:1;background:transparent}}
-@keyframes gg-r3{0%,50.67%{opacity:.18;background:transparent}51.67%,54.00%{opacity:1;background:rgba(124,108,246,.22)}55.17%,100%{opacity:1;background:transparent}}
-@keyframes gg-r4{0%,55.33%{opacity:.18;background:transparent}56.33%,58.67%{opacity:1;background:rgba(124,108,246,.22)}59.83%,100%{opacity:1;background:transparent}}
-@keyframes gg-r5{0%,60.00%{opacity:.18;background:transparent}61.00%,63.33%{opacity:1;background:rgba(124,108,246,.22)}64.50%,100%{opacity:1;background:transparent}}
+@keyframes gg-r1{0%,41.33%{opacity:.18;background:transparent}42.33%,44.67%{opacity:1;background:rgba(47,128,255,.22)}45.83%,100%{opacity:1;background:transparent}}
+@keyframes gg-r2{0%,46.00%{opacity:.18;background:transparent}47.00%,49.33%{opacity:1;background:rgba(47,128,255,.22)}50.50%,100%{opacity:1;background:transparent}}
+@keyframes gg-r3{0%,50.67%{opacity:.18;background:transparent}51.67%,54.00%{opacity:1;background:rgba(47,128,255,.22)}55.17%,100%{opacity:1;background:transparent}}
+@keyframes gg-r4{0%,55.33%{opacity:.18;background:transparent}56.33%,58.67%{opacity:1;background:rgba(47,128,255,.22)}59.83%,100%{opacity:1;background:transparent}}
+@keyframes gg-r5{0%,60.00%{opacity:.18;background:transparent}61.00%,63.33%{opacity:1;background:rgba(47,128,255,.22)}64.50%,100%{opacity:1;background:transparent}}
 @keyframes gg-dv0{0%,41.17%{opacity:1}41.33%,100%{opacity:0}}
 @keyframes gg-dv1{0%,41.17%{opacity:0}41.33%,45.83%{opacity:1}46.00%,100%{opacity:0}}
 @keyframes gg-dv2{0%,45.83%{opacity:0}46.00%,64.50%{opacity:1}64.67%,100%{opacity:0}}
@@ -423,15 +448,15 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 .ab-fill{position:absolute;left:0;top:0;bottom:0;border-right:2px solid}
 .ab-tx{position:relative;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ab i{position:relative;font-style:italic;font-weight:600;opacity:.6;margin-left:4px}
 .ab-c{border-color:var(--o-bd);color:var(--o-tx)}.ab-c .ab-fill{background:var(--o-bg);border-color:var(--o-tx)}
-.ab-i{border-color:var(--a-pur);color:var(--a-purtx)}.ab-i .ab-fill{background:var(--a-pursoft);border-color:var(--a-pur)}
+.ab-i{border-color:var(--a-pur);color:var(--a-purtx)}.ab-i .ab-fill{background:var(--brand-soft),var(--a-pursoft);border-color:var(--a-pur)}
 .gg-b1{animation-name:gg-b1}.gg-b2{animation-name:gg-b2}.gg-bf1{animation-name:gg-bf1}.gg-bf2{animation-name:gg-bf2}.gg-q3{animation-name:gg-q3}.gg-q4{animation-name:gg-q4}.gg-q5{animation-name:gg-q5}
 @keyframes gg-bf1{0%,78.67%{width:0}81.67%,100%{width:96%}}
 @keyframes gg-bf2{0%,79.33%{width:0}82.33%,100%{width:98%}}
 @keyframes gg-b1{0%,82.00%{box-shadow:0 0 0 0 rgba(245,165,36,.55)}83.00%,86.67%{box-shadow:0 0 0 3px rgba(245,165,36,.55)}88.00%,100%{box-shadow:0 0 0 0 transparent}}
-@keyframes gg-b2{0%,86.67%{box-shadow:0 0 0 0 rgba(124,108,246,.6)}87.67%,91.33%{box-shadow:0 0 0 3px rgba(124,108,246,.6)}92.67%,100%{box-shadow:0 0 0 0 transparent}}
-@keyframes gg-q3{0%,82.00%{background:transparent}83.00%,86.67%{background:rgba(124,108,246,.24)}88.00%,100%{background:transparent}}
-@keyframes gg-q4{0%,86.67%{background:transparent}87.67%,91.33%{background:rgba(124,108,246,.24)}92.67%,100%{background:transparent}}
-@keyframes gg-q5{0%,91.33%{box-shadow:0 0 0 0 rgba(124,108,246,.6)}92.33%,96.00%{box-shadow:0 0 0 3px rgba(124,108,246,.6)}97.33%,100%{box-shadow:0 0 0 0 transparent}}
+@keyframes gg-b2{0%,86.67%{box-shadow:0 0 0 0 rgba(47,128,255,.6)}87.67%,91.33%{box-shadow:0 0 0 3px rgba(47,128,255,.6)}92.67%,100%{box-shadow:0 0 0 0 transparent}}
+@keyframes gg-q3{0%,82.00%{background:transparent}83.00%,86.67%{background:rgba(47,128,255,.24)}88.00%,100%{background:transparent}}
+@keyframes gg-q4{0%,86.67%{background:transparent}87.67%,91.33%{background:rgba(47,128,255,.24)}92.67%,100%{background:transparent}}
+@keyframes gg-q5{0%,91.33%{box-shadow:0 0 0 0 rgba(47,128,255,.6)}92.33%,96.00%{box-shadow:0 0 0 3px rgba(47,128,255,.6)}97.33%,100%{box-shadow:0 0 0 0 transparent}}
 
 /* Doctors page: browser frame for portal screenshots */
 .bw{border-radius:16px;overflow:hidden;background:#fff;box-shadow:0 40px 80px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.08)}
@@ -456,10 +481,10 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 .gg-back{background:#f5f5f7;padding:56px 0}
 .gg-back-in{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;background:#fff;border-radius:24px;padding:32px 36px;box-shadow:0 1px 0 rgba(0,0,0,.04),0 10px 30px rgba(0,0,0,.06)}
 .gg-back-tx{display:flex;flex-direction:column;gap:6px;flex:1 1 420px;min-width:0}
-.gg-back-k{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6d5ef5}
+.gg-back-k{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#1f6fe6}
 .gg-back-tx b{font-size:24px;letter-spacing:-.02em;line-height:1.2;color:#1d1d1f}
 .gg-back-tx span:last-child{font-size:16px;color:#6e6e73;line-height:1.45}
-.gg-back-btn{background:#6d5ef5;color:#fff;white-space:nowrap}
+.gg-back-btn{background:var(--brand-grad);color:#fff;white-space:nowrap}
 .gg-back-btn:hover{color:#fff}
 .gg-disc{background:#f5f5f7;color:#6e6e73;font-size:12px;line-height:1.45;text-align:center;padding:8px 20px;border-bottom:1px solid rgba(0,0,0,.06)}
 </style>
@@ -485,7 +510,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <symbol id="i-brief" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M8 7v13M16 7v13"></path></symbol>
 <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></symbol>
 <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2 20c0-3.5 3-5.5 7-5.5s7 2 7 5.5"></path><path d="M16 4.5a3.5 3.5 0 0 1 0 7M22 20c0-3-2-5-5-5.4"></path></symbol>
-<symbol id="i-shield" viewBox="0 0 24 24"><path fill="#6d5ef5" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3z"></path><path fill="#ef4444" d="M12 7.5s-3 3.3-3 5.4a3 3 0 0 0 6 0c0-2.1-3-5.4-3-5.4z"></path></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path fill="#1f6fe6" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3z"></path><path fill="#ef4444" d="M12 7.5s-3 3.3-3 5.4a3 3 0 0 0 6 0c0-2.1-3-5.4-3-5.4z"></path></symbol>
 <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></symbol>
 <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></symbol>
 <symbol id="i-chip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="2"></rect><rect x="9.5" y="9.5" width="5" height="5"></rect><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"></path></symbol>
@@ -512,7 +537,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <line x1="0" y1="71" x2="262" y2="71" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
 <line x1="0" y1="100.4" x2="262" y2="100.4" stroke="#22c55e" stroke-opacity="0.7" stroke-dasharray="4 4"></line>
 <line x1="0" y1="146.6" x2="262" y2="146.6" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
-<line x1="0" y1="108.8" x2="262" y2="108.8" stroke="#7c6cf6" stroke-width="1.6"></line>
+<line x1="0" y1="108.8" x2="262" y2="108.8" stroke="#2f80ff" stroke-width="1.6"></line>
 <g fill="none" stroke-width="4.2" stroke-linecap="round" stroke-dasharray="0 5.5">
 <polyline clip-path="url(#cp-hi)" stroke="#ef6b6b" points="4,120.6 27.1,122.2 50.2,117.2 73.3,113 96.4,89.9 119.5,76 142.6,86.1 165.7,102.1 188.8,113 211.9,118 235,121.4 258,122.2"></polyline>
 <polyline clip-path="url(#cp-mid)" stroke="#f0a830" points="4,120.6 27.1,122.2 50.2,117.2 73.3,113 96.4,89.9 119.5,76 142.6,86.1 165.7,102.1 188.8,113 211.9,118 235,121.4 258,122.2"></polyline>
@@ -521,7 +546,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <use href="#i-syr" x="66" y="102" width="12" height="12" style="color: var(--axis)"></use>
 <use href="#i-fork" x="80" y="102" width="12" height="12" style="color: var(--axis)"></use>
 <circle cx="258" cy="122.2" r="5" fill="#fff" stroke="#22c55e" stroke-width="2.5"></circle>
-<g font-size="8" text-anchor="end"><text x="298" y="11" style="fill: var(--axis)">400</text><text x="298" y="53" style="fill: var(--axis)">300</text><text x="298" y="74" fill="#ef4444">250</text><text x="298" y="103" fill="#22c55e">180</text><text x="298" y="112" fill="#7c6cf6">160</text><text x="298" y="137" style="fill: var(--axis)">100</text><text x="298" y="150" fill="#ef4444">70</text><text x="298" y="162" style="fill: var(--axis)">40</text><text x="298" y="179" style="fill: var(--axis)">0</text></g>
+<g font-size="8" text-anchor="end"><text x="298" y="11" style="fill: var(--axis)">400</text><text x="298" y="53" style="fill: var(--axis)">300</text><text x="298" y="74" fill="#ef4444">250</text><text x="298" y="103" fill="#22c55e">180</text><text x="298" y="112" fill="#2f80ff">160</text><text x="298" y="137" style="fill: var(--axis)">100</text><text x="298" y="150" fill="#ef4444">70</text><text x="298" y="162" style="fill: var(--axis)">40</text><text x="298" y="179" style="fill: var(--axis)">0</text></g>
 </symbol>
 
 <!-- Taller 6-hour chart for glucose screens with room to spare -->
@@ -537,7 +562,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <line x1="0" y1="108.8" x2="262" y2="108.8" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
 <line x1="0" y1="155.8" x2="262" y2="155.8" stroke="#22c55e" stroke-opacity="0.7" stroke-dasharray="4 4"></line>
 <line x1="0" y1="229.8" x2="262" y2="229.8" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
-<line x1="0" y1="169.3" x2="262" y2="169.3" stroke="#7c6cf6" stroke-width="1.6"></line>
+<line x1="0" y1="169.3" x2="262" y2="169.3" stroke="#2f80ff" stroke-width="1.6"></line>
 <g fill="none" stroke-width="4.2" stroke-linecap="round" stroke-dasharray="0 5.5">
 <polyline clip-path="url(#cpt-hi)" stroke="#ef6b6b" points="4,188.2 27.1,190.7 50.2,182.7 73.3,176.0 96.4,139.0 119.5,116.8 142.6,133.0 165.7,158.6 188.8,176.0 211.9,184.0 235,189.4 258,190.7"></polyline>
 <polyline clip-path="url(#cpt-mid)" stroke="#f0a830" points="4,188.2 27.1,190.7 50.2,182.7 73.3,176.0 96.4,139.0 119.5,116.8 142.6,133.0 165.7,158.6 188.8,176.0 211.9,184.0 235,189.4 258,190.7"></polyline>
@@ -546,7 +571,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <use href="#i-syr" x="66" y="162.0" width="12" height="12" style="color: var(--axis)"></use>
 <use href="#i-fork" x="80" y="162.0" width="12" height="12" style="color: var(--axis)"></use>
 <circle cx="258" cy="190.7" r="5" fill="#fff" stroke="#22c55e" stroke-width="2.5"></circle>
-<g font-size="8" text-anchor="end"><text x="298" y="11.0" style="fill: var(--axis)">400</text><text x="298" y="78.2" style="fill: var(--axis)">300</text><text x="298" y="111.8" fill="#ef4444">250</text><text x="298" y="158.2" fill="#22c55e">180</text><text x="298" y="172.6" fill="#7c6cf6">160</text><text x="298" y="212.6" style="fill: var(--axis)">100</text><text x="298" y="233.4" fill="#ef4444">70</text><text x="298" y="252.6" style="fill: var(--axis)">40</text><text x="298" y="279.8" style="fill: var(--axis)">0</text></g>
+<g font-size="8" text-anchor="end"><text x="298" y="11.0" style="fill: var(--axis)">400</text><text x="298" y="78.2" style="fill: var(--axis)">300</text><text x="298" y="111.8" fill="#ef4444">250</text><text x="298" y="158.2" fill="#22c55e">180</text><text x="298" y="172.6" fill="#2f80ff">160</text><text x="298" y="212.6" style="fill: var(--axis)">100</text><text x="298" y="233.4" fill="#ef4444">70</text><text x="298" y="252.6" style="fill: var(--axis)">40</text><text x="298" y="279.8" style="fill: var(--axis)">0</text></g>
 </symbol>
 <symbol id="ch-190-tall" viewBox="0 0 300 286">
 <defs>
@@ -560,7 +585,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <line x1="0" y1="108.8" x2="262" y2="108.8" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
 <line x1="0" y1="155.8" x2="262" y2="155.8" stroke="#22c55e" stroke-opacity="0.7" stroke-dasharray="4 4"></line>
 <line x1="0" y1="229.8" x2="262" y2="229.8" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
-<line x1="0" y1="169.3" x2="262" y2="169.3" stroke="#7c6cf6" stroke-width="1.6"></line>
+<line x1="0" y1="169.3" x2="262" y2="169.3" stroke="#2f80ff" stroke-width="1.6"></line>
 <g fill="none" stroke-width="4.2" stroke-linecap="round" stroke-dasharray="0 5.5">
 <polyline clip-path="url(#cpu-hi)" stroke="#ef6b6b" points="4.0,197.5 25.2,194.8 46.3,196.2 67.5,192.1 88.7,176.0 109.8,149.1 131.0,120.9 152.2,110.1 173.3,115.5 194.5,124.9 215.7,134.3 236.8,142.4 258.0,149.1"></polyline>
 <polyline clip-path="url(#cpu-mid)" stroke="#f0a830" points="4.0,197.5 25.2,194.8 46.3,196.2 67.5,192.1 88.7,176.0 109.8,149.1 131.0,120.9 152.2,110.1 173.3,115.5 194.5,124.9 215.7,134.3 236.8,142.4 258.0,149.1"></polyline>
@@ -569,7 +594,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <use href="#i-syr" x="66" y="162.0" width="12" height="12" style="color: var(--axis)"></use>
 <use href="#i-fork" x="80" y="162.0" width="12" height="12" style="color: var(--axis)"></use>
 <circle cx="258" cy="149.1" r="5" fill="#fff" stroke="#f0a830" stroke-width="2.5"></circle>
-<g font-size="8" text-anchor="end"><text x="298" y="11.0" style="fill: var(--axis)">400</text><text x="298" y="78.2" style="fill: var(--axis)">300</text><text x="298" y="111.8" fill="#ef4444">250</text><text x="298" y="158.2" fill="#22c55e">180</text><text x="298" y="172.6" fill="#7c6cf6">160</text><text x="298" y="212.6" style="fill: var(--axis)">100</text><text x="298" y="233.4" fill="#ef4444">70</text><text x="298" y="252.6" style="fill: var(--axis)">40</text><text x="298" y="279.8" style="fill: var(--axis)">0</text></g>
+<g font-size="8" text-anchor="end"><text x="298" y="11.0" style="fill: var(--axis)">400</text><text x="298" y="78.2" style="fill: var(--axis)">300</text><text x="298" y="111.8" fill="#ef4444">250</text><text x="298" y="158.2" fill="#22c55e">180</text><text x="298" y="172.6" fill="#2f80ff">160</text><text x="298" y="212.6" style="fill: var(--axis)">100</text><text x="298" y="233.4" fill="#ef4444">70</text><text x="298" y="252.6" style="fill: var(--axis)">40</text><text x="298" y="279.8" style="fill: var(--axis)">0</text></g>
 </symbol>
 
 <!-- Full-day chart for the Log screen -->
@@ -582,7 +607,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <line x1="0" y1="71" x2="262" y2="71" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
 <line x1="0" y1="100.4" x2="262" y2="100.4" stroke="#22c55e" stroke-opacity="0.7" stroke-dasharray="4 4"></line>
 <line x1="0" y1="146.6" x2="262" y2="146.6" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
-<line x1="0" y1="108.8" x2="262" y2="108.8" stroke="#7c6cf6" stroke-width="1.6"></line>
+<line x1="0" y1="108.8" x2="262" y2="108.8" stroke="#2f80ff" stroke-width="1.6"></line>
 <g fill="none" stroke-width="3.6" stroke-linecap="round" stroke-dasharray="0 4.5">
 <polyline clip-path="url(#cp-hi)" stroke="#ef6b6b" points="4,100.4 14.6,87.8 25.2,96.2 35.7,113 46.3,117.2 56.9,119.3 67.5,121.4 78.1,129.8 83.4,136.1 88.7,117.2 99.2,96.2 109.8,104.6 120.4,113 131,108.8 141.6,79.4 152.2,92 162.8,108.8 173.3,117.2"></polyline>
 <polyline clip-path="url(#cp-mid)" stroke="#f0a830" points="4,100.4 14.6,87.8 25.2,96.2 35.7,113 46.3,117.2 56.9,119.3 67.5,121.4 78.1,129.8 83.4,136.1 88.7,117.2 99.2,96.2 109.8,104.6 120.4,113 131,108.8 141.6,79.4 152.2,92 162.8,108.8 173.3,117.2"></polyline>
@@ -594,7 +619,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <use href="#i-fork" x="125" y="116" width="12" height="12" style="color: var(--axis)"></use>
 <use href="#i-syr" x="0" y="102" width="12" height="12" style="color: var(--axis)"></use>
 <circle cx="173.3" cy="117.2" r="5" fill="#fff" stroke="#22c55e" stroke-width="2.5"></circle>
-<g font-size="8" text-anchor="end"><text x="298" y="11" style="fill: var(--axis)">400</text><text x="298" y="53" style="fill: var(--axis)">300</text><text x="298" y="74" fill="#ef4444">250</text><text x="298" y="103" fill="#22c55e">180</text><text x="298" y="112" fill="#7c6cf6">160</text><text x="298" y="137" style="fill: var(--axis)">100</text><text x="298" y="150" fill="#ef4444">70</text><text x="298" y="162" style="fill: var(--axis)">40</text><text x="298" y="179" style="fill: var(--axis)">0</text></g>
+<g font-size="8" text-anchor="end"><text x="298" y="11" style="fill: var(--axis)">400</text><text x="298" y="53" style="fill: var(--axis)">300</text><text x="298" y="74" fill="#ef4444">250</text><text x="298" y="103" fill="#22c55e">180</text><text x="298" y="112" fill="#2f80ff">160</text><text x="298" y="137" style="fill: var(--axis)">100</text><text x="298" y="150" fill="#ef4444">70</text><text x="298" y="162" style="fill: var(--axis)">40</text><text x="298" y="179" style="fill: var(--axis)">0</text></g>
 </symbol>
 </defs>
 </svg>
@@ -634,12 +659,12 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <!-- Hero -->
 <section id="top" style="background: #000; color: #f5f5f7; padding: 80px 0 110px; overflow: hidden">
 <div class="wrap" style="text-align: center; display: flex; flex-direction: column; align-items: center; gap: 18px">
-<div class="eyebrow" style="color: #a99bff">Glucose Guardian · Version 1.0</div>
+<div class="eyebrow" style="color: #5cc8ff">Glucose Guardian · Version 1.0</div>
 <h1 style="font-size: clamp(48px, 8vw, 96px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.02">{{hero.title}}</h1>
-<p style="font-size: clamp(22px, 3vw, 32px); font-weight: 600; letter-spacing: -0.01em; max-width: 760px; line-height: 1.2; color: #a99bff">{{hero.sub}}</p>
+<p style="font-size: clamp(22px, 3vw, 32px); font-weight: 600; letter-spacing: -0.01em; max-width: 760px; line-height: 1.2; color: #5cc8ff">{{hero.sub}}</p>
 <p style="font-size: 17px; color: #a1a1a6; max-width: 620px; line-height: 1.5">{{hero.body}}</p>
 <div style="display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 8px">
-<a href="https://testflight.apple.com/join/jnr9HbAa" target="_blank" rel="noopener" class="btn" style="background: {{accent}}; color: #fff">Join the TestFlight beta</a>
+<a href="https://testflight.apple.com/join/jnr9HbAa" target="_blank" rel="noopener" class="btn" style="background: var(--brand-grad); color: #fff">Join the TestFlight beta</a>
 <a href="#dosing" class="btn" style="background: transparent; color: #2997ff; box-shadow: inset 0 0 0 1px #2997ff">Try the demo</a>
 </div>
 <p style="font-size: 12px; color: #86868b">iPhone beta available now on TestFlight. App Store and Google Play coming soon.</p>
@@ -664,7 +689,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 
 <div class="iphone" role="img" aria-label="Animated tour of Glucose Guardian on iPhone: a live Dexcom reading, snapping a meal photo, the dose calculated step by step, and the Dose page showing the carbs and insulin still active">
 <div style="position: absolute; bottom: -38px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 14px; color: #a1a1a6"><b style="color: #f5f5f7">iPhone</b> · Beta on TestFlight</div>
-<div style="position: absolute; top: -46px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 13px; font-weight: 600; border-radius: 980px; padding: 6px 14px; background: #6d5ef5; color: #fff">Parent view · Mia’s Guardian</div>
+<div style="position: absolute; top: -46px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 13px; font-weight: 600; border-radius: 980px; padding: 6px 14px; background: #1f6fe6; color: #fff">Parent view · Mia’s Guardian</div>
 
 <div class="scr">
 <div class="island"></div>
@@ -849,7 +874,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <section id="care" style="background: #f5f5f7; color: #1d1d1f; padding: 120px 0">
 <div class="wrap" style="display: flex; align-items: center; justify-content: space-between; gap: 64px; flex-wrap: wrap">
 <div style="flex: 1 1 380px; display: flex; flex-direction: column; gap: 18px">
-<div class="eyebrow" style="color: #5b47e0">Caregiver codes</div>
+<div class="eyebrow" style="color: #0b63d6">Caregiver codes</div>
 <h2 class="h2">It takes a village. Now the village has an app.</h2>
 <p class="lede" style="color: #6e6e73">For everyone else — grandparents, babysitters, teachers, school nurses — create a caregiver code. No account needed: they type it or scan its QR on the sign‑in screen.</p>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; margin-top: 8px">
@@ -897,7 +922,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <!-- Before / after -->
 <section style="background: #fff; padding: 140px 0 120px">
 <div class="wrap" style="display: flex; flex-direction: column; gap: 48px">
-<h2 class="h2" style="max-width: 900px">Before: five different things.<br><span style="color: #5b47e0">After: one Glucose Guardian.</span></h2>
+<h2 class="h2" style="max-width: 900px">Before: five different things.<br><span style="color: #0b63d6">After: one Glucose Guardian.</span></h2>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px">
 
 <div style="background: #f5f5f7; border-radius: 28px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
@@ -913,7 +938,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 </div>
 
 <div style="background: #0b1424; color: #fff; border-radius: 28px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
-<div class="eyebrow" style="color: #a99bff">After · what Glucose Guardian does</div>
+<div class="eyebrow" style="color: #5cc8ff">After · what Glucose Guardian does</div>
 <div style="display: flex; flex-direction: column; font-size: 16px; line-height: 1.4">
 <div style="display: flex; gap: 14px; padding: 15px 0; border-bottom: 1px solid #1c2a44"><span style="color: #34d399; font-weight: 800">✓</span><span><b>Readings</b> <span style="color: #a1a1a6">— live from Dexcom, for everyone you choose</span></span></div>
 <div style="display: flex; gap: 14px; padding: 15px 0; border-bottom: 1px solid #1c2a44"><span style="color: #34d399; font-weight: 800">✓</span><span><b>Meals and doses</b> <span style="color: #a1a1a6">— logged once, with who gave them</span></span></div>
@@ -932,7 +957,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <section id="day" style="background: #000; color: #f5f5f7; padding: 120px 0">
 <div class="wrap" style="display: flex; flex-direction: column; gap: 48px">
 <div style="display: flex; flex-direction: column; gap: 12px; max-width: 760px">
-<div class="eyebrow" style="color: #a99bff">A day with Glucose Guardian</div>
+<div class="eyebrow" style="color: #5cc8ff">A day with Glucose Guardian</div>
 <h2 class="h2">{{dayHead}}</h2>
 <p class="lede" style="color: #a1a1a6">Tap through a real day.</p>
 </div>
@@ -945,7 +970,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <sc-if value="{{st.on}}" hint-placeholder-val="{{ false }}"><span style="font-size: 17px; line-height: 1.5; color: #a1a1a6">{{st.text}}</span></sc-if>
 </button>
 </sc-for>
-<button type="button" class="pill-btn" onClick="{{nextStep}}" style="align-self: flex-start; margin: 14px 0 0 22px; background: {{accent}}; color: #fff">Next moment →</button>
+<button type="button" class="pill-btn" onClick="{{nextStep}}" style="align-self: flex-start; margin: 14px 0 0 22px; background: var(--brand-grad); color: #fff">Next moment →</button>
 </div>
 
 <div class="iphone" role="img" aria-label="{{cur.aria}}">
@@ -978,7 +1003,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <line x1="0" y1="71" x2="262" y2="71" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
 <line x1="0" y1="100.4" x2="262" y2="100.4" stroke="#22c55e" stroke-opacity="0.7" stroke-dasharray="4 4"></line>
 <line x1="0" y1="146.6" x2="262" y2="146.6" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
-<line x1="0" y1="108.8" x2="262" y2="108.8" stroke="#7c6cf6" stroke-width="1.6"></line>
+<line x1="0" y1="108.8" x2="262" y2="108.8" stroke="#2f80ff" stroke-width="1.6"></line>
 <g fill="none" stroke-width="4.2" stroke-linecap="round" stroke-dasharray="0 5.5">
 <polyline clip-path="url(#dd-hi)" stroke="#ef6b6b" points="{{cur.pts}}"></polyline>
 <polyline clip-path="url(#dd-mid)" stroke="#f0a830" points="{{cur.pts}}"></polyline>
@@ -986,7 +1011,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <polyline clip-path="url(#dd-lo)" stroke="#ef4444" points="{{cur.pts}}"></polyline>
 </g>
 <circle cx="258" cy="{{cur.lastY}}" r="5" fill="#fff" stroke="{{cur.dotStroke}}" stroke-width="2.5"></circle>
-<g font-size="8" text-anchor="end"><text x="298" y="11" style="fill: var(--axis)">400</text><text x="298" y="53" style="fill: var(--axis)">300</text><text x="298" y="74" fill="#ef4444">250</text><text x="298" y="103" fill="#22c55e">180</text><text x="298" y="112" fill="#7c6cf6">160</text><text x="298" y="137" style="fill: var(--axis)">100</text><text x="298" y="150" fill="#ef4444">70</text><text x="298" y="162" style="fill: var(--axis)">40</text><text x="298" y="179" style="fill: var(--axis)">0</text></g>
+<g font-size="8" text-anchor="end"><text x="298" y="11" style="fill: var(--axis)">400</text><text x="298" y="53" style="fill: var(--axis)">300</text><text x="298" y="74" fill="#ef4444">250</text><text x="298" y="103" fill="#22c55e">180</text><text x="298" y="112" fill="#2f80ff">160</text><text x="298" y="137" style="fill: var(--axis)">100</text><text x="298" y="150" fill="#ef4444">70</text><text x="298" y="162" style="fill: var(--axis)">40</text><text x="298" y="179" style="fill: var(--axis)">0</text></g>
 </svg></div>
 <div class="a-xl"><span>{{cur.xl1}}</span><span>{{cur.xl2}}</span><span>Now</span></div>
 </div>
@@ -1049,7 +1074,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <section id="dosing" style="background: #fff; padding: 120px 0">
 <div class="wrap" style="display: flex; align-items: center; justify-content: space-between; gap: 64px; flex-wrap: wrap">
 <div style="flex: 1 1 380px; display: flex; flex-direction: column; gap: 18px">
-<div class="eyebrow" style="color: #5b47e0">Try it</div>
+<div class="eyebrow" style="color: #0b63d6">Try it</div>
 <h2 class="h2">Snap it. Log it. Done.</h2>
 <p class="lede" style="color: #6e6e73">No carb charts. No mental math. Take a picture of the plate — Glucose Guardian estimates the carbs, fills in the calculator with the live reading, shows every step of the math, and logs it for everyone.</p>
 <ol aria-label="How it works" style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px">
@@ -1068,7 +1093,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 </div>
 <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap">
 <button type="button" class="pill-btn" onClick="{{nextSnap}}" aria-disabled="{{snap.nextDisabled}}" style="font-size: 15px; padding: 0 22px; background: {{snap.nextBg}}; color: #fff; cursor: {{snap.nextCursor}}">{{snap.nextLabel}}</button>
-<sc-if value="{{snap.isCalc}}" hint-placeholder-val="{{ false }}"><button type="button" class="pill-btn" onClick="{{togglePred}}" aria-pressed="{{calc.predPressed}}" style="font-size: 15px; padding: 0 18px; background: #ebe7ff; color: #5b47e0">{{calc.predLabel2}}</button></sc-if>
+<sc-if value="{{snap.isCalc}}" hint-placeholder-val="{{ false }}"><button type="button" class="pill-btn" onClick="{{togglePred}}" aria-pressed="{{calc.predPressed}}" style="font-size: 15px; padding: 0 18px; background: #e2efff; color: #0b63d6">{{calc.predLabel2}}</button></sc-if>
 <span style="font-size: 13px; color: #6e6e73">{{snap.nextHint}}</span>
 </div>
 <label style="display: flex; flex-direction: column; gap: 4px; font-size: 15px; font-weight: 600">
@@ -1106,7 +1131,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <img src="images/burrito-bowl.jpg" alt="Camera view: burrito bowl with rice, black beans, chicken, corn, pico de gallo, lettuce, and guacamole" class="camfeed">
 </sc-if>
 <sc-if value="{{snap.isBarcode}}" hint-placeholder-val="{{ false }}">
-<div style="position: absolute; left: 20%; right: 20%; top: 40%; height: 20%; border: 2.5px solid #7c6cf6; border-radius: 16px"></div>
+<div style="position: absolute; left: 20%; right: 20%; top: 40%; height: 20%; border: 2.5px solid #2f80ff; border-radius: 16px"></div>
 <div style="position: absolute; top: calc(60% + 14px); left: 0; right: 0; text-align: center"><span style="background: rgba(0,0,0,0.55); color: #fff; border-radius: 980px; padding: 6px 12px; font-size: 11px; font-weight: 600">Hold a barcode inside the box</span></div>
 </sc-if>
 <sc-if value="{{snap.isScan}}" hint-placeholder-val="{{ false }}">
@@ -1204,17 +1229,17 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <line x1="0" y1="56.5" x2="262" y2="56.5" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
 <line x1="0" y1="81" x2="262" y2="81" stroke="#22c55e" stroke-opacity="0.7" stroke-dasharray="4 4"></line>
 <line x1="0" y1="119.5" x2="262" y2="119.5" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
-<line x1="0" y1="88" x2="262" y2="88" stroke="#7c6cf6" stroke-width="1.4"></line>
-<line x1="131" y1="2" x2="131" y2="134" stroke="#7c6cf6" stroke-width="1.6"></line>
+<line x1="0" y1="88" x2="262" y2="88" stroke="#2f80ff" stroke-width="1.4"></line>
+<line x1="131" y1="2" x2="131" y2="134" stroke="#2f80ff" stroke-width="1.6"></line>
 <g fill="none" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
 <polyline clip-path="url(#pp-hi)" stroke="#ef6b6b" points="{{pr.past}}"></polyline>
 <polyline clip-path="url(#pp-mid)" stroke="#f0a830" points="{{pr.past}}"></polyline>
 <polyline clip-path="url(#pp-lo)" stroke="#22c55e" points="{{pr.past}}"></polyline>
 </g>
-<polyline class="draw" pathLength="1" fill="none" stroke="#7c6cf6" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round" points="{{pr.fut}}"></polyline>
-<circle cx="262" cy="{{pr.endY}}" r="3.5" fill="#7c6cf6"></circle>
-<g font-size="8" text-anchor="end"><text x="298" y="7" style="fill: var(--axis)">400</text><text x="298" y="42" style="fill: var(--axis)">300</text><text x="298" y="59.5" fill="#ef4444">250</text><text x="298" y="81" fill="#22c55e">180</text><text x="298" y="91" fill="#7c6cf6">160</text><text x="298" y="112" style="fill: var(--axis)">100</text><text x="298" y="122.5" fill="#ef4444">70</text><text x="298" y="133" style="fill: var(--axis)">40</text></g>
-<g font-size="8.5" text-anchor="middle" style="fill: var(--axis)"><text x="10" y="148">−2h</text><text x="65.5" y="148">−1h</text><text x="131" y="148" fill="#7c6cf6" font-weight="700">Now</text><text x="196.5" y="148">+1h</text><text x="252" y="148">+2h</text></g>
+<polyline class="draw" pathLength="1" fill="none" stroke="#2f80ff" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round" points="{{pr.fut}}"></polyline>
+<circle cx="262" cy="{{pr.endY}}" r="3.5" fill="#2f80ff"></circle>
+<g font-size="8" text-anchor="end"><text x="298" y="7" style="fill: var(--axis)">400</text><text x="298" y="42" style="fill: var(--axis)">300</text><text x="298" y="59.5" fill="#ef4444">250</text><text x="298" y="81" fill="#22c55e">180</text><text x="298" y="91" fill="#2f80ff">160</text><text x="298" y="112" style="fill: var(--axis)">100</text><text x="298" y="122.5" fill="#ef4444">70</text><text x="298" y="133" style="fill: var(--axis)">40</text></g>
+<g font-size="8.5" text-anchor="middle" style="fill: var(--axis)"><text x="10" y="148">−2h</text><text x="65.5" y="148">−1h</text><text x="131" y="148" fill="#2f80ff" font-weight="700">Now</text><text x="196.5" y="148">+1h</text><text x="252" y="148">+2h</text></g>
 </svg>
 <div class="a-pstr"><i></i>Prediction strength: <b>Strong match</b> · 3 past matches</div>
 <div class="{{pr.outCls}}">{{pr.outText}}</div>
@@ -1250,7 +1275,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <section id="safeguards" style="background: #f5f5f7; padding: 120px 0">
 <div class="wrap" style="display: flex; flex-direction: column; gap: 40px">
 <div style="display: flex; flex-direction: column; gap: 12px; max-width: 760px">
-<div class="eyebrow" style="color: #5b47e0">Built‑in safeguards</div>
+<div class="eyebrow" style="color: #0b63d6">Built‑in safeguards</div>
 <h2 class="h2">Careful by design.</h2>
 <p class="lede" style="color: #6e6e73">The calculator follows the same principles as commercial bolus calculators — and adds guardrails for the moments when families are most likely to make a mistake.</p>
 </div>
@@ -1269,7 +1294,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <section id="messages" style="background: #fff; padding: 120px 0">
 <div class="wrap" style="display: flex; gap: 64px; align-items: center; justify-content: space-between; flex-wrap: wrap">
 <div style="flex: 1 1 420px; display: flex; flex-direction: column; gap: 22px">
-<div class="eyebrow" style="color: #5b47e0">Chat and messages</div>
+<div class="eyebrow" style="color: #0b63d6">Chat and messages</div>
 <h2 class="h2">{{p.msgHead}}</h2>
 <p class="lede" style="color: #6e6e73">{{p.msgLede}}</p>
 <div role="group" aria-label="Choose a screen" style="display: flex; gap: 6px; flex-wrap: wrap">
@@ -1339,10 +1364,10 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <h2 class="h2">Get the highlights.</h2>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px">
 <div class="tile"><div style="display: flex; gap: 8px"><span class="chip" style="color: #047857; background: #d1fae5">Dexcom</span></div><h3>Live from Dexcom.</h3><p>Readings sync on their own, with trend arrows and color‑coded ranges — and the connection quietly signs itself back in so the numbers keep coming.</p></div>
-<div class="tile"><div style="font-size: 22px; font-weight: 700; color: #5b47e0; letter-spacing: -0.01em">0.5 + 2.5 = 3.0 u</div><h3>The dose, with the math shown.</h3><p>Correction, carbs, active carbs, and active insulin each get their own line — so you understand the suggestion before you act on it.</p></div>
-<div class="tile"><svg width="48" height="48" style="color: #5b47e0" aria-hidden="true"><use href="#i-cam"></use></svg><h3>Photo. Barcode. Done.</h3><p>Snap the plate for an AI carb estimate, or scan a package’s barcode. Your go‑to foods stay a tap away.</p></div>
-<div class="tile"><div style="display: flex; flex-direction: column; gap: 6px; font-size: 13px"><div style="align-self: flex-end; background: #5b47e0; color: #fff; border-radius: 16px 16px 4px 16px; padding: 7px 12px">Why the spike after lunch?</div><div style="align-self: flex-start; background: #f0f0f5; border-radius: 16px 16px 16px 4px; padding: 7px 12px">Three of the last five lunches…</div></div><h3>Insights you can ask about.</h3><p>The app spots patterns — meal spikes, dose timing, time in range — and every insight has an “Ask AI about this” button.</p></div>
-<div class="tile"><div style="display: flex"><div style="width: 44px; height: 44px; border-radius: 50%; background: #ebe7ff; border: 3px solid #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #5b47e0">M</div><div style="width: 44px; height: 44px; border-radius: 50%; background: #d1fae5; border: 3px solid #fff; margin-left: -12px; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #047857">D</div><div style="width: 44px; height: 44px; border-radius: 50%; background: #ffe4e6; border: 3px solid #fff; margin-left: -12px; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #be123c">G</div><div style="width: 44px; height: 44px; border-radius: 50%; background: #e0f2fe; border: 3px solid #fff; margin-left: -12px; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #0369a1">Dr</div></div><h3>One care circle.</h3><p>Co‑guardians get full access. Grandparents, sitters, and school nurses get a code — no account needed — with only the permissions and hours you choose.</p></div>
+<div class="tile"><div style="font-size: 22px; font-weight: 700; color: #0b63d6; letter-spacing: -0.01em">0.5 + 2.5 = 3.0 u</div><h3>The dose, with the math shown.</h3><p>Correction, carbs, active carbs, and active insulin each get their own line — so you understand the suggestion before you act on it.</p></div>
+<div class="tile"><svg width="48" height="48" style="color: #0b63d6" aria-hidden="true"><use href="#i-cam"></use></svg><h3>Photo. Barcode. Done.</h3><p>Snap the plate for an AI carb estimate, or scan a package’s barcode. Your go‑to foods stay a tap away.</p></div>
+<div class="tile"><div style="display: flex; flex-direction: column; gap: 6px; font-size: 13px"><div style="align-self: flex-end; background: var(--brand-grad); color: #fff; border-radius: 16px 16px 4px 16px; padding: 7px 12px">Why the spike after lunch?</div><div style="align-self: flex-start; background: #f0f0f5; border-radius: 16px 16px 16px 4px; padding: 7px 12px">Three of the last five lunches…</div></div><h3>Insights you can ask about.</h3><p>The app spots patterns — meal spikes, dose timing, time in range — and every insight has an “Ask AI about this” button.</p></div>
+<div class="tile"><div style="display: flex"><div style="width: 44px; height: 44px; border-radius: 50%; background: #e2efff; border: 3px solid #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #0b63d6">M</div><div style="width: 44px; height: 44px; border-radius: 50%; background: #d1fae5; border: 3px solid #fff; margin-left: -12px; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #047857">D</div><div style="width: 44px; height: 44px; border-radius: 50%; background: #ffe4e6; border: 3px solid #fff; margin-left: -12px; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #be123c">G</div><div style="width: 44px; height: 44px; border-radius: 50%; background: #e0f2fe; border: 3px solid #fff; margin-left: -12px; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #0369a1">Dr</div></div><h3>One care circle.</h3><p>Co‑guardians get full access. Grandparents, sitters, and school nurses get a code — no account needed — with only the permissions and hours you choose.</p></div>
 <div class="tile"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#e11d48" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg><h3>Alerts that break through.</h3><p>Highs, lows, and fast rises or drops — with urgent readings delivered as critical alerts, even on silent.</p></div>
 </div>
 </div>
@@ -1352,14 +1377,14 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <section id="how" style="background: #fff; padding: 120px 0">
 <div class="wrap" style="display: flex; flex-direction: column; gap: 56px">
 <div style="display: flex; flex-direction: column; gap: 12px; max-width: 720px">
-<div class="eyebrow" style="color: #5b47e0">Four simple steps</div>
+<div class="eyebrow" style="color: #0b63d6">Four simple steps</div>
 <h2 class="h2">How it Works</h2>
 </div>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 32px">
-<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #5b47e0; line-height: 1">1</div><h3 style="font-size: 21px; font-weight: 700">Connect Dexcom.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Sign in with Dexcom once. Readings flow in, with the latest always on the home screen.</p></div>
-<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #5b47e0; line-height: 1">2</div><h3 style="font-size: 21px; font-weight: 700">Enter your care plan.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Add the carb ratio, target, and correction factor from your doctor, and the insulins you use.</p></div>
-<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #5b47e0; line-height: 1">3</div><h3 style="font-size: 21px; font-weight: 700">Log, review, decide.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Snap the meal, see the suggested dose and every part of it, then log what you gave with one tap.</p></div>
-<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #5b47e0; line-height: 1">4</div><h3 style="font-size: 21px; font-weight: 700">Bring everyone in.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Invite co‑guardians, hand out caregiver codes, and link the doctor’s office.</p></div>
+<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0b63d6; line-height: 1">1</div><h3 style="font-size: 21px; font-weight: 700">Connect Dexcom.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Sign in with Dexcom once. Readings flow in, with the latest always on the home screen.</p></div>
+<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0b63d6; line-height: 1">2</div><h3 style="font-size: 21px; font-weight: 700">Enter your care plan.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Add the carb ratio, target, and correction factor from your doctor, and the insulins you use.</p></div>
+<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0b63d6; line-height: 1">3</div><h3 style="font-size: 21px; font-weight: 700">Log, review, decide.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Snap the meal, see the suggested dose and every part of it, then log what you gave with one tap.</p></div>
+<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0b63d6; line-height: 1">4</div><h3 style="font-size: 21px; font-weight: 700">Bring everyone in.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Invite co‑guardians, hand out caregiver codes, and link the doctor’s office.</p></div>
 </div>
 </div>
 </section>
@@ -1397,17 +1422,17 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 </div></div>
 </div>
 <div style="flex: 1 1 380px; display: flex; flex-direction: column; gap: 18px">
-<div class="eyebrow" style="color: #5b47e0">Insulin settings</div>
+<div class="eyebrow" style="color: #0b63d6">Insulin settings</div>
 <h2 class="h2">Your doctor’s plan, built in.</h2>
 <p class="lede" style="color: #6e6e73">Enter the carb ratio, target, and correction factor from your care team once. Every estimate uses them, and everyone in the care circle sees the same numbers.</p>
 <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 8px; font-size: 17px">
-<div class="row"><span style="color: #5b47e0; font-weight: 700">—</span><span>Different ratios for breakfast, lunch, dinner, or overnight</span></div>
-<div class="row"><span style="color: #5b47e0; font-weight: 700">—</span><span>Rapid, short, intermediate, long, ultra‑long, and pre‑mixed insulins — including U‑300 — each handled the right way</span></div>
-<div class="row"><span style="color: #5b47e0; font-weight: 700">—</span><span>Only the primary guardian can change settings — no surprise edits</span></div>
-<div class="row"><span style="color: #5b47e0; font-weight: 700">—</span><span>When the doctor suggests a change, nothing updates until you approve it</span></div>
+<div class="row"><span style="color: #0b63d6; font-weight: 700">—</span><span>Different ratios for breakfast, lunch, dinner, or overnight</span></div>
+<div class="row"><span style="color: #0b63d6; font-weight: 700">—</span><span>Rapid, short, intermediate, long, ultra‑long, and pre‑mixed insulins — including U‑300 — each handled the right way</span></div>
+<div class="row"><span style="color: #0b63d6; font-weight: 700">—</span><span>Only the primary guardian can change settings — no surprise edits</span></div>
+<div class="row"><span style="color: #0b63d6; font-weight: 700">—</span><span>When the doctor suggests a change, nothing updates until you approve it</span></div>
 </div>
 <div style="font-size: 17px; font-weight: 600; margin-top: 10px">Every insulin type, ready to pick</div>
-<div style="background: #fff; border-radius: 20px; padding: 20px 22px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px 20px; margin-top: 6px"><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #5b47e0">RAPID‑ACTING</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Humalog<br>Lispro Junior<br>NovoLog<br>Apidra<br>FIASP</div></div><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #5b47e0">LONG‑ACTING</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Lantus<br>Basaglar<br>Levemir</div></div><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #5b47e0">ULTRA‑LONG</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Toujeo<br>Tresiba</div></div><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #5b47e0">SHORT‑ACTING</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Humulin R<br>Novolin R</div></div><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #5b47e0">INTERMEDIATE</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Humulin N<br>Novolin N</div></div><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #5b47e0">PRE‑MIXED</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Humalog Mix 75/25<br>NovoLog Mix 70/30</div></div></div>
+<div style="background: #fff; border-radius: 20px; padding: 20px 22px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px 20px; margin-top: 6px"><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #0b63d6">RAPID‑ACTING</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Humalog<br>Lispro Junior<br>NovoLog<br>Apidra<br>FIASP</div></div><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #0b63d6">LONG‑ACTING</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Lantus<br>Basaglar<br>Levemir</div></div><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #0b63d6">ULTRA‑LONG</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Toujeo<br>Tresiba</div></div><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #0b63d6">SHORT‑ACTING</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Humulin R<br>Novolin R</div></div><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #0b63d6">INTERMEDIATE</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Humulin N<br>Novolin N</div></div><div><div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #0b63d6">PRE‑MIXED</div><div style="font-size: 15px; line-height: 1.5; margin-top: 3px">Humalog Mix 75/25<br>NovoLog Mix 70/30</div></div></div>
 </div>
 </div>
 </section>
@@ -1417,7 +1442,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <section style="background: #fff; padding: 120px 0">
 <div class="wrap" style="display: flex; flex-direction: column; gap: 56px; align-items: center; text-align: center">
 <div style="display: flex; flex-direction: column; gap: 12px; max-width: 760px; align-items: center">
-<div class="eyebrow" style="color: #5b47e0">Child View</div>
+<div class="eyebrow" style="color: #0b63d6">Child View</div>
 <h2 class="h2">Grows up with them.</h2>
 <p class="lede" style="color: #6e6e73">Give your child their own view on their own phone — big, friendly, and simple. Settings stay locked behind your guardian PIN, and everything they log shows up on yours.</p>
 </div>
@@ -1431,7 +1456,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="a-ring ok" style="width: 150px; height: 150px; border-width: 12px"><div class="n" style="font-size: 46px">128</div><div style="font-size: 11px; color: var(--g-tx); font-weight: 700; margin-top: 4px">You’re in range!</div></div>
 <div class="a-card" style="width: 100%; padding: 14px; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box"><div style="font-size: 15px; font-weight: 700">Hungry?</div><div class="a-btnfull" style="font-size: 14px; padding: 12px 0">Snap your food</div></div>
 <div class="a-card" style="width: 100%; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box"><div style="font-size: 12px; text-align: left; line-height: 1.35">Ask your adult<br>to give</div><div style="font-size: 22px; font-weight: 800; color: var(--a-purtx)">2.5 <span style="font-size: 11px; color: var(--a-sub)">units</span></div></div>
-<div style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--a-sub); background: var(--a-pursoft); border-radius: 980px; padding: 6px 12px"><svg width="12" height="12" aria-hidden="true"><use href="#i-lock"></use></svg>Settings locked</div>
+<div style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--a-sub); background: var(--brand-soft), var(--a-pursoft); border-radius: 980px; padding: 6px 12px"><svg width="12" height="12" aria-hidden="true"><use href="#i-lock"></use></svg>Settings locked</div>
 </div>
 </div></div>
 </div>
@@ -1466,7 +1491,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <section id="coguardians" style="background: {{p.cgBg}}; padding: 120px 0">
 <div class="wrap" style="display: flex; flex-direction: column; gap: 56px">
 <div style="display: flex; flex-direction: column; gap: 12px; max-width: 780px">
-<div class="eyebrow" style="color: #5b47e0">Co‑guardians</div>
+<div class="eyebrow" style="color: #0b63d6">Co‑guardians</div>
 <h2 class="h2">{{p.cgHead}}</h2>
 <p class="lede" style="color: #6e6e73">{{p.cgLede}}</p>
 </div>
@@ -1492,7 +1517,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <figcaption>{{p.cgA}}</figcaption>
 </figure>
 
-<div aria-hidden="true" style="display: flex; flex-direction: column; align-items: center; gap: 10px; color: #5b47e0; font-weight: 700; font-size: 13px">
+<div aria-hidden="true" style="display: flex; flex-direction: column; align-items: center; gap: 10px; color: #0b63d6; font-weight: 700; font-size: 13px">
 <div class="syncdots"><span></span><span></span><span></span><span></span><span></span></div>
 <span>Synced</span>
 </div>
@@ -1526,7 +1551,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <tr>
 <th scope="col" style="padding: 16px 28px; width: 34%"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Permission</span></th>
 <th scope="col" style="padding: 16px 12px; vertical-align: bottom"><div style="font-size: 17px; font-weight: 700">{{p.roleOwner}}</div><div style="font-size: 12px; font-weight: 500; color: #6e6e73">The main account</div></th>
-<th scope="col" style="padding: 16px 12px; vertical-align: bottom"><div style="font-size: 17px; font-weight: 700; color: #5b47e0">Co‑guardian</div><div style="font-size: 12px; font-weight: 500; color: #6e6e73">Up to 3 · their own account</div></th>
+<th scope="col" style="padding: 16px 12px; vertical-align: bottom"><div style="font-size: 17px; font-weight: 700; color: #0b63d6">Co‑guardian</div><div style="font-size: 12px; font-weight: 500; color: #6e6e73">Up to 3 · their own account</div></th>
 <th scope="col" style="padding: 16px 28px 16px 12px; vertical-align: bottom"><div style="font-size: 17px; font-weight: 700">Caregiver code</div><div style="font-size: 12px; font-weight: 500; color: #6e6e73">No account · just a code</div></th>
 </tr>
 </thead>
@@ -1566,11 +1591,11 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <button type="button" class="pill-btn" onClick="{{k.pick}}" aria-pressed="{{k.pressed}}" style="font-size: 13px; padding: 0 14px; background: {{k.bg}}; color: {{k.fg}}">{{k.label}}</button>
 </sc-for>
 </div>
-<div style="display: flex; flex-direction: column; gap: 12px; background: #1e1b4b; border-radius: 36px; padding: 40px 22px; box-sizing: border-box" aria-live="polite" aria-label="Example glucose alerts on a lock screen">
+<div style="display: flex; flex-direction: column; gap: 12px; background: #0b1f44; border-radius: 36px; padding: 40px 22px; box-sizing: border-box" aria-live="polite" aria-label="Example glucose alerts on a lock screen">
 <div style="text-align: center; color: #fff; font-size: 64px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; margin-bottom: 18px">7:42</div>
 <div class="note" style="background: rgba(255,255,255,0.95); color: #1d1d1f; box-shadow: 0 0 0 3px {{al.ring}}"><div style="width: 34px; height: 34px; border-radius: 9px; background: {{al.icon}}; flex: none"></div><div style="flex: 1"><div style="display: flex; justify-content: space-between; gap: 8px"><b>{{al.title}}</b><span style="color: #6e6e73; font-size: 11px">now</span></div><div>{{al.body}}</div><div style="color: #6e6e73; font-size: 11px; margin-top: 4px">{{al.meta}}</div></div></div>
-<div class="note" style="background: rgba(255,255,255,0.78); color: #1d1d1f"><div style="width: 34px; height: 34px; border-radius: 9px; background: #6d5ef5; flex: none"></div><div style="flex: 1"><div style="display: flex; justify-content: space-between"><b>{{p.note2}}</b><span style="color: #6e6e73; font-size: 11px">6m ago</span></div><div>84 mg/dL ↓↓</div></div></div>
-<div class="note" style="background: rgba(255,255,255,0.64); color: #1d1d1f"><div style="width: 34px; height: 34px; border-radius: 9px; background: #6d5ef5; flex: none"></div><div style="flex: 1"><div style="display: flex; justify-content: space-between"><b>{{p.note3}}</b><span style="color: #6e6e73; font-size: 11px">2h ago</span></div><div>Turkey sandwich · 32 g carbs</div></div></div>
+<div class="note" style="background: rgba(255,255,255,0.78); color: #1d1d1f"><div style="width: 34px; height: 34px; border-radius: 9px; background: var(--brand-grad); flex: none"></div><div style="flex: 1"><div style="display: flex; justify-content: space-between"><b>{{p.note2}}</b><span style="color: #6e6e73; font-size: 11px">6m ago</span></div><div>84 mg/dL ↓↓</div></div></div>
+<div class="note" style="background: rgba(255,255,255,0.64); color: #1d1d1f"><div style="width: 34px; height: 34px; border-radius: 9px; background: var(--brand-grad); flex: none"></div><div style="flex: 1"><div style="display: flex; justify-content: space-between"><b>{{p.note3}}</b><span style="color: #6e6e73; font-size: 11px">2h ago</span></div><div>Turkey sandwich · 32 g carbs</div></div></div>
 </div>
 </div>
 </div>
@@ -1592,10 +1617,10 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="card"><h3>Messaging built in.</h3><p>Families and the care team can message right inside the app.</p></div>
 <div class="card"><h3>Reports for the visit.</h3><p>Export a PDF or text report with 3‑, 7‑, 14‑, 30‑, and 90‑day A1C estimates.</p></div>
 <div class="card" style="background: #0b1424; color: #fff; gap: 12px" role="img" aria-label="Example doctor-proposed change awaiting approval">
-<div class="chip" style="color: #a99bff; background: #262a5a">Proposed by your care team</div>
+<div class="chip" style="color: #5cc8ff; background: #123056">Proposed by your care team</div>
 <div style="font-size: 17px; font-weight: 700">Breakfast carb ratio</div>
 <div style="display: flex; align-items: baseline; gap: 10px; font-size: 26px; font-weight: 800"><span style="color: #9aa3b2; text-decoration: line-through; font-size: 20px">1:15</span><span>→ 1:12</span></div>
-<div style="display: flex; gap: 8px; font-size: 13px; font-weight: 700"><span style="flex: 1; text-align: center; background: #6d5ef5; border-radius: 12px; padding: 10px 0">Approve</span><span style="flex: 1; text-align: center; border: 1px solid #2a3a58; border-radius: 12px; padding: 10px 0; color: #cbd5e1">Decline</span></div>
+<div style="display: flex; gap: 8px; font-size: 13px; font-weight: 700"><span style="flex: 1; text-align: center; background: var(--brand-grad); border-radius: 12px; padding: 10px 0">Approve</span><span style="flex: 1; text-align: center; border: 1px solid #2a3a58; border-radius: 12px; padding: 10px 0; color: #cbd5e1">Decline</span></div>
 </div>
 </div>
 </div>
@@ -1637,17 +1662,17 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <section id="new" style="background: #f5f5f7; padding: 120px 0">
 <div class="wrap" style="display: flex; flex-direction: column; gap: 40px">
 <div style="display: flex; flex-direction: column; gap: 12px">
-<div class="eyebrow" style="color: #5b47e0">What’s new</div>
+<div class="eyebrow" style="color: #0b63d6">What’s new</div>
 <h2 class="h2">New in version 1.0.</h2>
 <p class="lede" style="color: #6e6e73; max-width: 640px">The latest beta updates, straight from the build.</p>
 </div>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px">
 <div class="card"><div class="chip" style="color: #b45309; background: #fdecd3">New</div><h3>Stay signed in to Dexcom</h3><p>The Dexcom connection quietly signs back in, so readings don’t stop overnight.</p></div>
 <div class="card"><div class="chip" style="color: #b45309; background: #fdecd3">New</div><h3>No‑stacking hold</h3><p>Right after a dose, extra corrections wait until that insulin has had time to work.</p></div>
-<div class="card"><div class="chip" style="color: #5b47e0; background: #ebe7ff">Improved</div><h3>Smarter insulin on board</h3><p>A more realistic insulin curve, credited only against corrections — never the meal itself.</p></div>
+<div class="card"><div class="chip" style="color: #0b63d6; background: #e2efff">Improved</div><h3>Smarter insulin on board</h3><p>A more realistic insulin curve, credited only against corrections — never the meal itself.</p></div>
 <div class="card"><div class="chip" style="color: #b45309; background: #fdecd3">New</div><h3>Barcode scanning</h3><p>Switch the food camera to Barcode for packaged snacks.</p></div>
-<div class="card"><div class="chip" style="color: #5b47e0; background: #ebe7ff">Improved</div><h3>A1C reports by day</h3><p>3‑, 7‑, 14‑, 30‑, and 90‑day estimates in exports and on the dashboard.</p></div>
-<div class="card"><div class="chip" style="color: #5b47e0; background: #ebe7ff">Improved</div><h3>Guardian PIN everywhere</h3><p>Your PIN now follows you to a new phone or after reinstalling.</p></div>
+<div class="card"><div class="chip" style="color: #0b63d6; background: #e2efff">Improved</div><h3>A1C reports by day</h3><p>3‑, 7‑, 14‑, 30‑, and 90‑day estimates in exports and on the dashboard.</p></div>
+<div class="card"><div class="chip" style="color: #0b63d6; background: #e2efff">Improved</div><h3>Guardian PIN everywhere</h3><p>Your PIN now follows you to a new phone or after reinstalling.</p></div>
 <div class="card"><div class="chip" style="color: #b45309; background: #fdecd3">New</div><h3>Help Mode</h3><p>A guided tour that spotlights each control and explains what it does.</p></div>
 <div class="card"><div class="chip" style="color: #b45309; background: #fdecd3">New</div><h3>Update prompts</h3><p>When a new version is ready, the app tells you — just tap restart.</p></div>
 </div>
@@ -1658,7 +1683,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <section id="story" style="background: #fff; padding: 120px 0">
 <div class="wrap" style="display: flex; flex-direction: column; gap: 56px">
 <div style="display: flex; flex-direction: column; gap: 12px; max-width: 760px">
-<div class="eyebrow" style="color: #5b47e0">Why we built it</div>
+<div class="eyebrow" style="color: #0b63d6">Why we built it</div>
 <h2 class="h2">Two founders. One reason.</h2>
 <p class="lede" style="color: #6e6e73">[One or two sentences on how you two came together to build Glucose Guardian.]</p>
 </div>
@@ -1726,7 +1751,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <h2 style="font-size: clamp(40px, 6vw, 72px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.02">Be first in line.</h2>
 <p class="lede" style="color: #a1a1a6; max-width: 560px">Join the beta on iPhone today, or get a note the moment Glucose Guardian arrives on Android.</p>
 <div style="display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 8px">
-<a href="https://testflight.apple.com/join/jnr9HbAa" target="_blank" rel="noopener" class="btn" style="background: {{accent}}; color: #fff">Join the TestFlight beta</a>
+<a href="https://testflight.apple.com/join/jnr9HbAa" target="_blank" rel="noopener" class="btn" style="background: var(--brand-grad); color: #fff">Join the TestFlight beta</a>
 <a href="#join" class="btn" style="background: transparent; color: #2997ff; box-shadow: inset 0 0 0 1px #2997ff">Notify me for Android</a>
 </div>
 
@@ -1774,7 +1799,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div style="display: flex; flex-direction: column; gap: 12px; align-items: center; text-align: center">
 <div class="eyebrow" style="color: #0369a1">Try the nurse’s view</div>
 <h2 class="h2">Tap in. Just like they do.</h2>
-<p class="lede" style="color: #6e6e73; max-width: 680px">This is the Caregiver Menu a school nurse sees. Tap a student to open their dashboard, then check recent readings, fix a log, or snap lunch.</p>
+<p class="lede" style="color: #6e6e73; max-width: 680px">This is the Caregiver Menu a school nurse sees. Tap a student to open their dashboard, then check recent readings, fix a log, snap lunch, check the pens, or log a finger stick.</p>
 <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 8px">
 <div role="group" aria-label="Device" style="display: flex; gap: 4px; background: #f0f0f5; border-radius: 980px; padding: 4px">
 <sc-for list="{{nDevBtns}}" as="db" hint-placeholder-count="2">
@@ -1860,7 +1885,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <line x1="0" y1="71" x2="262" y2="71" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
 <line x1="0" y1="100.4" x2="262" y2="100.4" stroke="#22c55e" stroke-opacity="0.7" stroke-dasharray="4 4"></line>
 <line x1="0" y1="146.6" x2="262" y2="146.6" stroke="#ef4444" stroke-opacity="0.65" stroke-dasharray="4 4"></line>
-<line x1="0" y1="108.8" x2="262" y2="108.8" stroke="#7c6cf6" stroke-width="1.6"></line>
+<line x1="0" y1="108.8" x2="262" y2="108.8" stroke="#2f80ff" stroke-width="1.6"></line>
 <g fill="none" stroke-width="4.2" stroke-linecap="round" stroke-dasharray="0 5.5">
 <polyline clip-path="url(#ns-hi)" stroke="#ef6b6b" points="{{ns.pts}}"></polyline>
 <polyline clip-path="url(#ns-mid)" stroke="#f0a830" points="{{ns.pts}}"></polyline>
@@ -1868,7 +1893,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <polyline clip-path="url(#ns-lo)" stroke="#ef4444" points="{{ns.pts}}"></polyline>
 </g>
 <circle cx="258" cy="{{ns.lastY}}" r="5" fill="#fff" stroke="{{ns.dotStroke}}" stroke-width="2.5"></circle>
-<g font-size="8" text-anchor="end"><text x="298" y="11" style="fill: var(--axis)">400</text><text x="298" y="53" style="fill: var(--axis)">300</text><text x="298" y="74" fill="#ef4444">250</text><text x="298" y="103" fill="#22c55e">180</text><text x="298" y="112" fill="#7c6cf6">160</text><text x="298" y="137" style="fill: var(--axis)">100</text><text x="298" y="150" fill="#ef4444">70</text><text x="298" y="162" style="fill: var(--axis)">40</text><text x="298" y="179" style="fill: var(--axis)">0</text></g>
+<g font-size="8" text-anchor="end"><text x="298" y="11" style="fill: var(--axis)">400</text><text x="298" y="53" style="fill: var(--axis)">300</text><text x="298" y="74" fill="#ef4444">250</text><text x="298" y="103" fill="#22c55e">180</text><text x="298" y="112" fill="#2f80ff">160</text><text x="298" y="137" style="fill: var(--axis)">100</text><text x="298" y="150" fill="#ef4444">70</text><text x="298" y="162" style="fill: var(--axis)">40</text><text x="298" y="179" style="fill: var(--axis)">0</text></g>
 </svg></div>
 <div class="a-xl"><span>{{ns.xl1}}</span><span>{{ns.xl2}}</span><span>Now</span></div>
 </div>
@@ -1879,16 +1904,41 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <sc-if value="{{ns.isLog}}" hint-placeholder-val="{{ false }}">
 <div class="nv-col">
 <div class="a-pad">
-<div class="a-topbar"><div class="a-seg"><div><svg><use href="#i-syr"></use></svg>Dose</div><div class="on">Log</div></div><div class="a-bgp {{ns.tagCls}}"><b>{{ns.bg}}</b> <i>mg/dL</i><div>{{ns.arrow}}</div>{{ns.range}}</div></div>
+<div class="a-topbar"><div class="a-seg"><button type="button" class="nb {{ns.doseCls}}" onClick="{{nPickDose}}"><svg><use href="#i-syr"></use></svg>Dose</button><button type="button" class="nb {{ns.logCls}}" onClick="{{nPickLog}}">Log</button></div><div class="a-bgp {{ns.tagCls}}"><b>{{ns.bg}}</b> <i>mg/dL</i><div>{{ns.arrow}}</div>{{ns.range}}</div></div>
+<sc-if value="{{ns.doseView}}" hint-placeholder-val="{{ false }}">
+<div class="a-card nd-card"><div class="nd-in"><div><div class="ic-l">CARBS (G)</div><div class="ic-box">32</div></div><div class="ic-sep"></div><div><div class="ic-l">CURRENT BG <span class="live">LIVE</span></div><div class="ic-box">{{ns.bg}}</div></div></div>
+<div class="nd-sug"><b>SUGGESTED DOSE</b><div class="a-dosebox">{{ns.sugDose}} <small>units</small></div></div>
+<div class="nd-btns"><span class="nd-alt">↗ Predict</span><span class="nd-main">✓ I Just Took This Dose</span></div></div>
+<div class="a-card nd-pens"><div class="nd-ph"><b>PENS</b><span>History</span></div>
+<sc-for list="{{ns.pens}}" as="pn" hint-placeholder-count="2">
+<div class="nd-pen"><span class="nd-rw"><svg class="nd-ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="var(--a-line)" stroke-width="4"></circle><circle cx="18" cy="18" r="15" fill="none" stroke="{{pn.color}}" stroke-width="4" stroke-linecap="round" stroke-dasharray="{{pn.dash}}" transform="rotate(-90 18 18)"></circle></svg><b class="nd-rn">{{pn.days}}</b></span><div class="nd-pt"><b>{{pn.title}}</b><span style="color: {{pn.subColor}}">{{pn.sub}}</span></div><span class="a-chev">›</span></div>
+</sc-for>
+<span class="nd-start">+ Start new pen</span></div>
+</sc-if>
+<sc-if value="{{ns.logView}}" hint-placeholder-val="{{ true }}">
 <div class="a-dayrow"><button type="button" class="nb" onClick="{{nPrevDay}}" aria-label="Previous day" style="width: auto; padding: 0 8px; color: {{ns.prevColor}}">‹</button><b>{{ns.dayLabel}}</b><button type="button" class="nb" onClick="{{nNextDay}}" aria-label="Next day" style="width: auto; padding: 0 8px; color: {{ns.nextColor}}">›</button></div>
 <div class="a-chart"><svg viewBox="0 0 300 180" aria-hidden="true"><use href="#ch-today"></use></svg></div>
-<div class="a-dateline"><span>{{ns.dateLine}}</span><span class="a-add">+ Add Entry</span></div>
+<div class="a-dateline"><span>{{ns.dateLine}}</span><button type="button" class="nb a-add" onClick="{{nOpenFs}}" style="width: auto">+ Add Entry</button></div>
 <div class="a-card a-list">
 <sc-for list="{{ns.rows}}" as="r" hint-placeholder-count="4">
 <button type="button" class="nb a-row" onClick="{{r.pick}}"><span class="a-time">{{r.time}}</span><span class="a-ico"><svg><use href="{{r.icon}}"></use></svg></span><span class="a-rt"><b>{{r.title}}<sc-if value="{{r.hasTag}}" hint-placeholder-val="{{ false }}"><span class="a-new">{{r.tag}}</span></sc-if></b><span>{{r.sub}}<sc-if value="{{r.edited}}" hint-placeholder-val="{{ false }}"> · <i>Edited</i></sc-if></span></span><span class="a-chev">›</span></button>
 </sc-for>
 </div>
+</sc-if>
 </div>
+<sc-if value="{{ns.fsOpen}}" hint-placeholder-val="{{ false }}">
+<div class="ic-scrim"></div>
+<div class="ic fs" role="dialog" aria-label="Log Finger Stick">
+<button type="button" class="nb ic-x" onClick="{{nCloseFs}}" aria-label="Close" style="width: auto">×</button>
+<h4>Log Finger Stick</h4>
+<div class="ic-sub">Enter the number from your meter. We’ll compare it with Dexcom at the same moment.</div>
+<div class="fs-row"><span>Meter reading</span><div class="fs-val">{{ns.fsMeter}}</div></div>
+<div class="fs-row"><span>Dexcom at this time</span><b>{{ns.bg}} mg/dL</b></div>
+<div class="fs-l">Why did you check?</div>
+<div class="fs-chips"><span>Number seemed off</span><span>Felt low or high</span><span class="on">Before dosing</span><span>Routine</span></div>
+<button type="button" class="nb fs-log" onClick="{{nSaveFs}}">✓ Log</button>
+</div>
+</sc-if>
 </div>
 </sc-if>
 
@@ -2020,7 +2070,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <p style="margin: 0; font-size: 17px; line-height: 1.6; color: #c7c7cc">As a school nurse, I appreciate technology that not only simplifies daily tasks but also supports better communication between school staff and families. Glucose Guardian does exactly that! It has been a wonderful tool, and I am so impressed with the thought and purpose behind its features. I would highly recommend Glucose Guardian to other families and school nurses looking for ways to make diabetes management more organized and connected.</p>
 <p style="margin: 0; font-size: 17px; line-height: 1.6; color: #c7c7cc">Glucose Guardian is truly making a difference in the day‑to‑day management of diabetes!”</p>
 </blockquote>
-<figcaption style="font-size: 15px; color: #7dd3fc; font-weight: 600">Holly Legette <span style="color: #a1a1a6; font-weight: 400">· School nurse, William Reevels Elementary School</span></figcaption>
+<figcaption style="font-size: 15px; color: #7dd3fc; font-weight: 600">Holly Legette <span style="color: #a1a1a6; font-weight: 400">· School nurse, William M. Reeves Elementary School, Dorchester County, SC</span></figcaption>
 </figure>
 </div>
 </section>
@@ -2238,7 +2288,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#6d5ef5","options":["#6d5ef5","#0071e3","#10b981","#e11d48"]},"$preview":{"width":1440,"height":8000}}'>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#1f6fe6","options":["#1f6fe6","#0071e3","#10b981","#e11d48"]},"$preview":{"width":1440,"height":8000}}'>
 class Component extends DCLogic {
   componentDidMount() {
     try {
@@ -2293,10 +2343,10 @@ class Component extends DCLogic {
       return { label: d[1], icon: d[2], pressed: on ? 'true' : 'false', bg: on ? '#f5f5f7' : 'transparent', fg: on ? '#1d1d1f' : '#a1a1a6', pick: function () { setTheme(d[0]); } };
     });
     var t = dark ? {
-      section: '#000', sectionText: '#f5f5f7', sub: '#a1a1a6', eyebrow: '#a99bff',
+      section: '#000', sectionText: '#f5f5f7', sub: '#a1a1a6', eyebrow: '#5cc8ff',
       toggleBg: '#1d1d1f', lightBg: 'transparent', lightText: '#a1a1a6', darkBg: '#f5f5f7', darkText: '#1d1d1f', lightPressed: 'false', darkPressed: 'true'
     } : {
-      section: '#fff', sectionText: '#1d1d1f', sub: '#6e6e73', eyebrow: '#5b47e0',
+      section: '#fff', sectionText: '#1d1d1f', sub: '#6e6e73', eyebrow: '#0b63d6',
       toggleBg: '#e8e8ed', lightBg: '#1d1d1f', lightText: '#fff', darkBg: 'transparent', darkText: '#6e6e73', lightPressed: 'true', darkPressed: 'false'
     };
 
@@ -2413,7 +2463,7 @@ class Component extends DCLogic {
       doseText: isLow ? '0' : String(dose), doseSub: isLow ? 'Treat the low first' : r2(raw) + ' u → nearest ½',
       btnCls: isLow ? 'a-btn2 off' : 'a-btn2',
       warnShow: !!warn, warnText: warn ? warn[1] : '', warnCls: warn && warn[0] === 'i' ? 'a-warn info' : (bg >= 300 || isLow) ? 'a-warn danger' : 'a-warn',
-      labelColor: bg < 70 || bg >= 300 ? '#e11d48' : bg > 180 ? '#b45309' : '#5b47e0'
+      labelColor: bg < 70 || bg >= 300 ? '#e11d48' : bg > 180 ? '#b45309' : '#0b63d6'
     };
     // Manual dose + prediction
     var suggested = isLow ? 0 : dose;
@@ -2450,7 +2500,7 @@ class Component extends DCLogic {
     };
     var trends = ['rapidly_falling', 'falling', 'stable', 'rising', 'rapidly_rising'].map(function (k) {
       var on = k === trend;
-      return { label: tLabels[k], pressed: on ? 'true' : 'false', bg: on ? '#6d5ef5' : '#fff', fg: on ? '#fff' : '#1d1d1f', pick: function () { self.setState({ trend: k, manual: null }); } };
+      return { label: tLabels[k], pressed: on ? 'true' : 'false', bg: on ? '#1f6fe6' : '#fff', fg: on ? '#fff' : '#1d1d1f', pick: function () { self.setState({ trend: k, manual: null }); } };
     });
 
     // Insulin Calculator sheet rows (Food → Calculate Insulin), with a running total while it adds up
@@ -2474,7 +2524,7 @@ class Component extends DCLogic {
       ];
       return {
         nameLow: name, carbs: carbsG, bg: bgV, done: st >= 6, fin: fin,
-        rows: defs.map(function (d, i) { return { label: d[0], sub: d[1], val: d[2], color: d[3] || 'var(--a-tx)', cls: d[4] ? 'ic-r dim' : 'ic-r', op: i < st ? '1' : '0.18', bg: (i === st - 1 && st < 6) ? 'rgba(124,108,246,.2)' : 'transparent' }; }),
+        rows: defs.map(function (d, i) { return { label: d[0], sub: d[1], val: d[2], color: d[3] || 'var(--a-tx)', cls: d[4] ? 'ic-r dim' : 'ic-r', op: i < st ? '1' : '0.18', bg: (i === st - 1 && st < 6) ? 'rgba(47,128,255,.2)' : 'transparent' }; }),
         dose: st <= 0 ? '0' : st >= 6 ? String(fin) : String(r2(sumTo(st))),
         raw: st < 6 ? 'Adding it up…' : low ? 'Glucose is low. Treat the low first' : 'Raw ' + r2(rawV) + 'u → rounded to nearest ½',
         btnCls: (low || st < 6) ? 'a-btn2 off' : 'a-btn2'
@@ -2500,11 +2550,11 @@ class Component extends DCLogic {
       showBand: stage === 'cam' || stage === 'scan',
       showShutter: stage === 'cam' && camMode === 'food',
       foodPressed: camMode === 'food' ? 'true' : 'false', barPressed: camMode === 'barcode' ? 'true' : 'false',
-      foodBg: camMode === 'food' ? '#6d5ef5' : 'transparent', foodFg: camMode === 'food' ? '#fff' : '#e5e7eb',
-      barBg: camMode === 'barcode' ? '#6d5ef5' : 'transparent', barFg: camMode === 'barcode' ? '#fff' : '#e5e7eb',
+      foodBg: camMode === 'food' ? '#1f6fe6' : 'transparent', foodFg: camMode === 'food' ? '#fff' : '#e5e7eb',
+      barBg: camMode === 'barcode' ? '#1f6fe6' : 'transparent', barFg: camMode === 'barcode' ? '#fff' : '#e5e7eb',
       nextLabel: { cam: 'Take the photo →', scan: 'Estimating carbs…', result: 'Calculate insulin →', calc: isLow ? 'Treat the low first' : 'I took this insulin →', logged: 'Try another meal ↺' }[stage],
       nextHint: { cam: 'or tap the shutter on the phone', scan: '', result: 'Carbs are filled in for you', calc: isLow ? 'Raise the glucose slider to continue' : 'Watch each part add up, then log it', logged: '' }[stage],
-      nextDisabled: blocked ? 'true' : 'false', nextBg: blocked ? '#a1a1aa' : '#6d5ef5', nextCursor: blocked ? 'default' : 'pointer',
+      nextDisabled: blocked ? 'true' : 'false', nextBg: blocked ? '#a1a1aa' : '#1f6fe6', nextCursor: blocked ? 'default' : 'pointer',
       rows: [
         ['Just now', '#i-syr', 'Insulin', finalDose + 'u · Lispro · Rapid‑Acting · ' + p.by1, 'NEW'],
         ['Just now', '#i-fork', meal.name, meal.carbs + ' g carbs · from photo · ' + p.by1],
@@ -2513,7 +2563,7 @@ class Component extends DCLogic {
     };
     var snapSteps = ['Snap the plate', 'Carbs estimated', 'Dose math filled in', 'Logged for everyone'].map(function (label, i) {
       var done = i < stageIdx, on = i === stageIdx;
-      return { n: done ? '✓' : String(i + 1), label: label, fg: on ? '#1d1d1f' : done ? '#5b47e0' : '#86868b', dotBg: on ? '#6d5ef5' : done ? '#ebe7ff' : '#e8e8ed', dotFg: on ? '#fff' : done ? '#5b47e0' : '#86868b' };
+      return { n: done ? '✓' : String(i + 1), label: label, fg: on ? '#1d1d1f' : done ? '#0b63d6' : '#86868b', dotBg: on ? '#1f6fe6' : done ? '#e2efff' : '#e8e8ed', dotFg: on ? '#fff' : done ? '#0b63d6' : '#86868b' };
     });
     var mealBtns = meals.map(function (m, i) {
       var on = i === mealIdx;
@@ -2530,14 +2580,14 @@ class Component extends DCLogic {
     var permState = s.perms || {};
     var perms = permDefs.map(function (d) {
       var on = permState[d[0]] != null ? permState[d[0]] : d[2];
-      return { label: d[1], on: on ? 'true' : 'false', track: on ? '#6d5ef5' : 'var(--sw-off)', knob: on ? '14px' : '2px',
+      return { label: d[1], on: on ? 'true' : 'false', track: on ? '#1f6fe6' : 'var(--sw-off)', knob: on ? '14px' : '2px',
         toggle: function () { var next = Object.assign({}, self.state && self.state.perms); next[d[0]] = !on; self.setState({ perms: next }); } };
     });
     var sched = s.sched || 'schedule';
     var schedSubs = { always: 'Always on', schedule: 'M T W T F · 7:30 AM–3:00 PM', once: 'Today only · 3:00 PM–9:00 PM', off: 'Paused: access is locked' };
     var scheds = [['always', 'Always'], ['schedule', 'Schedule'], ['once', 'One‑time'], ['off', 'Off']].map(function (d) {
       var on = d[0] === sched;
-      return { label: d[1], pressed: on ? 'true' : 'false', bg: on ? '#6d5ef5' : 'transparent', fg: on ? '#fff' : 'var(--a-sub)', border: on ? '#6d5ef5' : 'var(--a-line)', pick: function () { self.setState({ sched: d[0] }); } };
+      return { label: d[1], pressed: on ? 'true' : 'false', bg: on ? '#1f6fe6' : 'transparent', fg: on ? '#fff' : 'var(--a-sub)', border: on ? '#1f6fe6' : 'var(--a-line)', pick: function () { self.setState({ sched: d[0] }); } };
     });
     var care = { sub: schedSubs[sched], status: sched === 'off' ? 'Paused' : 'Active now', statusCls: sched === 'off' ? 'tag-lo' : 'tag-ok' };
 
@@ -2545,7 +2595,7 @@ class Component extends DCLogic {
     var alertDefs = {
       urgentLow: ['Urgent low', p.isParent ? 'Urgent low · Mia' : 'Urgent low', '52 mg/dL and falling ↓. Treat now.', 'Critical alert — sounds even on silent', '#e11d48', '#fda4af'],
       high: ['High', p.isParent ? 'High · Mia' : 'High', '262 mg/dL and rising ↗', 'Your high‑alert sound', '#d97706', '#fcd34d'],
-      fallFast: ['Falling fast', p.isParent ? 'Falling fast · Mia' : 'Falling fast', '96 mg/dL ↓↓, dropping quickly', 'Trend alert', '#6d5ef5', '#c4b5fd'],
+      fallFast: ['Falling fast', p.isParent ? 'Falling fast · Mia' : 'Falling fast', '96 mg/dL ↓↓, dropping quickly', 'Trend alert', '#1f6fe6', '#9fd6ff'],
       caregiver: ['Backup', p.isParent ? 'Mia’s school nurse was alerted' : 'Jordan was alerted', 'Urgent low at 52 mg/dL. You didn’t respond in the wait window.', 'Caregiver emergency alert', '#0369a1', '#7dd3fc']
     };
     var alertKey = s.alert || 'urgentLow';
@@ -2572,14 +2622,14 @@ class Component extends DCLogic {
         rows: lr([['7:12 AM', '#i-syr', 'Insulin', '3u · Lispro · Rapid‑Acting · by you', 'NEW'], ['7:10 AM', '#i-fork', 'Oatmeal with berries', '41 g carbs · from photo · by you'], ['10:02 PM', '#i-syr', 'Insulin', '18u · Glargine · Long‑Acting · by you']]) },
       { time: '12:30 PM', place: 'At work', title: 'Scan, don’t guess.', text: 'Grab a packaged lunch, scan the barcode, and it’s in your log.', screen: 'log', bg: 146, trend: 'stable',
         rows: lr([['12:31 PM', '#i-syr', 'Insulin', '2.5u · Lispro · Rapid‑Acting · by you', 'NEW'], ['12:30 PM', '#i-fork', 'Turkey wrap', '38 g carbs · barcode · by you'], ['7:10 AM', '#i-fork', 'Oatmeal with berries', '41 g carbs · from photo · by you']]) },
-      { time: '3:15 PM', place: 'Meeting', title: 'A quiet heads‑up.', text: 'Dropping fast in the middle of a meeting? A trend alert taps you early — with your own sound.', screen: 'glucose', greet: 'Good afternoon', bg: 96, trend: 'rapidly_falling', start: 150, xl: ['9:15 AM', '12:15 PM'], banner: ['Falling fast', '96 mg/dL ↓↓, dropping quickly'], bannerIcon: '#6d5ef5' },
+      { time: '3:15 PM', place: 'Meeting', title: 'A quiet heads‑up.', text: 'Dropping fast in the middle of a meeting? A trend alert taps you early — with your own sound.', screen: 'glucose', greet: 'Good afternoon', bg: 96, trend: 'rapidly_falling', start: 150, xl: ['9:15 AM', '12:15 PM'], banner: ['Falling fast', '96 mg/dL ↓↓, dropping quickly'], bannerIcon: '#1f6fe6' },
       { time: '1:40 AM', place: 'Asleep', title: 'Backup when you need it.', text: 'If an urgent low hits and you don’t respond, the person you chose — a partner, roommate, or parent — gets the alert.', screen: 'glucose', greet: 'Good night', bg: 54, trend: 'falling', start: 132, xl: ['7:40 PM', '10:40 PM'], banner: ['Urgent low', '54 mg/dL and falling. Treat now.'], bannerIcon: '#e11d48' }
     ];
     var daySteps = p.isParent ? parentDay : meDay;
     var stepIdx = Math.min(s.step || 0, daySteps.length - 1);
     var steps = daySteps.map(function (st, i) {
       var on = i === stepIdx;
-      return { time: st.time, place: st.place, title: st.title, text: st.text, on: on, pressed: on ? 'true' : 'false', rule: on ? '#a99bff' : '#333336', timeColor: on ? '#a99bff' : '#6e6e73', titleColor: on ? '#f5f5f7' : '#86868b', pick: function () { self.setState({ step: i }); } };
+      return { time: st.time, place: st.place, title: st.title, text: st.text, on: on, pressed: on ? 'true' : 'false', rule: on ? '#5cc8ff' : '#333336', timeColor: on ? '#5cc8ff' : '#6e6e73', titleColor: on ? '#f5f5f7' : '#86868b', pick: function () { self.setState({ step: i }); } };
     });
     var c = daySteps[stepIdx];
     var trendWord = { rapidly_rising: 'Rising Fast', rising: 'Rising', stable: 'Stable', falling: 'Falling', rapidly_falling: 'Dropping Fast' };
@@ -2588,13 +2638,13 @@ class Component extends DCLogic {
     var startV = c.start != null ? c.start : c.bg;
     var gpts = wig.map(function (w, i) { var tt = i / 12, e = tt * tt * (3 - 2 * tt); return [(4 + i * 254 / 12).toFixed(1), gy(startV + (c.bg - startV) * e + w * (1 - tt)).toFixed(1)]; });
     var ptsStr = gpts.map(function (q) { return q[0] + ',' + q[1]; }).join(' ');
-    var cperms = [['View glucose readings', true], ['View food & insulin logs', true], ['Add logs', true], ['Use the dose calculator', false]].map(function (d) { return { label: d[0], track: d[1] ? '#6d5ef5' : 'var(--sw-off)', knob: d[1] ? '14px' : '2px' }; });
+    var cperms = [['View glucose readings', true], ['View food & insulin logs', true], ['Add logs', true], ['Use the dose calculator', false]].map(function (d) { return { label: d[0], track: d[1] ? '#1f6fe6' : 'var(--sw-off)', knob: d[1] ? '14px' : '2px' }; });
     var cur = {
       time: c.time, place: c.place, who: p.title, bg: c.bg, greet: c.greet || 'Good morning',
       ringCls: rc(c.bg), tagCls: 'tag-' + rc(c.bg), range: rl(c.bg),
       arrow: tArrows[c.trend], arrCls: (c.trend === 'falling' || c.trend === 'rapidly_falling') && c.bg < 100 ? 'c-lo' : 'c-' + rc(c.bg),
       trendLabel: trendWord[c.trend],
-      hasBanner: !!c.banner, bannerTitle: c.banner ? c.banner[0] : '', bannerBody: c.banner ? c.banner[1] : '', bannerIcon: c.bannerIcon || '#6d5ef5',
+      hasBanner: !!c.banner, bannerTitle: c.banner ? c.banner[0] : '', bannerBody: c.banner ? c.banner[1] : '', bannerIcon: c.bannerIcon || '#1f6fe6',
       topPad: c.banner ? '112px' : '44px',
       isGlucose: c.screen === 'glucose', isLog: c.screen === 'log', isCare: c.screen === 'care', isFood: c.screen === 'food', tF: c.screen === 'food' ? 'on' : '',
       tG: c.screen === 'glucose' ? 'on' : '', tI: c.screen === 'log' ? 'on' : '', tD: c.screen === 'care' ? 'on' : '',
@@ -2736,6 +2786,7 @@ class Component extends DCLogic {
     var nsObj = { frame: nDev === 'pad' ? 'ipad' : 'iphone', isPhone: nDev !== 'pad', isPad: nDev === 'pad',
       isMenu: !kidSel, isLock: kLocked, inKid: inKid, inAnyKid: !!kidSel,
       isGlucose: inKid && nTab === 'glucose', isLog: inKid && nTab === 'log',
+      doseView: s.nIns === 'dose', logView: s.nIns !== 'dose', doseCls: s.nIns === 'dose' ? 'on' : '', logCls: s.nIns === 'dose' ? '' : 'on', fsOpen: !!s.nFs,
       isCam: inKid && nTab === 'food' && (nSnap === 'cam' || nSnap === 'scan'), showFood: inKid && nTab === 'food' && (nSnap === 'result' || nSnap === 'calc'), isModal: inKid && nTab === 'food' && nSnap === 'calc', isCalc: false, isChat: inKid && nTab === 'chat',
       isScan: nSnap === 'scan', isResult: nSnap === 'result', showBand: nSnap === 'cam' || nSnap === 'scan', showShutter: nSnap === 'cam',
       showReadings: showReadings, showLog: !!logRow, showTap: !s.nRead && !s.nSeenRead,
@@ -2758,7 +2809,16 @@ class Component extends DCLogic {
       nsObj.dayLabel = nDay ? 'Yesterday' : 'Today';
       nsObj.dateLine = nDay ? 'Yesterday, Oct 12, 2026' : 'Today, Oct 13, 2026';
       nsObj.prevColor = nDay ? 'var(--a-mut)' : 'var(--a-tx)'; nsObj.nextColor = nDay ? 'var(--a-tx)' : 'var(--a-mut)';
-      nsObj.rows = rowsFor(nKid, nDay).map(function (d) {
+      var fsMeter = k.bg + 4;
+      nsObj.fsMeter = String(fsMeter);
+      nsObj.sugDose = k.bg < 90 ? '0' : k.bg > 180 ? '3' : '2';
+      var penDefs = [['Lispro · School', 16, 28, 'opened Oct 1'], ['Lispro · Home', 3, 28, 'opened Sep 18 · change by Oct 16']];
+      nsObj.pens = penDefs.map(function (pd) {
+        var soon = pd[1] <= 3, c = 2 * Math.PI * 15, f = pd[1] / pd[2];
+        return { title: pd[0], days: String(pd[1]), sub: pd[1] + ' days left · ' + pd[3], subColor: soon ? 'var(--o-tx)' : 'var(--a-sub)', color: soon ? '#f5a524' : '#2f80ff', dash: (c * f).toFixed(1) + ' ' + c.toFixed(1) };
+      });
+      nsObj.rows = (s.nFsDone && !nDay ? [['fs', '12:41 PM', 'fs', 'Finger stick ' + fsMeter, '', 'School nurse']] : []).concat(rowsFor(nKid, nDay)).map(function (d) {
+        if (d[2] === 'fs') return { time: d[1], icon: '#i-drop', title: d[3], tag: '', hasTag: false, edited: false, sub: 'Dexcom ' + k.bg + ' · close match · by ' + d[5], pick: function () {} };
         var v = valOf(d), ins = d[2] === 'ins';
         return { time: d[1], icon: ins ? '#i-syr' : '#i-fork', title: d[3], tag: d[7] || '', hasTag: !!d[7], edited: nEdits[d[0]] != null,
           sub: ins ? v + 'u · Lispro · Rapid‑Acting · by ' + d[5] : v + ' g carbs' + (d[6] ? ' · ' + d[6] : '') + ' · by ' + d[5],
@@ -2784,7 +2844,7 @@ class Component extends DCLogic {
     nsObj.tabs = [['glucose', 'Glucose', '#i-drop'], ['log', 'Insulin', '#i-syr'], ['food', 'Food', '#i-fork'], ['chat', 'Chat', '#i-chat'], ['dash', 'Dashboard', '#i-dash']].map(function (t) {
       var on = t[0] === nTab;
       return { label: t[1], icon: t[2], cls: on ? 'on' : '', pressed: on ? 'true' : 'false',
-        pick: function () { if (t[0] === 'dash') return; self.setState({ nTab: t[0], nRead: false, nLog: null, nSnap: 'cam', nDay: 0, nGuide: null }); } };
+        pick: function () { if (t[0] === 'dash') return; self.setState({ nTab: t[0], nRead: false, nLog: null, nSnap: 'cam', nDay: 0, nGuide: null, nFs: false }); } };
     });
     nsObj.aria = !kidSel ? 'Caregiver Menu on ' + (nDev === 'pad' ? 'iPad' : 'iPhone') + '. Tap a student to open their dashboard' : kLocked ? 'Locked: outside the access window for ' + kidSel.name : 'Viewing ' + kidSel.name + '’s ' + ({ glucose: 'glucose dashboard', log: 'log', food: 'food camera and calculator', chat: 'chat' }[nTab] || 'dashboard');
     var lm = { editing: false, notEditing: true };
@@ -2809,9 +2869,11 @@ class Component extends DCLogic {
     var guideDefs = [
       ['Open a student', 'Tap Mia on the Caregiver Menu to see her dashboard.', { nKid: 0, nTab: 'glucose', nRead: false, nLog: null }],
       ['See recent readings', 'Tap the glucose circle to see every reading before you came in.', { nKid: 0, nTab: 'glucose', nRead: true, nSeenRead: true, nLog: null }],
-      ['Check breakfast at home', 'The log shows what Mom logged at 7:05 AM.', { nKid: 0, nTab: 'log', nDay: 0, nRead: false, nLog: 'm4', nEditing: false }],
-      ['Fix a log', 'Someone typed 20u instead of 2u. Edit it and save.', { nKid: 0, nTab: 'log', nDay: 0, nRead: false, nLog: 'm1', nEditing: true, nVal: nEdits.m1 != null ? nEdits.m1 : 20 }],
+      ['Check breakfast at home', 'The log shows what Mom logged at 7:05 AM.', { nKid: 0, nTab: 'log', nIns: 'log', nFs: false, nDay: 0, nRead: false, nLog: 'm4', nEditing: false }],
+      ['Fix a log', 'Someone typed 20u instead of 2u. Edit it and save.', { nKid: 0, nTab: 'log', nIns: 'log', nFs: false, nDay: 0, nRead: false, nLog: 'm1', nEditing: true, nVal: nEdits.m1 != null ? nEdits.m1 : 20 }],
       ['Snap lunch, get the dose', 'Photo → carbs → the insulin math, then it’s logged.', { nKid: 0, nTab: 'food', nSnap: 'cam', nRead: false, nLog: null }],
+      ['Check the pens', 'On the Insulin page, see how many days each pen has left, or start a new one.', { nKid: 0, nTab: 'log', nIns: 'dose', nRead: false, nLog: null, nFs: false }],
+      ['Log a finger stick', 'Add Entry → Finger Stick, and see right away how close Dexcom was.', { nKid: 0, nTab: 'log', nIns: 'log', nDay: 0, nRead: false, nLog: null, nFs: true }],
       ['Message the parent', 'Send Mia’s mom an update from the Chat tab.', { nKid: 0, nTab: 'chat', nRead: false, nLog: null }]
     ];
     var nGuides = guideDefs.map(function (g, i) {
@@ -2849,7 +2911,7 @@ class Component extends DCLogic {
     var dCur = { title: dd[2], text: dd[3], img: 'images/' + dImgs[dark ? 'dark' : 'light'][dd[0]], alt: 'Diabetes Care Portal, ' + dd[1] + ' screen, ' + (dark ? 'dark' : 'light') + ' mode, demo data' };
 
     return {
-      accent: this.props.accent ?? '#6d5ef5',
+      accent: this.props.accent ?? '#1f6fe6',
       nurseBtns: nurseBtns, nurseKids: nurseKids, nurseAria: nurseAria,
       fa: foodView(meal, bg, trend),
       ic: buildIC(meal.carbs, bg, trend, s.stage === 'calc' ? (s.cStep == null ? 6 : s.cStep) : 6, meal.name.toLowerCase()),
@@ -2860,6 +2922,11 @@ class Component extends DCLogic {
       nOpenReadings: function () { self.setState({ nRead: true, nSeenRead: true }); },
       nCloseReadings: function () { self.setState({ nRead: false }); },
       nPrevDay: function () { self.setState({ nDay: 1 }); },
+      nPickDose: function () { self.setState({ nIns: 'dose', nLog: null, nFs: false }); },
+      nPickLog: function () { self.setState({ nIns: 'log' }); },
+      nOpenFs: function () { self.setState({ nFs: true, nDay: 0, nLog: null }); },
+      nCloseFs: function () { self.setState({ nFs: false }); },
+      nSaveFs: function () { self.setState({ nFs: false, nFsDone: true, nDay: 0 }); },
       nNextDay: function () { self.setState({ nDay: 0 }); },
       nCloseLog: function () { self.setState({ nLog: null, nEditing: false }); },
       nStartEdit: function () { if (logRow) self.setState({ nEditing: true, nVal: valOf(logRow) }); },
@@ -2889,7 +2956,7 @@ class Component extends DCLogic {
       navCta: s.page === 'schools' ? 'Contact us' : s.page === 'doctors' ? 'Request access' : 'Join the beta',
       navCtaHref: s.page === 'schools' ? '#contact' : s.page === 'doctors' ? '#doc-contact' : 'https://testflight.apple.com/join/jnr9HbAa',
       navCtaTarget: (s.page === 'schools' || s.page === 'doctors') ? '_self' : '_blank',
-      navCtaBg: (s.page === 'schools' || s.page === 'doctors') ? '#0369a1' : (this.props.accent ?? '#6d5ef5'),
+      navCtaBg: (s.page === 'schools' || s.page === 'doctors') ? '#0369a1' : (this.props.accent ?? '#1f6fe6'),
       goSchools: function (e) { if (e && e.preventDefault) e.preventDefault(); (function(){try{history.replaceState(null,'','#schools')}catch(e){}})(), self.setState({ page: 'schools' }); try { window.scrollTo(0, 0); } catch (err) {} },
       goHome: function (e) { if (e && e.preventDefault) e.preventDefault(); self.setState({ page: 'home' }); try { window.scrollTo(0, 0); } catch (err) {} },
       themeCls: dark ? 't-dark' : 't-light',

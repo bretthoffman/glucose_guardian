@@ -106,8 +106,8 @@ export default function HelpOverlay() {
             pointerEvents="none"
             style={{
               position: "absolute", left: holeX, top: holeY, width: holeW, height: holeH,
-              borderRadius: HOLE_RADIUS, borderWidth: 2.5, borderColor: "#8F9BFF",
-              shadowColor: "#8F9BFF", shadowOpacity: 0.9, shadowRadius: 12, shadowOffset: { width: 0, height: 0 },
+              borderRadius: HOLE_RADIUS, borderWidth: 2.5, borderColor: "#6CB8FF",
+              shadowColor: "#6CB8FF", shadowOpacity: 0.9, shadowRadius: 12, shadowOffset: { width: 0, height: 0 },
               opacity: anim,
             }}
           />
@@ -139,7 +139,7 @@ export default function HelpOverlay() {
           <View style={[styles.fullDim, { bottom: winH - barTop }]} />
           <View style={[styles.card, styles.idleCard, { top: winH * 0.24 }]}>
             <View style={styles.idleIcon}>
-              <Feather name="help-circle" size={26} color="#8F9BFF" />
+              <Feather name="help-circle" size={26} color="#6CB8FF" />
             </View>
             <Text style={[styles.cardTitle, { textAlign: "center" }]} maxFontSizeMultiplier={1.4}>Help Mode</Text>
             <Text style={[styles.cardText, { textAlign: "center" }]} maxFontSizeMultiplier={1.4}>
@@ -174,19 +174,19 @@ const styles = StyleSheet.create({
   fullDim: { position: "absolute", left: 0, right: 0, top: 0, backgroundColor: DIM },
   card: {
     position: "absolute", left: 16, right: 16, backgroundColor: CARD_BG, borderRadius: 18,
-    borderWidth: 1, borderColor: "rgba(143, 155, 255, 0.35)", padding: 18, gap: 8,
+    borderWidth: 1, borderColor: "rgba(108, 184, 255, 0.35)", padding: 18, gap: 8,
     shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 12,
   },
   idleCard: { alignItems: "center", gap: 10 },
   idleIcon: {
-    width: 52, height: 52, borderRadius: 26, backgroundColor: "rgba(143, 155, 255, 0.16)",
+    width: 52, height: 52, borderRadius: 26, backgroundColor: "rgba(108, 184, 255, 0.16)",
     alignItems: "center", justifyContent: "center",
   },
   cardTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
   cardText: { color: "rgba(255,255,255,0.88)", fontSize: 13.5, fontWeight: "400", lineHeight: 20 },
   cardFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
   cardCount: { color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "600" },
-  cardHint: { color: "#8F9BFF", fontSize: 12.5, fontWeight: "700" },
+  cardHint: { color: "#6CB8FF", fontSize: 12.5, fontWeight: "700" },
   exitPill: {
     position: "absolute", right: 14, flexDirection: "row", alignItems: "center", gap: 5,
     paddingHorizontal: 13, paddingVertical: 8, borderRadius: 17, backgroundColor: "rgba(16, 31, 58, 0.92)",

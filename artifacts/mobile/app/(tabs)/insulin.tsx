@@ -71,7 +71,7 @@ type ScreenTab = "predict" | "log";
 // Accent hues for the calculator's operation cards. Literal hex (like the app's other accents) so
 // the same hue reads correctly in both light and dark; the card background/border are theme-tinted.
 const CARD_BLUE = "#3B82F6";
-const CARD_PURPLE = "#8B5CF6";
+const CARD_PURPLE = "#2F80FF";
 
 // Enable smooth grow/shrink of the suggested-dose window on Android when the toggles reveal content.
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {

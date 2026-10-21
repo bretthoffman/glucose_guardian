@@ -204,6 +204,7 @@ export function WhatsNewHistoryModal({ visible, onClose }: { visible: boolean; o
                 </Text>
                 {installed && (
                   <View style={styles.installedTag}>
+                    <AccentShade radius={99} />
                     <Text style={styles.installedText}>INSTALLED</Text>
                   </View>
                 )}

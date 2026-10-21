@@ -4,18 +4,25 @@
 // (the Light/Dark/Automatic settings panel is a separate future package), but the structure is kept
 // so a real light palette can be reintroduced under `light` without touching screens.
 //
-// Semantic accents map to the clinical set: violet (primary/active), emerald (healthy), amber
+// Semantic accents map to the clinical set: brand blue (primary/active, from the logo), emerald (healthy), amber
 // (warning/high), coral (low/critical). `*Light` tints are concat-safe 8-digit hex translucents.
 
-const tintColorLight = "#7181FF";
-const tintColorDark = "#7181FF";
+const tintColorLight = "#3B9BFF";
+const tintColorDark = "#3B9BFF";
+
+/**
+ * The logo's gradient (cyan into blue), left to right. Accent buttons, selected toggles and chips,
+ * and the user's own chat bubbles fill with it (components/Shade AccentShade); everything else that
+ * was the brand accent uses `COLORS.primary`, the solid blue in the middle of this ramp.
+ */
+export const BRAND_GRADIENT = ["#14C8F0", "#2F86FF", "#2F6BFF"] as const;
 
 export const COLORS = {
-  primary: "#7557F6",
-  primaryDark: "#5B43D6",
-  primaryLight: "#9D8CFF",
-  accent: "#7181FF",
-  accentLight: "#7181FF24",
+  primary: "#2F80FF",
+  primaryDark: "#1F5FD6",
+  primaryLight: "#5CB8FF",
+  accent: "#3B9BFF",
+  accentLight: "#3B9BFF24",
   success: "#1FD18A",
   successLight: "#1FD18A24",
   warning: "#FF9F1C",

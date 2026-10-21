@@ -7,7 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useTheme } from "@/context/ThemeContext";
 
-const INDIGO = "#6366F1";
+const INDIGO = "#2F6BFF";
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);

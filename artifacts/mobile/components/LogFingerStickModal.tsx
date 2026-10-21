@@ -216,6 +216,7 @@ export default function LogFingerStickModal({
                         { opacity: pressed ? 0.8 : 1 },
                       ]}
                     >
+                      {on && <AccentShade radius={999} />}
                       <Text style={[styles.chipText, { color: on ? "#fff" : colors.textSecondary }]}>{r.label}</Text>
                     </Pressable>
                   );
@@ -354,6 +355,7 @@ export function FingerStickResult({
     <View style={{ gap: 12 }}>
       <View style={styles.titleRow}>
         <View style={[styles.titleIcon, { backgroundColor: COLORS.primary }]}>
+          <AccentShade radius={15} />
           <Feather name="check" size={16} color="#fff" />
         </View>
         <Text style={[styles.title, { color: colors.text }]}>{title}</Text>

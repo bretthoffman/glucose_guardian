@@ -7,7 +7,7 @@ import React from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Colors, { COLORS } from "@/constants/colors";
 import type { DoseWarning } from "@/utils/dose";
-import { TintShade } from "@/components/Shade";
+import { AccentShade, TintShade } from "@/components/Shade";
 import {
   doseAmountsEqual,
   formatDoseAmount,
@@ -51,6 +51,7 @@ export function DoseWarningsList({
                   accessibilityLabel="Enter finger stick"
                   style={({ pressed }) => [styles.fingerStickBtn, { opacity: pressed ? 0.8 : 1 }]}
                 >
+                  <AccentShade radius={9} />
                   <Feather name="droplet" size={13} color="#fff" />
                   <Text style={styles.fingerStickBtnText}>Enter finger stick</Text>
                 </Pressable>

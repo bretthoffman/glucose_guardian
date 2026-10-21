@@ -62,7 +62,7 @@ const home: HelpStep[] = [
     anchor: "home.chart",
     title: "The glucose graph",
     text:
-      "The line is colored by zone (green in range, amber above your high line, red when very high or low), and the shading between the line and the purple target line fills in the same colors. Dashed lines are your alert thresholds. Small icons along the target line are logged insulin and meals; tap one to open that entry. Tap the graph to switch to a dotted per-reading view, and press-and-hold to open the slicer, then drag it to read the exact value at any time.",
+      "The line is colored by zone (green in range, amber above your high line, red when very high or low), and the shading between the line and the blue target line fills in the same colors. Dashed lines are your alert thresholds. Small icons along the target line are logged insulin and meals; tap one to open that entry. Tap the graph to switch to a dotted per-reading view, and press-and-hold to open the slicer, then drag it to read the exact value at any time.",
   },
   {
     id: "home.notices",
@@ -119,7 +119,7 @@ const insulin: HelpStep[] = [
     anchor: "insulin.suggest",
     title: "Suggested dose",
     text:
-      "The result. The purple badge is the suggested amount. Tap it to adjust before logging; an adjusted dose is marked so the record stays honest.",
+      "The result. The blue badge is the suggested amount. Tap it to adjust before logging; an adjusted dose is marked so the record stays honest.",
   },
   {
     id: "insulin.predict",
@@ -200,7 +200,7 @@ const food: HelpStep[] = [
     anchor: "food.scan",
     title: "Scan or take a photo",
     text:
-      "The fastest way to log a meal. The camera has two modes on its bottom toggle: Food takes a photo and the AI identifies what's on the plate and estimates the carbs; Barcode shows a purple frame. Hold a package's barcode inside it and the label's nutrition is pulled automatically, with a servings picker for multi-serving packages.",
+      "The fastest way to log a meal. The camera has two modes on its bottom toggle: Food takes a photo and the AI identifies what's on the plate and estimates the carbs; Barcode shows a blue frame. Hold a package's barcode inside it and the label's nutrition is pulled automatically, with a servings picker for multi-serving packages.",
   },
   {
     id: "food.search",

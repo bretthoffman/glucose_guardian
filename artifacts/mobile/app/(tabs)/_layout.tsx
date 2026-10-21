@@ -38,7 +38,7 @@ const TAB_META: Record<string, { label: string; icon: IconName }> = {
  * color: the two-tone treatment (a deeper second layer on the lower part of the glyph, and before
  * that a third highlight layer) has been removed — neither read well on the small glyphs.
  */
-const TAB_ICON_BODY = "#8F9BFF";
+const TAB_ICON_BODY = "#6CB8FF";
 
 /**
  * Dark-clinical floating tab bar matching the redesign reference. VISUAL ONLY: route set, order, the

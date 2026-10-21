@@ -93,8 +93,8 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.background }]}>
-        <View style={[styles.headerIcon, { backgroundColor: "#6366F1" + "20" }]}>
-          <Feather name="message-circle" size={16} color="#6366F1" />
+        <View style={[styles.headerIcon, { backgroundColor: "#2F6BFF" + "20" }]}>
+          <Feather name="message-circle" size={16} color="#2F6BFF" />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.headerTitle, { color: colors.text }]}>
@@ -145,7 +145,7 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
                   style={[styles.msgRow, { justifyContent: isMine ? "flex-end" : "flex-start" }]}
                 >
                   {!isMine && (
-                    <View style={[styles.avatar, { backgroundColor: isDoc ? "#6366F1" + "20" : COLORS.accent + "20" }]}>
+                    <View style={[styles.avatar, { backgroundColor: isDoc ? "#2F6BFF" + "20" : COLORS.accent + "20" }]}>
                       <Text style={{ fontSize: 11 }}>{isDoc ? "🩺" : "👤"}</Text>
                     </View>
                   )}
@@ -159,13 +159,13 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
                       style={[
                         styles.bubble,
                         isMine
-                          ? { backgroundColor: isDoctor ? "#6366F1" : COLORS.primary, borderBottomRightRadius: 4 }
+                          ? { backgroundColor: isDoctor ? "#2F6BFF" : COLORS.primary, borderBottomRightRadius: 4 }
                           : { backgroundColor: colors.backgroundTertiary, borderBottomLeftRadius: 4, borderColor: colors.border, borderWidth: 1 },
                       ]}
                     >
                       {/* Same shading as the AI chat bubbles: accent on mine (in whichever color it is), control on theirs. */}
                       {isMine ? (
-                        <AccentShade color={isDoctor ? "#6366F1" : COLORS.primary} radius={18} style={{ borderBottomRightRadius: 4 }} />
+                        <AccentShade color={isDoctor ? "#2F6BFF" : COLORS.primary} radius={18} style={{ borderBottomRightRadius: 4 }} />
                       ) : (
                         <ControlShade radius={18} style={{ borderBottomLeftRadius: 3 }} />
                       )}
@@ -207,11 +207,11 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
           onSubmitEditing={send}
         />
         <Pressable
-          style={[styles.sendBtn, { backgroundColor: input.trim() ? (isDoctor ? "#6366F1" : COLORS.primary) : colors.backgroundTertiary }]}
+          style={[styles.sendBtn, { backgroundColor: input.trim() ? (isDoctor ? "#2F6BFF" : COLORS.primary) : colors.backgroundTertiary }]}
           onPress={send}
           disabled={!input.trim()}
         >
-          {input.trim() ? <AccentShade color={isDoctor ? "#6366F1" : COLORS.primary} radius={20} /> : null}
+          {input.trim() ? <AccentShade color={isDoctor ? "#2F6BFF" : COLORS.primary} radius={20} /> : null}
           <Feather name="send" size={16} color={input.trim() ? "#fff" : colors.textMuted} />
         </Pressable>
       </View>

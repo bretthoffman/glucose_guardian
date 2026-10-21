@@ -3,7 +3,7 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { mixHex } from "@/constants/theme";
 import { useThemeColors } from "@/context/ThemeContext";
-import { COLORS } from "@/constants/colors";
+import { BRAND_GRADIENT, COLORS } from "@/constants/colors";
 
 /**
  * Shading primitives — every window, control, pill and accent button in the app shades through one
@@ -23,7 +23,12 @@ import { COLORS } from "@/constants/colors";
 
 type GradientStop = { offset: number; color: string; opacity?: number };
 
-function Gradient({ stops, radius = 0, style }: { stops: GradientStop[]; radius?: number; style?: StyleProp<ViewStyle> }) {
+type GradientDir = { x1: string; y1: string; x2: string; y2: string };
+const VERTICAL: GradientDir = { x1: "0", y1: "0", x2: "0", y2: "1" };
+/** The logo's direction: cyan on the left sweeping into blue on the right, tilted slightly downward. */
+const BRAND_DIR: GradientDir = { x1: "0", y1: "0", x2: "1", y2: "0.6" };
+
+function Gradient({ stops, radius = 0, style, dir = VERTICAL }: { stops: GradientStop[]; radius?: number; style?: StyleProp<ViewStyle>; dir?: GradientDir }) {
   // Gradient ids are looked up by string inside the SVG; make each instance's unique on the screen.
   const id = "g" + useId().replace(/[^a-zA-Z0-9]/g, "");
   // The wrapper's measured size drives the SVG explicitly. Percentage lengths ("100%") were resolved
@@ -51,7 +56,7 @@ function Gradient({ stops, radius = 0, style }: { stops: GradientStop[]; radius?
         pointerEvents="none"
       >
         <Defs>
-          <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+          <LinearGradient id={id} x1={dir.x1} y1={dir.y1} x2={dir.x2} y2={dir.y2}>
             {stops.map((s, i) => (
               <Stop key={i} offset={s.offset} stopColor={s.color} stopOpacity={s.opacity ?? 1} />
             ))}
@@ -133,6 +138,20 @@ export function TintShade({
 }) {
   const c = useThemeColors();
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) return null;
+  // Brand-blue chips and notices get a whisper of the logo's sweep over their tint.
+  if (isBrandColor(color) && from == null && to == null) {
+    return (
+      <Gradient
+        dir={BRAND_DIR}
+        stops={[
+          { offset: 0, color: BRAND_GRADIENT[0], opacity: 0.16 },
+          { offset: 0.55, color: BRAND_GRADIENT[1], opacity: 0.04 },
+          { offset: 1, color: BRAND_GRADIENT[2], opacity: 0.12 },
+        ]}
+        radius={Math.max(0, radius - 1)}
+      />
+    );
+  }
   const stops: GradientStop[] =
     from != null && to != null
       ? [
@@ -156,10 +175,51 @@ export function TintShade({
  * color it currently is. Non-hex colors render nothing rather than a wrong ramp.
  */
 export function AccentShade({ color = COLORS.primary, radius, style }: { color?: string; radius: number; style?: StyleProp<ViewStyle> }) {
+  if (isBrandColor(color)) return <BrandShade radius={radius} style={style} />;
   const ok = /^#[0-9a-fA-F]{6}$/.test(color);
   return ok ? (
     <Shade from={mixHex(color, "#FFFFFF", 0.14)} to={mixHex(color, "#000000", 0.14)} radius={Math.max(0, radius - 1)} style={style} />
   ) : null;
+}
+
+/** The app's brand accents: every one of them fills with the logo's gradient. */
+const BRAND_COLORS = new Set(
+  [COLORS.primary, COLORS.primaryDark, COLORS.accent, "#2F6BFF", "#1F6FE6"].map((x) => x.toUpperCase()),
+);
+export function isBrandColor(color: string): boolean {
+  return BRAND_COLORS.has(color.toUpperCase());
+}
+
+/**
+ * The logo's gradient as a fill, for accent buttons, selected toggles, chips and the user's chat
+ * bubbles. Drawn with react-native-svg (already in the shipped binary), so it ships over the air. A
+ * soft white sheen across the top half keeps the "lit surface" feel the vertical ramp used to give.
+ */
+export function BrandShade({ radius, style }: { radius: number; style?: StyleProp<ViewStyle> }) {
+  const r = Math.max(0, radius - 1);
+  return (
+    <>
+      <Gradient
+        dir={BRAND_DIR}
+        stops={[
+          { offset: 0, color: BRAND_GRADIENT[0] },
+          { offset: 0.55, color: BRAND_GRADIENT[1] },
+          { offset: 1, color: BRAND_GRADIENT[2] },
+        ]}
+        radius={r}
+        style={style}
+      />
+      <Gradient
+        stops={[
+          { offset: 0, color: "#FFFFFF", opacity: 0.12 },
+          { offset: 0.5, color: "#FFFFFF", opacity: 0 },
+          { offset: 1, color: "#000000", opacity: 0.08 },
+        ]}
+        radius={r}
+        style={style}
+      />
+    </>
+  );
 }
 
 /**

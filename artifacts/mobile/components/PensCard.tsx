@@ -648,6 +648,7 @@ function PenHistoryModal({ colors, pens, onClose }: { colors: Palette; pens: Pen
                     </Text>
                   ) : (
                     <View style={styles.inUse}>
+                      <AccentShade radius={99} />
                       <Text style={styles.inUseText}>IN USE</Text>
                     </View>
                   )}

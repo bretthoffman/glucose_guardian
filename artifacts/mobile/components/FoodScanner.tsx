@@ -18,6 +18,7 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "ex
 import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
+import { AccentShade } from "@/components/Shade";
 
 export type BarcodeLookupState = "idle" | "looking" | "notFound";
 
@@ -170,6 +171,7 @@ export default function FoodScanner({
                   style={[styles.modeBtn, active && styles.modeBtnActive]}
                   onPress={() => switchMode(m.key)}
                 >
+                  {active && <AccentShade radius={17} />}
                   <Feather name={m.icon} size={14} color={active ? "#fff" : "rgba(255,255,255,0.75)"} />
                   <Text style={[styles.modeText, active && styles.modeTextActive]}>{m.label}</Text>
                 </Pressable>

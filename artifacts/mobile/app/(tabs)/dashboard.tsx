@@ -64,7 +64,7 @@ import {
 // Icon shown on each compact section card (presentation only; section availability lives in the pure
 // `utils/dashboardSections` helper). One entry per DashboardSectionKey.
 /** The doctor's indigo, used throughout this page for doctor-related chrome. */
-const DOCTOR_INDIGO = "#6366F1";
+const DOCTOR_INDIGO = "#2F6BFF";
 
 /** Row icon per section — `Record` so a new section key can't ship without one. */
 const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Feather>["name"]> = {
@@ -91,7 +91,7 @@ const SECTION_COLORS: Record<DashboardSectionKey, string> = {
   thresholds: COLORS.warning,
   emergency: "#F06292",
   doctor: DOCTOR_INDIGO,
-  doctorCode: "#A78BFA",
+  doctorCode: "#6CC4FF",
   careCircle: COLORS.success,
   childView: COLORS.primary,
 };
@@ -640,19 +640,19 @@ export default function DashboardScreen() {
       const insulinRows = insulinLog.slice(0, 30).map((e) => `<tr><td>${new Date(e.timestamp).toLocaleString()}</td><td>${e.units}u</td><td style="text-transform:capitalize">${e.type}</td><td>${e.note ?? "—"}</td></tr>`).join("");
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
         body{font-family:'Helvetica Neue',Arial,sans-serif;margin:0;padding:24px;color:#111;background:#fff;font-size:13px}
-        h1{font-size:22px;color:#5B5FDE;margin:0 0 4px}
+        h1{font-size:22px;color:#1F6FE6;margin:0 0 4px}
         .subtitle{color:#666;font-size:14px;margin-bottom:20px}
-        .header-bar{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #5B5FDE;padding-bottom:14px;margin-bottom:20px}
+        .header-bar{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1F6FE6;padding-bottom:14px;margin-bottom:20px}
         .patient-info p{margin:3px 0;font-size:13px}
         .section{margin-bottom:24px}
-        h2{font-size:15px;color:#5B5FDE;border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin:0 0 10px}
+        h2{font-size:15px;color:#1F6FE6;border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin:0 0 10px}
         table{width:100%;border-collapse:collapse;font-size:12px}
         th{background:#f3f4f6;text-align:left;padding:7px 10px;color:#555;font-weight:600;border-bottom:1px solid #e5e7eb}
         td{padding:6px 10px;border-bottom:1px solid #f0f0f0}
         tr:last-child td{border-bottom:none}
         .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
         .stat-box{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center}
-        .stat-value{font-size:20px;font-weight:700;color:#5B5FDE}
+        .stat-value{font-size:20px;font-weight:700;color:#1F6FE6}
         .stat-label{font-size:11px;color:#888;margin-top:3px}
         .footer{margin-top:30px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:11px;color:#999;text-align:center}
         .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
@@ -764,20 +764,20 @@ export default function DashboardScreen() {
         )}
 
         {doctorSession && (
-          <View style={[styles.modeBanner, { backgroundColor: "#6366F1" + "18", borderColor: "#6366F1" + "40" }]}>
+          <View style={[styles.modeBanner, { backgroundColor: "#2F6BFF" + "18", borderColor: "#2F6BFF" + "40" }]}>
             <View style={styles.modeBannerLeft}>
-              <Feather name="activity" size={16} color="#6366F1" />
+              <Feather name="activity" size={16} color="#2F6BFF" />
               <View>
-                <Text style={[styles.modeBannerTitle, { color: "#6366F1" }]}>Doctor Mode Active</Text>
+                <Text style={[styles.modeBannerTitle, { color: "#2F6BFF" }]}>Doctor Mode Active</Text>
                 <Text style={[styles.modeBannerSub, { color: colors.textSecondary }]}>Full editing access to dosing parameters</Text>
               </View>
             </View>
             <Pressable
-              style={[styles.modeBannerBtn, { backgroundColor: "#6366F1" + "20" }]}
+              style={[styles.modeBannerBtn, { backgroundColor: "#2F6BFF" + "20" }]}
               onPress={() => { exitDoctorMode(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
             >
-              <Feather name="log-out" size={13} color="#6366F1" />
-              <Text style={[styles.modeBannerBtnText, { color: "#6366F1" }]}>Exit</Text>
+              <Feather name="log-out" size={13} color="#2F6BFF" />
+              <Text style={[styles.modeBannerBtnText, { color: "#2F6BFF" }]}>Exit</Text>
             </Pressable>
           </View>
         )}
@@ -796,17 +796,17 @@ export default function DashboardScreen() {
             .split(" ").filter(Boolean).slice(0, 2).map((w: string) => w[0].toUpperCase()).join("");
 
           return (
-            <View style={[styles.patientCard, { backgroundColor: colors.card, borderColor: "#6366F1" + "30" }]}>
+            <View style={[styles.patientCard, { backgroundColor: colors.card, borderColor: "#2F6BFF" + "30" }]}>
               {/* Avatar */}
               <View style={styles.patientCardLeft}>
                 {profile.profilePhotoUri ? (
                   <Image source={{ uri: profile.profilePhotoUri }} style={styles.patientAvatar} />
                 ) : (
-                  <View style={[styles.patientAvatar, { backgroundColor: "#6366F1" + "20", alignItems: "center", justifyContent: "center" }]}>
+                  <View style={[styles.patientAvatar, { backgroundColor: "#2F6BFF" + "20", alignItems: "center", justifyContent: "center" }]}>
                     {initials ? (
-                      <Text style={{ fontSize: 18, fontWeight: "700", color: "#6366F1" }}>{initials}</Text>
+                      <Text style={{ fontSize: 18, fontWeight: "700", color: "#2F6BFF" }}>{initials}</Text>
                     ) : (
-                      <Feather name="user" size={20} color="#6366F1" />
+                      <Feather name="user" size={20} color="#2F6BFF" />
                     )}
                   </View>
                 )}
@@ -816,8 +816,8 @@ export default function DashboardScreen() {
               <View style={styles.patientCardBody}>
                 <Text style={[styles.patientName, { color: colors.text }]}>{profile.childName || "Patient"}</Text>
                 <View style={styles.patientMetaRow}>
-                  <View style={[styles.patientPill, { backgroundColor: "#6366F1" + "18" }]}>
-                    <Text style={[styles.patientPillText, { color: "#6366F1" }]}>{typeLabel}</Text>
+                  <View style={[styles.patientPill, { backgroundColor: "#2F6BFF" + "18" }]}>
+                    <Text style={[styles.patientPillText, { color: "#2F6BFF" }]}>{typeLabel}</Text>
                   </View>
                   <Text style={[styles.patientMeta, { color: colors.textSecondary }]}>{ageText}</Text>
                   <Text style={[styles.patientMeta, { color: colors.textSecondary }]}>· DOB: {dob}</Text>
@@ -1927,11 +1927,11 @@ export default function DashboardScreen() {
             </Pressable>
 
             <Pressable
-              style={({ pressed }) => [styles.shareBtn, { backgroundColor: "#6366F1", opacity: pressed || isGeneratingPDF ? 0.85 : 1 }]}
+              style={({ pressed }) => [styles.shareBtn, { backgroundColor: "#2F6BFF", opacity: pressed || isGeneratingPDF ? 0.85 : 1 }]}
               onPress={downloadFullPDF}
               disabled={isSharing || isGeneratingPDF}
             >
-              <AccentShade color="#6366F1" radius={14} />
+              <AccentShade color="#2F6BFF" radius={14} />
               <Feather name="file-text" size={16} color="#fff" />
               <Text style={styles.shareBtnText}>{isGeneratingPDF ? "Building PDF…" : "Download Full PDF Report"}</Text>
             </Pressable>
@@ -2066,13 +2066,13 @@ export default function DashboardScreen() {
           {/* First section in its own window now, so no rule above it. */}
           <View style={[styles.accessSection, { borderColor: colors.border, borderTopWidth: 0, paddingTop: 0 }]}>
             <View style={styles.accessSectionHeader}>
-              <Feather name="key" size={14} color="#6366F1" />
+              <Feather name="key" size={14} color="#2F6BFF" />
               <Text style={[styles.cardTitle, { color: colors.text }]}>Doctor Code</Text>
               {/* "Grants full edit", not "Full edit access". This badge describes what the CODE gives
                   the DOCTOR, but sitting in a section whose controls are owner-only it read as the
                   viewer's own permission level — so a co-guardian saw "Full edit access" and then no
                   buttons, which looks like a broken screen rather than a deliberate restriction. */}
-              <Text style={[styles.accessSectionBadge, { backgroundColor: "#6366F1" + "18", color: "#6366F1" }]}>Grants full edit</Text>
+              <Text style={[styles.accessSectionBadge, { backgroundColor: "#2F6BFF" + "18", color: "#2F6BFF" }]}>Grants full edit</Text>
             </View>
             <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
               Share with your verified doctor or endocrinologist. They can update carb ratios and correction factors.
@@ -2090,7 +2090,7 @@ export default function DashboardScreen() {
                 </Text>
               )}
               <Pressable
-                style={({ pressed }) => [styles.outlineBtn, { borderColor: "#6366F1" + "50", backgroundColor: "#6366F1" + "08", opacity: pressed ? 0.8 : 1 }]}
+                style={({ pressed }) => [styles.outlineBtn, { borderColor: "#2F6BFF" + "50", backgroundColor: "#2F6BFF" + "08", opacity: pressed ? 0.8 : 1 }]}
                 onPress={async () => {
                   const code = await generateDoctorCode();
                   if (!code) {
@@ -2101,14 +2101,14 @@ export default function DashboardScreen() {
                   Alert.alert("Doctor Code Created", `Your doctor code is:\n\n${code}\n\nShare this ONLY with your verified doctor. They enter it on the login screen to access editing rights.`, [{ text: "OK" }]);
                 }}
               >
-                <TintShade color="#6366F1" radius={10} />
-                <Feather name="plus" size={14} color="#6366F1" />
-                <Text style={[styles.outlineBtnText, { color: "#6366F1" }]}>Generate Doctor Code</Text>
+                <TintShade color="#2F6BFF" radius={10} />
+                <Feather name="plus" size={14} color="#2F6BFF" />
+                <Text style={[styles.outlineBtnText, { color: "#2F6BFF" }]}>Generate Doctor Code</Text>
               </Pressable>
               </>
             ) : (
-              <View style={[styles.caregiverCodeDisplay, { backgroundColor: "#6366F1" + "0A", borderColor: "#6366F1" + "30" }]}>
-                <TintShade color="#6366F1" radius={12} />
+              <View style={[styles.caregiverCodeDisplay, { backgroundColor: "#2F6BFF" + "0A", borderColor: "#2F6BFF" + "30" }]}>
+                <TintShade color="#2F6BFF" radius={12} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.caregiverCodeLabel, { color: colors.textMuted }]}>Active code</Text>
                   <Text style={[styles.caregiverCodeValue, { color: colors.text }]}>
@@ -2122,11 +2122,11 @@ export default function DashboardScreen() {
                 </View>
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <Pressable
-                    style={({ pressed }) => [styles.guardianBtn, { backgroundColor: "#6366F1" + "15", opacity: pressed ? 0.7 : 1 }]}
+                    style={({ pressed }) => [styles.guardianBtn, { backgroundColor: "#2F6BFF" + "15", opacity: pressed ? 0.7 : 1 }]}
                     onPress={() => { Alert.alert("Doctor Code", `Share this ONLY with your verified doctor:\n\n${profile.doctorCode}\n\nThey enter it on the login screen.`, [{ text: "OK" }]); }}
                   >
-                    <TintShade color="#6366F1" radius={10} />
-                    <Feather name="share-2" size={14} color="#6366F1" />
+                    <TintShade color="#2F6BFF" radius={10} />
+                    <Feather name="share-2" size={14} color="#2F6BFF" />
                   </Pressable>
                   {/* Rotating the shared code is owner-only — a member device only shares it. */}
                   {!isCircleMember && (
@@ -2156,7 +2156,7 @@ export default function DashboardScreen() {
               {[...(profile?.accessLog ?? [])].reverse().slice(0, 8).map((entry) => (
                 <View key={entry.id} style={[styles.accessLogRow, { borderColor: colors.border }]}>
                   <View style={[styles.accessLogDot, {
-                    backgroundColor: entry.actor === "doctor" ? "#6366F1" : entry.actor === "caregiver" ? COLORS.accent : colors.textMuted
+                    backgroundColor: entry.actor === "doctor" ? "#2F6BFF" : entry.actor === "caregiver" ? COLORS.accent : colors.textMuted
                   }]} />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.accessLogAction, { color: colors.text }]}>{entry.action}</Text>
@@ -2165,10 +2165,10 @@ export default function DashboardScreen() {
                     </Text>
                   </View>
                   <View style={[styles.accessLogActorBadge, {
-                    backgroundColor: entry.actor === "doctor" ? "#6366F1" + "18" : entry.actor === "caregiver" ? COLORS.accent + "18" : colors.backgroundTertiary
+                    backgroundColor: entry.actor === "doctor" ? "#2F6BFF" + "18" : entry.actor === "caregiver" ? COLORS.accent + "18" : colors.backgroundTertiary
                   }]}>
                     <Text style={[styles.accessLogActorText, {
-                      color: entry.actor === "doctor" ? "#6366F1" : entry.actor === "caregiver" ? COLORS.accent : colors.textMuted
+                      color: entry.actor === "doctor" ? "#2F6BFF" : entry.actor === "caregiver" ? COLORS.accent : colors.textMuted
                     }]}>{entry.actor}</Text>
                   </View>
                 </View>

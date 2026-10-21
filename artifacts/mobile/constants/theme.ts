@@ -32,8 +32,8 @@ export const T = {
     emeraldDark: "#0D8F63",
     coral: "#FF5B57",
     amber: "#FF9F1C",
-    violet: "#7557F6",
-    violetActive: "#7181FF",
+    violet: "#2F80FF",
+    violetActive: "#3B9BFF",
 
     // chart
     grid: "rgba(145, 165, 195, 0.10)",
@@ -45,7 +45,7 @@ export const T = {
     // selected item, and the selected item is violet — the same relationship light mode already has,
     // so the two themes read the same way instead of dark mode inverting it.
     chartControlTrack: "#22324C",
-    chartControlActive: "#7557F6",
+    chartControlActive: "#2F80FF",
     chartControlActiveText: "#F7F9FC",
     // The chart's OWN range toggle (3H/6H/12H/24H) selects in a lighter slate, not violet — on the
     // Glucose page it would otherwise be the only purple thing on the screen. Other segmented
@@ -138,7 +138,7 @@ export const lightColors: ThemeColors = {
   // chart controls / inset plot surface — light structural language; selected = product violet
   chartPlotBg: "#EFF3FA",
   chartControlTrack: "rgba(30, 55, 100, 0.06)",
-  chartControlActive: "#7557F6",
+  chartControlActive: "#2F80FF",
   chartControlActiveText: "#FFFFFF",
   // Light mode: the selected range is a white pill on the soft grey track (iOS-segmented-control feel).
   chartRangeActive: "#FFFFFF",
