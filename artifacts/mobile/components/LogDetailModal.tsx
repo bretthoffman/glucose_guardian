@@ -19,6 +19,7 @@ import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/ut
 import { startOfLocalDay } from "@/utils/localDayBoundaries";
 import { useTheme } from "@/context/ThemeContext";
 import { CardShade } from "@/components/Shade";
+import { CloseButton } from "@/components/CloseButton";
 
 export type SelectedLog =
   | { kind: "food"; data: FoodLogEntry }
@@ -182,15 +183,7 @@ export default function LogDetailModal({
             ) : (
               <View style={{ flex: 1 }} />
             )}
-            <Pressable
-              onPress={onClose}
-              hitSlop={12}
-              style={[styles.closeBtn, { backgroundColor: withAlpha(colors.textMuted, 0.2) }]}
-              accessibilityRole="button"
-              accessibilityLabel="Close log details"
-            >
-              <Feather name="x" size={16} color={colors.textSecondary} />
-            </Pressable>
+            <CloseButton onPress={onClose} accessibilityLabel="Close log details" size={34} />
           </View>
 
           {/* Body */}

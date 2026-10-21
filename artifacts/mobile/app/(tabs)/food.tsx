@@ -53,6 +53,7 @@ import {
 
 type QuickTab = "recent" | "favorites";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
+import { CloseButton } from "@/components/CloseButton";
 
 interface FoodResult {
   foodName: string;
@@ -903,18 +904,7 @@ export default function FoodScreen() {
               </Pressable>
               {/* Close the analysis — photo results had no way out (the search-bar ✕ only exists
                   after a text search). Resets the page; an already-saved log stays logged. */}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close this food"
-                hitSlop={10}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  resetAnalysis();
-                }}
-                style={({ pressed }) => [styles.resultClose, { backgroundColor: withAlpha(colors.textMuted, 0.18), opacity: pressed ? 0.6 : 1 }]}
-              >
-                <Feather name="x" size={14} color={colors.textSecondary} />
-              </Pressable>
+              <CloseButton onPress={resetAnalysis} accessibilityLabel="Close this food" size={30} hitSlop={10} />
             </View>
 
             <View style={styles.resultTop}>

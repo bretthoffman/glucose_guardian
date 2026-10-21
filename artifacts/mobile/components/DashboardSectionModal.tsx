@@ -28,6 +28,7 @@ import { withAlpha } from "@/constants/theme";
 import { useTheme } from "@/context/ThemeContext";
 import { dashboardModalMaxBodyHeight } from "@/utils/dashboardSectionModalLayout";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
+import { CloseButton } from "@/components/CloseButton";
 
 interface Props {
   visible: boolean;
@@ -86,15 +87,7 @@ export function DashboardSectionModal({ visible, onClose, accessibilityLabel, av
           pointerEvents="box-none"
         >
           <View style={styles.closeRow} pointerEvents="box-none">
-            <Pressable
-              onPress={onClose}
-              hitSlop={12}
-              style={[styles.closeBtn, { backgroundColor: withAlpha(c.textMuted, 0.2) }]}
-              accessibilityRole="button"
-              accessibilityLabel={closeA11y}
-            >
-              <Feather name="x" size={18} color={c.textSecondary} />
-            </Pressable>
+            <CloseButton onPress={onClose} accessibilityLabel={closeA11y} size={38} />
           </View>
           <View style={styles.cardHost}>
             <ScrollView

@@ -30,6 +30,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import UpdateDiagnostics from "@/components/UpdateDiagnostics";
 import { CardShade } from "@/components/Shade";
+import { CloseButton } from "@/components/CloseButton";
 
 interface Props {
   visible: boolean;
@@ -251,15 +252,7 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
                   ) : null}
                 </View>
               ) : null}
-              <Pressable
-                onPress={onClose}
-                hitSlop={12}
-                style={[styles.closeBtn, { backgroundColor: withAlpha(c.textMuted, 0.14) }]}
-                accessibilityRole="button"
-                accessibilityLabel="Close settings"
-              >
-                <Feather name="x" size={18} color={c.textSecondary} />
-              </Pressable>
+              <CloseButton onPress={onClose} accessibilityLabel="Close settings" size={34} />
             </View>
           </View>
 

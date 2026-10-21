@@ -39,6 +39,7 @@ import {
   predictionWindow,
   type ForecastPoint,
 } from "@/utils/glucoseForecast";
+import { CloseButton } from "@/components/CloseButton";
 
 const AnimatedRect = Animated.createAnimatedComponent(Rect);
 const AnimatedLine = Animated.createAnimatedComponent(Line);
@@ -317,15 +318,7 @@ export default function DosePredictionChart({
       <View style={styles.headRow}>
         <Text style={[styles.head, { color: colors.textSecondary }]}>PROJECTED GLUCOSE IF DOSED NOW</Text>
         {onDismiss && (
-          <Pressable
-            onPress={onDismiss}
-            hitSlop={10}
-            accessibilityRole="button"
-            accessibilityLabel="Close prediction"
-            style={({ pressed }) => [styles.dismissBtn, { opacity: pressed ? 0.5 : 1 }]}
-          >
-            <Feather name="x" size={15} color={colors.textMuted} />
-          </Pressable>
+          <CloseButton onPress={onDismiss} accessibilityLabel="Close prediction" size={28} style={styles.dismissBtn} />
         )}
       </View>
       <View style={styles.chartRow} onLayout={onLayout}>
@@ -446,7 +439,7 @@ const styles = StyleSheet.create({
   // 10 spaces the chart→x-axis, and the head's marginBottom sets head→400-line.
   wrap: { gap: 10 },
   headRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  dismissBtn: { padding: 4, marginLeft: 8 },
+  dismissBtn: { marginLeft: 8 },
   head: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 },
   chartRow: { flexDirection: "row", alignItems: "flex-start", width: "100%" },
   yAxis: { position: "relative" },
