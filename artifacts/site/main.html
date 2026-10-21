@@ -15,6 +15,8 @@
 <x-dc>
 <helmet>
 <style>
+.mn-logo{display:flex;align-items:center;gap:9px;text-decoration:none!important}.mn-lg{width:24px;height:32px;flex:none;display:block}.mn-wm{display:flex;flex-direction:column;line-height:1}.mn-wm b{font-weight:800;font-size:15px;letter-spacing:.04em;color:#0b1a33}.mn-wm i{font-style:normal;font-weight:600;font-size:8.6px;letter-spacing:.42em;color:#0e7490;margin-top:3px}
+
 :root{--brand-grad:linear-gradient(120deg,#14c8f0 0%,#2f86ff 55%,#2f6bff 100%);--brand-soft:linear-gradient(120deg,rgba(20,200,240,.20) 0%,rgba(47,134,255,.06) 55%,rgba(47,107,255,.16) 100%)}
 
 body{margin:0;background:#fff;color:#1d1d1f;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Helvetica,sans-serif;-webkit-font-smoothing:antialiased}
@@ -636,7 +638,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <!-- Local nav -->
 <nav aria-label="Glucose Guardian" style="position: sticky; top: 0; z-index: 20; background: rgba(251,251,253,0.85); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid rgba(0,0,0,0.12)">
 <div class="wrap" style="display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 52px; flex-wrap: wrap">
-<a href="index.html" style="font-size: 21px; font-weight: 600; color: #1d1d1f; letter-spacing: -0.02em">Glucose Guardian</a>
+<a href="index.html" class="mn-logo" aria-label="Glucose Guardian home"><svg class="mn-lg" viewBox="34 12 134 178" aria-hidden="true"><defs><linearGradient id="mL" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22e5ff"/><stop offset="1" stop-color="#2f6bff"/></linearGradient><linearGradient id="mR" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2ef2c6"/><stop offset="1" stop-color="#0ea5b7"/></linearGradient><linearGradient id="mI" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22e5ff"/><stop offset="1" stop-color="#2f80ff"/></linearGradient></defs><path d="M97 16 C70 44 38 84 38 124 C38 160 66 186 100 186 C118 186 134 179 146 167 C128 176 104 176 88 164 C70 150 62 134 62 118 C62 92 84 64 104 42 C108 34 104 22 97 16Z" fill="url(#mL)"/><path d="M114 46 C108 52 106 62 112 70 C126 88 138 104 138 124 C138 146 120 166 98 168 C120 176 146 170 158 148 C164 138 166 130 164 118 C160 94 140 70 120 48 C118 46 116 45 114 46Z" fill="url(#mR)"/><path d="M100 76 C100 76 80 102 80 120 a20 20 0 0 0 40 0 C120 102 100 76 100 76Z" fill="url(#mI)"/></svg><span class="mn-wm"><b>GLUCOSE</b><i>GUARDIAN</i></span></a>
 <div style="display: flex; align-items: center; gap: 18px; flex-wrap: wrap; font-size: 12px">
 <sc-if value="{{isHome}}" hint-placeholder-val="{{ true }}">
 <a href="#day" style="color: #1d1d1f">A day</a>
