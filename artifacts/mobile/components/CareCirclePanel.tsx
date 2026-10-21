@@ -261,7 +261,7 @@ const PERMISSION_ROWS: { key: keyof CarePermissions; label: string; deviceRow: b
   { key: "viewLogs", label: "View food & insulin logs", deviceRow: false },
   { key: "log", label: "Add logs", deviceRow: true },
   { key: "useCalculator", label: "Use the dose calculator", deviceRow: true },
-  { key: "chat", label: "Use the AI chat", deviceRow: true },
+  { key: "chat", label: "Chat with Glucose Guardian", deviceRow: true },
 ];
 
 function PermissionToggles({
@@ -384,7 +384,7 @@ function ScheduleEditor({
       {value.mode === "window" && (
         <View style={{ gap: 8 }}>
           <Text style={[styles.editorHint, { color: colors.textSecondary }]}>
-            Starts now — pick how long access lasts:
+            Starts now. Pick how long access lasts:
           </Text>
           <View style={styles.modeChipsRow}>
             {WINDOW_HOUR_CHOICES.map((h) => {
@@ -669,7 +669,7 @@ export default function CareCirclePanel({
             <View style={[styles.sectionBox, { borderTopColor: colors.separator }]}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Child Access</Text>
               <Text style={[styles.sectionSub, { color: colors.textMuted }]}>
-                Your child views their own data on their phone with this code — no account needed. You
+                Your child views their own data on their phone with this code. No account needed. You
                 control what they can do below.
               </Text>
               {childCodes.map((c) => (
@@ -874,7 +874,7 @@ export default function CareCirclePanel({
             {createdInvite && (
               <View style={[styles.resultBox, { backgroundColor: COLORS.primary + "10", borderColor: COLORS.primary + "40" }]}>
                 <TintShade color={COLORS.primary} radius={12} />
-                <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>Share this invite code — or let them scan it:</Text>
+                <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>Share this invite code, or let them scan it:</Text>
                 <Text style={[styles.codeTextBig, { color: COLORS.primary }]}>{createdInvite.code}</Text>
                 <CodeQR value={createdInvite.code} />
                 <Pressable
@@ -894,8 +894,8 @@ export default function CareCirclePanel({
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Caregiver codes</Text>
             <Text style={[styles.sectionSub, { color: colors.textMuted }]}>
               {(profile?.accountRole === "adult"
-                ? "For spouses, relatives, trusted friends — no account needed."
-                : "For relatives, babysitters, teachers, nurses — no account needed.") +
+                ? "For spouses, relatives, trusted friends. No account needed."
+                : "For relatives, babysitters, teachers, nurses. No account needed.") +
                 " They enter the code on the sign-in screen. Codes work until retired, only inside their schedule."}
             </Text>
             {caregiverCodes.length === 0 && (
@@ -1074,7 +1074,7 @@ export default function CareCirclePanel({
               <View style={[styles.resultBox, { backgroundColor: COLORS.primary + "10", borderColor: COLORS.primary + "40" }]}>
                 <TintShade color={COLORS.primary} radius={12} />
                 <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>
-                  Code for {createdCode.label} — share it or let them scan:
+                  Code for {createdCode.label}. Share it or let them scan:
                 </Text>
                 <Text style={[styles.codeTextBig, { color: COLORS.primary }]}>{createdCode.code}</Text>
                 <CodeQR value={createdCode.code} />

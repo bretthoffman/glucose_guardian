@@ -1014,7 +1014,7 @@ export default function FoodScreen() {
               <View style={[styles.tipsBox, { backgroundColor: COLORS.warning + "14" }]}>
                 <Feather name="clock" size={14} color={COLORS.warning} />
                 <Text style={[styles.tipsText, { color: colors.textSecondary }]}>
-                  High fat/protein meals digest slowly — glucose can keep rising 3–4 hours after eating. Recheck in about 2 hours; a delayed rise may need a small follow-up correction.
+                  High fat/protein meals digest slowly, so glucose can keep rising 3–4 hours after eating. Recheck in about 2 hours; a delayed rise may need a small follow-up correction.
                 </Text>
               </View>
             )}
@@ -1151,7 +1151,7 @@ export default function FoodScreen() {
         {quickTab === "recent" ? (
           recentList.length === 0 ? (
             <Text style={[styles.quickEmpty, { color: colors.textMuted }]}>
-              Nothing logged yet — foods you log will show up here.
+              Nothing logged yet. Foods you log will show up here.
             </Text>
           ) : (
             <View ref={helpQuick} collapsable={false} style={[styles.quickList, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -1180,7 +1180,7 @@ export default function FoodScreen() {
           )
         ) : quickFoods.length === 0 ? (
           <Text style={[styles.quickEmpty, { color: colors.textMuted }]}>
-            No favorites yet — tap the heart on a food to keep it here.
+            No favorites yet. Tap the heart on a food to keep it here.
           </Text>
         ) : (
           <View ref={helpQuick} collapsable={false} style={[styles.quickList, { backgroundColor: colors.card, borderColor: colors.border }]}>

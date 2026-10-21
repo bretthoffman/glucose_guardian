@@ -109,7 +109,7 @@ export function tuningSuggestions(tuning: PatternTuning): TuningSuggestion[] {
       title: `${label} doses run ~${pct}% ${dir} the recommendation`,
       body:
         t.medianRatio > 1
-          ? `Across ${t.sampleCount} recent ${label.toLowerCase()} doses, the amount actually given was typically ~${pct}% more than suggested. The calculator now nudges its ${label.toLowerCase()} suggestions up (shown as "Pattern adjustment"), but the better fix is a settings review — your ${label.toLowerCase()} carb ratio or correction factor may be too weak. Discuss with your care team before changing them.`
+          ? `Across ${t.sampleCount} recent ${label.toLowerCase()} doses, the amount actually given was typically ~${pct}% more than suggested. The calculator now nudges its ${label.toLowerCase()} suggestions up (shown as "Pattern adjustment"), but the better fix is a settings review: your ${label.toLowerCase()} carb ratio or correction factor may be too weak. Discuss with your care team before changing them.`
           : `Across ${t.sampleCount} recent ${label.toLowerCase()} doses, the amount actually given was typically ~${pct}% less than suggested. The calculator now nudges its ${label.toLowerCase()} suggestions down (shown as "Pattern adjustment"). Consider reviewing these settings with your care team.`,
     });
   }

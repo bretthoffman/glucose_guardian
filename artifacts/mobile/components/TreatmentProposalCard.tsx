@@ -141,7 +141,7 @@ export default function TreatmentProposalCard() {
 
       <Text style={[styles.disclaimer, { color: colors.textSecondary }]}>
         {isCircleMember
-          ? `Insulin settings are owner-managed in your care circle — ${circleOwnerName || "the circle owner"} approves or declines this on their device.`
+          ? `Insulin settings are owner-managed in your care circle. ${circleOwnerName || "the circle owner"} approves or declines this on their device.`
           : "Nothing changes until you approve. Approving updates the app's dosing settings."}
       </Text>
 

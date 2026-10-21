@@ -234,6 +234,7 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no extr
 }
 
 Be specific about what you see. If multiple foods, combine the totals and describe all items in foodName.
+In "foodName", "portion" and "tips", never use dashes between words or clauses ("—", "–" or " - "); use a period or a comma instead.
 "absorption" is how fast the carbs will hit the bloodstream: "fast" for liquids/simple sugars (juice, soda, candy), "slow" for high-fat/high-protein meals that delay the rise (pizza, cheesy or fried foods), "medium" otherwise.
 Estimate carbs as ACCURATELY as you can — this number sizes an insulin dose, so overestimating is as dangerous as underestimating (it can cause low blood sugar). Reflect uncertainty in "confidence", not by padding the number.`;
 

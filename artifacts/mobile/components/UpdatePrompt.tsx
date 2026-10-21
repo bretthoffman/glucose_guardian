@@ -60,7 +60,7 @@ export default function UpdatePrompt() {
     };
     Alert.alert(
       "Update ready",
-      "A new version of Glucose Guardian has been downloaded. Restart to finish updating — it only takes a couple of seconds.",
+      "A new version of Glucose Guardian has been downloaded. Restart to finish updating. It only takes a couple of seconds.",
       [
         { text: "Later", style: "cancel", onPress: dismiss },
         {

@@ -143,7 +143,7 @@ export default function HelpOverlay() {
             </View>
             <Text style={[styles.cardTitle, { textAlign: "center" }]} maxFontSizeMultiplier={1.4}>Help Mode</Text>
             <Text style={[styles.cardText, { textAlign: "center" }]} maxFontSizeMultiplier={1.4}>
-              Open a page below — Glucose, Insulin, Food, or Chat — and I'll walk you through everything
+              Open a page below (Glucose, Insulin, Food, or Chat) and I'll walk you through everything
               on it, one thing at a time. You can switch pages whenever you like; each page starts its
               own tour. Nothing you tap in Help Mode changes your real data.
             </Text>

@@ -154,7 +154,7 @@ export default function CGMSetupScreen() {
           setIsConnecting(false);
           Alert.alert(
             "Sign in to finish reconnecting",
-            `Your ${selectedType === "dexcom" ? "Dexcom" : "Libre"} credentials were verified, but this device is signed out of your Glucose Guardian account, so they couldn't be saved for background syncing. Sign in again and readings will resume — you won't need to re-enter your CGM details.`,
+            `Your ${selectedType === "dexcom" ? "Dexcom" : "Libre"} credentials were verified, but this device is signed out of your Glucose Guardian account, so they couldn't be saved for background syncing. Sign in again and readings will resume. You won't need to re-enter your CGM details.`,
             [
               { text: "Later", style: "cancel", onPress: () => router.replace("/(tabs)") },
               { text: "Sign in", onPress: () => { void signOut().then(() => router.replace("/auth")); } },
@@ -208,8 +208,8 @@ export default function CGMSetupScreen() {
                 Alert.alert(
                   "Couldn't disconnect",
                   res.reason === "unauthorized"
-                    ? "Your CGM is still connected — the server didn't accept this session. This can happen after a password change. Sign out and sign back in, then try again. Your stored credentials were left untouched."
-                    : "Your CGM is still connected — we couldn't reach the server. Your stored credentials were left untouched. Check your connection and try again.",
+                    ? "Your CGM is still connected, but the server didn't accept this session. This can happen after a password change. Sign out and sign back in, then try again. Your stored credentials were left untouched."
+                    : "Your CGM is still connected, but we couldn't reach the server. Your stored credentials were left untouched. Check your connection and try again.",
                 );
                 return;
               }
@@ -358,7 +358,7 @@ export default function CGMSetupScreen() {
             </View>
             <View style={styles.requirementRow}>
               <Text style={[styles.requirementBullet, { color: COLORS.primary }]}>2.</Text>
-              <Text style={[styles.requirementText, { color: colors.textSecondary }]}>Use your Dexcom username — not your email. Find it in the Dexcom app under Settings → Account.</Text>
+              <Text style={[styles.requirementText, { color: colors.textSecondary }]}>Use your Dexcom username, not your email. Find it in the Dexcom app under Settings → Account.</Text>
             </View>
             <View style={styles.requirementRow}>
               <Text style={[styles.requirementBullet, { color: COLORS.primary }]}>3.</Text>

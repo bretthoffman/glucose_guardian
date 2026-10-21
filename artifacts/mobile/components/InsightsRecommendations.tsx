@@ -1,7 +1,7 @@
 /**
  * Insights & Recommendations list — the suggestion cards that used to live at the bottom of the
  * Insulin screen's Dose tab, now hosted in the Home screen's trend-pill popup. Behavior is
- * unchanged: colored cards per detected pattern with an "Ask AI about this" action.
+ * unchanged: colored cards per detected pattern with an "Ask Glucose Guardian about this" action.
  */
 import { Feather } from "@expo/vector-icons";
 import React from "react";
@@ -21,7 +21,7 @@ export default function InsightsRecommendations({
   if (suggestions.length === 0) {
     return (
       <Text style={[styles.emptyText, { color: c.textMuted }]}>
-        No insights yet for the last 24 hours — sync readings and log meals or doses to see
+        No insights yet for the last 24 hours. Sync readings and log meals or doses to see
         patterns here.
       </Text>
     );
@@ -50,7 +50,7 @@ export default function InsightsRecommendations({
             onPress={() => onChat(s.chatPrompt)}
           >
             <Feather name="message-circle" size={13} color={s.color} />
-            <Text style={[styles.chatBtnText, { color: s.color }]}>Ask AI about this</Text>
+            <Text style={[styles.chatBtnText, { color: s.color }]}>Ask Glucose Guardian about this</Text>
             <Feather name="chevron-right" size={13} color={s.color} />
           </Pressable>
         </View>

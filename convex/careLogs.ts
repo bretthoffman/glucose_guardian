@@ -1304,7 +1304,7 @@ async function attachPhoto(
   if (!row) throw new ConvexError("Log the meal before attaching its photo");
   if (row.photoStorageId === storageId) return; // retry — already attached
   const file = await ctx.db.system.get(storageId);
-  if (!file) throw new ConvexError("That upload wasn't found — upload the photo again");
+  if (!file) throw new ConvexError("That upload wasn't found. Upload the photo again");
   // A refused file is left alone rather than deleted: an id in the request isn't proof the caller
   // uploaded it. (A well-behaved app never gets here — it sends a compressed JPEG.)
   const type = file.contentType?.split(";")[0]?.trim().toLowerCase();

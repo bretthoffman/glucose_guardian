@@ -81,14 +81,14 @@ export function computeBasalDose(params: {
     warnings.push({
       level: "danger",
       message:
-        "Overnight or early-morning lows detected in the last 3 days. A lower basal dose may be needed — contact your care team.",
+        "Overnight or early-morning lows detected in the last 3 days. A lower basal dose may be needed. Contact your care team.",
     });
   }
   if (baselineUnits == null) {
     warnings.push({
       level: "info",
       message:
-        "No basal history or body weight on file. Log a basal dose once (or add weight to your profile) to get a suggestion — until then, enter your prescribed amount manually.",
+        "No basal history or body weight on file. Log a basal dose once (or add weight to your profile) to get a suggestion. Until then, enter your prescribed amount manually.",
     });
   }
 

@@ -111,27 +111,27 @@ export function doseCardExplanation(key: DoseCardKey, d: DoseExplainInput): Dose
       }
       if (d.resistanceBump > 0.001) {
         lines.push(
-          `Because your glucose is very high, corrections often work less effectively — so a 10% resistance boost adds ${u(d.resistanceBump)}.`,
+          `Because your glucose is very high, corrections often work less effectively, so a 10% resistance boost adds ${u(d.resistanceBump)}.`,
         );
       }
       if (Math.abs(d.trendAdjustment) >= 0.005) {
         const dir = d.trendAdjustment > 0 ? "adds" : "trims";
         lines.push(
-          `Your glucose is ${d.trendLabel.toLowerCase()}, so a trend adjustment ${dir} ${u(Math.abs(d.trendAdjustment))} — that's the change expected over the next 30 minutes divided by your correction factor, so it scales to your sensitivity.`,
+          `Your glucose is ${d.trendLabel.toLowerCase()}, so a trend adjustment ${dir} ${u(Math.abs(d.trendAdjustment))}. That's the change expected over the next 30 minutes divided by your correction factor, so it scales to your sensitivity.`,
         );
       } else if (d.hyperTrendZeroed) {
         lines.push(
-          `Your glucose is falling, but it's still high — so the usual falling-trend reduction is skipped. The full correction stands until you're back near range.`,
+          `Your glucose is falling, but it's still high, so the usual falling-trend reduction is skipped. The full correction stands until you're back near range.`,
         );
       }
       if (d.iobCredit > 0.001) {
         lines.push(
-          `Active insulin then reduces this correction — see the Active Insulin card for that part.`,
+          `Active insulin then reduces this correction. See the Active Insulin card for that part.`,
         );
       }
       if ((d.correctionHeldUnits ?? 0) > 0.001) {
         lines.push(
-          `A recent dose is still taking effect, so the rest of this correction (${u(d.correctionHeldUnits ?? 0)}) is ON HOLD for about ${Math.max(1, Math.round(d.correctionHoldRemainingMin ?? 0))} more minutes. Insulin needs time to work — glucose usually doesn't turn for 30–45 minutes after a dose, and correcting again before then stacks insulin that all lands at once later.`,
+          `A recent dose is still taking effect, so the rest of this correction (${u(d.correctionHeldUnits ?? 0)}) is ON HOLD for about ${Math.max(1, Math.round(d.correctionHoldRemainingMin ?? 0))} more minutes. Insulin needs time to work. Glucose usually doesn't turn for 30–45 minutes after a dose, and correcting again before then stacks insulin that all lands at once later.`,
         );
       }
       return { title: "Correct High BG", lines };
@@ -143,7 +143,7 @@ export function doseCardExplanation(key: DoseCardKey, d: DoseExplainInput): Dose
       if (d.carbs > 0) {
         lines.push(
           `You entered ${d.carbs} g of carbs, and with a carb ratio of 1 unit for every ${d.carbRatio} g${settingsNote(d)}, your Carb Dose is ${d.carbs} ÷ ${d.carbRatio} = ${u(d.carbInsulin)}.`,
-          `Carb insulin is never reduced by insulin that's already on board — earlier doses were for earlier food. Food always gets covered in full.`,
+          `Carb insulin is never reduced by insulin that's already on board. Earlier doses were for earlier food. Food always gets covered in full.`,
         );
       } else {
         lines.push(
@@ -159,15 +159,15 @@ export function doseCardExplanation(key: DoseCardKey, d: DoseExplainInput): Dose
       ];
       if (d.activeCarbGrams > 0) {
         lines.push(
-          `About ${d.activeCarbGrams} g are still working from food you logged ${ago(d.activeCarbAgeMin)} — worth ${u(d.activeCarbInsulin)} at your carb ratio.`,
+          `About ${d.activeCarbGrams} g are still working from food you logged ${ago(d.activeCarbAgeMin)}, worth ${u(d.activeCarbInsulin)} at your carb ratio.`,
         );
         if (d.uncoveredCarbInsulin > 0.001) {
           lines.push(
-            `Insulin already on board covers part of them, but not all — the uncovered part adds ${u(d.uncoveredCarbInsulin)} so those carbs don't get missed.`,
+            `Insulin already on board covers part of them, but not all. The uncovered part adds ${u(d.uncoveredCarbInsulin)} so those carbs don't get missed.`,
           );
         } else {
           lines.push(
-            `Insulin you've already taken fully covers them, so nothing extra is added here — they're balanced against your active insulin instead.`,
+            `Insulin you've already taken fully covers them, so nothing extra is added here. They're balanced against your active insulin instead.`,
           );
         }
       } else {
@@ -188,24 +188,24 @@ export function doseCardExplanation(key: DoseCardKey, d: DoseExplainInput): Dose
         lines.push(`You still have ${u(d.activeInsulinUnits)} on board from ${src}.`);
         if (d.activeCarbInsulin > 0.001) {
           lines.push(
-            `It's first balanced against the ${u(d.activeCarbInsulin)} of carbs still absorbing — only the surplus counts as a credit.`,
+            `It's first balanced against the ${u(d.activeCarbInsulin)} of carbs still absorbing. Only the surplus counts as a credit.`,
           );
         }
         if (d.iobDiscounted) {
           lines.push(
-            `Your glucose is high and hasn't been coming down even with this insulin active, so only HALF of the surplus is credited — insulin that isn't visibly working shouldn't cancel a needed correction.`,
+            `Your glucose is high and hasn't been coming down even with this insulin active, so only HALF of the surplus is credited. Insulin that isn't visibly working shouldn't cancel a needed correction.`,
           );
         }
         if (d.iobCredit > 0.001) {
           const covers = d.correctionApplied <= 0.001;
           lines.push(
             covers
-              ? `The ${u(d.iobCredit)} credit covers your whole correction, so no extra correction insulin is suggested — but it never reduces your Carb Dose. Food is always covered in full.`
-              : `${u(d.iobCredit)} is subtracted from your correction (and only your correction — never your Carb Dose) to avoid stacking insulin.`,
+              ? `The ${u(d.iobCredit)} credit covers your whole correction, so no extra correction insulin is suggested, but it never reduces your Carb Dose. Food is always covered in full.`
+              : `${u(d.iobCredit)} is subtracted from your correction (and only your correction, never your Carb Dose) to avoid stacking insulin.`,
           );
         } else if (d.uncoveredCarbInsulin > 0.001) {
           lines.push(
-            `Absorbing carbs outweigh it, so there's no surplus to subtract — the leftover carbs are added on the Active Carbs card instead.`,
+            `Absorbing carbs outweigh it, so there's no surplus to subtract. The leftover carbs are added on the Active Carbs card instead.`,
           );
         } else {
           lines.push(`There's no correction to reduce right now, so it doesn't change the suggestion.`);
@@ -230,19 +230,19 @@ export function doseCardExplanation(key: DoseCardKey, d: DoseExplainInput): Dose
       const lines = [`Your suggested Dose combines everything above.`, `That's ${math} = ${u(d.subTotal)}.`];
       if (held) {
         lines.push(
-          `The correction is on hold for about ${Math.max(1, Math.round(d.correctionHoldRemainingMin ?? 0))} more minutes while your recent dose takes effect, so it adds nothing right now — see the Correct High BG card.`,
+          `The correction is on hold for about ${Math.max(1, Math.round(d.correctionHoldRemainingMin ?? 0))} more minutes while your recent dose takes effect, so it adds nothing right now. See the Correct High BG card.`,
         );
       }
       if (Math.abs(d.patternDelta) >= 0.005) {
         const dir = d.patternDelta > 0 ? "up" : "down";
         const pct = Math.round(Math.abs(d.patternFactor - 1) * 100);
         lines.push(
-          `A pattern adjustment then nudges it ${dir} by ${u(Math.abs(d.patternDelta))} (${pct}%), because doses actually given at this time of day have consistently run ${dir === "up" ? "above" : "below"} the calculator's suggestions over the last two weeks. Your saved settings are never changed by this — it only tunes the suggestion, and it's always shown here.`,
+          `A pattern adjustment then nudges it ${dir} by ${u(Math.abs(d.patternDelta))} (${pct}%), because doses actually given at this time of day have consistently run ${dir === "up" ? "above" : "below"} the calculator's suggestions over the last two weeks. Your saved settings are never changed by this. It only tunes the suggestion, and it's always shown here.`,
         );
       }
       if (d.cappedAtMax) {
         lines.push(
-          `The result was capped at the ${u(d.maxDoseCap)} single-dose safety limit${d.maxDoseCap === 10 ? "" : " (based on your weight)"} — confirm anything larger with your care team.`,
+          `The result was capped at the ${u(d.maxDoseCap)} single-dose safety limit${d.maxDoseCap === 10 ? "" : " (based on your weight)"}. Confirm anything larger with your care team.`,
         );
       }
       lines.push(`That makes ${u(d.totalRaw)}, rounded to ${u(d.totalDose)}.`, `You can round it as needed before giving it.`);

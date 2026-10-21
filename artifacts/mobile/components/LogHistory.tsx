@@ -222,7 +222,7 @@ export default function LogHistory({
         <View style={[styles.logModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.logModalTitle, { color: colors.text }]}>Log Insulin</Text>
           <Text style={[styles.logModalSub, { color: colors.textSecondary }]}>
-            Record a dose for the day shown below — it appears in the log immediately.
+            Record a dose for the day shown below. It appears in the log immediately.
           </Text>
           <InsulinTypePicker
             options={insulinOptions}

@@ -119,7 +119,7 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
             <Text style={{ fontSize: 36 }}>💬</Text>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>No messages yet</Text>
             <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
-              Send {title} a message — it&apos;ll appear here.
+              Send {title} a message. It&apos;ll appear here.
             </Text>
           </View>
         }

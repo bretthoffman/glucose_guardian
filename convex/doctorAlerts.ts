@@ -152,11 +152,11 @@ export const scan = internalMutation({
       } else if (latestValue != null && latestValue <= urgentLow) {
         kind = "urgent_low";
         value = latestValue;
-        message = `${name}: URGENT LOW — ${latestValue} mg/dL`;
+        message = `${name}: URGENT LOW at ${latestValue} mg/dL`;
       } else if (latestValue != null && latestValue >= urgentHigh) {
         kind = "urgent_high";
         value = latestValue;
-        message = `${name}: urgent high — ${latestValue} mg/dL`;
+        message = `${name}: urgent high at ${latestValue} mg/dL`;
       }
       if (!kind) continue;
 

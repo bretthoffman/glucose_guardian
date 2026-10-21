@@ -2082,7 +2082,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const createAccount = useCallback(async (email: string, password: string) => {
     const normalizedEmail = email.trim().toLowerCase();
-    if (!clerkSignUp || !setSignUpActive) throw new Error("Sign-up isn't ready yet — try again.");
+    if (!clerkSignUp || !setSignUpActive) throw new Error("Sign-up isn't ready yet. Try again.");
     let attempt;
     try {
       attempt = await clerkSignUp.create({ emailAddress: normalizedEmail, password });

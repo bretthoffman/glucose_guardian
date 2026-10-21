@@ -90,7 +90,7 @@ export function analyzeReadings(
     suggestions.push({
       icon: "🧃",
       tag: "URGENT",
-      title: isMinor ? "Sugar is low — drink juice!" : "Hypoglycemia — treat now",
+      title: isMinor ? "Sugar is low. Drink juice!" : "Hypoglycemia: treat now",
       body: isMinor
         ? `Your sugar is ${latest.glucose} mg/dL right now${falling ? " and still going down" : ""}. Drink 4 oz of juice or eat 4 glucose tablets and tell an adult!`
         : `Glucose is ${latest.glucose} mg/dL right now${
@@ -107,10 +107,10 @@ export function analyzeReadings(
     suggestions.push({
       icon: "✅",
       tag: "EARLIER TODAY",
-      title: isMinor ? "You had a low earlier — all better now" : "Earlier low — recovered",
+      title: isMinor ? "You had a low earlier, all better now" : "Earlier low, recovered",
       body: isMinor
         ? `Your sugar dropped to ${worstLow.glucose} mg/dL at ${fmtClock(worstLow.timestamp)}, but you're back at ${latest.glucose} now. Great job treating it!`
-        : `Glucose dropped to ${worstLow.glucose} mg/dL at ${fmtClock(worstLow.timestamp)} and has recovered (${latest.glucose} now). Watch for rebound lows, and consider what caused it — a large dose or a missed snack.`,
+        : `Glucose dropped to ${worstLow.glucose} mg/dL at ${fmtClock(worstLow.timestamp)} and has recovered (${latest.glucose} now). Watch for rebound lows, and consider what caused it, like a large dose or a missed snack.`,
       color: COLORS.accent,
       priority: 4,
       chatPrompt: `I had a low of ${worstLow.glucose} mg/dL at ${fmtClock(worstLow.timestamp)} and I've recovered to ${latest.glucose} now. What likely caused it and how do I prevent the next one?`,
@@ -122,10 +122,10 @@ export function analyzeReadings(
     suggestions.push({
       icon: "🍎",
       tag: "ACT NOW",
-      title: isMinor ? "Sugar is dropping — eat a snack!" : "Falling glucose — act now",
+      title: isMinor ? "Sugar is dropping. Eat a snack!" : "Falling glucose: act now",
       body: isMinor
         ? "Your sugar is going down. Eat a small snack like an apple or crackers now!"
-        : `Glucose is trending down${rateNote}. Have 15g fast-acting carbs. If you recently dosed, insulin may still be peaking — hold your next dose until BG stabilizes.`,
+        : `Glucose is trending down${rateNote}. Have 15g fast-acting carbs. If you recently dosed, insulin may still be peaking. Hold your next dose until BG stabilizes.`,
       color: COLORS.warning,
       priority: 2,
       chatPrompt: isMinor
@@ -139,10 +139,10 @@ export function analyzeReadings(
     suggestions.push({
       icon: "🚶",
       tag: "TIP",
-      title: isMinor ? "Try a short walk to help!" : "Rising glucose — try activity",
+      title: isMinor ? "Try a short walk to help!" : "Rising glucose: try activity",
       body: isMinor
         ? "Your sugar is going up! A 10–15 min walk or active play after meals can help bring it back down naturally."
-        : `Glucose is rising${rateNote}. A brisk 10–15 min walk can reduce glucose 20–40 mg/dL without extra insulin — especially effective 30–60 min after a meal.`,
+        : `Glucose is rising${rateNote}. A brisk 10–15 min walk can reduce glucose 20–40 mg/dL without extra insulin. It works especially well 30–60 min after a meal.`,
       color: COLORS.warning,
       priority: 3,
       chatPrompt: isMinor
@@ -201,7 +201,7 @@ export function analyzeReadings(
         title: isMinor ? "Balance carbs with protein!" : "Meal composition tip",
         body: isMinor
           ? "You ate a carb-heavy meal! Adding protein or veggies to your plate helps sugar rise more slowly."
-          : "You logged a high-carb meal. Adding fiber (veggies, legumes) or protein slows digestion and reduces glucose peaks — aim for 25–30g carbs per meal.",
+          : "You logged a high-carb meal. Adding fiber (veggies, legumes) or protein slows digestion and reduces glucose peaks. Aim for 25–30g carbs per meal.",
         color: COLORS.accent,
         priority: 5,
         chatPrompt: isMinor
@@ -255,13 +255,13 @@ export function analyzeReadings(
       tag: "PATTERN",
       title: isMinor ? "Morning sugars creeping up!" : "Dawn phenomenon detected",
       body: isMinor
-        ? `Your sugar tends to rise while you sleep — from around ${midnightAvg} to ${morningAvg} mg/dL by morning. This is normal but your care team can help!`
-        : `Morning average (${morningAvg} mg/dL) is ${morningAvg - midnightAvg} mg/dL higher than late-night (${midnightAvg} mg/dL). This suggests a dawn phenomenon — discuss basal insulin timing with your endocrinologist.`,
+        ? `Your sugar tends to rise while you sleep, from around ${midnightAvg} to ${morningAvg} mg/dL by morning. This is normal but your care team can help!`
+        : `Morning average (${morningAvg} mg/dL) is ${morningAvg - midnightAvg} mg/dL higher than late-night (${midnightAvg} mg/dL). This suggests a dawn phenomenon. Discuss basal insulin timing with your endocrinologist.`,
       color: COLORS.accent,
       priority: 6,
       chatPrompt: isMinor
         ? "Why does my blood sugar go up while I'm sleeping? Is that normal? What can we do about it?"
-        : `I'm seeing a dawn phenomenon pattern — my glucose rises ~${morningAvg - midnightAvg} mg/dL overnight. Can you explain the physiology and what basal adjustments might help?`,
+        : `I'm seeing a dawn phenomenon pattern: my glucose rises ~${morningAvg - midnightAvg} mg/dL overnight. Can you explain the physiology and what basal adjustments might help?`,
     });
   }
 
@@ -290,7 +290,7 @@ export function analyzeReadings(
       title: isMinor ? "Evening sugars are a bit high" : "Evening glucose elevation",
       body: isMinor
         ? `Your sugar is often around ${eveningAvg} mg/dL in the evening. A smaller dinner and a short walk after eating can help a lot!`
-        : `Evening average ${eveningAvg} mg/dL suggests dinner or stress elevation. Evening cortisol spikes are common — try a 10-min post-dinner walk and consider whether your dinner dose or timing needs adjustment.`,
+        : `Evening average ${eveningAvg} mg/dL suggests dinner or stress elevation. Evening cortisol spikes are common. Try a 10-min post-dinner walk and consider whether your dinner dose or timing needs adjustment.`,
       color: COLORS.accent,
       priority: 7,
       chatPrompt: isMinor
@@ -307,15 +307,15 @@ export function analyzeReadings(
       icon: "💧",
       tag: falling ? "IMPROVING" : "HYDRATION",
       title: isMinor
-        ? falling ? "High sugar is coming down!" : "High sugar — drink water!"
-        : falling ? "Elevated but falling" : "Elevated now — stay hydrated",
+        ? falling ? "High sugar is coming down!" : "High sugar? Drink water!"
+        : falling ? "Elevated but falling" : "Elevated now: stay hydrated",
       body: isMinor
         ? falling
-          ? `Your sugar is ${latest.glucose} mg/dL and coming down${rateNote}. Keep sipping water — you're on the right track!`
-          : `Your sugar is ${latest.glucose} mg/dL right now. Drink a big glass of water — it helps your body process sugar more efficiently!`
+          ? `Your sugar is ${latest.glucose} mg/dL and coming down${rateNote}. Keep sipping water. You're on the right track!`
+          : `Your sugar is ${latest.glucose} mg/dL right now. Drink a big glass of water. It helps your body process sugar more efficiently!`
         : falling
-          ? `Glucose is ${latest.glucose} mg/dL and trending down${rateNote}. Don't stack another correction on insulin that's still working — recheck before any further dose.`
-          : `Glucose is ${latest.glucose} mg/dL now${rising ? ` and rising${rateNote}` : ""} (today's peak ${peakHigh}). Dehydration worsens insulin resistance — aim for 8–12 oz water per hour, and pre-bolus 10–15 min before your next meal.`,
+          ? `Glucose is ${latest.glucose} mg/dL and trending down${rateNote}. Don't stack another correction on insulin that's still working. Recheck before any further dose.`
+          : `Glucose is ${latest.glucose} mg/dL now${rising ? ` and rising${rateNote}` : ""} (today's peak ${peakHigh}). Dehydration worsens insulin resistance. Aim for 8–12 oz water per hour, and pre-bolus 10–15 min before your next meal.`,
       color: COLORS.warning,
       priority: 3,
       chatPrompt: `My glucose is ${latest.glucose} mg/dL right now${falling ? " and falling" : rising ? " and rising" : ""}. What should I do, and how much does hydration actually help?`,
@@ -325,7 +325,7 @@ export function analyzeReadings(
     suggestions.push({
       icon: "📉",
       tag: "EARLIER TODAY",
-      title: isMinor ? "Sugar was high earlier — back down now" : "Earlier high — back in range",
+      title: isMinor ? "Sugar was high earlier, back down now" : "Earlier high, back in range",
       body: isMinor
         ? `Your sugar peaked at ${worstHigh.glucose} mg/dL at ${fmtClock(worstHigh.timestamp)} but it's ${latest.glucose} now. Nice recovery!`
         : `Glucose peaked at ${worstHigh.glucose} mg/dL at ${fmtClock(worstHigh.timestamp)} and is back at ${latest.glucose} now. If highs follow meals, pre-bolusing 10–15 min earlier can blunt the spike.`,
@@ -343,7 +343,7 @@ export function analyzeReadings(
       title: "Talk to your care team",
       body: isMinor
         ? `You were in your safe zone ${timeInRange}% of the time today. Your doctor might want to look at your settings!`
-        : `Time-in-range is ${timeInRange}% (goal: 70%+). Bring this chart to your endocrinologist — your carb ratio or correction factor may need an adjustment.`,
+        : `Time-in-range is ${timeInRange}% (goal: 70%+). Bring this chart to your endocrinologist. Your carb ratio or correction factor may need an adjustment.`,
       color: COLORS.primary,
       priority: 8,
       chatPrompt: isMinor
@@ -357,7 +357,7 @@ export function analyzeReadings(
     suggestions.push({
       icon: "🍽️",
       tag: "MEAL TIP",
-      title: isMinor ? "Try smaller meal portions" : "Consistently elevated — adjust meals",
+      title: isMinor ? "Try smaller meal portions" : "Consistently elevated: adjust meals",
       body: isMinor
         ? "Your sugar has been running a bit high. Smaller portions, fewer sugary drinks, and more protein can really help!"
         : `Average ${avg} mg/dL with a stable trend suggests consistent post-meal drift. Try pre-bolusing, smaller portions, more fiber, and a short walk after each meal.`,
@@ -382,8 +382,8 @@ export function analyzeReadings(
       tag: "GREAT",
       title: isMinor ? "Amazing sugar control!" : "Excellent glucose control",
       body: isMinor
-        ? `You were in your safe zone ${timeInRange}% of the time — incredible! Keep up whatever you're doing!`
-        : `Time-in-range: ${timeInRange}%. Average: ${avg} mg/dL. Your management is right on track — keep your current meal timing and dose strategy.`,
+        ? `You were in your safe zone ${timeInRange}% of the time. Incredible! Keep up whatever you're doing!`
+        : `Time-in-range: ${timeInRange}%. Average: ${avg} mg/dL. Your management is right on track. Keep your current meal timing and dose strategy.`,
       color: COLORS.success,
       priority: 10,
       chatPrompt: isMinor

@@ -162,8 +162,8 @@ export async function scheduleGlucoseAlert(params: {
   const trendNote =
     trendLabel !== "Stable" ? ` and ${trendLabel.toLowerCase()}` : "";
   const body = isHigh
-    ? `${glucose} mg/dL${trendNote} — tap Reply to send instructions.`
-    : `${glucose} mg/dL${trendNote} — needs attention now. Tap Reply to respond.`;
+    ? `${glucose} mg/dL${trendNote}. Tap Reply to send instructions.`
+    : `${glucose} mg/dL${trendNote}. Needs attention now. Tap Reply to respond.`;
 
   await Notifications.scheduleNotificationAsync({
     content: {
@@ -189,8 +189,8 @@ export async function scheduleTrendAlert(params: {
     direction === "rise" ? `📈 ${childName}'s glucose is rising fast` : `📉 ${childName}'s glucose is falling fast`;
   const body =
     direction === "rise"
-      ? `${glucose} mg/dL and climbing quickly — keep an eye on it.`
-      : `${glucose} mg/dL and dropping quickly — check in soon.`;
+      ? `${glucose} mg/dL and climbing quickly. Keep an eye on it.`
+      : `${glucose} mg/dL and dropping quickly. Check in soon.`;
   await Notifications.scheduleNotificationAsync({
     content: { title, body, data: { kind: "glucose_trend", glucose, direction }, sound: true },
     trigger: null,
@@ -222,7 +222,7 @@ export async function scheduleTreatmentProposalNotification(params: {
   await Notifications.scheduleNotificationAsync({
     content: {
       title: `${from} proposed a treatment change`,
-      body: `${params.summary} — review and approve in the app.`,
+      body: `${params.summary.replace(/[.\s]+$/, "")}. Review and approve in the app.`,
       data: { kind: "treatment_proposal" },
       sound: true,
     },
@@ -252,11 +252,11 @@ function buildNotificationPrompt(
 
   switch (status) {
     case "critically_high":
-      return `${nameStr} glucose is critically high at ${glucose} mg/dL. This is urgent — what should I do right now?`;
+      return `${nameStr} glucose is critically high at ${glucose} mg/dL. This is urgent. What should I do right now?`;
     case "high":
       return `${nameStr} glucose is ${glucose} mg/dL which is high. What's the best way to bring it back into range?`;
     case "critically_low":
-      return `${nameStr} glucose just hit ${glucose} mg/dL which is critically low. This needs immediate attention — what do I do?`;
+      return `${nameStr} glucose just hit ${glucose} mg/dL which is critically low. This needs immediate attention. What do I do?`;
     case "low":
       return `${nameStr} glucose is ${glucose} mg/dL and it's low. What should I eat or do to bring it back up safely?`;
     default:

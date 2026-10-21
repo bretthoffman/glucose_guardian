@@ -135,12 +135,12 @@ export function trendCopy(params: { kind: TrendAlertKind; value: number; patient
   if (kind === "rise_fast") {
     return {
       title: `📈 ${patientName}'s glucose is rising fast`,
-      body: `${value} mg/dL and climbing quickly — keep an eye on it.`,
+      body: `${value} mg/dL and climbing quickly. Keep an eye on it.`,
     };
   }
   return {
     title: `📉 ${patientName}'s glucose is falling fast`,
-    body: `${value} mg/dL and dropping quickly — check in soon.`,
+    body: `${value} mg/dL and dropping quickly. Check in soon.`,
   };
 }
 
@@ -163,22 +163,22 @@ export function glucoseCopy(params: {
     case "urgent_low":
       return {
         title: `🚨 ${patientName}'s glucose is critically low`,
-        body: `${value} mg/dL${trend} — needs fast-acting carbs now.`,
+        body: `${value} mg/dL${trend}. Needs fast-acting carbs now.`,
       };
     case "low":
       return {
         title: `⚠️ ${patientName}'s glucose is low`,
-        body: `${value} mg/dL${trend} — check in and treat if needed.`,
+        body: `${value} mg/dL${trend}. Check in and treat if needed.`,
       };
     case "urgent_high":
       return {
         title: `🚨 ${patientName}'s glucose is very high`,
-        body: `${value} mg/dL${trend} — check ketones and follow your care plan.`,
+        body: `${value} mg/dL${trend}. Check ketones and follow your care plan.`,
       };
     case "high":
       return {
         title: `⚠️ ${patientName}'s glucose is high`,
-        body: `${value} mg/dL${trend} — monitor and correct if appropriate.`,
+        body: `${value} mg/dL${trend}. Monitor and correct if appropriate.`,
       };
   }
 }
@@ -195,13 +195,13 @@ export function careLogCopy(params: {
   if (kind === "insulin") {
     return {
       title: `${authorName} logged insulin for ${patientName}`,
-      body: `${units ?? 0}u just now — open the app to see the details.`,
+      body: `${units ?? 0}u just now. Open the app to see the details.`,
     };
   }
   const what = foodName?.trim() ? foodName.trim() : "a meal";
   return {
     title: `${authorName} logged a meal for ${patientName}`,
-    body: `${what}${carbs != null ? ` · ${carbs}g carbs` : ""} — open the app to see the details.`,
+    body: `${what}${carbs != null ? ` · ${carbs}g carbs` : ""}. Open the app to see the details.`,
   };
 }
 

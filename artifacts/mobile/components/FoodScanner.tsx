@@ -107,7 +107,7 @@ export default function FoodScanner({
     lookup === "looking"
       ? `Looking up ${lastCode ?? "barcode"}…`
       : lookup === "notFound"
-        ? "Not found — try again, or take a photo of the label"
+        ? "Not found. Try again, or take a photo of the label"
         : null;
 
   return (
@@ -166,7 +166,7 @@ export default function FoodScanner({
                   key={m.key}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
-                  accessibilityLabel={m.key === "photo" ? "Photo mode — take a picture of your food" : "Barcode mode — scan a package"}
+                  accessibilityLabel={m.key === "photo" ? "Photo mode: take a picture of your food" : "Barcode mode: scan a package"}
                   style={[styles.modeBtn, active && styles.modeBtnActive]}
                   onPress={() => switchMode(m.key)}
                 >

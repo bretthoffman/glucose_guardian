@@ -515,7 +515,7 @@ export default function DashboardScreen() {
     try {
       const now = new Date();
       const name = profile?.childName ?? "Patient";
-      let report = `GLUCO GUARDIAN — DIABETES REPORT\n${"=".repeat(40)}\n\n`;
+      let report = `GLUCOSE GUARDIAN DIABETES REPORT\n${"=".repeat(40)}\n\n`;
       report += `Patient: ${name}\n`;
       report += `Diabetes Type: ${profile?.diabetesType ?? "Unknown"}\n`;
       if (ageYears !== null) report += `Age: ${ageYears} years old\n`;
@@ -583,23 +583,23 @@ export default function DashboardScreen() {
     try {
       const now = new Date();
       const name = profile?.childName ?? "Patient";
-      let lines: string[] = [`GLUCOSE GUARDIAN — SELECTED LOG EXPORT`, `Patient: ${name}`, `Generated: ${now.toLocaleString()}`, ""];
+      let lines: string[] = [`GLUCOSE GUARDIAN SELECTED LOG EXPORT`, `Patient: ${name}`, `Generated: ${now.toLocaleString()}`, ""];
       if (dlBSLogs) {
         lines.push("=== BLOOD SUGAR LOGS ===");
         if (history.length === 0) { lines.push("No readings recorded."); }
-        else { [...history].reverse().forEach((r) => { lines.push(`${new Date(r.timestamp).toLocaleString()} — ${r.glucose} mg/dL${r.anomaly.warning ? " ⚠" : ""}`); }); }
+        else { [...history].reverse().forEach((r) => { lines.push(`${new Date(r.timestamp).toLocaleString()}: ${r.glucose} mg/dL${r.anomaly.warning ? " ⚠" : ""}`); }); }
         lines.push("");
       }
       if (dlFoodLogs) {
         lines.push("=== FOOD LOGS ===");
         if (foodLog.length === 0) { lines.push("No food entries."); }
-        else { foodLog.forEach((f) => { lines.push(`${new Date(f.timestamp).toLocaleString()} — ${f.foodName}: ${f.estimatedCarbs}g carbs → ${f.insulinUnits}u${f.fromPhoto ? " [AI Photo]" : ""}`); }); }
+        else { foodLog.forEach((f) => { lines.push(`${new Date(f.timestamp).toLocaleString()}: ${f.foodName}: ${f.estimatedCarbs}g carbs → ${f.insulinUnits}u${f.fromPhoto ? " [AI Photo]" : ""}`); }); }
         lines.push("");
       }
       if (dlInsulinLogs) {
         lines.push("=== INSULIN LOGS ===");
         if (insulinLog.length === 0) { lines.push("No insulin logs."); }
-        else { insulinLog.forEach((e) => { lines.push(`${new Date(e.timestamp).toLocaleString()} — ${e.units}u ${e.type}${e.note ? ` · ${e.note}` : ""}`); }); }
+        else { insulinLog.forEach((e) => { lines.push(`${new Date(e.timestamp).toLocaleString()}: ${e.units}u ${e.type}${e.note ? ` · ${e.note}` : ""}`); }); }
         lines.push("");
       }
       if (dlA1C) {
@@ -670,7 +670,7 @@ export default function DashboardScreen() {
         <div class="patient-info" style="margin-bottom:20px">
           <p><strong>Patient:</strong> ${name}${age ? `  ·  ${age}` : ""}  ·  ${diabetesType}</p>
           <p><strong>Carb Ratio:</strong> 1:${carbRatio} g/unit  ·  <strong>Target BG:</strong> ${targetGlucose} mg/dL  ·  <strong>ISF:</strong> 1:${correctionFactor}</p>
-          ${profile?.doctorName ? `<p><strong>Doctor:</strong> ${profile.doctorName}${profile.doctorInstitution ? ` — ${profile.doctorInstitution}` : ""}</p>` : ""}
+          ${profile?.doctorName ? `<p><strong>Doctor:</strong> ${profile.doctorName}${profile.doctorInstitution ? `, ${profile.doctorInstitution}` : ""}</p>` : ""}
         </div>
         <div class="stats-grid">
           <div class="stat-box"><div class="stat-value">${history.length}</div><div class="stat-label">Total Readings</div></div>
@@ -694,7 +694,7 @@ export default function DashboardScreen() {
           <h2>Insulin Log (Recent 30)</h2>
           <table><thead><tr><th>Date & Time</th><th>Dose</th><th>Type</th><th>Note</th></tr></thead><tbody>${insulinRows}</tbody></table>
         </div>` : ""}
-        <div class="footer">Glucose Guardian Clinical Report · Generated ${now.toLocaleDateString()} · For informational purposes only — not a substitute for clinical judgment.</div>
+        <div class="footer">Glucose Guardian Clinical Report · Generated ${now.toLocaleDateString()} · For informational purposes only. Not a substitute for clinical judgment.</div>
       </body></html>`;
       const { uri } = await Print.printToFileAsync({ html, base64: false });
       const pdfName = `gg_report_${name.replace(/\s+/g, "_")}_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}.pdf`;
@@ -928,7 +928,7 @@ export default function DashboardScreen() {
           <CardShade radius={16} />
           <Text style={[styles.cardTitle, { color: colors.text }]}>Notifications</Text>
           <Text style={[styles.cardSub, { color: colors.textSecondary }]}>
-            Alert switches apply to this device — each device in the circle sets its own.
+            Alert switches apply to this device. Each device in the circle sets its own.
           </Text>
           <ToggleRow
             label="In-App Alerts"
@@ -968,7 +968,7 @@ export default function DashboardScreen() {
             <>
               <ToggleRow
                 label="Urgent Glucose Alerts"
-                description="Severe lows, even with the app closed — can alert on silent"
+                description="Severe lows, even with the app closed. Can alert on silent"
                 value={pushPrefs.glucoseUrgent}
                 onToggle={(v) => void updatePushPrefs({ glucoseUrgent: v })}
                 colors={colors}
@@ -1007,7 +1007,7 @@ export default function DashboardScreen() {
               </View>
               <ToggleRow
                 label="High Glucose"
-                description="Above your high threshold — includes very high readings"
+                description="Above your high threshold, including very high readings"
                 value={pushPrefs.glucoseHigh}
                 onToggle={(v) => void updatePushPrefs({ glucoseHigh: v })}
                 colors={colors}
@@ -1089,7 +1089,7 @@ export default function DashboardScreen() {
           )}
           <ToggleRow
             label="Send Alerts to Chat on open"
-            description="Tapping a glucose alert offers a popup to send the situation to the AI chat — or just dismiss it"
+            description="Tapping a glucose alert offers to ask Glucose Guardian about it in Chat, or you can just dismiss it"
             value={alertPrefs.alertToChatOnOpenEnabled !== false}
             onToggle={(v) => updateAlertPrefs({ alertToChatOnOpenEnabled: v })}
             colors={colors}
@@ -1121,8 +1121,8 @@ export default function DashboardScreen() {
                 label="Message Alerts"
                 description={
                   messagesLocked
-                    ? "Always on for caregiver and kid access — you'll never miss a guardian's message"
-                    : "New messages from anyone — co-guardians, caregivers, kids, and your doctor's care team"
+                    ? "Always on for caregiver and kid access, so you never miss a guardian's message"
+                    : "New messages from anyone: co-guardians, caregivers, kids, and your doctor's care team"
                 }
                 value={pushPrefs.messages}
                 onToggle={(v) => {
@@ -1168,7 +1168,7 @@ export default function DashboardScreen() {
                   label="Emergency Text Alerts"
                   description={
                     emergencyLocked
-                      ? "Set by the guardian account — follows their on/off setting"
+                      ? "Set by the guardian account. Follows their on/off setting"
                       : "Critical readings show a one-tap banner that opens a pre-written text to your emergency contacts"
                   }
                   value={alertPrefs.emergencyAlertsEnabled}
@@ -1262,7 +1262,7 @@ export default function DashboardScreen() {
                   onPress={() => {
                     Alert.alert(
                       "About Critical Alerts",
-                      "Critical Alerts let Glucose Guardian sound an alarm even when your phone is on silent or in Do Not Disturb — ideal for overnight low readings.\n\nTo enable them:\n1. Open your iPhone Settings\n2. Tap Notifications → tap the app name\n3. Turn on Critical Alerts\n\nNote: This option appears in the standalone app, not in Expo Go.",
+                      "Critical Alerts let Glucose Guardian sound an alarm even when your phone is on silent or in Do Not Disturb. Ideal for overnight low readings.\n\nTo enable them:\n1. Open your iPhone Settings\n2. Tap Notifications → tap the app name\n3. Turn on Critical Alerts\n\nNote: This option appears in the standalone app, not in Expo Go.",
                       [
                         { text: "Got it" },
                         {
@@ -1279,7 +1279,7 @@ export default function DashboardScreen() {
                   }}
                 >
                   <Feather name="info" size={11} color="#F97316" />
-                  <Text style={styles.notifCriticalNoteText}>Critical alerts available in standalone build — tap to learn more</Text>
+                  <Text style={styles.notifCriticalNoteText}>Critical alerts are available in the standalone build. Tap to learn more</Text>
                 </Pressable>
               )}
             </View>
@@ -1344,7 +1344,7 @@ export default function DashboardScreen() {
                 ))}
               </ScrollView>
               <Text style={[styles.pushPrefsSub, { color: colors.textMuted, marginTop: 8 }]}>
-                Tap a sound to hear it — your tap also selects it. Sound files ship with the app; iOS
+                Tap a sound to hear it. Your tap also selects it. Sound files ship with the app; iOS
                 doesn&apos;t allow using the phone&apos;s own ringtones.
               </Text>
               <Pressable
@@ -1366,7 +1366,7 @@ export default function DashboardScreen() {
               <CardShade radius={16} />
               <ToggleRow
                 label="Wait Window"
-                description="Hold your caregivers' urgent glucose alert while you confirm you're okay — below 35 or above 350 mg/dL always sends immediately"
+                description="Hold your caregivers' urgent glucose alert while you confirm you're okay. Below 35 or above 350 mg/dL always sends immediately"
                 value={alertPrefs.waitWindowEnabled === true}
                 onToggle={(v) => updateAlertPrefs({ waitWindowEnabled: v })}
                 colors={colors}
@@ -1521,9 +1521,9 @@ export default function DashboardScreen() {
                   <Feather name="info" size={12} color={colors.textMuted} />
                   <Text style={[styles.threshLegendText, { color: colors.textMuted }]}>
                     {isCaregiverViewingChild
-                      ? `Set by ${profile?.childName ?? "this child"}'s guardians — view only.`
+                      ? `Set by ${profile?.childName ?? "this child"}'s guardians. View only.`
                       : isCircleMember
-                      ? `Shared with your care circle — only ${circleOwnerName || "the circle owner"} can change these levels.`
+                      ? `Shared with your care circle. Only ${circleOwnerName || "the circle owner"} can change these levels.`
                       : "These levels control chart lines, alert triggers, and dot colors throughout the app."}
                   </Text>
                 </View>
@@ -1715,8 +1715,8 @@ export default function DashboardScreen() {
               <Feather name="users" size={12} color={colors.textMuted} />
               <Text style={[styles.threshLegendText, { color: colors.textMuted }]}>
                 {isCaregiverViewingChild
-                  ? `Set by ${profile?.childName ?? "this child"}'s guardians — view only.`
-                  : `Shared with your care circle — only ${circleOwnerName || "the circle owner"} can edit insulin settings.`}
+                  ? `Set by ${profile?.childName ?? "this child"}'s guardians. View only.`
+                  : `Shared with your care circle. Only ${circleOwnerName || "the circle owner"} can edit insulin settings.`}
               </Text>
             </View>
           )}
@@ -1825,7 +1825,7 @@ export default function DashboardScreen() {
               })
             ) : (
               <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
-                None set — the base values apply all day. Tap Edit to set different ratios for breakfast, lunch, dinner, or night.
+                None set. The base values apply all day. Tap Edit to set different ratios for breakfast, lunch, dinner, or night.
               </Text>
             )}
           </View>
@@ -2085,7 +2085,7 @@ export default function DashboardScreen() {
                   careCircle.createDoctorCodeAsMember; this is only the presentation. */}
               {isCircleMember && (
                 <Text style={[styles.accessSectionDesc, { color: colors.textMuted }]}>
-                  Your care circle shares one doctor code. You can create it — after that, only{" "}
+                  Your care circle shares one doctor code. You can create it. After that, only{" "}
                   {circleOwnerName || "the circle owner"} can replace it.
                 </Text>
               )}

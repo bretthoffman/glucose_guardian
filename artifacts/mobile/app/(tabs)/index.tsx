@@ -171,8 +171,8 @@ function TrendAlertBanner({
   const icon = isFalling ? "trending-down" : "trending-up";
   const title = isFalling ? "Glucose Dropping Fast ↓↓" : "Glucose Rising Fast ↑↑";
   const message = isFalling
-    ? `At ${glucose} mg/dL and dropping quickly — eat 15g fast-acting carbs (juice or glucose tabs) now. Do not take insulin.`
-    : `At ${glucose} mg/dL and rising quickly — avoid high-carb food now. Consider a short walk or consult your dose plan.`;
+    ? `At ${glucose} mg/dL and dropping quickly. Eat 15g fast-acting carbs (juice or glucose tabs) now. Do not take insulin.`
+    : `At ${glucose} mg/dL and rising quickly. Avoid high-carb food now. Consider a short walk or consult your dose plan.`;
   return (
     <HomeNotice
       icon={icon}
@@ -481,13 +481,13 @@ export default function HomeScreen() {
     const tuningCards: Suggestion[] = tuningSuggestions(
       computePatternTuning(insulinLog ?? [], Date.now()),
     ).map((t) => ({
-      icon: "sliders",
+      icon: "⚙️",
       title: t.title,
       body: t.body,
       color: COLORS.primary,
       priority: 3,
-      chatPrompt: `My logged insulin doses at ${t.bucket} have been running consistently different from the calculator's recommendations (${t.title.toLowerCase()}). What would you review with a care team — carb ratio or correction factor — and what questions should I ask?`,
-      tag: "Dose settings",
+      chatPrompt: `My logged insulin doses at ${t.bucket} have been running consistently different from the calculator's recommendations (${t.title.toLowerCase()}). What would you review with a care team (carb ratio or correction factor), and what questions should I ask?`,
+      tag: "DOSE SETTINGS",
     }));
     return [...base, ...tuningCards].sort((a, b) => a.priority - b.priority);
   }, [history, targetGlucose, isMinor, foodLog, insulinLog]);
@@ -744,7 +744,7 @@ export default function HomeScreen() {
         if (!silent) {
           return {
             ok: true,
-            manualAlert: { title: "Connected — No Readings Yet", message: msg },
+            manualAlert: { title: "Connected, No Readings Yet", message: msg },
           };
         }
         notifyCgmSyncSuccess();
@@ -1359,7 +1359,7 @@ export default function HomeScreen() {
                     libreBannerKind === "no_shared_patient"
                       ? "No shared Libre patient"
                       : libreBannerKind === "connected_no_data"
-                        ? "Libre connected — no readings yet"
+                        ? "Libre connected, no readings yet"
                         : libreBannerKind === "sharing_not_enabled"
                           ? "LibreLinkUp sharing required"
                           : libreBannerKind === "provider_unavailable"
@@ -1402,7 +1402,7 @@ export default function HomeScreen() {
                   icon="phone-call"
                   color={T.color.coral}
                   title="Emergency Alert Ready"
-                  message={`Glucose is ${latestReading.glucose < alertPrefs.lowThreshold ? "critically low" : "critically high"} — tap to alert your emergency contact${emergencyContacts.length > 1 ? "s" : ""}.`}
+                  message={`Glucose is ${latestReading.glucose < alertPrefs.lowThreshold ? "critically low" : "critically high"}. Tap to alert your emergency contact${emergencyContacts.length > 1 ? "s" : ""}.`}
                 >
                   <View style={styles.emergencyList}>
                     {/* One-tap target chosen in Emergency Contacts → show ONLY that contact's button;

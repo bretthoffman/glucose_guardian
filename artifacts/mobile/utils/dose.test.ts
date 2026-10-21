@@ -323,7 +323,7 @@ describe("post-bolus correction hold (anti-stacking)", () => {
     expect(dose.correctionHoldRemainingMin).toBe(40);
     const msg = dose.warnings.map((w) => w.message).join(" ");
     expect(msg).toContain("still taking effect");
-    expect(msg).toContain("recheck");
+    expect(msg).toMatch(/recheck/i);
   });
 
   it("never holds carb insulin — new food doses in full during the hold", () => {

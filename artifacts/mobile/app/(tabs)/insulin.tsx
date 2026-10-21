@@ -1246,7 +1246,7 @@ export default function InsulinScreen() {
             <View key="pattern-note" style={[styles.calcNote, { backgroundColor: colors.backgroundTertiary }]}>
               <Feather name="bar-chart-2" size={12} color={COLORS.primary} />
               <Text style={[styles.calcNoteText, { color: colors.textSecondary }]}>
-                Pattern adjustment: {dose.patternDelta > 0 ? "+" : "−"}{Math.abs(dose.patternDelta).toFixed(2)}u ({Math.round(Math.abs(dose.patternFactor - 1) * 100)}%) because doses given at this time of day have consistently run {dose.patternDelta > 0 ? "above" : "below"} the suggestions over the last two weeks. Your saved settings are unchanged — consider reviewing them with your care team.
+                Pattern adjustment: {dose.patternDelta > 0 ? "+" : "−"}{Math.abs(dose.patternDelta).toFixed(2)}u ({Math.round(Math.abs(dose.patternFactor - 1) * 100)}%) because doses given at this time of day have consistently run {dose.patternDelta > 0 ? "above" : "below"} the suggestions over the last two weeks. Your saved settings are unchanged. Consider reviewing them with your care team.
               </Text>
             </View>
           )}
@@ -1367,7 +1367,7 @@ export default function InsulinScreen() {
                     </Text>
                     {predictionStale && (
                       <Text style={[styles.predictStaleHint, { color: colors.textMuted }]}>
-                        Inputs changed — tap Predict to update.
+                        Inputs changed. Tap Predict to update.
                       </Text>
                     )}
                   </>
@@ -1408,7 +1408,7 @@ export default function InsulinScreen() {
                   basalDose.baselineSource === "lastDose"
                     ? "Your last logged basal dose"
                     : basalDose.baselineSource === "weight"
-                    ? `0.2 u/kg × ${Math.round((profile?.weightLbs ?? 0) * 0.45359237)} kg — starting estimate`
+                    ? `0.2 u/kg × ${Math.round((profile?.weightLbs ?? 0) * 0.45359237)} kg, starting estimate`
                     : "No basal history or weight set"
                 }
                 value={basalDose.baselineUnits ?? 0}
@@ -1437,7 +1437,7 @@ export default function InsulinScreen() {
               <View style={styles.doseTotalLabelWrap}>
                 <Text style={[styles.doseTotalLabel, { color: colors.textSecondary }]}>
                   {basalDose.baselineUnits == null
-                    ? "Basal dose — enter your prescribed amount"
+                    ? "Basal dose: enter your prescribed amount"
                     : isMinor
                     ? "Ask your adult about this basal dose:"
                     : "Suggested basal dose"}
@@ -1471,7 +1471,7 @@ export default function InsulinScreen() {
                       ? `my last logged basal dose (${formatDoseAmount(basalDose.baselineUnits ?? 0)}u)`
                       : basalDose.baselineSource === "weight"
                       ? `a starting estimate from my weight (${formatDoseAmount(basalDose.baselineUnits ?? 0)}u at 0.2 u/kg/day)`
-                      : "none — I haven't logged a basal dose or set my weight";
+                      : "none, since I haven't logged a basal dose or set my weight";
                   const fastingDesc =
                     basalDose.fastingAvg != null
                       ? `${basalDose.fastingAvg} mg/dL (target ${targetGlucose})`
@@ -1576,7 +1576,7 @@ const STRENGTH_META: Record<StrengthLabel, { text: string; color: string }> = {
   strong: { text: "Strong match", color: COLORS.success },
   good: { text: "Good match", color: COLORS.primary },
   rough: { text: "Rough estimate", color: "#F59E0B" },
-  building: { text: "Building — log more to sharpen predictions", color: "#8190A4" },
+  building: { text: "Building. Log more to sharpen predictions", color: "#8190A4" },
 };
 
 /** The reference-strength readout under the prediction chart (combines the chosen matches' confidence). */

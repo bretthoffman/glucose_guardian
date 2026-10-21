@@ -243,7 +243,7 @@ export default function OnboardingScreen() {
               const desc = role === "parent"
                 ? "Setting up Glucose Guardian for your child's diabetes management"
                 : role === "adult"
-                ? "Managing my own diabetes — I'm 18 or older"
+                ? "Managing my own diabetes (I'm 18 or older)"
                 : "A nurse, teacher, or aide watching over one or more kids with access codes";
               return (
                 <Pressable
@@ -443,7 +443,7 @@ export default function OnboardingScreen() {
             />
 
             <View style={{ width: "100%", gap: 6 }}>
-              <Text style={[styles.dobLabel, { color: colors.textMuted }]}>Weight (lbs) — optional</Text>
+              <Text style={[styles.dobLabel, { color: colors.textMuted }]}>Weight (lbs, optional)</Text>
               <TextInput
                 style={[
                   styles.nameInput,
@@ -577,7 +577,7 @@ export default function OnboardingScreen() {
                     ]}
                   >
                     {previewAge} years old
-                    {isMinorPreview ? " — Child account" : " — Adult account"}
+                    {isMinorPreview ? " · Child account" : " · Adult account"}
                   </Text>
                   <Text style={[styles.ageBadgeSub, { color: colors.textMuted }]}>
                     {isMinorPreview
@@ -654,7 +654,7 @@ export default function OnboardingScreen() {
                 <Text style={[styles.insulinSectionOptional, { color: colors.textMuted }]}>Optional</Text>
               </View>
               <Text style={[styles.insulinSectionSub, { color: colors.textMuted }]}>
-                Select any that apply — you can change this later
+                Select any that apply. You can change this later.
               </Text>
               {(["rapid", "long", "ultra-long", "regular", "intermediate", "premixed"] as const).map((groupType) => {
                 const groupOptions = INSULIN_OPTIONS.filter((o) => o.type === groupType);
@@ -889,7 +889,7 @@ export default function OnboardingScreen() {
             >
               <AccentShade radius={12} />
               <Feather name="clock" size={15} color="#fff" />
-              <Text style={styles.exitPrimaryBtnText}>Save it — I&apos;ll finish later</Text>
+              <Text style={styles.exitPrimaryBtnText}>Save it, I&apos;ll finish later</Text>
             </Pressable>
             <Text style={[styles.exitHint, { color: colors.textMuted }]}>
               Sign in with the same email and you&apos;ll come right back to these steps.

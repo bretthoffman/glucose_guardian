@@ -251,9 +251,9 @@ export default function FoodInsulinModal({
         <Text style={[styles.title, { color: colors.text }]}>Insulin Calculator</Text>
         <Text style={[styles.sub, { color: colors.textSecondary }]}>
           {excludeLogTimestamp
-            ? `${foodName ? `For ${foodName} — ` : ""}already logged; its log is set aside here so these carbs count once.`
+            ? `${foodName ? `For ${foodName}: ` : ""}already logged; its log is set aside here so these carbs count once.`
             : foodName
-              ? `For ${foodName} — carbs pre-filled from the analysis.`
+              ? `For ${foodName}. Carbs pre-filled from the analysis.`
               : "Carbs pre-filled from the analysis."}
         </Text>
 
@@ -316,7 +316,7 @@ export default function FoodInsulinModal({
               <DoseRow
                 label="Correction"
                 sub={dose.correctionSuppressed
-                  ? "BG below target — suppressed"
+                  ? "BG below target (suppressed)"
                   : `(${doseBg.label} − ${targetGlucose}) ÷ ${effSettings.correctionFactor}${dose.resistanceBump > 0 ? " · +10% very high" : ""}`}
                 value={dose.correctionInsulin + dose.resistanceBump}
                 unit="u"
@@ -417,7 +417,7 @@ export default function FoodInsulinModal({
           </>
         ) : (
           <Text style={[styles.prompt, { color: colors.textMuted }]}>
-            No glucose reading available — enter your current BG above to calculate this dose.
+            No glucose reading available. Enter your current BG above to calculate this dose.
           </Text>
         )}
       </View>

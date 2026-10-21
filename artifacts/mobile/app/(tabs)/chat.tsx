@@ -59,7 +59,7 @@ function buildParentSuggestions(
   }
   if (glucose < 70) {
     return [
-      `${name}'s sugar is low — what do I do?`,
+      `${name}'s sugar is low. What do I do?`,
       "How much fast-acting sugar to give?",
       "When should I call the doctor?",
       "Is it safe to let them sleep?",
@@ -75,14 +75,14 @@ function buildParentSuggestions(
   }
   if (glucose > high) {
     return [
-      `${name} is above range — correction?`,
+      `${name} is above range. Should I correct?`,
       "How long to come back down?",
       "Is activity safe at this level?",
       "Should I log this in their report?",
     ];
   }
   return [
-    `${name}'s levels look good — tips?`,
+    `${name}'s levels look good. Any tips?`,
     "What's the ideal overnight range?",
     "How do I adjust for exercise?",
     "Generate a doctor report",

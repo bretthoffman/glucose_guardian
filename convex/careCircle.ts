@@ -133,7 +133,7 @@ async function generateUniqueCode(ctx: MutationCtx): Promise<string> {
       .first();
     if (!inviteHit && !accessHit) return code;
   }
-  throw new ConvexError("Could not generate a unique code — try again");
+  throw new ConvexError("Could not generate a unique code. Try again");
 }
 
 async function getSettings(ctx: QueryCtx | MutationCtx, patientUserId: Id<"users">) {

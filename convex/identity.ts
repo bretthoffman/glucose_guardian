@@ -44,7 +44,7 @@ export async function requireUser(ctx: QueryCtx | MutationCtx): Promise<Doc<"use
     .query("users")
     .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
     .unique();
-  if (!user) throw new ConvexError("No account for this sign-in yet — call identity.ensureUser first");
+  if (!user) throw new ConvexError("No account for this sign-in yet. Call identity.ensureUser first");
   return user;
 }
 

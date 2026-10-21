@@ -164,19 +164,19 @@ export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
   const heldWait = Math.max(1, Math.round(ctx.holdRemainingMin ?? 0));
   /** Folded into the high/spike warnings so the single-warning rule holds. */
   const heldNote = held
-    ? ` Insulin given ${heldAge} is still taking effect, so no extra correction is suggested yet — recheck in about ${heldWait} min.`
+    ? ` Insulin given ${heldAge} is still taking effect, so no extra correction is suggested yet. Recheck in about ${heldWait} min.`
     : "";
 
   // Basal insulin: the meal/correction premise doesn't apply — fold in any acute glucose caution.
   if (ctx.basalSuppressed) {
     const lead = ctx.isLowBG
-      ? "Glucose is low — treat it first. "
+      ? "Glucose is low. Treat it first. "
       : ctx.isHighBG
-      ? "Glucose is high — verify with a finger stick. "
+      ? "Glucose is high. Verify with a finger stick. "
       : "";
     return mkWarn(
       "warning",
-      `${lead}Long-acting (basal) insulin isn't dosed from carbs or corrections — enter your prescribed amount manually. This calculator's math is for mealtime insulin.`,
+      `${lead}Long-acting (basal) insulin isn't dosed from carbs or corrections. Enter your prescribed amount manually. This calculator's math is for mealtime insulin.`,
     );
   }
 
@@ -193,11 +193,11 @@ export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
   // single-warning rule holds.
   if (ctx.isHighBG) {
     const ketones = ctx.isVeryHighBG
-      ? " Check for ketones — corrections can be less effective this high, so the suggestion includes a small extra correction."
+      ? " Check for ketones. Corrections can be less effective this high, so the suggestion includes a small extra correction."
       : "";
     const siteCheck =
       ctx.iobDiscounted && !held
-        ? " Earlier insulin doesn't appear to be lowering glucose, so only part of it is credited — consider checking the injection site or pen."
+        ? " Earlier insulin doesn't appear to be lowering glucose, so only part of it is credited. Consider checking the injection site or pen."
         : "";
     if (ctx.isSpike) {
       return mkWarn(
@@ -230,12 +230,12 @@ export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
     if (isFalling) {
       return mkWarn(
         "warning",
-        "Glucose is below your target and falling. No correction is added — have a small snack instead of insulin and monitor closely.",
+        "Glucose is below your target and falling. No correction is added. Have a small snack instead of insulin and monitor closely.",
       );
     }
     return mkWarn(
       "info",
-      `BG is below target (${ctx.targetBG} mg/dL). No correction added — consider a small snack instead.`,
+      `BG is below target (${ctx.targetBG} mg/dL). No correction added. Consider a small snack instead.`,
     );
   }
 
@@ -243,7 +243,7 @@ export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
   if (isFalling) {
     return mkWarn(
       "warning",
-      "Glucose is falling, so a trend adjustment is applied — monitor closely after dosing.",
+      "Glucose is falling, so a trend adjustment is applied. Monitor closely after dosing.",
     );
   }
 
@@ -251,7 +251,7 @@ export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
   if (held) {
     return mkWarn(
       "info",
-      `Insulin given ${heldAge} is still taking effect. To avoid stacking doses, the ${Math.round((ctx.correctionHeldUnits ?? 0) * 100) / 100}u correction is on hold — recheck in about ${heldWait} min. Carbs are still covered in full.`,
+      `Insulin given ${heldAge} is still taking effect. To avoid stacking doses, the ${Math.round((ctx.correctionHeldUnits ?? 0) * 100) / 100}u correction is on hold. Recheck in about ${heldWait} min. Carbs are still covered in full.`,
     );
   }
 
@@ -259,7 +259,7 @@ export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
   if (ctx.iobCovers) {
     return mkWarn(
       "info",
-      `Recent insulin is still active (${Math.round(ctx.iobUnits * 100) / 100}u on board) and already covers the correction — only carbs are dosed.`,
+      `Recent insulin is still active (${Math.round(ctx.iobUnits * 100) / 100}u on board) and already covers the correction, so only carbs are dosed.`,
     );
   }
 
@@ -275,7 +275,7 @@ export function buildDoseWarning(ctx: DoseWarningContext): DoseWarning | null {
   if (ctx.insulinKind === "regular") {
     return mkWarn(
       "info",
-      "Regular (short-acting) insulin starts and peaks slower than rapid-acting — inject about 30 minutes before eating.",
+      "Regular (short-acting) insulin starts and peaks slower than rapid-acting. Inject about 30 minutes before eating.",
     );
   }
   if (ctx.insulinKind === "premixed") {

@@ -417,7 +417,7 @@ export const seedDemo = mutation({
       {
         id: "msg-1",
         timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-        text: "Hi Dr. Chen! Emma had a rough night — lots of lows around 2–4 AM. We adjusted her basal but want your input.",
+        text: "Hi Dr. Chen! Emma had a rough night, lots of lows around 2–4 AM. We adjusted her basal but want your input.",
         sender: "guardian" as const,
         read: true,
       },
