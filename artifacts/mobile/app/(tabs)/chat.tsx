@@ -4,7 +4,6 @@ import { useLocalSearchParams } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   FlatList,
-  Image,
   Modal,
   Platform,
   Pressable,
@@ -33,6 +32,7 @@ import { resolveChatSpeaker } from "@/utils/chatSpeaker";
 import { threadRoleLabel } from "@/utils/threadRoleLabel";
 import { AccentShade, CardShade, ControlShade, HeaderShade, ScreenShade } from "@/components/Shade";
 import { useHelpAnchor, useHelpPage } from "@/context/HelpContext";
+import { BrandMark } from "@/components/BrandLogo";
 
 interface Message {
   id: string;
@@ -582,7 +582,7 @@ export default function ChatScreen() {
             left={
               <View style={styles.headerLeft}>
                 <View style={[styles.avatarSmall, { backgroundColor: COLORS.primary + "20" }]}>
-                  <Image source={require("../../assets/images/logo.png")} style={styles.avatarLogo} resizeMode="contain" />
+                  <BrandMark size={styles.avatarLogo.width} />
                 </View>
                 <View style={styles.headerText}>
                   <Text style={[styles.headerTitle, { color: colors.text }]}>Glucose Guardian</Text>
@@ -753,7 +753,7 @@ function MessageBubble({
     <View style={[styles.bubbleWrapper, isUser ? styles.userBubbleWrapper : styles.aiBubbleWrapper]}>
       {isAI && (
         <View style={[styles.avatarTiny, { backgroundColor: COLORS.primary + "20" }]}>
-          <Image source={require("../../assets/images/logo.png")} style={styles.avatarTinyLogo} resizeMode="contain" />
+          <BrandMark size={styles.avatarTinyLogo.width} />
         </View>
       )}
       <View

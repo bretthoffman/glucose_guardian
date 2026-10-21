@@ -6,11 +6,10 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { ActivityIndicator, Platform, View } from "react-native";
+import { Platform, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
-import { COLORS } from "@/constants/colors";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { GlucoseProvider } from "@/context/GlucoseContext";
@@ -23,6 +22,7 @@ import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { convex } from "@/utils/convex-auth-client";
 import UpdatePrompt from "@/components/UpdatePrompt";
+import { BrandLoading } from "@/components/BrandLogo";
 import { HelpProvider } from "@/context/HelpContext";
 import {
   registerNotificationCategories,
@@ -124,7 +124,7 @@ function RootLayoutNav() {
           alignItems: "center",
         }}
       >
-        <ActivityIndicator color={COLORS.primary} size="large" />
+        <BrandLoading />
       </View>
     );
   }

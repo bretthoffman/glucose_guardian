@@ -21,6 +21,7 @@ import { AccentShade, CardShade } from "@/components/Shade";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
+import { BrandMark } from "@/components/BrandLogo";
 import { combineNotes, formatNoteDate, unseenNotes, whatsNewAction } from "@/utils/whatsNew";
 
 type Palette = (typeof Colors)["light"];
@@ -138,7 +139,10 @@ function WhatsNewSheetBody({ note, onClose, onSeeAll }: { note: ReleaseNote; onC
           ]}
         >
           <View style={[styles.grabber, { backgroundColor: colors.border }]} />
-          <Text style={[styles.kicker, { color: COLORS.primaryLight }]}>UPDATED · {formatNoteDate(note.date).toUpperCase()}</Text>
+          <View style={styles.kickerRow}>
+            <BrandMark size={22} />
+            <Text style={[styles.kicker, { color: COLORS.primaryLight }]}>UPDATED · {formatNoteDate(note.date).toUpperCase()}</Text>
+          </View>
           <Text style={[styles.sheetTitle, { color: colors.text }]} accessibilityRole="header">
             What's new
           </Text>
@@ -230,6 +234,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24, paddingTop: 10, gap: 14, maxHeight: "85%",
   },
   grabber: { alignSelf: "center", width: 40, height: 5, borderRadius: 3, marginBottom: 6 },
+  kickerRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   kicker: { fontSize: 12, fontWeight: "800", letterSpacing: 0.9 },
   sheetTitle: { fontSize: 28, fontWeight: "800", letterSpacing: -0.4, marginTop: -8, marginBottom: 4 },
   item: { flexDirection: "row", gap: 14, alignItems: "flex-start" },

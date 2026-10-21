@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  Image,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -27,6 +26,7 @@ import AccessCodeScanner from "@/components/AccessCodeScanner";
 import * as Haptics from "expo-haptics";
 import * as WebBrowser from "expo-web-browser";
 import { AccentShade } from "@/components/Shade";
+import { BrandLoading, BrandLockup } from "@/components/BrandLogo";
 
 // Clerk's recommended call for OAuth screens: settles any auth session left pending when the
 // browser sheet hands control back to the app (standalone builds; no-op in Expo Go).
@@ -215,7 +215,7 @@ export default function AuthScreen() {
   if (isLoading) {
     return (
       <View style={[styles.loadingScreen, { backgroundColor: "#0B1120" }]}>
-        <ActivityIndicator color={COLORS.primary} size="large" />
+        <BrandLoading />
       </View>
     );
   }
@@ -248,13 +248,8 @@ export default function AuthScreen() {
       >
         <View style={styles.hero}>
           <View style={styles.logoWrap}>
-            <Image
-              source={require("../assets/images/logo.png")}
-              style={styles.logoImg}
-              resizeMode="contain"
-            />
+            <BrandLockup width={190} dark />
           </View>
-          <Text style={[styles.appName, { color: textColor }]}>Glucose Guardian</Text>
           <Text style={[styles.tagline, { color: subtextColor }]}>
             Your AI-powered diabetes companion
           </Text>
@@ -742,15 +737,6 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   logoWrap: { marginBottom: 16, alignItems: "center" },
-  logoImg: {
-    width: 110,
-    height: 110,
-  },
-  appName: {
-    fontSize: 28,
-    fontWeight: "700",
-    marginBottom: 6,
-  },
   tagline: {
     fontSize: 14,
     fontWeight: "400",

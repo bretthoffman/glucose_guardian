@@ -24,6 +24,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { AccentShade, ScreenShade } from "@/components/Shade";
+import { BrandLockup } from "@/components/BrandLogo";
 
 type Step = "welcome" | "role" | "parent_name" | "organization" | "name" | "birthday" | "diabetes" | "insulin_formula";
 
@@ -184,12 +185,7 @@ export default function OnboardingScreen() {
       >
         {step === "welcome" && (
           <View style={styles.stepContainer}>
-            <Image
-              source={require("../assets/images/logo.png")}
-              style={styles.logoImg}
-              resizeMode="contain"
-            />
-            <Text style={[styles.bigTitle, { color: colors.text }]}>Glucose Guardian</Text>
+            <BrandLockup width={210} dark={isDark} style={styles.logoImg} />
             <Text style={[styles.bigSubtitle, { color: colors.textSecondary }]}>
               Your AI-powered diabetes companion
             </Text>
@@ -1031,11 +1027,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 8,
   },
-  logoImg: {
-    width: 130,
-    height: 130,
-    marginBottom: 8,
-  },
+  logoImg: { marginBottom: 8 },
   bigTitle: { fontSize: 34, fontWeight: "700", textAlign: "center" },
   bigSubtitle: {
     fontSize: 16,
