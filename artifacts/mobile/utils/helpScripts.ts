@@ -36,7 +36,7 @@ const home: HelpStep[] = [
     anchor: "home.trend",
     title: "Direction and movement",
     text:
-      "The arrow shows which way glucose is heading: → steady, ↗ or ↘ drifting slowly, a straight up or down arrow moving fast, and a double arrow very fast. The pill under it names the movement, colored by urgency: green when calm, amber when drifting, red when fast. \"Updated\" tells you how fresh the reading is. Tapping here opens the movement details.",
+      "The arrow shows which way glucose is heading: → steady, ↗ or ↘ drifting slowly, a straight up or down arrow moving fast, and a double arrow very fast. The pill under it names the movement, colored by urgency: green when calm, amber when drifting, red when fast. \"Updated\" tells you how fresh the reading is. Tapping here opens Tips for You: patterns from your own numbers, each with Ask Glucose Guardian about this for a plain-language answer in Chat.",
   },
   {
     id: "home.cgmChip",
@@ -133,7 +133,14 @@ const insulin: HelpStep[] = [
     anchor: "insulin.tookDose",
     title: "I Just Took This Dose",
     text:
-      "Logs the shown dose with one tap. It lands in the Log tab, counts as insulin on board, and syncs to your care circle and doctor. The button turns green once it's recorded.",
+      "Logs the shown dose with one tap. It lands in the Log tab, counts as insulin on board, and syncs to your care circle and doctor. The button turns green once it's recorded. If insulin was already logged in the last 2 hours, you'll see Beware of insulin stacking first, with how much is still working, so you can cancel or go ahead.",
+  },
+  {
+    id: "insulin.pens",
+    anchor: "insulin.pens",
+    title: "Pens",
+    text:
+      "Opened a new insulin pen? Tap Start new pen, pick the insulin and where it lives (like Home or School), and Glucose Guardian counts down the days it's good for. You'll get a reminder 3 days before, the day before, and the day to change it, and the Insulin tab shows a dot when a pen is close. Tap a pen to edit it or mark it done, and History shows past pens.",
   },
   {
     id: "insulin.disclaimer",
@@ -175,7 +182,8 @@ const insulin: HelpStep[] = [
     id: "insulin.log.add",
     anchor: "insulin.log.add",
     title: "Add Entry",
-    text: "Log something after the fact (an insulin dose or a meal) onto whichever day you're viewing.",
+    text:
+      "Log something after the fact onto whichever day you're viewing: an insulin dose, a meal, or a finger stick. A finger stick shows next to the Dexcom reading from the same time, so you can see how close the sensor was.",
     effects: ["insulin.logTab"],
   },
 ];
@@ -206,7 +214,7 @@ const food: HelpStep[] = [
     anchor: "food.estimate",
     title: "Estimate Carbs",
     text:
-      "Runs the lookup for what you typed. The result card shows the carbs (tap the number to correct it), a spike forecast, and buttons to calculate insulin for it or log it as a meal.",
+      "Runs the lookup for what you typed. The result card shows the carbs (tap the number to correct it), a spike forecast, and buttons to calculate insulin for it or log it as a meal. Tap the heart to add it to your Favorites.",
   },
   {
     id: "food.quick",

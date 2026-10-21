@@ -23,6 +23,7 @@ import CalendarPicker from "@/components/CalendarPicker";
 import { AccentShade, CardShade } from "@/components/Shade";
 import { useAuth, type PenEntry } from "@/context/AuthContext";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
+import { useHelpAnchor } from "@/context/HelpContext";
 import {
   MAX_PEN_DAYS,
   MIN_PEN_DAYS,
@@ -95,6 +96,7 @@ export default function PensCard({
 }) {
   const { penLog, savePen, deletePen } = useAuth();
   const confirmLog = useCareLogConfirm();
+  const helpPens = useHelpAnchor("insulin.pens");
   const today = toLocalDate(new Date());
   const open = useMemo(() => activePens(penLog, today), [penLog, today]);
   const [starting, setStarting] = useState(false);
@@ -104,7 +106,7 @@ export default function PensCard({
   const save = (pen: Parameters<typeof savePen>[0]) => confirmLog(() => savePen(pen));
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View ref={helpPens} collapsable={false} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <CardShade radius={16} />
       <View style={styles.headRow}>
         <Text style={[styles.headLabel, { color: colors.textSecondary }]}>PENS</Text>
