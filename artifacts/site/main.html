@@ -302,16 +302,25 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 /* Nurse demo: Insulin page (Dose) with Pens, and the finger stick sheet */
 .a-seg .nb{flex:1;text-align:center;padding:8px 0;color:var(--a-sub);border-radius:10px;display:flex;align-items:center;justify-content:center;gap:4px;font-size:11.5px;font-weight:600;width:auto}
 .a-seg .nb.on{background:var(--brand-grad);color:#fff}
-.nd-card{padding:10px 11px;display:flex;flex-direction:column;gap:9px}
-.nd-in{display:flex;align-items:stretch;gap:8px}.nd-in>div:not(.ic-sep){flex:1}
-.nd-sug{display:flex;align-items:center;justify-content:space-between}.nd-sug b{font-size:10px;letter-spacing:.06em}
+.nd-scroll{position:absolute;left:0;right:0;top:92px;bottom:0;overflow-y:auto;scrollbar-width:none;padding:2px 13px 74px;display:flex;flex-direction:column;gap:9px}.nd-scroll::-webkit-scrollbar{display:none}
+.ipad .nd-scroll{top:104px;padding-left:44px;padding-right:44px}
+.nd-calc{display:flex;align-items:center;justify-content:space-between;gap:8px}.nd-calc b{font-size:14px}
+.nd-insp{display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:600;border:1px solid var(--a-line);background:var(--a-card);border-radius:12px;padding:6px 9px}.nd-insp svg{width:11px;height:11px;color:#5cb8ff}.nd-insp i{font-style:normal;color:var(--a-sub)}
+.nd-card{padding:11px 12px;display:flex;flex-direction:column;gap:10px}
+.nd-in{display:flex;align-items:stretch;gap:8px}.nd-f{flex:1;text-align:center}.nd-v{font-size:20px;font-weight:800;margin-top:4px}.nd-v small{font-size:10px;font-weight:500;color:var(--a-sub)}.nd-mut{color:var(--a-sub)}.nd-t{font-size:8.5px;color:var(--a-sub);margin-top:2px}
+.nd-bars{display:flex;gap:6px}.nd-bar{flex:1;font-size:8px;font-weight:700;border-radius:999px;padding:5px 8px;border:1.5px solid;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.nd-bc{color:var(--o-tx);border-color:rgba(245,165,36,.55)}.nd-bi{color:#5cb8ff;border-color:rgba(92,184,255,.55);display:flex;justify-content:space-between;gap:4px}.nd-bi i{font-style:italic;font-weight:600;color:var(--a-mut)}
+.nd-h{font-size:8.5px;font-weight:800;letter-spacing:.1em;color:var(--a-sub);margin-top:2px}
+.nd-math{display:flex;align-items:center;justify-content:space-between;padding:12px 8px;text-align:center}.nd-math div{display:flex;flex-direction:column;gap:3px;min-width:0}.nd-math span{font-size:7.5px;font-weight:600;color:var(--a-sub);white-space:nowrap}.nd-math b{font-size:12px;font-weight:800}.nd-math i{font-style:normal;font-size:7.5px;color:var(--a-sub)}.nd-math em{font-style:normal;color:var(--a-sub);font-weight:700}
+.nd-sug{display:flex;align-items:center;justify-content:space-between}.nd-sug b{font-size:10px;letter-spacing:.06em}.nd-sb{display:flex;flex-direction:column;align-items:center;gap:3px}.nd-sb span{font-size:8px;color:var(--a-sub)}
 .nd-btns{display:flex;gap:6px}.nd-btns span{flex:1;text-align:center;border-radius:11px;padding:9px 0;font-size:9.5px;font-weight:700}
 .nd-alt{background:var(--brand-soft),var(--a-btnalt);color:var(--a-btnalttx)}.nd-main{background:var(--brand-grad);color:#fff}
-.nd-pens{padding:10px 11px;display:flex;flex-direction:column;gap:7px}
-.nd-ph{display:flex;justify-content:space-between;align-items:center}.nd-ph b{font-size:10px;letter-spacing:.08em;color:var(--a-sub)}.nd-ph span{font-size:10px;font-weight:600;color:var(--a-purtx)}
-.nd-pen{display:flex;align-items:center;gap:9px}.nd-rw{position:relative;width:34px;height:34px;flex:none}.nd-ring{width:34px;height:34px;display:block}.nd-rn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--a-tx)}
-.nd-pt{flex:1;min-width:0}.nd-pt b{display:block;font-size:11.5px}.nd-pt span{display:block;font-size:9px;margin-top:1px}
-.nd-start{display:block;text-align:center;border-radius:11px;padding:9px 0;font-size:10.5px;font-weight:700;color:#fff;background:var(--brand-grad)}
+.nd-pens{padding:11px 12px;display:flex;flex-direction:column;gap:0}
+.nd-ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.nd-ph b{font-size:10px;letter-spacing:.08em;color:var(--a-sub)}.nd-ph span{font-size:10.5px;font-weight:600;color:#5cb8ff}
+.nd-pen{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--a-line)}.nd-pen:last-of-type{border-bottom:0}
+.nd-rw{position:relative;width:38px;height:38px;flex:none}.nd-ring{width:38px;height:38px;display:block}.nd-rn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--a-tx)}
+.nd-pt{flex:1;min-width:0}.nd-pt b{display:block;font-size:12px}.nd-loc{font-weight:500;color:var(--a-sub)}.nd-pt>span{display:block;font-size:9px;margin-top:2px}
+.nd-start{display:block;text-align:center;border-radius:12px;padding:10px 0;margin-top:8px;font-size:11px;font-weight:700;color:#fff;background:var(--brand-grad)}
+.nd-disc{padding:10px 12px;font-size:8.5px;line-height:1.45;color:var(--a-sub)}
 .ic.fs{gap:8px}.ic.fs .ic-x{position:absolute;top:8px;right:10px}
 .fs-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10.5px;color:var(--a-sub);border:1px solid var(--a-line);border-radius:10px;padding:7px 9px}.fs-row b{color:var(--a-tx)}
 .fs-val{font-size:20px;font-weight:800;color:var(--a-tx);border:1.5px solid var(--a-pur);border-radius:9px;padding:2px 14px;min-width:70px;text-align:center}
@@ -514,7 +523,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></symbol>
 <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></symbol>
 <symbol id="i-chip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="2"></rect><rect x="9.5" y="9.5" width="5" height="5"></rect><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"></path></symbol>
-<symbol id="i-bookmark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"></path></symbol>
+<symbol id="i-bookmark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"></path></symbol><symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20s-7-4.4-9-9.2C1.7 7.5 4 4.5 7.2 4.5c2 0 3.6 1.1 4.8 2.8 1.2-1.7 2.8-2.8 4.8-2.8 3.2 0 5.5 3 4.2 6.3C19 15.6 12 20 12 20z"></path></symbol>
 <symbol id="i-pie" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12A9 9 0 1 1 12 3"></path><path d="M12 3a9 9 0 0 1 9 9h-9z"></path></symbol>
 <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></symbol>
 <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></symbol>
@@ -728,7 +737,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="fa-top"><div class="fa-trend"><svg><use href="#i-pulse"></use></svg>Glucose trend: <b class="tr-g">→ Stable</b></div><div class="a-bgp tag-ok"><b>128</b> <i>mg/dL</i><div>→</div>In Range</div></div>
 <div class="fa-card">
 <img class="fa-img" src="images/waffles.jpg" alt="">
-<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-bookmark"></use></svg>Save to Quick Lookup</span><span class="fa-x">×</span></div>
+<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-heart"></use></svg>Add to Favorites</span><span class="fa-x">×</span></div>
 <div class="fa-head"><div class="fa-title"><b>Waffles With Berries</b><span>Estimated 2 toaster waffles with mixed berries</span><span class="fa-conf cf-hi">● high confidence</span></div><div class="fa-carbs"><b>38</b><span>g carbs</span><i>tap to edit</i></div></div>
 <div class="fa-macro"><svg><use href="#i-pie"></use></svg>6g fat · 5g protein</div>
 
@@ -747,7 +756,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="fa-top"><div class="fa-trend"><svg><use href="#i-pulse"></use></svg>Glucose trend: <b class="tr-g">→ Stable</b></div><div class="a-bgp tag-ok"><b>128</b> <i>mg/dL</i><div>→</div>In Range</div></div>
 <div class="fa-card">
 <img class="fa-img" src="images/waffles.jpg" alt="">
-<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-bookmark"></use></svg>Save to Quick Lookup</span><span class="fa-x">×</span></div>
+<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-heart"></use></svg>Add to Favorites</span><span class="fa-x">×</span></div>
 <div class="fa-head"><div class="fa-title"><b>Waffles With Berries</b><span>Estimated 2 toaster waffles with mixed berries</span><span class="fa-conf cf-hi">● high confidence</span></div><div class="fa-carbs"><b>38</b><span>g carbs</span><i>tap to edit</i></div></div>
 <div class="fa-macro"><svg><use href="#i-pie"></use></svg>6g fat · 5g protein</div>
 
@@ -783,7 +792,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="fa-top"><div class="fa-trend"><svg><use href="#i-pulse"></use></svg>Glucose trend: <b class="tr-g">→ Stable</b></div><div class="a-bgp tag-ok"><b>128</b> <i>mg/dL</i><div>→</div>In Range</div></div>
 <div class="fa-card">
 <img class="fa-img" src="images/waffles.jpg" alt="">
-<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-bookmark"></use></svg>Save to Quick Lookup</span><span class="fa-x">×</span></div>
+<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-heart"></use></svg>Add to Favorites</span><span class="fa-x">×</span></div>
 <div class="fa-head"><div class="fa-title"><b>Waffles With Berries</b><span>Estimated 2 toaster waffles with mixed berries</span><span class="fa-conf cf-hi">● high confidence</span></div><div class="fa-carbs"><b>38</b><span>g carbs</span><i>tap to edit</i></div></div>
 <div class="fa-macro"><svg><use href="#i-pie"></use></svg>6g fat · 5g protein</div>
 
@@ -1021,7 +1030,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="fa-top"><div class="fa-trend"><svg><use href="#i-pulse"></use></svg>Glucose trend: <b class="tr-g">→ Stable</b></div><div class="a-bgp tag-ok"><b>132</b> <i>mg/dL</i><div>→</div>In Range</div></div>
 <div class="fa-card">
 <img class="fa-img" src="images/waffles.jpg" alt="">
-<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-bookmark"></use></svg>Save to Quick Lookup</span><span class="fa-x">×</span></div>
+<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-heart"></use></svg>Add to Favorites</span><span class="fa-x">×</span></div>
 <div class="fa-head"><div class="fa-title"><b>Waffles With Berries</b><span>Estimated 2 toaster waffles with mixed berries</span><span class="fa-conf cf-hi">● high confidence</span></div><div class="fa-carbs"><b>38</b><span>g carbs</span><i>tap to edit</i></div></div>
 <div class="fa-macro"><svg><use href="#i-pie"></use></svg>6g fat · 5g protein</div>
 
@@ -1158,7 +1167,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="fa-top"><div class="fa-trend"><svg><use href="#i-pulse"></use></svg>Glucose trend: <b class="{{fa.trCls}}">{{fa.trend}}</b></div><div class="a-bgp {{fa.tag}}"><b>{{fa.bg}}</b> <i>mg/dL</i><div>{{fa.arrow}}</div>{{fa.range}}</div></div>
 <div class="fa-card">
 <img class="fa-img" src="{{fa.img}}" alt="{{fa.alt}}">
-<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-bookmark"></use></svg>Save to Quick Lookup</span><span class="fa-x">×</span></div>
+<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-heart"></use></svg>Add to Favorites</span><span class="fa-x">×</span></div>
 <div class="fa-head"><div class="fa-title"><b>{{fa.title}}</b><span>{{fa.portion}}</span><span class="fa-conf {{fa.confCls}}">● {{fa.conf}}</span></div><div class="fa-carbs"><b>{{fa.carbs}}</b><span>g carbs</span><i>tap to edit</i></div></div>
 <div class="fa-macro"><svg><use href="#i-pie"></use></svg>{{fa.macros}}</div>
 <sc-if value="{{fa.slow}}" hint-placeholder-val="{{ false }}"><div class="fa-note"><svg style="color: var(--o-tx)"><use href="#i-clock"></use></svg><span>High fat/protein meals digest slowly, so glucose can keep rising 3–4 hours after eating. Recheck in about 2 hours; a delayed rise may need a small follow-up correction.</span></div></sc-if>
@@ -1906,14 +1915,21 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="a-pad">
 <div class="a-topbar"><div class="a-seg"><button type="button" class="nb {{ns.doseCls}}" onClick="{{nPickDose}}"><svg><use href="#i-syr"></use></svg>Dose</button><button type="button" class="nb {{ns.logCls}}" onClick="{{nPickLog}}">Log</button></div><div class="a-bgp {{ns.tagCls}}"><b>{{ns.bg}}</b> <i>mg/dL</i><div>{{ns.arrow}}</div>{{ns.range}}</div></div>
 <sc-if value="{{ns.doseView}}" hint-placeholder-val="{{ false }}">
-<div class="a-card nd-card"><div class="nd-in"><div><div class="ic-l">CARBS (G)</div><div class="ic-box">32</div></div><div class="ic-sep"></div><div><div class="ic-l">CURRENT BG <span class="live">LIVE</span></div><div class="ic-box">{{ns.bg}}</div></div></div>
-<div class="nd-sug"><b>SUGGESTED DOSE</b><div class="a-dosebox">{{ns.sugDose}} <small>units</small></div></div>
-<div class="nd-btns"><span class="nd-alt">↗ Predict</span><span class="nd-main">✓ I Just Took This Dose</span></div></div>
+<div class="nd-scroll">
+<div class="nd-calc"><b>Calculator</b><span class="nd-insp"><svg><use href="#i-drop-o"></use></svg>Insulin: Lispro Junior<i>⌄</i></span></div>
+<div class="a-card nd-card"><div class="nd-in"><div class="nd-f"><div class="ic-l">🍴 CARBS</div><div class="nd-v nd-mut">0 <small>g</small></div><div class="nd-t">Tap to edit</div></div><div class="ic-sep"></div><div class="nd-f"><div class="ic-l">CURRENT BG <span class="live">LIVE</span></div><div class="nd-v">{{ns.bg}} <small>mg/dL</small></div></div></div></div>
+<div class="nd-bars"><span class="nd-bar nd-bc">0 g carbs still active</span><span class="nd-bar nd-bi">1.2 u insulin still active<i>4H</i></span></div>
+<div class="nd-h">HOW YOUR DOSE IS CALCULATED</div>
+<div class="a-card nd-math"><div><span>Correct BG</span><b style="color: #5cb8ff">0.05 u</b><i>{{ns.bg}} mg/dL</i></div><em>+</em><div><span>Carb Dose</span><b style="color: var(--g-tx)">0 u</b><i>0 g</i></div><em>+</em><div><span>Active Carbs</span><b style="color: var(--o-tx)">0 u</b><i>0 g</i></div><em>−</em><div><span>Active Insulin</span><b style="color: #5cb8ff">1.2 u</b><i>1.2 u</i></div></div>
+<div class="a-card nd-card"><div class="nd-sug"><b>SUGGESTED DOSE</b><div class="nd-sb"><div class="a-dosebox">0 <small>units</small></div><span>Tap to edit</span></div></div>
+<div class="nd-btns"><span class="nd-alt">↗ Predict</span><span class="nd-alt">✓ I Just Took This Dose</span></div></div>
 <div class="a-card nd-pens"><div class="nd-ph"><b>PENS</b><span>History</span></div>
 <sc-for list="{{ns.pens}}" as="pn" hint-placeholder-count="2">
-<div class="nd-pen"><span class="nd-rw"><svg class="nd-ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="var(--a-line)" stroke-width="4"></circle><circle cx="18" cy="18" r="15" fill="none" stroke="{{pn.color}}" stroke-width="4" stroke-linecap="round" stroke-dasharray="{{pn.dash}}" transform="rotate(-90 18 18)"></circle></svg><b class="nd-rn">{{pn.days}}</b></span><div class="nd-pt"><b>{{pn.title}}</b><span style="color: {{pn.subColor}}">{{pn.sub}}</span></div><span class="a-chev">›</span></div>
+<div class="nd-pen"><span class="nd-rw"><svg class="nd-ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="var(--a-line)" stroke-width="3.5"></circle><circle cx="18" cy="18" r="15" fill="none" stroke="{{pn.color}}" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="{{pn.dash}}" transform="rotate(-90 18 18)"></circle></svg><b class="nd-rn">{{pn.days}}</b></span><div class="nd-pt"><b>{{pn.name}}<span class="nd-loc">{{pn.loc}}</span></b><span style="color: {{pn.subColor}}">{{pn.sub}}</span></div><span class="a-chev">›</span></div>
 </sc-for>
 <span class="nd-start">+ Start new pen</span></div>
+<div class="a-card nd-disc">ⓘ This app provides estimates only and does not replace medical advice. Always follow your doctor's instructions.</div>
+</div>
 </sc-if>
 <sc-if value="{{ns.logView}}" hint-placeholder-val="{{ true }}">
 <div class="a-dayrow"><button type="button" class="nb" onClick="{{nPrevDay}}" aria-label="Previous day" style="width: auto; padding: 0 8px; color: {{ns.prevColor}}">‹</button><b>{{ns.dayLabel}}</b><button type="button" class="nb" onClick="{{nNextDay}}" aria-label="Next day" style="width: auto; padding: 0 8px; color: {{ns.nextColor}}">›</button></div>
@@ -1963,7 +1979,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="fa-top"><div class="fa-trend"><svg><use href="#i-pulse"></use></svg>Glucose trend: <b class="{{nfa.trCls}}">{{nfa.trend}}</b></div><div class="a-bgp {{nfa.tag}}"><b>{{nfa.bg}}</b> <i>mg/dL</i><div>{{nfa.arrow}}</div>{{nfa.range}}</div></div>
 <div class="fa-card">
 <img class="fa-img" src="images/burrito-bowl.jpg" alt="{{nfa.alt}}">
-<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-bookmark"></use></svg>Save to Quick Lookup</span><span class="fa-x">×</span></div>
+<div class="fa-row"><span class="fa-ai"><svg><use href="#i-chip"></use></svg>AI Photo Analysis</span><span class="fa-save"><svg><use href="#i-heart"></use></svg>Add to Favorites</span><span class="fa-x">×</span></div>
 <div class="fa-head"><div class="fa-title"><b>{{nfa.title}}</b><span>{{nfa.portion}}</span><span class="fa-conf {{nfa.confCls}}">● {{nfa.conf}}</span></div><div class="fa-carbs"><b>{{nfa.carbs}}</b><span>g carbs</span><i>tap to edit</i></div></div>
 <div class="fa-macro"><svg><use href="#i-pie"></use></svg>{{nfa.macros}}</div>
 <sc-if value="{{nfa.slow}}" hint-placeholder-val="{{ false }}"><div class="fa-note"><svg style="color: var(--o-tx)"><use href="#i-clock"></use></svg><span>High fat/protein meals digest slowly, so glucose can keep rising 3–4 hours after eating. Recheck in about 2 hours; a delayed rise may need a small follow-up correction.</span></div></sc-if>
@@ -2002,7 +2018,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 </div>
 </sc-if>
 
-<sc-if value="{{ns.inKid}}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ns.showTabs}}" hint-placeholder-val="{{ false }}">
 <div class="a-tabbar">
 <sc-for list="{{ns.tabs}}" as="tt" hint-placeholder-count="5">
 <button type="button" class="nb a-tab {{tt.cls}}" onClick="{{tt.pick}}" aria-pressed="{{tt.pressed}}" style="text-align: center"><svg><use href="{{tt.icon}}"></use></svg>{{tt.label}}</button>
@@ -2786,6 +2802,7 @@ class Component extends DCLogic {
     var nsObj = { frame: nDev === 'pad' ? 'ipad' : 'iphone', isPhone: nDev !== 'pad', isPad: nDev === 'pad',
       isMenu: !kidSel, isLock: kLocked, inKid: inKid, inAnyKid: !!kidSel,
       isGlucose: inKid && nTab === 'glucose', isLog: inKid && nTab === 'log',
+      showTabs: inKid && !(nTab === 'food' && (nSnap === 'cam' || nSnap === 'scan')),
       doseView: s.nIns === 'dose', logView: s.nIns !== 'dose', doseCls: s.nIns === 'dose' ? 'on' : '', logCls: s.nIns === 'dose' ? '' : 'on', fsOpen: !!s.nFs,
       isCam: inKid && nTab === 'food' && (nSnap === 'cam' || nSnap === 'scan'), showFood: inKid && nTab === 'food' && (nSnap === 'result' || nSnap === 'calc'), isModal: inKid && nTab === 'food' && nSnap === 'calc', isCalc: false, isChat: inKid && nTab === 'chat',
       isScan: nSnap === 'scan', isResult: nSnap === 'result', showBand: nSnap === 'cam' || nSnap === 'scan', showShutter: nSnap === 'cam',
@@ -2812,10 +2829,10 @@ class Component extends DCLogic {
       var fsMeter = k.bg + 4;
       nsObj.fsMeter = String(fsMeter);
       nsObj.sugDose = k.bg < 90 ? '0' : k.bg > 180 ? '3' : '2';
-      var penDefs = [['Lispro · School', 16, 28, 'opened Oct 1'], ['Lispro · Home', 3, 28, 'opened Sep 18 · change by Oct 16']];
+      var penDefs = [['Lispro Junior', '', 26, 28, 'opened Oct 19'], ['Lispro Junior', 'School', 27, 28, 'opened Oct 20']];
       nsObj.pens = penDefs.map(function (pd) {
-        var soon = pd[1] <= 3, c = 2 * Math.PI * 15, f = pd[1] / pd[2];
-        return { title: pd[0], days: String(pd[1]), sub: pd[1] + ' days left · ' + pd[3], subColor: soon ? 'var(--o-tx)' : 'var(--a-sub)', color: soon ? '#f5a524' : '#2f80ff', dash: (c * f).toFixed(1) + ' ' + c.toFixed(1) };
+        var soon = pd[2] <= 3, c = 2 * Math.PI * 15, f = pd[2] / pd[3];
+        return { name: pd[0], loc: pd[1] ? ' · ' + pd[1] : '', days: String(pd[2]), sub: pd[2] + ' days left · ' + pd[4], subColor: soon ? 'var(--o-tx)' : 'var(--a-sub)', color: soon ? '#f5a524' : '#5cb8ff', dash: (c * f).toFixed(1) + ' ' + c.toFixed(1) };
       });
       nsObj.rows = (s.nFsDone && !nDay ? [['fs', '12:41 PM', 'fs', 'Finger stick ' + fsMeter, '', 'School nurse']] : []).concat(rowsFor(nKid, nDay)).map(function (d) {
         if (d[2] === 'fs') return { time: d[1], icon: '#i-drop', title: d[3], tag: '', hasTag: false, edited: false, sub: 'Dexcom ' + k.bg + ' · close match · by ' + d[5], pick: function () {} };
@@ -2879,7 +2896,7 @@ class Component extends DCLogic {
     var nGuides = guideDefs.map(function (g, i) {
       var on = s.nGuide === i;
       return { n: String(i + 1), title: g[0], sub: g[1], pressed: on ? 'true' : 'false', bg: on ? '#eef6fb' : '#f5f5f7', border: on ? '#0369a1' : 'transparent', dotBg: on ? '#0369a1' : '#fff', dotFg: on ? '#fff' : '#0369a1',
-        pick: function () { self.setState(Object.assign({ nurse: 'school', nDay: 0, nGuide: i }, g[2])); } };
+        pick: function () { self.setState(Object.assign({ nurse: 'school', nDay: 0, nGuide: i }, g[2])); if (g[2].nIns === 'dose') setTimeout(function () { document.querySelectorAll('.nd-scroll').forEach(function (e) { e.scrollTop = e.scrollHeight; }); }, 80); } };
     });
 
     var startCalcSeq = function () {
