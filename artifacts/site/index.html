@@ -1466,6 +1466,11 @@ html.gd-lock body > *:not(.gg-demo){display:none!important}
      it that overlaps) had to get its own graphics layer. Draw the cue above the fade instead. */
   .hero-m::after{z-index:1}
   .hero-m .scrollcue{z-index:2}
+  /* The phone holds still: no drift or tilt on every scroll frame, no spring at each step. Pinning
+     --t on the phone itself zeroes its scroll-driven transform (each screen inside keeps its own
+     --t, so the app screens still play exactly as before). */
+  .cine .story .stage .lens .mover{--t:.5;transition:none!important}
+  .cine .story .stage .lens,.cine .story.ggodd .stage .lens{animation:none!important}
 }
 /* founder photos */
 .fd-photo.fd-has{border:0;background:#0b0d18;overflow:hidden}.fd-more{display:inline-flex;align-items:center;gap:4px;margin-top:2px;font-size:16px;font-weight:600;color:#38d7ee}.fd-more:hover{color:#7fe7f7;text-decoration:none}
