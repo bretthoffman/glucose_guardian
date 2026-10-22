@@ -393,6 +393,23 @@ export const caregiverTitle = v.union(
   v.literal("organization"),
 );
 
+/**
+ * The one-time Doctor Portal pass printed on a family's Visit Summary PDF. A doctor without a
+ * portal account enters it to see that patient's data, view only, for 24 hours from first use.
+ * One per family: once used (or turned off) no new pass is made. An unused pass is replaced after
+ * 30 days. See convex/portalTrial.ts.
+ */
+const portalTrialPasses = defineTable({
+  patientUserId: v.id("users"),
+  /** Normalized code: 7 characters, no "GG-" prefix or dashes. */
+  code: v.string(),
+  createdAt: v.number(),
+  firstUsedAt: v.optional(v.number()),
+  revokedAt: v.optional(v.number()),
+})
+  .index("by_patient", ["patientUserId"])
+  .index("by_code", ["code"]);
+
 const doctorPatientLinks = defineTable({
   doctorId: v.id("doctorAccounts"),
   accessCode: v.string(),
@@ -969,6 +986,7 @@ export default defineSchema({
   doctorAlerts,
   doctorAccessLogs,
   doctorPatientLinks,
+  portalTrialPasses,
   doctorPortalState: defineTable({
     accessCode: v.string(),
     messages: v.array(doctorMessage),

@@ -7,6 +7,7 @@ import cgmRouter from "./cgm";
 import chatRouter from "./chat";
 import predictRouter from "./predict";
 import doctorRouter from "./doctor";
+import doctorTrialRouter from "./doctor-trial";
 
 const router: IRouter = Router();
 
@@ -17,6 +18,8 @@ router.use("/food", foodRouter);
 router.use("/cgm", cgmRouter);
 router.use("/chat", chatRouter);
 router.use("/predict", predictRouter);
+// Mounted before /doctor so the pass routes never pass through the doctor-session guards.
+router.use("/doctor/trial", doctorTrialRouter);
 router.use("/doctor", doctorRouter);
 
 export default router;

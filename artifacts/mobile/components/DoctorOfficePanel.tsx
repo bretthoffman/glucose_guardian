@@ -12,12 +12,14 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "convex/react";
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 
 import { BrandShade } from "@/components/Shade";
 import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
+import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import { fetchGlucoseRange, identityKey, mergeReadings, type GlucoseIdentity } from "@/utils/glucoseRangeFetch";
 import { buildVisitSummary, DAY_MS, glucoseStats, inWindow, lowEpisodes, type SummaryReading } from "@/utils/visitSummary";
 import {
@@ -33,6 +35,9 @@ import {
 type Palette = typeof Colors.dark;
 const RANGES = [7, 14, 30, 90] as const;
 type RangeDays = (typeof RANGES)[number];
+/** Where the PDF's Doctor Portal box sends doctors. */
+const PORTAL_URL = "https://portal.glucoseguardian.io";
+
 /** This device remembers which sections were last chosen. */
 const SECTIONS_KEY = "@glucose_guardian_visit_summary_sections";
 
@@ -116,6 +121,42 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
     return { tir: s ? Math.round(s.pct.inRange) : null, gmi: s?.gmi ?? null, lows: s ? lowEpisodes(inRange).length : null };
   }, [readings, startMs, endMs]);
 
+  // ── Doctor Portal pass: a one-time code printed on the family's PDF (see convex/portalTrial). Only
+  // a signed-in family account has one; access-code sessions just get the demo invitation. ──
+  const canUsePass = auth.isSignedIn && !!auth.account?.convexUserId && !auth.caregiverSession && !auth.nurseViewCode;
+  const passStatus = useQuery(api.portalTrial.passStatus, canUsePass ? {} : "skip");
+  async function passCodeForPdf(): Promise<string | null> {
+    if (!canUsePass) return null;
+    try {
+      const r = await createConvexAuthClient().mutation(api.portalTrial.passForReport, {});
+      return r.code;
+    } catch {
+      return null; // offline or not deployed yet: the PDF still gets the demo invitation
+    }
+  }
+  function confirmTurnOffPass() {
+    Alert.alert(
+      "Turn off the Doctor Portal pass?",
+      "No doctor will be able to use it to see " + patientName + "'s data, and future PDFs won't include a code. This can't be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Turn off",
+          style: "destructive",
+          onPress: () => {
+            void createConvexAuthClient()
+              .mutation(api.portalTrial.turnOffPass, {})
+              .then(() => {
+                lastPdf.current = null;
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              })
+              .catch(() => Alert.alert("Couldn't turn it off", "Check your internet connection and try again."));
+          },
+        },
+      ],
+    );
+  }
+
   const [everyMeal, setEveryMeal] = useState(false);
   const [building, setBuilding] = useState<null | "preview" | "download">(null);
   const [sections, setSections] = useState<SectionChoices>(ALL_SECTIONS_ON);
@@ -139,7 +180,7 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
 
   /** The last PDF built, reused by Download right after Preview when nothing changed. */
   const lastPdf = useRef<{ key: string; file: string; at: number } | null>(null);
-  const pdfKey = JSON.stringify({ range, sections, everyMeal, idKey, from: fetched?.fromMs, n: readings.length, f: foodLog.length, i: insulinLog.length, s: fingerStickLog?.length ?? 0 });
+  const pdfKey = JSON.stringify({ range, sections, everyMeal, idKey, pass: passStatus?.state, from: fetched?.fromMs, n: readings.length, f: foodLog.length, i: insulinLog.length, s: fingerStickLog?.length ?? 0 });
 
   async function buildPdf(): Promise<string> {
     if (lastPdf.current && lastPdf.current.key === pdfKey && Date.now() - lastPdf.current.at < 5 * 60_000) return lastPdf.current.file;
@@ -163,7 +204,8 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
       targetGlucose,
       generatedAt: Date.now(),
     };
-    const html = buildVisitSummaryHtml(data, meta, { sections, includeEveryMeal: everyMeal });
+    const code = await passCodeForPdf();
+    const html = buildVisitSummaryHtml(data, meta, { sections, includeEveryMeal: everyMeal, portal: { code, url: PORTAL_URL } });
     // Letter size. iOS takes margins here; Android uses the @page margin in the HTML.
     const { uri } = await Print.printToFileAsync({
       html,
@@ -322,11 +364,48 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
           <Text style={styles.bigBtnTitle}>{building === "download" ? "Building…" : "Download PDF"}</Text>
         </Pressable>
       </View>
+      {canUsePass && passStatus && <PassRow colors={colors} status={passStatus} patientName={patientName} onTurnOff={confirmTurnOffPass} />}
       <Text style={[styles.hint, { color: colors.textMuted }]}>
         {noneChosen
           ? "Only the glucose overview is on. Tap a section above to add it."
           : "Preview shows every page first. Download lets you save it to Files or send it by email, text, or your patient portal (like MyChart)."}
       </Text>
+    </View>
+  );
+}
+
+type PassStatus = NonNullable<ReturnType<typeof useQuery<typeof api.portalTrial.passStatus>>>;
+
+function fmtClock(ms: number): string {
+  const d = new Date(ms);
+  const h = d.getHours();
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(d.getMinutes()).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/** Where the family's one-time Doctor Portal pass stands, with the way to turn it off. */
+function PassRow({ colors, status, patientName, onTurnOff }: { colors: Palette; status: PassStatus; patientName: string; onTurnOff: () => void }) {
+  const text =
+    status.state === "ready"
+      ? `Your PDF includes a one-time Doctor Portal code (${status.code}). A doctor can use it once to see ${patientName}'s data, view only, for 24 hours.`
+      : status.state === "active"
+        ? `A doctor is viewing ${patientName}'s data with your Doctor Portal code until ${fmtClock(status.expiresAt)}.`
+        : status.state === "used"
+          ? `A doctor used your one-time Doctor Portal code on ${new Date(status.usedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}. New PDFs invite the doctor to the portal demo instead.`
+          : status.state === "off"
+            ? "The Doctor Portal code is off. New PDFs invite the doctor to the portal demo instead."
+            : `Your first PDF will include a one-time Doctor Portal code, so the doctor can see ${patientName}'s data, view only, for 24 hours.`;
+  const canTurnOff = status.state === "ready" || status.state === "active" || status.state === "none";
+  return (
+    <View style={[styles.passRow, { borderColor: colors.border, backgroundColor: colors.backgroundTertiary }]}>
+      <Feather name="key" size={15} color={COLORS.primary} style={{ marginTop: 2 }} />
+      <View style={{ flex: 1, gap: 6 }}>
+        <Text style={[styles.passText, { color: colors.textSecondary }]}>{text}</Text>
+        {canTurnOff && (
+          <Pressable onPress={onTurnOff} accessibilityRole="button" hitSlop={6}>
+            <Text style={[styles.passLink, { color: COLORS.danger }]}>Turn off the code</Text>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -376,4 +455,7 @@ const styles = StyleSheet.create({
   bigBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, paddingVertical: 16, overflow: "hidden", backgroundColor: COLORS.primary },
   bigBtnTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
   hint: { fontSize: 12, lineHeight: 17, textAlign: "center" },
+  passRow: { flexDirection: "row", gap: 10, padding: 12, borderRadius: 12, borderWidth: 1 },
+  passText: { fontSize: 12.5, lineHeight: 18 },
+  passLink: { fontSize: 13, fontWeight: "700" },
 });

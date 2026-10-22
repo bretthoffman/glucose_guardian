@@ -1,4 +1,7 @@
 import { Switch, Route, Redirect, Router as WouterRouter } from "wouter";
+import { usePortalPass } from "@/auth/mock-session";
+import { PASS_ACCESS_CODE } from "@/pass/pass-mode";
+import { PassBanner } from "@/pass/PassBanner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -18,13 +21,22 @@ const queryClient = new QueryClient({
   },
 });
 
+/** Home is the patient list, except with a Doctor Portal pass, which opens its one patient. */
+function Home() {
+  const pass = usePortalPass();
+  if (pass) return <Redirect to={`/patient/${PASS_ACCESS_CODE}/overview`} />;
+  return (
+    <AuthGate>
+      <PatientList />
+    </AuthGate>
+  );
+}
+
 function Router() {
   return (
     <Switch>
       <Route path="/">
-        <AuthGate>
-          <PatientList />
-        </AuthGate>
+        <Home />
       </Route>
       <Route path="/patient/:accessCode/:tab">
         {(params) => (
@@ -63,6 +75,7 @@ function App() {
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
             <Router />
             <DemoBanner />
+            <PassBanner />
           </WouterRouter>
         </DoctorSessionProvider>
         <Toaster />

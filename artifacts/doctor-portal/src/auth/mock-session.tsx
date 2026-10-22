@@ -15,6 +15,7 @@ import { toast } from "@/hooks/use-toast";
 import { clearDoctorSession, loadDoctorSession, storeDoctorSession } from "./doctor-auth";
 import { DEMO_DOCTOR } from "@/demo/people";
 import { resumeDemo, startDemo, stopDemo } from "@/demo/demo-mode";
+import { PASS_VISITOR, resumePass, setPassEndedHandler, startPass, stopPass, type PassInfo } from "@/pass/pass-mode";
 import { hashPin, setAccountPin, verifyAccountPin } from "./pin-backend";
 
 /**
@@ -44,6 +45,8 @@ interface SessionState {
   expiresAt?: number;
   /** Signed in to the demo (sample patients, answered in the browser; see src/demo). */
   demo?: boolean;
+  /** Viewing one patient with a Doctor Portal pass from a family's report (see src/pass). */
+  pass?: PassInfo;
   locked: boolean;
   attempts: number;
 }
@@ -60,6 +63,8 @@ export interface SessionActions {
   signOut: () => void;
   /** Open the demo: sample patients, no account. Leaving it is `signOut`. */
   startDemo: () => void;
+  /** Open one patient with a checked Doctor Portal pass. Leaving it is `signOut`. */
+  startPass: (pass: PassInfo) => void;
 }
 
 export interface MockSessionValue {
@@ -70,6 +75,8 @@ export interface MockSessionValue {
   attemptsLeft: number;
   /** In the demo (sample data, nothing real). */
   demo: boolean;
+  /** Viewing with a Doctor Portal pass (one patient, view only, until `pass.expiresAt`). */
+  pass?: PassInfo;
   actions: SessionActions;
 }
 
@@ -94,6 +101,10 @@ function pinIsSet(s: SessionState): boolean {
 function loadState(): SessionState {
   const device = readJSON(localStorage, DEVICE_KEY);
   const flags = readJSON(sessionStorage, FLAGS_KEY);
+  const pass = resumePass();
+  if (pass) {
+    return { doctor: PASS_VISITOR, pass, locked: false, attempts: 0 };
+  }
   if (resumeDemo()) {
     return {
       orgId: device.orgId as string | undefined,
@@ -145,7 +156,7 @@ function persist(s: SessionState): void {
 function deriveStep(s: SessionState): SessionStep {
   // Sign-in comes first; the org is picked inside the create-account path, not as a gate.
   if (!s.doctor) return "authenticate";
-  if (s.demo) return "ready";
+  if (s.demo || s.pass) return "ready";
   if (s.locked && pinIsSet(s)) return "locked";
   // A 4-digit PIN is required — no skip. An account without one (new account, or a returning
   // doctor whose device-only PIN predates account PINs) is sent here to set one.
@@ -163,6 +174,7 @@ function signedOut(prev: SessionState): SessionState {
     doctor: undefined,
     expiresAt: undefined,
     demo: false,
+    pass: undefined,
     pinHash: undefined,
     accountHasPin: undefined,
     locked: false,
@@ -196,6 +208,7 @@ export function DoctorSessionProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(() => {
     if (stateRef.current.demo) stopDemo();
+    if (stateRef.current.pass) stopPass();
     clearDoctorSession();
     setState(signedOut);
   }, []);
@@ -288,12 +301,54 @@ export function DoctorSessionProvider({ children }: { children: ReactNode }) {
           attempts: 0,
         }));
       },
+      startPass: (pass) => {
+        clearDoctorSession();
+        stopDemo();
+        startPass(pass);
+        setState((prev) => ({
+          ...prev,
+          doctor: PASS_VISITOR,
+          pass,
+          demo: false,
+          expiresAt: undefined,
+          locked: false,
+          attempts: 0,
+        }));
+      },
     }),
     [update, lock, signOut],
   );
 
-  // The demo has no PIN to unlock with, so it never locks.
-  const canLock = !state.demo && pinIsSet(state) && Boolean(state.doctor);
+  // The demo and a pass have no PIN to unlock with, so they never lock.
+  const canLock = !state.demo && !state.pass && pinIsSet(state) && Boolean(state.doctor);
+
+  // A pass ends when its 24 hours are up, or as soon as the server says so (the family turned it off).
+  const endPass = useCallback(() => {
+    if (!stateRef.current.pass) return;
+    signOut();
+    toast({
+      title: "The Doctor Portal pass has ended",
+      description: "Its 24 hours are over. To keep following patients like this, get a practice license key.",
+      duration: 20_000,
+    });
+  }, [signOut]);
+  useEffect(() => {
+    setPassEndedHandler(endPass);
+    return () => setPassEndedHandler(null);
+  }, [endPass]);
+  const passEndsAt = state.pass?.expiresAt;
+  useEffect(() => {
+    if (!passEndsAt) return;
+    const check = () => {
+      if (Date.now() >= passEndsAt) endPass();
+    };
+    const timer = window.setInterval(check, 30_000);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [passEndsAt, endPass]);
 
   useEffect(() => {
     if (!canLock) return;
@@ -353,6 +408,8 @@ export function DoctorSessionProvider({ children }: { children: ReactNode }) {
     // The demo always shows its sample clinic, never this device's organization.
     const org: MockOrganization | undefined = state.demo
       ? { id: "demo-clinic", name: DEMO_DOCTOR.institution, slug: "demo-clinic", allowedDomains: [] }
+      : state.pass
+      ? { id: "portal-pass", name: "Doctor Portal pass", slug: "portal-pass", allowedDomains: [] }
       : state.orgId
       ? (fromList ??
         (state.orgName
@@ -371,6 +428,7 @@ export function DoctorSessionProvider({ children }: { children: ReactNode }) {
       canLock,
       attemptsLeft: MAX_ATTEMPTS - state.attempts,
       demo: Boolean(state.demo),
+      pass: state.pass,
       actions,
     };
   }, [state, canLock, actions]);
@@ -387,4 +445,9 @@ export function useDoctorSession(): MockSessionValue {
   const value = useContext(MockSessionContext);
   if (!value) throw new Error("useDoctorSession must be used within DoctorSessionProvider");
   return value;
+}
+
+/** The Doctor Portal pass in use, if any. Undefined outside the session provider. */
+export function usePortalPass(): PassInfo | undefined {
+  return useContext(MockSessionContext)?.pass;
 }

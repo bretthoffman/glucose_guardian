@@ -40,6 +40,7 @@ import { CaregiverTitlesProvider } from "@/components/CaregiverName";
 import { CareCircleSidebar } from "@/components/CareCircleSidebar";
 import { BrandLogo } from "@/components/BrandLogo";
 import { useSession } from "@/auth/use-session";
+import { usePortalPass } from "@/auth/mock-session";
 import { useCurrentDoctor } from "@/auth/use-current-doctor";
 import {
   DEFAULT_HISTORY_DAYS,
@@ -180,7 +181,11 @@ export function PatientDetail({ accessCode, tab }: { accessCode: string; tab: st
     (t: string) => setLocation(`/patient/${accessCode}/${t}`),
     [setLocation, accessCode],
   );
-  const current = TABS.some((t) => t.id === tab) ? tab : "overview";
+  // With a Doctor Portal pass the doctor can look, not act: no settings, messages, or alerts.
+  const pass = usePortalPass();
+  const PASS_HIDDEN = ["orders", "messages", "notifications"];
+  const tabs = pass ? TABS.filter((t) => !PASS_HIDDEN.includes(t.id)) : TABS;
+  const current = tabs.some((t) => t.id === tab) ? tab : "overview";
 
   // Badge the Notifications tab when the caregiver's latest decision hasn't been opened yet.
   const decision = detail?.lastDecision;
@@ -217,7 +222,7 @@ export function PatientDetail({ accessCode, tab }: { accessCode: string; tab: st
           <BrandLogo className="w-10 h-10" />
           <div className="leading-tight">
             <p className="font-display font-bold text-foreground">Glucose Guardian</p>
-            <p className="text-[11px] text-muted-foreground">Diabetes Care Portal</p>
+            <p className="text-[11px] text-muted-foreground">Doctor Portal</p>
           </div>
         </div>
 
@@ -278,18 +283,18 @@ export function PatientDetail({ accessCode, tab }: { accessCode: string; tab: st
             )}
           </div>
 
-          <button
+          {!pass && <button
             data-tour="switch"
             onClick={() => setLocation("/")}
             className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           >
             <ArrowLeftRight className="w-4 h-4" /> Switch Patient
-          </button>
+          </button>}
         </div>
 
         <div className="flex-1 overflow-y-auto">
         <nav className="p-3 space-y-1" data-tour="nav">
-          {TABS.filter((t) => t.inNav).map((item) => {
+          {tabs.filter((t) => t.inNav).map((item) => {
             const Icon = item.icon;
             const isActive =
               current === item.id || (item.id === "overview" && DRILL_DOWN.includes(current));
@@ -408,9 +413,9 @@ export function PatientDetail({ accessCode, tab }: { accessCode: string; tab: st
           </div>
         </div>
       </main>
-      <ProductTour steps={TOUR_STEPS} enabled={current === "overview"} onNavigate={navigateTab} />
+      {!pass && <ProductTour steps={TOUR_STEPS} enabled={current === "overview"} onNavigate={navigateTab} />}
       <DoctorProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
-      <AssistantWidget accessCode={detail.accessCode} patientName={name} />
+      {!pass && <AssistantWidget accessCode={detail.accessCode} patientName={name} />}
     </div>
     </CaregiverTitlesProvider>
   );

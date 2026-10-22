@@ -214,6 +214,17 @@ describe("visit summary document", () => {
     expect(foodOnly).toContain("<h2>Food Log</h2>");
     expect(foodOnly).toContain('class="strip"');
   });
+  it("puts the Doctor Portal box at the top: the code with a link when there is one, else the demo", () => {
+    const data = buildVisitSummary({ days: 14, endMs: end, readings, food, insulin: [], sticks: [], accessLog: [] });
+    const withCode = buildVisitSummaryHtml(data, meta, { portal: { code: "GG-7KQ4-M2X", url: "https://portal.glucoseguardian.io" } });
+    expect(withCode).toContain("GG-7KQ4-M2X");
+    expect(withCode).toContain('href="https://portal.glucoseguardian.io/?pass=GG-7KQ4-M2X"');
+    expect(withCode.indexOf("ONE-TIME CODE")).toBeLessThan(withCode.indexOf("Glucose at a glance"));
+    const demo = buildVisitSummaryHtml(data, meta, { portal: { code: null, url: "https://portal.glucoseguardian.io" } });
+    expect(demo).not.toContain("ONE-TIME CODE");
+    expect(demo).toContain("Try the demo");
+    expect(buildVisitSummaryHtml(data, meta)).not.toContain('class="portal"');
+  });
   it("names the file after the patient and date", () => {
     expect(visitSummaryFileName({ patientName: "Bella Bethea", generatedAt: end })).toBe("Bella_Bethea_Visit_Summary_2026-10-22.pdf");
     expect(esc(`a"b'<`)).toBe("a&quot;b&#39;&lt;");

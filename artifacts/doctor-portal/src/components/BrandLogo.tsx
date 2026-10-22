@@ -1,5 +1,5 @@
 /**
- * The Glucose Guardian brand mark — the same winged-shield logo used in the mobile app
+ * The Glucose Guardian brand mark — the same drop logo used in the mobile app
  * (public/images/logo.png, transparent PNG so it sits on any background). Use everywhere the
  * portal shows its identity so app and portal stay visually in sync.
  */

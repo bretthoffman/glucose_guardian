@@ -46,6 +46,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         title: "A glucose graph for every day",
         body: "The food log now shows each day's glucose with every meal marked on it, so the doctor can see what happened after each meal.",
       },
+      {
+        icon: "key",
+        title: "A Doctor Portal code for your doctor",
+        body: "Your PDF includes a one-time code. Your doctor enters it at portal.glucoseguardian.io to see the live data, view only, for 24 hours. You can turn it off in Doctor Office.",
+      },
     ],
   },
   {

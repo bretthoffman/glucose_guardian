@@ -44,6 +44,7 @@ import type * as patientGuardianPin from "../patientGuardianPin.js";
 import type * as patientGuardianPinActions from "../patientGuardianPinActions.js";
 import type * as patientLibreSecrets from "../patientLibreSecrets.js";
 import type * as patientProfile from "../patientProfile.js";
+import type * as portalTrial from "../portalTrial.js";
 import type * as predictionMatch from "../predictionMatch.js";
 import type * as predictionReferences from "../predictionReferences.js";
 import type * as push from "../push.js";
@@ -92,6 +93,7 @@ declare const fullApi: ApiFromModules<{
   patientGuardianPinActions: typeof patientGuardianPinActions;
   patientLibreSecrets: typeof patientLibreSecrets;
   patientProfile: typeof patientProfile;
+  portalTrial: typeof portalTrial;
   predictionMatch: typeof predictionMatch;
   predictionReferences: typeof predictionReferences;
   push: typeof push;

@@ -329,11 +329,15 @@ function sticksTable(data: VisitSummaryData): string {
 
 function portalBox(meta: VisitSummaryMeta, portal?: VisitSummaryOptions["portal"]): string {
   if (!portal) return "";
-  const host = esc(portal.url.replace(/^https?:\/\//, "").replace(/\/$/, ""));
+  const base = portal.url.replace(/\/$/, "");
+  const host = esc(base.replace(/^https?:\/\//, ""));
   const first = esc(meta.patientName.split(/\s+/)[0] || meta.patientName);
-  return portal.code
-    ? `<div class="portal"><div class="pl"><b>See ${first}'s live data in the Glucose Guardian Doctor Portal</b><span>Go to <u>${host}</u>, choose <b>Use a patient code</b>, and enter the code. It opens ${first}'s glucose, meals, and insulin, view only, for 24 hours. No account needed.</span><span class="pd">Just looking? Choose <b>Try the demo</b> on the same page.</span></div><div class="pc"><small>ONE-TIME CODE</small><b>${esc(portal.code)}</b><small>Works for 24 hours from first use</small></div></div>`
-    : `<div class="portal"><div class="pl"><b>Follow patients like ${first} live in the Glucose Guardian Doctor Portal</b><span>Glucose, meals, insulin, and messages with the family in one place. See it at <u>${host}</u> and choose <b>Try the demo</b>.</span></div></div>`;
+  if (portal.code) {
+    // The link carries the code, so a doctor reading the PDF on a computer can just click it.
+    const link = esc(`${base}/?pass=${encodeURIComponent(portal.code)}`);
+    return `<div class="portal"><div class="pl"><b>See ${first}'s live data in the Glucose Guardian Doctor Portal</b><span>Go to <a href="${link}">${host}</a> and enter this code under <b>Have a code from a patient's report?</b> It opens ${first}'s glucose, meals, and insulin, view only, for 24 hours. No account needed.</span><span class="pd">Just looking? Choose <b>Try the demo</b> on the same page.</span></div><div class="pc"><small>ONE-TIME CODE</small><b>${esc(portal.code)}</b><small>Works for 24 hours from first use</small></div></div>`;
+  }
+  return `<div class="portal"><div class="pl"><b>Follow patients like ${first} live in the Glucose Guardian Doctor Portal</b><span>Glucose, meals, insulin, and messages with the family in one place. See it at <a href="${esc(base)}">${host}</a> and choose <b>Try the demo</b>.</span></div></div>`;
 }
 
 // ─── Document ──────────────────────────────────────────────────────────────────────────────────
@@ -455,7 +459,7 @@ table.log tr.day td{background:#EEF3FF;font-weight:700;color:${C.blue};padding:4
 .na{color:#c3cad6}.cam{font-size:9px;color:${C.mute}}
 .striprow td{padding:2px 0 4px!important;border:none!important}.num{display:inline-block;width:15px;height:15px;border-radius:50%;background:#1F5FD6;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:15px;margin-right:5px}
 .portal{display:flex;gap:14px;align-items:center;margin:12px 0 2px;padding:11px 14px;border-radius:10px;background:#EEF4FF;border:1.5px solid #2F80FF}
-.portal .pl{flex:1}.portal .pl>b{display:block;font-size:12.5px;color:${C.ink};margin-bottom:3px}.portal .pl span b{color:${C.ink}}.portal .pl span{display:block;font-size:10.5px;color:${C.sub};line-height:1.45}.portal .pd{margin-top:3px}
+.portal .pl{flex:1}.portal .pl>b{display:block;font-size:12.5px;color:${C.ink};margin-bottom:3px}.portal .pl span b{color:${C.ink}}.portal a{color:${C.blue}}.portal .pl span{display:block;font-size:10.5px;color:${C.sub};line-height:1.45}.portal .pd{margin-top:3px}
 .portal .pc{text-align:center;padding:8px 12px;border-radius:8px;background:#fff;border:1px dashed #2F80FF;min-width:150px}.portal .pc small{display:block;font-size:8.5px;letter-spacing:.08em;color:${C.sub}}.portal .pc b{display:block;font-size:19px;letter-spacing:.06em;color:${C.blue};font-family:Menlo,Consolas,monospace;margin:3px 0}
 .ft{margin-top:14px;font-size:9.5px;color:${C.mute};border-top:1px solid ${C.line};padding-top:6px;display:flex;justify-content:space-between;gap:12px}
 </style></head><body>

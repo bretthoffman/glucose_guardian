@@ -1,4 +1,4 @@
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
@@ -296,29 +296,24 @@ export const getGlucoseHistory = query({
     const code = normalizeAccessCode(args.accessCode);
     const profile = await findPatientProfileByDoctorCode(ctx, code);
     if (!profile) return { readings: [] };
-
-    // ISO-8601 strings compare lexicographically, so a string range over the index is correct.
-    const rows = await ctx.db
-      .query("patientGlucoseReadings")
-      .withIndex("by_user_time", (q) =>
-        q
-          .eq("userId", profile.userId)
-          .gte("timestamp", args.fromTimestamp)
-          .lte("timestamp", args.toTimestamp),
-      )
-      .take(5000);
-
-    const readings = rows.map((r) => ({
-      value: r.glucose,
-      trend:
-        typeof r.dexcomTrend === "string"
-          ? r.dexcomTrend
-          : (TREND_BY_CODE[r.dexcomTrend ?? 4] ?? "Flat"),
-      timestamp: r.timestamp,
-    }));
-    return { readings };
+    return await glucoseHistoryForUser(ctx, profile.userId, args.fromTimestamp, args.toTimestamp);
   },
 });
+
+/** A patient's durable CGM readings in [from, to], shaped for the portal (also used by portalTrial). */
+export async function glucoseHistoryForUser(ctx: QueryCtx | MutationCtx, userId: Id<"users">, fromTimestamp: string, toTimestamp: string) {
+  // ISO-8601 strings compare lexicographically, so a string range over the index is correct.
+  const rows = await ctx.db
+    .query("patientGlucoseReadings")
+    .withIndex("by_user_time", (q) => q.eq("userId", userId).gte("timestamp", fromTimestamp).lte("timestamp", toTimestamp))
+    .take(5000);
+  const readings = rows.map((r) => ({
+    value: r.glucose,
+    trend: typeof r.dexcomTrend === "string" ? r.dexcomTrend : (TREND_BY_CODE[r.dexcomTrend ?? 4] ?? "Flat"),
+    timestamp: r.timestamp,
+  }));
+  return { readings };
+}
 
 /** Newest entries kept per log type per call — about a year of heavy logging. */
 const CARE_LOG_MAX = 2000;
@@ -343,62 +338,66 @@ export const getCareLogs = query({
     const code = normalizeAccessCode(args.accessCode);
     const profile = await findPatientProfileByDoctorCode(ctx, code);
     if (!profile) return { food: [], insulin: [] };
-
-    const [foodRows, insulinRows] = await Promise.all([
-      ctx.db
-        .query("careFoodLogs")
-        .withIndex("by_patient_time", (q) =>
-          q
-            .eq("patientUserId", profile.userId)
-            .gte("timestamp", args.fromTimestamp)
-            .lte("timestamp", args.toTimestamp),
-        )
-        .order("desc")
-        .take(CARE_LOG_MAX),
-      ctx.db
-        .query("careInsulinLogs")
-        .withIndex("by_patient_time", (q) =>
-          q
-            .eq("patientUserId", profile.userId)
-            .gte("timestamp", args.fromTimestamp)
-            .lte("timestamp", args.toTimestamp),
-        )
-        .order("desc")
-        .take(CARE_LOG_MAX),
-    ]);
-
-    // photoUri is a file on the logging device (useless off the phone) and authorCode is an access
-    // credential — neither leaves the backend.
-    const food = foodRows.map((r) => ({
-      id: r.clientId,
-      timestamp: r.timestamp,
-      foodName: r.foodName,
-      estimatedCarbs: r.estimatedCarbs,
-      insulinUnits: r.insulinUnits,
-      confidence: r.confidence,
-      fromPhoto: r.fromPhoto,
-      fatGrams: r.fatGrams,
-      proteinGrams: r.proteinGrams,
-      absorption: r.absorption,
-      authorName: r.authorName,
-      // The photo itself is fetched through the api-server (getFoodPhoto), never a public URL.
-      hasPhoto: !!r.photoStorageId,
-    }));
-    const insulin = insulinRows.map((r) => ({
-      id: r.clientId,
-      timestamp: r.timestamp,
-      units: r.units,
-      type: r.type,
-      note: r.note,
-      foodLogId: r.foodLogId,
-      insulinType: r.insulinType,
-      recommendedUnits: r.recommendedUnits,
-      manualOverride: r.manualOverride,
-      authorName: r.authorName,
-    }));
-    return { food, insulin };
+    return await careLogsForUser(ctx, profile.userId, args.fromTimestamp, args.toTimestamp);
   },
 });
+
+/** A patient's food + insulin logs in [from, to], newest first, shaped for the portal (also portalTrial). */
+export async function careLogsForUser(ctx: QueryCtx | MutationCtx, patientUserId: Id<"users">, fromTimestamp: string, toTimestamp: string) {
+  const [foodRows, insulinRows] = await Promise.all([
+    ctx.db
+      .query("careFoodLogs")
+      .withIndex("by_patient_time", (q) =>
+        q
+          .eq("patientUserId", patientUserId)
+          .gte("timestamp", fromTimestamp)
+          .lte("timestamp", toTimestamp),
+      )
+      .order("desc")
+      .take(CARE_LOG_MAX),
+    ctx.db
+      .query("careInsulinLogs")
+      .withIndex("by_patient_time", (q) =>
+        q
+          .eq("patientUserId", patientUserId)
+          .gte("timestamp", fromTimestamp)
+          .lte("timestamp", toTimestamp),
+      )
+      .order("desc")
+      .take(CARE_LOG_MAX),
+  ]);
+
+  // photoUri is a file on the logging device (useless off the phone) and authorCode is an access
+  // credential — neither leaves the backend.
+  const food = foodRows.map((r) => ({
+    id: r.clientId,
+    timestamp: r.timestamp,
+    foodName: r.foodName,
+    estimatedCarbs: r.estimatedCarbs,
+    insulinUnits: r.insulinUnits,
+    confidence: r.confidence,
+    fromPhoto: r.fromPhoto,
+    fatGrams: r.fatGrams,
+    proteinGrams: r.proteinGrams,
+    absorption: r.absorption,
+    authorName: r.authorName,
+    // The photo itself is fetched through the api-server (getFoodPhoto), never a public URL.
+    hasPhoto: !!r.photoStorageId,
+  }));
+  const insulin = insulinRows.map((r) => ({
+    id: r.clientId,
+    timestamp: r.timestamp,
+    units: r.units,
+    type: r.type,
+    note: r.note,
+    foodLogId: r.foodLogId,
+    insulinType: r.insulinType,
+    recommendedUnits: r.recommendedUnits,
+    manualOverride: r.manualOverride,
+    authorName: r.authorName,
+  }));
+  return { food, insulin };
+}
 
 /**
  * The stored photo for one of a linked patient's meals. Storage URLs don't expire and work for
@@ -440,6 +439,12 @@ export const getPatientProfile = query({
     requireDoctorApiSecret(args.serverSecret);
     const row = await findPatientProfileByDoctorCode(ctx, normalizeAccessCode(args.accessCode));
     if (!row) return null;
+    return patientProfileRecord(row);
+  },
+});
+
+/** The fields of a profile the portal may show (also used by portalTrial). */
+export function patientProfileRecord(row: Doc<"patientProfiles">) {
     const prefs = row.alertPreferences;
     return {
       profile: {
@@ -465,8 +470,7 @@ export const getPatientProfile = query({
         : undefined,
       updatedAt: row.updatedAt,
     };
-  },
-});
+}
 
 /** Caregiver names match case- and spacing-insensitively ("holly " is "Holly"). */
 export function caregiverKey(name: string): string {
