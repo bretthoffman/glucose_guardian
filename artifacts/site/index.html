@@ -765,9 +765,9 @@ body{background:#05060c}
 .intro-in{position:relative;display:flex;flex-direction:column;align-items:center;gap:22px;pointer-events:auto}
 .intro-in .big{font-size:clamp(56px,8vw,112px)!important}
 .intro-cue{position:absolute;bottom:18px;left:50%;transform:translateX(-50%)}
-.story.pre .mover{transform:translateY(calc((1 - var(--p)) * var(--vhx,100vh) * .36)) scale(calc(.9 + var(--p) * .1))!important;transform-origin:50% 0!important;transition:transform .35s ease-out}
+.story.pre .mover{transform:translateY(calc((1 - var(--p)) * max(calc(var(--vhx,100vh) * .36), calc(836px - 50vh)))) scale(calc(.9 + var(--p) * .1))!important;transform-origin:50% 0!important;transition:transform .35s ease-out}
 .story.pre .drift{transform:none!important}
-.story.pre .stglow{transform:translateY(calc((1 - var(--p)) * var(--vhx,100vh) * .36)) scale(1.5);background:#1d8cff;opacity:.6}
+.story.pre .stglow{transform:translateY(calc((1 - var(--p)) * max(calc(var(--vhx,100vh) * .36), calc(836px - 50vh)))) scale(1.5);background:#1d8cff;opacity:.6}
 .story:not(.pre) .cgm-st{opacity:0;transition:opacity .4s}
 .story.pre .cgm-st{opacity:calc(1 - var(--p) * .85)}
 .story.pre .progress{opacity:0}
