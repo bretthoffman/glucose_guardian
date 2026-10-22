@@ -8,7 +8,6 @@
 <meta name="theme-color" content="#05060c">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%2234 12 134 178%22%3E%3Cpath fill=%22%2322c8f0%22 d=%22M97 16C70 44 38 84 38 124c0 36 28 62 62 62 18 0 34-7 46-19-18 9-42 9-58-3-18-14-26-30-26-46 0-26 22-54 42-76 4-8 0-20-7-26z%22/%3E%3Cpath fill=%22%232ef2c6%22 d=%22M114 46c-6 6-8 16-2 24 14 18 26 34 26 54 0 22-18 42-40 44 22 8 48 2 60-20 6-10 8-18 6-30-4-24-24-48-44-70-2-2-4-3-6-2z%22/%3E%3Cpath fill=%22%232f80ff%22 d=%22M100 76s-20 26-20 44a20 20 0 0 0 40 0c0-18-20-44-20-44z%22/%3E%3C/svg%3E">
 
-<script>try{var gtm=/[?&]t=([a-e]+)/.exec(location.search);if(gtm)document.documentElement.setAttribute('data-gt',gtm[1])}catch(e){}</script>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -1473,12 +1472,11 @@ html.gd-lock body > *:not(.gg-demo){display:none!important}
   .cine .story .stage .lens .mover{--t:.5;transition:none!important}
   .cine .story .stage .lens,.cine .story.ggodd .stage .lens{animation:none!important}
 }
-/* iPhone crash test switches: only active with ?t=... in the address (normal visitors never see them) */
-html[data-gt]::after{content:"Test " attr(data-gt);position:fixed;left:8px;bottom:8px;z-index:2147483647;padding:3px 8px;border-radius:8px;background:#f59e0b;color:#000;font:700 11px/1.4 system-ui;pointer-events:none}
-html[data-gt*="a"] .cine .story .stage .sv{--t:.999!important}
-html[data-gt*="a"] .cmx{max-height:none!important;margin-top:7px!important}
-html[data-gt*="b"] .cine .story .stage .sv:not(.sv-on){display:none!important}
-html[data-gt*="d"] .cine .story .step,html[data-gt*="d"] .cine .story .step *{transition:none!important}
+/* iPhone: only the current phone screen is drawn. Keeping the other 11 screens around (even hidden)
+   made mobile Safari run out of memory and reload around the chat step. Confirmed on Brian's iPhone. */
+@media (max-width:900px),(hover:none) and (pointer:coarse){
+  .cine .story .stage .sv:not(.sv-on){display:none!important}
+}
 /* founder photos */
 .fd-photo.fd-has{border:0;background:#0b0d18;overflow:hidden}.fd-more{display:inline-flex;align-items:center;gap:4px;margin-top:2px;font-size:16px;font-weight:600;color:#38d7ee}.fd-more:hover{color:#7fe7f7;text-decoration:none}
 .fd-photo.fd-has img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 12%;display:block}
@@ -2139,9 +2137,7 @@ class Component extends DCLogic {
         if (running) raf = requestAnimationFrame(frame);
       };
       var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      var gtc = /c/.test(document.documentElement.getAttribute('data-gt') || '');
-      if (gtc) setTimeout(function () { document.querySelectorAll('svg').forEach(function (v) { try { v.pauseAnimations(); } catch (e) {} }); }, 1500);
-      var start = function () { if (running || reduce || gtc) return; running = true; raf = requestAnimationFrame(frame); };
+      var start = function () { if (running || reduce) return; running = true; raf = requestAnimationFrame(frame); };
       var stop = function () { running = false; cancelAnimationFrame(raf); };
       frame(0); running = false;
       var io = null;
