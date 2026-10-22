@@ -113,7 +113,7 @@ h1,h2,h3,p{margin:0}
 .draw{stroke-dasharray:1;stroke-dashoffset:1;animation:gg-draw 1s ease-out forwards}
 @keyframes gg-draw{to{stroke-dashoffset:0}}
 .a-chathead{display:flex;align-items:center;gap:9px;padding:46px 12px 10px;background:var(--a-head);border-bottom:1px solid var(--a-line)}
-.a-gg{width:34px;height:34px;border-radius:50%;background:var(--brand-soft),var(--a-pursoft);display:flex;align-items:center;justify-content:center;flex:none}.a-gg svg{width:17px;height:17px}
+.a-gg{width:34px;height:34px;border-radius:50%;background:var(--brand-soft),var(--a-pursoft);display:flex;align-items:center;justify-content:center;flex:none}.a-gg svg{width:20px;height:20px}
 .a-chathead .f1{flex:1;min-width:0}.a-chathead .f1 b{display:block;font-size:13px}.a-chathead .f1 span{font-size:9px;color:var(--g-tx);font-weight:600}
 .a-chathead .f1 i{font-size:9px;color:var(--a-sub)}
 .a-back{font-size:22px;color:var(--a-pur);line-height:1}
@@ -505,7 +505,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 
 <!-- Shared icons and charts -->
 <svg width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false">
-<defs>
+<defs><linearGradient id="ggL" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22e5ff"/><stop offset="1" stop-color="#2f6bff"/></linearGradient><linearGradient id="ggR" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2ef2c6"/><stop offset="1" stop-color="#0ea5b7"/></linearGradient><linearGradient id="ggI" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22e5ff"/><stop offset="1" stop-color="#2f80ff"/></linearGradient><linearGradient id="ggF" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset=".55" stop-color="#001a33" stop-opacity=".55"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient><symbol id="gg-logo" viewBox="30 10 140 182"><path d="M97 16 C70 44 38 84 38 124 C38 160 66 186 100 186 C118 186 134 179 146 167 C128 176 104 176 88 164 C70 150 62 134 62 118 C62 92 84 64 104 42 C108 34 104 22 97 16Z" fill="url(#ggL)"/><path d="M114 46 C108 52 106 62 112 70 C126 88 138 104 138 124 C138 146 120 166 98 168 C120 176 146 170 158 148 C164 138 166 130 164 118 C160 94 140 70 120 48 C118 46 116 45 114 46Z" fill="url(#ggR)"/><path d="M84 164 C104 178 132 176 150 162 C138 178 112 184 90 176Z" fill="url(#ggF)"/><path d="M100 76 C100 76 80 102 80 120 a20 20 0 0 0 40 0 C120 102 100 76 100 76Z" fill="url(#ggI)"/></symbol>
 <symbol id="i-drop" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.5s-6.5 7-6.5 11.6a6.5 6.5 0 0 0 13 0C18.5 9.5 12 2.5 12 2.5z"></path></symbol>
 <symbol id="i-drop-o" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2.5s-6.5 7-6.5 11.6a6.5 6.5 0 0 0 13 0C18.5 9.5 12 2.5 12 2.5z"></path></symbol>
 <symbol id="i-syr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 2 4 4"></path><path d="m17 7 3-3"></path><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"></path><path d="m9 11 4 4"></path><path d="m5 19-3 3"></path><path d="m14 4 6 6"></path></symbol>
@@ -857,7 +857,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 </div>
 <div class="a-tabbar"><div class="a-tab on"><svg><use href="#i-drop"></use></svg>Glucose</div><div class="a-tab"><svg><use href="#i-syr"></use></svg>Insulin</div><div class="a-tab"><svg><use href="#i-fork"></use></svg>Food</div><div class="a-tab"><svg><use href="#i-chat"></use></svg>Chat<span class="tapdot gg-atap"></span></div><div class="a-tab"><svg><use href="#i-dash"></use></svg>Dashboard</div></div>
 </div>
-<div class="a-chathead" style="padding-top: 40px"><div class="a-gg"><svg><use href="#i-shield"></use></svg></div><div class="f1"><b>Glucose Guardian</b><span>{{joe.managing}}</span></div><div class="a-bgp tag-hi"><b>190</b> <i>mg/dL</i><div>↘</div>Above Range</div></div>
+<div class="a-chathead" style="padding-top: 40px"><div class="a-gg"><svg><use href="#gg-logo"></use></svg></div><div class="f1"><b>Glucose Guardian</b><span>{{joe.managing}}</span></div><div class="a-bgp tag-hi"><b>190</b> <i>mg/dL</i><div>↘</div>Above Range</div></div>
 <div class="a-msgbtn" style="top: 106px"><svg><use href="#i-mail"></use></svg>Messages</div>
 <div class="a-msgs" style="top: 140px; bottom: 152px; gap: 0">
 <div class="gg-cm0 cm" style="display: flex; justify-content: flex-start"><div class="a-bub a-them">{{joe.hello}}<span class="a-bt">4:02 PM</span></div></div>
@@ -1335,7 +1335,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="island"></div>
 
 <sc-if value="{{thr.isAI}}" hint-placeholder-val="{{ true }}">
-<div class="a-chathead"><div class="a-gg"><svg><use href="#i-shield"></use></svg></div><div class="f1"><b>Glucose Guardian</b><span>{{p.managing}}</span></div><div class="a-bgp tag-hi"><b>262</b> <i>mg/dL</i><div>↗</div>Above Range</div></div>
+<div class="a-chathead"><div class="a-gg"><svg><use href="#gg-logo"></use></svg></div><div class="f1"><b>Glucose Guardian</b><span>{{p.managing}}</span></div><div class="a-bgp tag-hi"><b>262</b> <i>mg/dL</i><div>↗</div>Above Range</div></div>
 <div class="a-msgbtn"><svg><use href="#i-mail"></use></svg>Messages</div>
 <div class="a-msgs" style="bottom: 152px">
 <sc-for list="{{thr.msgs}}" as="m" hint-placeholder-count="5"><div class="a-bub {{m.cls}}">{{m.text}}<span class="a-bt">{{m.time}}</span></div></sc-for>
@@ -2193,7 +2193,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="bw" aria-hidden="true" style="flex: 1 1 420px; max-width: 520px; background: #f5f7fb">
 <div class="bw-bar"><i style="background: #ff5f57"></i><i style="background: #febc2e"></i><i style="background: #28c840"></i><span class="bw-url"><svg><use href="#i-lock"></use></svg>Diabetes Care Portal</span></div>
 <div style="padding: 40px 28px 44px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center">
-<svg width="44" height="44" aria-hidden="true"><use href="#i-shield"></use></svg>
+<svg width="44" height="44" aria-hidden="true"><use href="#gg-logo"></use></svg>
 <div style="font-size: 20px; font-weight: 700; color: #1d1d1f">Glucose Guardian for clinicians</div>
 <div style="font-size: 13px; color: #6e6e73">Your patients’ glucose, insulin and meals in one place.</div>
 <div style="width: 100%; max-width: 330px; background: #fff; border: 1px solid #e3e8f0; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; text-align: left; margin-top: 10px">
