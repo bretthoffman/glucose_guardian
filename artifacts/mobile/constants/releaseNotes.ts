@@ -33,18 +33,13 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     items: [
       {
         icon: "file-text",
-        title: "Visit Summary for your doctor",
-        body: "Dashboard → Doctor Office → Send Visit Summary. Pick 7, 14, 30, or 90 days and send a PDF with time in range, the daily pattern, lows, and every meal with the glucose before and 2 hours after.",
+        title: "Visit Summary PDF for the doctor",
+        body: "Dashboard → Doctor Office. Pick 7, 14, 30, or 90 days and tap Download PDF. It shows time in range, the daily pattern, lows, insulin, and every meal with the glucose before and 2 hours after.",
       },
       {
         icon: "send",
-        title: "Quick notes to the doctor",
-        body: "Lows overnight, refill needed, a question about insulin settings, or a sick day. We fill in the numbers, you change anything you want, then send by email or text.",
-      },
-      {
-        icon: "phone",
-        title: "Call, email, or text the office",
-        body: "Add your doctor's name, phone, and email once in Doctor Office, and they're one tap away.",
+        title: "Send it your way",
+        body: "Save the PDF to Files, or send it to the doctor by email, text, or your patient portal like MyChart.",
       },
     ],
   },

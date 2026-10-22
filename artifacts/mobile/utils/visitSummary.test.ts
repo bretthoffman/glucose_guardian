@@ -17,7 +17,6 @@ import {
   type SummaryReading,
 } from "./visitSummary";
 import { buildVisitSummaryHtml, esc, visitSummaryFileName } from "./visitSummaryHtml";
-import { buildNote, greeting, noteBody } from "./doctorNotes";
 
 const at = (y: number, mo: number, d: number, h: number, mi = 0) => new Date(y, mo - 1, d, h, mi).toISOString();
 const MIN = 60_000;
@@ -199,49 +198,5 @@ describe("visit summary document", () => {
   it("names the file after the patient and date", () => {
     expect(visitSummaryFileName({ patientName: "Bella Bethea", generatedAt: end })).toBe("Bella_Bethea_Visit_Summary_2026-10-22.pdf");
     expect(esc(`a"b'<`)).toBe("a&quot;b&#39;&lt;");
-  });
-});
-
-describe("quick notes", () => {
-  const now = Date.parse(at(2026, 10, 22, 9));
-  const ctx = {
-    patientName: "Bella",
-    doctorName: "Dr. Sarah Mitchell",
-    now,
-    readings: [
-      ...series(at(2026, 10, 21, 2, 40), 3, () => 62),
-      ...series(at(2026, 10, 19, 3, 5), 3, () => 58),
-      ...series(at(2026, 10, 18, 14, 0), 3, () => 60), // daytime: not overnight
-      { timestamp: at(2026, 10, 21, 21, 0), glucose: 150 },
-    ],
-    food: [],
-    insulin: [{ timestamp: at(2026, 10, 20, 8), units: 10, type: "bolus" as const }],
-    carbRatio: 15,
-    correctionFactor: 60,
-    targetGlucose: 120,
-    insulinTypes: ["Humalog · 100 u/mL", "Lantus"],
-  };
-  it("greets the doctor by last name, or generically for a practice", () => {
-    expect(greeting("Dr. Sarah Mitchell")).toBe("Hi Dr. Mitchell,");
-    expect(greeting("dr smith")).toBe("Hi Dr. smith,");
-    expect(greeting("Pediatric Associates")).toBe("Hello,");
-    expect(greeting(undefined)).toBe("Hello,");
-  });
-  it("lows overnight lists only overnight lows, newest first, with settings", () => {
-    const n = buildNote("lows", ctx);
-    expect(n.message).toBe("Hi Dr. Mitchell, Bella has had 2 lows overnight in the last 7 nights, mostly between 2 and 4 AM. Should we change anything? The numbers are below.");
-    expect(n.details.map((d) => d.value)).toEqual(["62", "58", "150 mg/dL", "1:15 · 1:60 · 120"]);
-  });
-  it("refill names the insulins and daily use", () => {
-    const n = buildNote("refill", ctx);
-    expect(n.message).toBe("Hi Dr. Mitchell, could we please get a refill for Bella? We need Humalog, Lantus, pen needles, and Dexcom sensors. Thank you!");
-    expect(n.details).toContainEqual({ label: "Insulin used", value: "10 units per day" });
-  });
-  it("builds the outgoing text with the numbers and no em dashes", () => {
-    const n = buildNote("lows", ctx);
-    const body = noteBody(n.message, n);
-    expect(body).toContain("From the app · last 7 nights:");
-    expect(body).toContain("• Carb ratio · Correction · Target: 1:15 · 1:60 · 120");
-    for (const k of ["lows", "refill", "ratio", "sick", "custom"] as const) expect(noteBody(buildNote(k, ctx).message, buildNote(k, ctx))).not.toMatch(/—/);
   });
 });
