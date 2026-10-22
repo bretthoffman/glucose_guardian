@@ -81,6 +81,8 @@ Plus the artifact you touched:
    Auth: an `EXPO_TOKEN` environment variable (cloud/CI sessions — set in the session's environment config) or a logged-in Expo account (`npx eas-cli whoami`). If neither works, tell the user; don't retry blindly.
 6. If the change calls a **new** Convex function, deploy Convex FIRST (§6) — before step 4.
 
+**Every OTA a user could notice gets a "What's new" entry** at the TOP of `artifacts/mobile/constants/releaseNotes.ts` (new unique `id`, plain patient-friendly words, no em dashes), committed in the same push as the change. The app combines every note a device hasn't seen into one sheet, so someone who skipped several updates sees them all at once. Never edit or reorder older entries; to announce something that missed its note, add a NEW top entry. Pure bug fixes nobody would notice are the only exception.
+
 Env note: the `EXPO_PUBLIC_*` values in `artifacts/mobile/.env` are **inlined into the OTA bundle at publish time**. Never point them at a different backend before publishing.
 
 ## 5. Shipping api / portal / site changes

@@ -28,6 +28,27 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-22b",
+    date: "2026-10-22",
+    items: [
+      {
+        icon: "star",
+        title: "A fresh new look",
+        body: "The app now uses the Glucose Guardian logo colors, and our logo greets you while the app opens.",
+      },
+      {
+        icon: "x-circle",
+        title: "Easier to close",
+        body: "The X on every popup and card is now bigger and easier to see.",
+      },
+      {
+        icon: "help-circle",
+        title: "Help guide updated",
+        body: "Tap Help at the top of the Dashboard for a walk through the newest features.",
+      },
+    ],
+  },
+  {
     id: "2026-10-22",
     date: "2026-10-22",
     items: [
