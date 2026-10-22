@@ -579,7 +579,7 @@ body{background:#05060c}
 .step p{margin:0;font-size:18px;line-height:1.5;color:#a1a1a6}
 .step .num{font-size:13px;color:#6e6e73}
 .spacer{height:600px}
-.sv{position:absolute;inset:0;opacity:0;transition:opacity .45s ease;pointer-events:none}.stage .sv{z-index:2}.cine .story .stage .sv.sv-on,.story .stage .sv.sv-on{z-index:1;transition:none!important;transform:none!important}
+.sv{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity .45s ease,visibility 0s linear .45s;pointer-events:none}.stage .sv{z-index:2}.cine .story .stage .sv.sv-on,.story .stage .sv.sv-on{z-index:1;transition:none!important;transform:none!important}
 
 .stage .tapdot{animation:none}
 .win{opacity:calc(clamp(0,(var(--t) - var(--a)) * 30,1) * clamp(0,(var(--b) - var(--t)) * 30,1))}
@@ -1199,7 +1199,7 @@ body{background:#05060c}
   .cine .story .stage .taphint{position:absolute!important;left:50%;top:446px;margin:0!important;transform:translate(-50%,8px);width:max-content;max-width:calc(100% - 40px);white-space:nowrap;font-size:13px}
   .cine .story .stage .taphint.on{transform:translate(-50%,0)}
   .cine .story .stage .progress{position:static!important;transform:none!important;margin:10px 0 0!important}
-  .cine .story .sv{transform:translateX(16%) scale(.98);transition:opacity .4s ease,transform .55s cubic-bezier(.22,.9,.24,1)!important}
+  .cine .story .sv{transform:translateX(16%) scale(.98);transition:opacity .4s ease,transform .55s cubic-bezier(.22,.9,.24,1),visibility 0s linear .4s!important}
   .cine .stepsx .step{visibility:visible!important;width:auto!important;max-width:none!important;min-height:58vh!important;height:auto!important;display:flex!important;flex-direction:column;justify-content:center!important;gap:8px;padding:0!important;margin:0!important;text-align:left;opacity:.16;transform:translateY(16px);transition:opacity .45s,transform .6s cubic-bezier(.2,.8,.2,1);position:relative;z-index:1}
   .cine .stepsx{z-index:1!important}
   .cine .story .stage{z-index:3!important}
@@ -1257,7 +1257,7 @@ body{background:#05060c}
 }
 @keyframes ggliftA{0%{transform:translateY(14px) scale(.965)}60%{transform:translateY(-4px) scale(1.01)}100%{transform:none}}
 @keyframes ggliftB{0%{transform:translateY(14px) scale(.965)}60%{transform:translateY(-4px) scale(1.01)}100%{transform:none}}
-@media (max-width:900px) and (prefers-reduced-motion: reduce){.cine .story .stage .lens{animation:none}.cine .story .sv{transition:opacity .3s!important;transform:none!important}}
+@media (max-width:900px) and (prefers-reduced-motion: reduce){.cine .story .stage .lens{animation:none}.cine .story .sv{transition:opacity .3s,visibility 0s linear .3s!important;transform:none!important}}
 
 /* ── lighter effects on phones (prevents Safari reloads) ── */
 @media (max-width:900px){
@@ -1289,7 +1289,7 @@ html.gd-lock,html.gd-lock body{overflow:hidden!important;overscroll-behavior:non
 .gd-wrap{position:relative;flex:none;overflow:hidden;border-radius:26px;box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08)}
 .gg-demo.gd-full .gd-wrap{border-radius:0;box-shadow:none}
 .gd-scr{position:absolute;left:0;top:0;width:266px;height:574px;transform-origin:0 0;border-radius:0!important;cursor:pointer}
-.gd-scr .sv{opacity:0;transition:opacity .35s ease!important;transform:none!important}
+.gd-scr .sv{opacity:0;transition:opacity .35s ease,visibility 0s linear .35s!important;transform:none!important}
 .gd-scr .sv.gd-on{opacity:1;pointer-events:none}
 .gd-scr .tapdot,.gd-scr .taphint{display:none!important}
 .gd-spot{position:absolute;z-index:40;border-radius:12px;box-shadow:0 0 0 2px #5eead4,0 0 0 1000px rgba(2,4,10,.55);pointer-events:none;transition:left .4s cubic-bezier(.2,.8,.2,1),top .4s cubic-bezier(.2,.8,.2,1),width .4s,height .4s}
@@ -1452,6 +1452,8 @@ html.gd-lock,html.gd-lock body{overflow:hidden!important;overscroll-behavior:non
 /* founder photos */
 .fd-photo.fd-has{border:0;background:#0b0d18;overflow:hidden}.fd-more{display:inline-flex;align-items:center;gap:4px;margin-top:2px;font-size:16px;font-weight:600;color:#38d7ee}.fd-more:hover{color:#7fe7f7;text-decoration:none}
 .fd-photo.fd-has img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 12%;display:block}
+/* Inactive phone screens are visibility-hidden, not just opacity-0: a dozen stacked app mockups (masks, blurs, camera feed) stayed GPU-composited inside the 3D phone and crashed mobile Safari around the food step. Visibility keeps them out of compositing; the delayed visibility in .sv rules preserves each fade-out. */
+.story[data-step="0"] .sv-glucose,.story[data-step="1"] .sv-readings,.story[data-step="2"] .sv-pred,.story[data-step="3"] .sv-log,.story[data-step="4"] .sv-food,.story[data-step="5"] .sv-calc,.story[data-step="6"] .sv-dose,.story[data-step="7"] .sv-chat,.story[data-step="8"] .sv-dash,.story[data-step="9"] .sv-ins,.story[data-step="10"] .sv-care,.story[data-step="11"] .sv-alerts,.sv.gd-on{visibility:visible;transition-delay:0s!important}
 </style>
 </helmet>
 <div class="cine {{rootCls}}">
