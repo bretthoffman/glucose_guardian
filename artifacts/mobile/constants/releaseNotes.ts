@@ -28,6 +28,27 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-22d",
+    date: "2026-10-22",
+    items: [
+      {
+        icon: "check-square",
+        title: "Choose what goes in the PDF",
+        body: "In Doctor Office, tap the sections you want: daily pattern, each day, food log, insulin log, lows, finger sticks, and more. Your picks are remembered.",
+      },
+      {
+        icon: "eye",
+        title: "Preview before you send",
+        body: "Tap Preview to flip through every page of the PDF first, then Download PDF to save or send it.",
+      },
+      {
+        icon: "activity",
+        title: "A glucose graph for every day",
+        body: "The food log now shows each day's glucose with every meal marked on it, so the doctor can see what happened after each meal.",
+      },
+    ],
+  },
+  {
     id: "2026-10-22c",
     date: "2026-10-22",
     items: [

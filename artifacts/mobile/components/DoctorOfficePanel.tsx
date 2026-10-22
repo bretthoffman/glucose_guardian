@@ -1,14 +1,14 @@
 /**
- * Dashboard → Doctor Office: the Visit Summary PDF. Pick a range, see a preview of the numbers, tap
- * Download PDF, and the phone's share menu opens with the file (Save to Files, Mail, Messages,
- * AirDrop, print). No doctor info is collected or needed. The math and layout live in
+ * Dashboard → Doctor Office: the Visit Summary PDF. Pick a range, choose what to include, preview
+ * it (the phone's print preview), then Download PDF opens the share menu with the file (Save to
+ * Files, Mail, Messages, AirDrop, print). No doctor info is collected or needed. The math and layout live in
  * utils/visitSummary and utils/visitSummaryHtml. Read-only: nothing here writes logs or touches
  * dose settings.
  */
 import { Feather } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
-import * as ImageManipulator from "expo-image-manipulator";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -20,13 +20,21 @@ import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import { fetchGlucoseRange, identityKey, mergeReadings, type GlucoseIdentity } from "@/utils/glucoseRangeFetch";
 import { buildVisitSummary, DAY_MS, glucoseStats, inWindow, lowEpisodes, type SummaryReading } from "@/utils/visitSummary";
-import { buildVisitSummaryHtml, EVERY_MEAL_MAX_DAYS, visitSummaryFileName } from "@/utils/visitSummaryHtml";
+import {
+  ALL_SECTIONS_ON,
+  buildVisitSummaryHtml,
+  EVERY_MEAL_MAX_DAYS,
+  SECTIONS,
+  visitSummaryFileName,
+  type SectionChoices,
+  type SectionKey,
+} from "@/utils/visitSummaryHtml";
 
 type Palette = typeof Colors.dark;
 const RANGES = [7, 14, 30, 90] as const;
 type RangeDays = (typeof RANGES)[number];
-/** Photos are embedded small; this many keeps the PDF a reasonable size to email. */
-const MAX_PHOTOS = 60;
+/** This device remembers which sections were last chosen. */
+const SECTIONS_KEY = "@glucose_guardian_visit_summary_sections";
 
 export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
   const auth = useAuth();
@@ -108,86 +116,111 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
     return { tir: s ? Math.round(s.pct.inRange) : null, gmi: s?.gmi ?? null, lows: s ? lowEpisodes(inRange).length : null };
   }, [readings, startMs, endMs]);
 
-  const [includePhotos, setIncludePhotos] = useState(false);
   const [everyMeal, setEveryMeal] = useState(false);
-  const [building, setBuilding] = useState(false);
-  const listsEveryMeal = range <= EVERY_MEAL_MAX_DAYS || everyMeal;
+  const [building, setBuilding] = useState<null | "preview" | "download">(null);
+  const [sections, setSections] = useState<SectionChoices>(ALL_SECTIONS_ON);
+  useEffect(() => {
+    AsyncStorage.getItem(SECTIONS_KEY)
+      .then((v) => {
+        if (!v) return;
+        const saved = JSON.parse(v) as Partial<SectionChoices>;
+        setSections((cur) => ({ ...cur, ...saved }));
+      })
+      .catch(() => {});
+  }, []);
+  const toggleSection = (key: SectionKey) => {
+    Haptics.selectionAsync();
+    setSections((cur) => {
+      const next = { ...cur, [key]: !cur[key] };
+      AsyncStorage.setItem(SECTIONS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  };
 
-  async function photoSources(meals: { timestamp: string; photoUri?: string }[]): Promise<Record<string, string>> {
-    const out: Record<string, string> = {};
-    for (const m of meals.filter((x) => x.photoUri).slice(0, MAX_PHOTOS)) {
-      const uri = m.photoUri!;
-      try {
-        if (/^https?:\/\//i.test(uri)) {
-          out[m.timestamp] = uri;
-        } else {
-          const small = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 120 } }], {
-            compress: 0.6,
-            format: ImageManipulator.SaveFormat.JPEG,
-            base64: true,
-          });
-          if (small.base64) out[m.timestamp] = `data:image/jpeg;base64,${small.base64}`;
-        }
-      } catch {
-        /* a photo that can't be read is just left out */
+  /** The last PDF built, reused by Download right after Preview when nothing changed. */
+  const lastPdf = useRef<{ key: string; file: string; at: number } | null>(null);
+  const pdfKey = JSON.stringify({ range, sections, everyMeal, idKey, from: fetched?.fromMs, n: readings.length, f: foodLog.length, i: insulinLog.length, s: fingerStickLog?.length ?? 0 });
+
+  async function buildPdf(): Promise<string> {
+    if (lastPdf.current && lastPdf.current.key === pdfKey && Date.now() - lastPdf.current.at < 5 * 60_000) return lastPdf.current.file;
+    const rows = await ensureReadings(range);
+    if (!rows) throw new Error("readings");
+    const data = buildVisitSummary({
+      days: range,
+      endMs,
+      readings: mergeReadings(rows, liveHistory),
+      food: foodLog,
+      insulin: insulinLog,
+      sticks: fingerStickLog ?? [],
+      accessLog: profile?.accessLog ?? [],
+    });
+    const meta = {
+      patientName,
+      ageYears,
+      diabetesType: profile?.diabetesType,
+      carbRatio,
+      correctionFactor,
+      targetGlucose,
+      generatedAt: Date.now(),
+    };
+    const html = buildVisitSummaryHtml(data, meta, { sections, includeEveryMeal: everyMeal });
+    // Letter size. iOS takes margins here; Android uses the @page margin in the HTML.
+    const { uri } = await Print.printToFileAsync({
+      html,
+      width: 612,
+      height: 792,
+      ...(Platform.OS === "ios" ? { margins: { left: 32, right: 32, top: 32, bottom: 32 } } : {}),
+    });
+    const dest = (FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? "") + visitSummaryFileName(meta);
+    await FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
+    await FileSystem.copyAsync({ from: uri, to: dest });
+    lastPdf.current = { key: pdfKey, file: dest, at: Date.now() };
+    return dest;
+  }
+
+  async function previewPdf() {
+    if (building) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setBuilding("preview");
+    try {
+      const file = await buildPdf();
+      // The phone's print preview: every page, pinch to zoom. Nothing prints unless they tap Print.
+      await Print.printAsync({ uri: file });
+    } catch (e) {
+      // Closing the print preview without printing can reject on some phones; that's not an error.
+      if (!lastPdf.current || lastPdf.current.key !== pdfKey) {
+        Alert.alert("Couldn't build the summary", "Check your internet connection and try again.");
       }
+      void e;
+    } finally {
+      setBuilding(null);
     }
-    return out;
   }
 
   async function downloadPdf() {
     if (building) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setBuilding(true);
+    setBuilding("download");
     try {
-      const rows = await ensureReadings(range);
-      if (!rows) throw new Error("readings");
-      const data = buildVisitSummary({
-        days: range,
-        endMs,
-        readings: mergeReadings(rows, liveHistory),
-        food: foodLog,
-        insulin: insulinLog,
-        sticks: fingerStickLog ?? [],
-        accessLog: profile?.accessLog ?? [],
-      });
-      const meta = {
-        patientName,
-        ageYears,
-        diabetesType: profile?.diabetesType,
-        carbRatio,
-        correctionFactor,
-        targetGlucose,
-        generatedAt: Date.now(),
-      };
-      const photos = includePhotos && listsEveryMeal ? await photoSources(data.meals) : undefined;
-      const html = buildVisitSummaryHtml(data, meta, { includeEveryMeal: everyMeal, photos });
-      // Letter size. iOS takes margins here; Android uses the @page margin in the HTML.
-      const { uri } = await Print.printToFileAsync({
-        html,
-        width: 612,
-        height: 792,
-        ...(Platform.OS === "ios" ? { margins: { left: 32, right: 32, top: 32, bottom: 32 } } : {}),
-      });
-      const dest = (FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? "") + visitSummaryFileName(meta);
-      await FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
-      await FileSystem.copyAsync({ from: uri, to: dest });
+      const file = await buildPdf();
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(dest, { mimeType: "application/pdf", UTI: "com.adobe.pdf", dialogTitle: `${patientName}'s Visit Summary` });
+        await Sharing.shareAsync(file, { mimeType: "application/pdf", UTI: "com.adobe.pdf", dialogTitle: `${patientName}'s Visit Summary` });
       } else {
         Alert.alert("PDF ready", "Sharing isn't available on this device.");
       }
     } catch {
       Alert.alert("Couldn't build the summary", "Check your internet connection and try again.");
     } finally {
-      setBuilding(false);
+      setBuilding(null);
     }
   }
+
+  const noneChosen = !Object.values(sections).some(Boolean);
 
   return (
     <View style={{ gap: 10 }}>
       <Text style={[styles.intro, { color: colors.textSecondary }]}>
-        A PDF for {patientName}'s doctor: time in range, the daily pattern, lows, insulin, and every meal with the glucose before and after.
+        A PDF for {patientName}'s doctor. Pick the days and what to include, preview it, then download and send it.
       </Text>
 
       <View style={styles.seg}>
@@ -234,25 +267,65 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
         )}
       </View>
 
-      {range > EVERY_MEAL_MAX_DAYS && (
-        <ToggleRow colors={colors} label="Include every meal" hint="90 days lists the foods eaten most often. Turn on to list every meal too." value={everyMeal} onChange={setEveryMeal} />
-      )}
-      {listsEveryMeal && (
-        <ToggleRow colors={colors} label="Include meal photos" hint="Small pictures next to each meal. Makes the file bigger." value={includePhotos} onChange={setIncludePhotos} />
+      <Text style={[styles.section, { color: colors.textMuted }]}>WHAT TO INCLUDE</Text>
+      <View style={styles.chips}>
+        <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.backgroundTertiary, opacity: 0.75 }]}>
+          <Feather name="lock" size={12} color={colors.textMuted} />
+          <Text style={[styles.chipText, { color: colors.textSecondary }]}>Glucose overview</Text>
+        </View>
+        {SECTIONS.map((sec) => {
+          const isOn = sections[sec.key];
+          return (
+            <Pressable
+              key={sec.key}
+              onPress={() => toggleSection(sec.key)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: isOn }}
+              accessibilityLabel={`${sec.title}. ${sec.hint}`}
+              style={({ pressed }) => [
+                styles.chip,
+                {
+                  borderColor: isOn ? COLORS.primary : colors.border,
+                  backgroundColor: isOn ? COLORS.primary + "22" : colors.backgroundTertiary,
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+            >
+              <Feather name={isOn ? "check-circle" : "circle"} size={13} color={isOn ? COLORS.primary : colors.textMuted} />
+              <Text style={[styles.chipText, { color: isOn ? colors.text : colors.textSecondary }]}>{sec.title}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {sections.meals && range > EVERY_MEAL_MAX_DAYS && (
+        <ToggleRow colors={colors} label="List every meal" hint="90 days lists the foods eaten most often. Turn on to list every meal with its day graph." value={everyMeal} onChange={setEveryMeal} />
       )}
 
-      <Pressable
-        onPress={downloadPdf}
-        disabled={building}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.bigBtn, { opacity: pressed || building ? 0.85 : 1 }]}
-      >
-        <BrandShade radius={16} />
-        {building ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="download" size={18} color="#fff" />}
-        <Text style={styles.bigBtnTitle}>{building ? "Building your PDF…" : "Download PDF"}</Text>
-      </Pressable>
+      <View style={styles.btnRow}>
+        <Pressable
+          onPress={previewPdf}
+          disabled={!!building}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.previewBtn, { borderColor: colors.border, backgroundColor: colors.backgroundTertiary, opacity: pressed || building ? 0.8 : 1 }]}
+        >
+          {building === "preview" ? <ActivityIndicator size="small" color={colors.text} /> : <Feather name="eye" size={17} color={colors.text} />}
+          <Text style={[styles.previewText, { color: colors.text }]}>{building === "preview" ? "Building…" : "Preview"}</Text>
+        </Pressable>
+        <Pressable
+          onPress={downloadPdf}
+          disabled={!!building}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.bigBtn, { opacity: pressed || building ? 0.85 : 1 }]}
+        >
+          <BrandShade radius={16} />
+          {building === "download" ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="download" size={18} color="#fff" />}
+          <Text style={styles.bigBtnTitle}>{building === "download" ? "Building…" : "Download PDF"}</Text>
+        </Pressable>
+      </View>
       <Text style={[styles.hint, { color: colors.textMuted }]}>
-        Save it to Files, or send it to the doctor by email, text, or your patient portal (like MyChart).
+        {noneChosen
+          ? "Only the glucose overview is on. Tap a section above to add it."
+          : "Preview shows every page first. Download lets you save it to Files or send it by email, text, or your patient portal (like MyChart)."}
       </Text>
     </View>
   );
@@ -293,7 +366,14 @@ const styles = StyleSheet.create({
   toggleRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 2 },
   toggleLabel: { fontSize: 14, fontWeight: "600" },
   toggleHint: { fontSize: 12, marginTop: 2, lineHeight: 16 },
-  bigBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, paddingVertical: 16, overflow: "hidden", backgroundColor: COLORS.primary, marginTop: 4 },
+  section: { fontSize: 12, fontWeight: "700", letterSpacing: 0.8, marginTop: 6, marginLeft: 2 },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  chip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 11, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
+  chipText: { fontSize: 13, fontWeight: "600" },
+  btnRow: { flexDirection: "row", gap: 8, marginTop: 6 },
+  previewBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 16, borderRadius: 16, borderWidth: 1 },
+  previewText: { fontSize: 15, fontWeight: "700" },
+  bigBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, paddingVertical: 16, overflow: "hidden", backgroundColor: COLORS.primary },
   bigBtnTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
   hint: { fontSize: 12, lineHeight: 17, textAlign: "center" },
 });

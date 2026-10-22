@@ -26,12 +26,17 @@ export interface SummaryInsulin {
   timestamp: string;
   units: number;
   type: "bolus" | "correction" | "manual" | "basal";
+  /** e.g. "Humalog · 100 u/mL" */
+  insulinType?: string;
+  note?: string;
 }
 
 export interface SummaryStick {
   timestamp: string;
   glucose: number;
   cgmGlucose?: number;
+  reason?: string;
+  note?: string;
 }
 
 export interface SummaryAccessLog {
@@ -191,6 +196,8 @@ export function fmtRange(startMs: number, endMs: number): string {
 
 export interface LowEpisode {
   start: string;
+  /** Last reading under 70 in the run. */
+  end: string;
   nadir: number;
   nadirAt: string;
 }
@@ -206,7 +213,7 @@ export function lowEpisodes(readings: SummaryReading[]): LowEpisode[] {
   const flush = () => {
     if (run.length === 0) return;
     const nadir = run.reduce((m, r) => (r.glucose < m.glucose ? r : m), run[0]!);
-    if (run.length >= 2 || nadir.glucose < 54) out.push({ start: run[0]!.timestamp, nadir: nadir.glucose, nadirAt: nadir.timestamp });
+    if (run.length >= 2 || nadir.glucose < 54) out.push({ start: run[0]!.timestamp, end: run[run.length - 1]!.timestamp, nadir: nadir.glucose, nadirAt: nadir.timestamp });
     run = [];
   };
   for (const r of sorted) {
@@ -535,6 +542,11 @@ export function doseChanges(log: SummaryAccessLog[], startMs: number, endMs: num
 
 export interface VisitSummaryData {
   startMs: number;
+  /** Readings inside the window, oldest first (for the per-meal and per-day graphs). */
+  readings: SummaryReading[];
+  /** Insulin doses and finger sticks inside the window, newest first (for their log sections). */
+  insulinRows: SummaryInsulin[];
+  stickRows: SummaryStick[];
   endMs: number;
   days: number;
   stats: GlucoseStats | null;
@@ -573,6 +585,7 @@ export function buildVisitSummary(input: {
   const meals = mealRows(food, readings);
   return {
     startMs,
+    readings: sortByTime(readings),
     endMs,
     days: input.days,
     stats: glucoseStats(readings),
@@ -588,6 +601,25 @@ export function buildVisitSummary(input: {
     perDay: dayRows(startMs, endMs, readings, food, insulin),
     care: careAverages(food, insulin),
     sticks: fingerStickSummary(w(input.sticks)),
+    insulinRows: [...insulin].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)),
+    stickRows: w(input.sticks).sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)),
     changes: doseChanges(input.accessLog, startMs, endMs),
   };
+}
+
+/** Readings in [fromMs, toMs] from an oldest-first list (binary search, so long reports stay fast). */
+export function readingsBetween(sorted: SummaryReading[], fromMs: number, toMs: number): SummaryReading[] {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (Date.parse(sorted[mid]!.timestamp) < fromMs) lo = mid + 1;
+    else hi = mid;
+  }
+  const out: SummaryReading[] = [];
+  for (let i = lo; i < sorted.length; i++) {
+    if (Date.parse(sorted[i]!.timestamp) > toMs) break;
+    out.push(sorted[i]!);
+  }
+  return out;
 }

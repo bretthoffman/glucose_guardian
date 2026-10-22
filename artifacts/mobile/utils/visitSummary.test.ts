@@ -69,9 +69,9 @@ describe("lows", () => {
   });
   it("names the 2-hour window when most lows start there", () => {
     const eps = [
-      { start: at(2026, 10, 15, 2, 30), nadir: 60, nadirAt: at(2026, 10, 15, 2, 40) },
-      { start: at(2026, 10, 16, 3, 10), nadir: 60, nadirAt: at(2026, 10, 16, 3, 20) },
-      { start: at(2026, 10, 17, 14, 0), nadir: 60, nadirAt: at(2026, 10, 17, 14, 5) },
+      { start: at(2026, 10, 15, 2, 30), end: at(2026, 10, 15, 2, 40), nadir: 60, nadirAt: at(2026, 10, 15, 2, 40) },
+      { start: at(2026, 10, 16, 3, 10), end: at(2026, 10, 16, 3, 20), nadir: 60, nadirAt: at(2026, 10, 16, 3, 20) },
+      { start: at(2026, 10, 17, 14, 0), end: at(2026, 10, 17, 14, 5), nadir: 60, nadirAt: at(2026, 10, 17, 14, 5) },
     ];
     expect(lowPattern(eps)).toBe("2 of 3 lows started between 2 and 4 AM.");
     expect(lowPattern(eps.slice(2))).toBeNull();
@@ -194,6 +194,25 @@ describe("visit summary document", () => {
     const data = buildVisitSummary({ days: 90, endMs: end, readings, food, insulin: [], sticks: [], accessLog: [] });
     expect(buildVisitSummaryHtml(data, meta)).toContain("Foods eaten most often");
     expect(buildVisitSummaryHtml(data, meta, { includeEveryMeal: true })).toContain("Every meal, newest first");
+  });
+  it("leaves out sections that are switched off, and adds the insulin, lows and finger stick logs", () => {
+    const insulin = [{ timestamp: at(2026, 10, 20, 8, 0), units: 2.5, type: "bolus" as const, insulinType: "Humalog · 100 u/mL", note: "before school" }];
+    const sticks = [{ timestamp: at(2026, 10, 20, 9, 0), glucose: 120, cgmGlucose: 131, reason: "seemed_off" }];
+    const data = buildVisitSummary({ days: 14, endMs: end, readings, food, insulin, sticks, accessLog: [] });
+    const all = buildVisitSummaryHtml(data, meta);
+    expect(all).toContain("Insulin log (1 doses)");
+    expect(all).toContain("Humalog");
+    expect(all).toContain("before school");
+    expect(all).toContain("Dexcom seemed off");
+    expect(all).toContain("+11");
+    expect(all).toContain("Daily pattern by time of day");
+    const lean = buildVisitSummaryHtml(data, meta, { sections: { pattern: false, eachDay: false, meals: false, insulin: false, lows: false, sticks: false } });
+    expect(lean).not.toContain("Daily pattern by time of day");
+    expect(lean).not.toContain('class="page"');
+    expect(lean).toContain("Glucose at a glance");
+    const foodOnly = buildVisitSummaryHtml(data, meta, { sections: { insulin: false, lows: false, sticks: false } });
+    expect(foodOnly).toContain("<h2>Food Log</h2>");
+    expect(foodOnly).toContain('class="strip"');
   });
   it("names the file after the patient and date", () => {
     expect(visitSummaryFileName({ patientName: "Bella Bethea", generatedAt: end })).toBe("Bella_Bethea_Visit_Summary_2026-10-22.pdf");
