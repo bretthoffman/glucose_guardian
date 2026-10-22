@@ -1265,6 +1265,8 @@ body{background:#05060c}
   .cine *,.cine *::before,.cine *::after{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
   .cine .gnav{background:rgba(5,6,12,.94)!important}
   .cine .mover,.cine .drift{will-change:auto!important}
+  /* the wide background chart is a very large moving texture; it is barely visible behind the pinned phone */
+  .cine .amb{display:none!important}
 }
 
 /* ── Try-it buttons ── */
@@ -1444,6 +1446,7 @@ html.gd-lock,html.gd-lock body{overflow:hidden!important;overscroll-behavior:non
   .cine .gnav::before{background:rgba(5,6,12,.94)!important}
   .cine .mover,.cine .drift{will-change:auto!important;transform-style:flat!important}
   .cine .cgm-st{display:none!important}
+  .cine .amb{display:none!important}
 }
 
 /* founder photos */
