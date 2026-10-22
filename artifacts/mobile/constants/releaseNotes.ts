@@ -28,6 +28,27 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-22c",
+    date: "2026-10-22",
+    items: [
+      {
+        icon: "file-text",
+        title: "Visit Summary for your doctor",
+        body: "Dashboard → Doctor Office → Send Visit Summary. Pick 7, 14, 30, or 90 days and send a PDF with time in range, the daily pattern, lows, and every meal with the glucose before and 2 hours after.",
+      },
+      {
+        icon: "send",
+        title: "Quick notes to the doctor",
+        body: "Lows overnight, refill needed, a question about insulin settings, or a sick day. We fill in the numbers, you change anything you want, then send by email or text.",
+      },
+      {
+        icon: "phone",
+        title: "Call, email, or text the office",
+        body: "Add your doctor's name, phone, and email once in Doctor Office, and they're one tap away.",
+      },
+    ],
+  },
+  {
     id: "2026-10-22b",
     date: "2026-10-22",
     items: [
