@@ -200,7 +200,7 @@ const food: HelpStep[] = [
     anchor: "food.scan",
     title: "Scan or take a photo",
     text:
-      "The fastest way to log a meal. The camera has two modes on its bottom toggle: Food takes a photo and the AI identifies what's on the plate and estimates the carbs; Barcode shows a blue frame. Hold a package's barcode inside it and the label's nutrition is pulled automatically, with a servings picker for multi-serving packages.",
+      "The fastest way to log a meal. The camera has two modes on its bottom toggle: Food takes a photo and the AI identifies what's on the plate and estimates the carbs; Barcode shows a blue frame. Hold a package's barcode inside it and the label's nutrition is pulled automatically, with a servings picker for multi-serving packages. If the AI can't read a photo, the photo is kept and you type each food and its carbs yourself; the photo is saved with the meal. On any photo result, Add a food it missed adds anything the AI left out.",
   },
   {
     id: "food.search",

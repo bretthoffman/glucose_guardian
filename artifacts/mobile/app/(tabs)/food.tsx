@@ -73,6 +73,21 @@ interface FoodResult {
   perServing?: { carbs: number; fat?: number; protein?: number };
   servingText?: string;
   servingsPerContainer?: number;
+  /** A photo the AI couldn't read: the photo is kept and the carbs come from the rows the user types. */
+  manual?: boolean;
+}
+
+/** One food the user typed in: on a photo the AI couldn't read, or one the AI missed. */
+interface ExtraFood {
+  id: number;
+  name: string;
+  carbs: string;
+}
+
+/** Grams from a typed carb field; blank or nonsense counts as 0. */
+function typedCarbs(text: string): number {
+  const n = parseFloat(text);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /** Whole servings, 1–99, from whatever the picker holds. */
@@ -243,6 +258,24 @@ export default function FoodScreen() {
   const [error, setError] = useState("");
   const [logged, setLogged] = useState(false);
   const [editedCarbs, setEditedCarbs] = useState<string>("");
+  /** Foods the user added by hand. On a manual photo these ARE the meal; otherwise they add to the AI's carbs. */
+  const [extraItems, setExtraItems] = useState<ExtraFood[]>([]);
+  const extraId = useRef(1);
+  const newExtra = (): ExtraFood => ({ id: extraId.current++, name: "", carbs: "" });
+  /** Added rows that hold something (a name or carbs). Blank rows are ignored. */
+  const addedFoods = extraItems.filter((it) => it.name.trim() !== "" || typedCarbs(it.carbs) > 0);
+  const addedCarbs = addedFoods.reduce((sum, it) => sum + typedCarbs(it.carbs), 0);
+  /** The AI's number as shown (and maybe corrected) in the carb bubble. A manual photo has none. */
+  const parsedBubble = parseFloat(editedCarbs);
+  const baseCarbs = !result || result.manual ? 0 : Number.isFinite(parsedBubble) && parsedBubble >= 0 ? parsedBubble : result.estimatedCarbs;
+  /** The whole meal: what gets logged, saved to Favorites and handed to the insulin calculator. */
+  const mealCarbs = Math.round((baseCarbs + addedCarbs) * 10) / 10;
+  const mealName = !result
+    ? ""
+    : [...(result.manual ? [] : [result.foodName]), ...addedFoods.map((it) => it.name.trim() || "Other food")].join(" + ") ||
+      "Meal photo";
+  /** A manual photo can't be logged or dosed until some carbs are entered. */
+  const mealReady = !!result && (!result.manual || mealCarbs > 0);
 
   // ── "Calculate Insulin" popup — ORDER-AWARE so the same meal counts exactly once: the analyzed
   // carbs pre-fill the popup's real input in BOTH orders, and when the meal was logged first the
@@ -331,10 +364,9 @@ export default function FoodScreen() {
   const [servingsText, setServingsText] = useState("1");
 
   function saveToQuickLookup() {
-    if (!result || savedToQuick) return;
-    // Save the number on screen — if it was corrected, the correction is what should stick.
-    const edited = parseFloat(editedCarbs);
-    saveQuickFood(result.foodName, Number.isFinite(edited) && edited >= 0 ? edited : result.estimatedCarbs);
+    if (!result || savedToQuick || !mealReady) return;
+    // Save the number on screen — if it was corrected (or foods were added), that is what should stick.
+    saveQuickFood(mealName, mealCarbs);
     setSavedToQuick(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
@@ -394,6 +426,7 @@ export default function FoodScreen() {
     setError("");
     setIsLoading(true);
     setResult(null);
+    setExtraItems([]);
     setGuidance(null);
     setPhotoUri(null);
     setLogged(false);
@@ -533,6 +566,7 @@ export default function FoodScreen() {
       setError("");
       setServingsText("1");
       setResult(result);
+      setExtraItems([]);
       setEditedCarbs(String(carbs));
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       await fetchGuidance(carbs);
@@ -562,9 +596,22 @@ export default function FoodScreen() {
     void fetchGuidance(carbs);
   }
 
+  /**
+   * The AI couldn't read the photo (server error, no connection, or it didn't know the food). Keep
+   * the photo and let the user type each food and its carbs; the photo is saved with the log.
+   */
+  function startManualEntry() {
+    setResult({ foodName: "", estimatedCarbs: 0, confidence: "high", fromPhoto: true, manual: true });
+    setEditedCarbs("0");
+    setExtraItems([newExtra()]);
+    setError("");
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  }
+
   async function analyzePhoto(uri: string) {
     setPhotoUri(uri);
     setResult(null);
+    setExtraItems([]);
     setGuidance(null);
     setQuery("");
     setLogged(false);
@@ -616,23 +663,26 @@ export default function FoodScreen() {
             errorMsg = `Server error (${res.status}). Please try again.`;
           }
         }
-        setError(errorMsg);
+        console.warn("Photo analysis failed:", errorMsg);
+        startManualEntry();
         setIsAnalyzingPhoto(false);
         return;
       }
 
       const data = await res.json();
+      // The server answers "Unknown food" (with a placeholder carb count) when it can't tell what it
+      // is. That number means nothing, so treat it like a failed read and ask the user instead.
+      if (!data?.foodName || String(data.foodName).trim().toLowerCase() === "unknown food") {
+        startManualEntry();
+        return;
+      }
       setResult({ ...data, fromPhoto: true });
       setEditedCarbs((data.estimatedCarbs ?? 0).toString());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await fetchGuidance(data.estimatedCarbs);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "";
-      if (message.includes("Network") || message.includes("fetch")) {
-        setError("Network error. Make sure you have an internet connection.");
-      } else {
-        setError("Could not analyze photo. Please try again.");
-      }
+      console.warn("Photo analysis failed:", err instanceof Error ? err.message : err);
+      startManualEntry();
     } finally {
       setIsAnalyzingPhoto(false);
     }
@@ -652,20 +702,20 @@ export default function FoodScreen() {
     setSavedToQuick(false);
     setQuickSource(null);
     setEditedCarbs("");
+    setExtraItems([]);
     setServingsText("1");
   }
 
   function logMeal() {
-    if (!result) return;
-    const parsedCarbs = parseFloat(editedCarbs);
-    const carbs = Number.isFinite(parsedCarbs) && parsedCarbs >= 0 ? parsedCarbs : result.estimatedCarbs;
+    if (!result || !mealReady) return;
+    const carbs = mealCarbs;
     // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
     confirmLog(() => {
       const timestamp = new Date().toISOString();
       setLoggedEntryTimestamp(timestamp);
       addFoodLogEntry({
         timestamp,
-        foodName: result.foodName,
+        foodName: mealName,
         estimatedCarbs: carbs,
         // Recorded insulin follows the carbs actually logged (it used to keep the first estimate's
         // number even after the carbs were corrected). A record only — dose math is unchanged.
@@ -679,8 +729,11 @@ export default function FoodScreen() {
       });
       setLogged(true);
       // The number you log is the number this favorite keeps.
-      const fav = findQuickFood(quickFoods, quickSource ?? result.foodName) ?? findQuickFood(quickFoods, result.foodName);
-      if (fav && fav.carbs !== carbs) updateQuickFoodCarbs(fav.name, carbs);
+      // Only when the meal IS that one food: added foods must not inflate the favorite's carbs.
+      if (!result.manual && addedFoods.length === 0) {
+        const fav = findQuickFood(quickFoods, quickSource ?? result.foodName) ?? findQuickFood(quickFoods, result.foodName);
+        if (fav && fav.carbs !== carbs) updateQuickFoodCarbs(fav.name, carbs);
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
   }
@@ -697,10 +750,21 @@ export default function FoodScreen() {
   }, [foodLog, loggedEntryTimestamp]);
 
   function handleCarbsBlur() {
-    const parsed = parseFloat(editedCarbs);
-    if (!isNaN(parsed) && parsed > 0) {
-      fetchGuidance(parsed);
-    }
+    if (mealCarbs > 0) fetchGuidance(mealCarbs);
+  }
+
+  function updateExtra(id: number, patch: Partial<ExtraFood>) {
+    setExtraItems((items) => items.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  }
+  function addExtra() {
+    Haptics.selectionAsync();
+    setExtraItems((items) => [...items, newExtra()]);
+    setSavedToQuick(false);
+  }
+  function removeExtra(id: number) {
+    Haptics.selectionAsync();
+    setExtraItems((items) => items.filter((it) => it.id !== id));
+    setSavedToQuick(false);
   }
 
   const spikePercent = guidance
@@ -864,7 +928,12 @@ export default function FoodScreen() {
               <Image source={{ uri: photoUri }} style={styles.inlinePhoto} resizeMode="cover" />
             )}
             <View style={styles.resultHeaderRow}>
-              {result.fromPhoto ? (
+              {result.manual ? (
+                <View style={[styles.aiTag, { backgroundColor: COLORS.primary + "15" }]}>
+                  <Feather name="edit-3" size={12} color={COLORS.primary} />
+                  <Text style={[styles.aiTagText, { color: COLORS.primary }]} numberOfLines={1}>Entered by you</Text>
+                </View>
+              ) : result.fromPhoto ? (
                 <View style={[styles.aiTag, { backgroundColor: COLORS.primary + "15" }]}>
                   <Feather name="cpu" size={12} color={COLORS.primary} />
                   <Text style={[styles.aiTagText, { color: COLORS.primary }]} numberOfLines={1}>AI Photo Analysis</Text>
@@ -879,6 +948,7 @@ export default function FoodScreen() {
               ) : (
                 <View style={{ flex: 1 }} />
               )}
+              {!result.manual && (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Add to Favorites"
@@ -902,11 +972,20 @@ export default function FoodScreen() {
                   {savedToQuick ? "In Favorites" : "Add to Favorites"}
                 </Text>
               </Pressable>
+              )}
               {/* Close the analysis — photo results had no way out (the search-bar ✕ only exists
                   after a text search). Resets the page; an already-saved log stays logged. */}
               <CloseButton onPress={resetAnalysis} accessibilityLabel="Close this food" size={30} hitSlop={10} />
             </View>
 
+            {result.manual ? (
+              <View style={{ gap: 4 }}>
+                <Text style={[styles.manualTitle, { color: colors.text }]}>Couldn't estimate carbs</Text>
+                <Text style={[styles.manualSub, { color: colors.textMuted }]}>
+                  Your photo is saved with the meal. Type each food and its carbs below.
+                </Text>
+              </View>
+            ) : (
             <View style={styles.resultTop}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.foodName, { color: colors.text }]}>{result.foodName}</Text>
@@ -935,6 +1014,96 @@ export default function FoodScreen() {
                 <Text style={[{ fontSize: 9, color: COLORS.primary + "80", fontWeight: "400" }]}>tap to edit</Text>
               </View>
             </View>
+            )}
+
+            {/* Foods typed by hand: the whole meal on a photo the AI couldn't read, or foods the AI
+                missed on one it could. They add up into the total that's logged and dosed. */}
+            {extraItems.length > 0 && (
+              <View style={{ gap: 8 }}>
+                {extraItems.map((it, i) => (
+                  <View
+                    key={it.id}
+                    style={[styles.extraRow, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}
+                  >
+                    <TextInput
+                      style={[styles.extraName, { color: colors.text }]}
+                      value={it.name}
+                      onChangeText={(t) => updateExtra(it.id, { name: t })}
+                      placeholder={result.manual ? (i === 0 ? "Food, like Hot dog" : "Another food") : "Food it missed"}
+                      placeholderTextColor={colors.textMuted}
+                      autoCapitalize="sentences"
+                      maxLength={40}
+                      returnKeyType="next"
+                      accessibilityLabel={`Food ${i + 1} name`}
+                    />
+                    <View style={[styles.extraCarbBox, { borderColor: COLORS.primary + "40" }]}>
+                      <TextInput
+                        style={[styles.extraCarbInput, { color: COLORS.primary }]}
+                        value={it.carbs}
+                        onChangeText={(t) => updateExtra(it.id, { carbs: t.replace(/[^0-9.]/g, "").slice(0, 5) })}
+                        onBlur={handleCarbsBlur}
+                        onSubmitEditing={handleCarbsBlur}
+                        placeholder="0"
+                        placeholderTextColor={COLORS.primary + "66"}
+                        keyboardType="decimal-pad"
+                        returnKeyType="done"
+                        selectTextOnFocus
+                        accessibilityLabel={`Food ${i + 1} carbs in grams`}
+                      />
+                      <Text style={[styles.extraCarbUnit, { color: COLORS.primary }]}>g</Text>
+                    </View>
+                    {(!result.manual || extraItems.length > 1) && (
+                      <Pressable
+                        onPress={() => removeExtra(it.id)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Remove this food"
+                      >
+                        <Feather name="x" size={16} color={colors.textMuted} />
+                      </Pressable>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+            {result.fromPhoto && !logged && (
+              <Pressable
+                onPress={addExtra}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.addExtraBtn, { opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Feather name="plus" size={14} color={COLORS.primary} />
+                <Text style={[styles.addExtraText, { color: COLORS.primary }]}>
+                  {result.manual ? "Add another food" : "Add a food it missed"}
+                </Text>
+              </Pressable>
+            )}
+            {(result.manual || addedFoods.length > 0) && (
+              <View style={[styles.totalRow, { borderTopColor: colors.border }]}>
+                <Text style={[styles.totalLabel, { color: colors.textMuted }]}>TOTAL CARBS</Text>
+                <Text style={[styles.totalValue, { color: colors.text }]}>{formatCarbs(mealCarbs)} g</Text>
+              </View>
+            )}
+            {result.manual && mealReady && (
+              <Pressable
+                accessibilityRole="button"
+                disabled={savedToQuick}
+                onPress={saveToQuickLookup}
+                style={({ pressed }) => [styles.manualFavRow, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <MaterialCommunityIcons
+                  name={savedToQuick ? "heart" : "heart-outline"}
+                  size={16}
+                  color={savedToQuick ? COLORS.primaryLight : colors.textMuted}
+                />
+                <Text
+                  style={[styles.manualFavText, { color: savedToQuick ? COLORS.primaryLight : colors.textSecondary }]}
+                  numberOfLines={1}
+                >
+                  {savedToQuick ? `Saved "${mealName}" to Favorites` : `Save "${mealName}" to Favorites`}
+                </Text>
+              </Pressable>
+            )}
 
             {/* Servings — barcode results only, and only when the package holds more than one serving
                 (or we can't tell). Carbs, fat, protein and the insulin estimate all scale with it. */}
@@ -1026,14 +1195,14 @@ export default function FoodScreen() {
                     backgroundColor: insulinTaken ? COLORS.success + "20" : COLORS.primary,
                     borderColor: insulinTaken ? COLORS.success : "transparent",
                     borderWidth: insulinTaken ? 1 : 0,
-                    opacity: pressed ? 0.85 : 1,
+                    opacity: !mealReady ? 0.45 : pressed ? 0.85 : 1,
                   },
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setInsulinCalcVisible(true);
                 }}
-                disabled={insulinTaken}
+                disabled={insulinTaken || !mealReady}
               >
                 {!insulinTaken && <AccentShade radius={14} />}
                 <Feather name={insulinTaken ? "check-circle" : "percent"} size={16} color={insulinTaken ? COLORS.success : "#fff"} />
@@ -1051,11 +1220,11 @@ export default function FoodScreen() {
                     backgroundColor: logged ? COLORS.success + "20" : COLORS.primary,
                     borderColor: logged ? COLORS.success : "transparent",
                     borderWidth: logged ? 1 : 0,
-                    opacity: pressed ? 0.85 : 1,
+                    opacity: !mealReady ? 0.45 : pressed ? 0.85 : 1,
                   },
                 ]}
                 onPress={logMeal}
-                disabled={logged}
+                disabled={logged || !mealReady}
               >
                 <Feather name={logged ? "check-circle" : "plus-circle"} size={16} color={logged ? COLORS.success : "#fff"} />
                 <Text style={[styles.logBtnText, { color: logged ? COLORS.success : "#fff" }]}>
@@ -1279,9 +1448,11 @@ export default function FoodScreen() {
       <FoodInsulinModal
         visible={insulinCalcVisible}
         onClose={() => setInsulinCalcVisible(false)}
-        initialCarbs={result ? parseFloat(editedCarbs) || result.estimatedCarbs : 0}
+        initialCarbs={
+          !result ? 0 : result.manual || addedFoods.length > 0 ? mealCarbs : parseFloat(editedCarbs) || result.estimatedCarbs
+        }
         excludeLogTimestamp={logged ? loggedEntryTimestamp : null}
-        foodName={result?.foodName}
+        foodName={result ? mealName : undefined}
         colors={colors}
         onLogged={() => {
           setInsulinCalcVisible(false);
@@ -1546,6 +1717,20 @@ const styles = StyleSheet.create({
   },
   saveQuickBtnText: { fontSize: 10, fontWeight: "600", flexShrink: 1 },
   resultClose: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  manualTitle: { fontSize: 20, fontWeight: "700" },
+  manualSub: { fontSize: 13, lineHeight: 18 },
+  extraRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 12, paddingRight: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1 },
+  extraName: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: "500", paddingVertical: 6 },
+  extraCarbBox: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, minWidth: 64 },
+  extraCarbInput: { width: 46, fontSize: 16, fontWeight: "700", textAlign: "right", paddingVertical: 6 },
+  extraCarbUnit: { fontSize: 13, fontWeight: "600", marginLeft: 2 },
+  addExtraBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingVertical: 4 },
+  addExtraText: { fontSize: 14, fontWeight: "600" },
+  totalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  totalLabel: { fontSize: 12, fontWeight: "700", letterSpacing: 0.8 },
+  totalValue: { fontSize: 22, fontWeight: "800" },
+  manualFavRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 2 },
+  manualFavText: { fontSize: 14, fontWeight: "500", flexShrink: 1 },
   resultTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   foodName: { fontSize: 20, fontWeight: "700", marginBottom: 4, textTransform: "capitalize" },
   portionText: { fontSize: 13, fontWeight: "400", marginBottom: 6 },
