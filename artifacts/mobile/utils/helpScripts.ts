@@ -43,7 +43,7 @@ const home: HelpStep[] = [
     anchor: "home.cgmChip",
     title: "Your CGM connection",
     text:
-      "This chip is the sensor link: Dexcom or Libre. Green means connected, and it shows how many new readings arrived and when. If it ever says attention is needed, tapping it opens the connection screen where you can sign in again or switch devices.",
+      "This chip is the sensor link to your Dexcom. Green means connected, and it shows how many new readings arrived and when. If it ever says attention is needed, tapping it opens the connection screen where you can sign in again or switch devices.",
   },
   {
     id: "home.logsBtn",

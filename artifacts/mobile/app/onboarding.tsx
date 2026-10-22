@@ -195,7 +195,7 @@ export default function OnboardingScreen() {
                 { icon: "activity", text: "Real-time glucose monitoring" },
                 { icon: "camera", text: "AI food photo carb analysis" },
                 { icon: "droplet", text: "Insulin dose calculator" },
-                { icon: "wifi", text: "Dexcom & FreeStyle Libre sync" },
+                { icon: "wifi", text: "Dexcom CGM sync" },
                 { icon: "users", text: "Parent dashboard & doctor sharing" },
               ].map((f) => (
                 <View key={f.text} style={styles.featureRow}>
