@@ -28,6 +28,22 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-22",
+    date: "2026-10-22",
+    items: [
+      {
+        icon: "camera",
+        title: "Enter your own carbs on a photo",
+        body: "If we can't figure out the carbs from a food photo, the photo stays. Type each food and its carbs, and we'll add them up. The photo is saved with the meal.",
+      },
+      {
+        icon: "plus-circle",
+        title: "Add a food it missed",
+        body: "On a photo result, tap Add a food it missed to add anything that wasn't counted, like a side or a drink.",
+      },
+    ],
+  },
+  {
     id: "2026-10-20b",
     date: "2026-10-20",
     items: [
