@@ -1278,6 +1278,11 @@ body{background:#05060c}
 
 /* ── Demo overlay ── */
 html.gd-lock,html.gd-lock body{overflow:hidden!important;overscroll-behavior:none}
+/* While the tap-through demo is open, stop drawing the page behind it. The demo covers the whole
+   screen anyway, and the page's tall layers (~300 MB at iPhone resolution) on top of the demo's
+   own made iPhone Safari run out of memory: a flash on a tap, then a reload ("crash"). */
+html.gd-lock body > *:not(.gg-demo){display:none!important}
+.gg-demo.gd-full:not(.gd-intro) .gd-phone{will-change:auto}
 .gg-demo{position:fixed;inset:0;z-index:100000;background:#04060d;color:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Inter,sans-serif;display:flex;flex-direction:column;align-items:center;opacity:0;visibility:hidden;transition:opacity .3s,visibility .3s;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .gg-demo.on{opacity:1;visibility:visible}
 .gg-demo:not(.view-self) .vs{display:none!important}.gg-demo.view-self .vc{display:none!important}
@@ -2063,10 +2068,17 @@ class Component extends DCLogic {
         if (fullI) setTimeout(function () { ph.style.transition = 'transform .6s cubic-bezier(.2,.8,.2,1)'; ph.style.transform = 'none'; }, 1400);
         setTimeout(function () { el.classList.add('gd-booted'); }, 1350);
         setTimeout(function () { intro = false; el.classList.remove('gd-intro', 'gd-booted'); setRot(false); render(); }, 2050);
+        // Take the page out of layout while the demo is open (see the gd-lock CSS); remember where
+        // the reader was so closing puts them back.
+        el._scrollY = window.scrollY;
         document.documentElement.classList.add('gd-lock');
         try { el.querySelector('.gd-x').focus({ preventScroll: true }); } catch (e) {}
       };
-      var close = function () { clearInterval(el._bgT); el.classList.remove('on'); document.documentElement.classList.remove('gd-lock'); };
+      var close = function () {
+        clearInterval(el._bgT); el.classList.remove('on'); document.documentElement.classList.remove('gd-lock');
+        var y = el._scrollY || 0;
+        try { window.scrollTo({ top: y, behavior: 'instant' }); } catch (e) { window.scrollTo(0, y); }
+      };
       document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-demo]'); if (b) { e.preventDefault(); open(); } });
       window.__ggOpenDemo = open;
     })();
