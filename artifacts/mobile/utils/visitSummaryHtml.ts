@@ -51,6 +51,11 @@ export interface VisitSummaryOptions {
   sections?: Partial<SectionChoices>;
   /** Long reports (over 30 days) list foods by how often they were eaten unless this is on. */
   includeEveryMeal?: boolean;
+  /**
+   * The Doctor Portal box at the top of page 1. With a code: the family's one-time 24-hour pass
+   * (shown until a doctor uses it). Without one: just the demo invitation.
+   */
+  portal?: { code?: string | null; url: string };
 }
 
 /** Above this many days the food page shows the food summary instead of every meal (unless asked). */
@@ -322,6 +327,15 @@ function sticksTable(data: VisitSummaryData): string {
   return `<table class="log"><thead><tr><th>Day</th><th>Time</th><th class="r">Meter</th><th class="r">Dexcom</th><th class="r">Dexcom minus meter</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table>${avg}`;
 }
 
+function portalBox(meta: VisitSummaryMeta, portal?: VisitSummaryOptions["portal"]): string {
+  if (!portal) return "";
+  const host = esc(portal.url.replace(/^https?:\/\//, "").replace(/\/$/, ""));
+  const first = esc(meta.patientName.split(/\s+/)[0] || meta.patientName);
+  return portal.code
+    ? `<div class="portal"><div class="pl"><b>See ${first}'s live data in the Glucose Guardian Doctor Portal</b><span>Go to <u>${host}</u>, choose <b>Use a patient code</b>, and enter the code. It opens ${first}'s glucose, meals, and insulin, view only, for 24 hours. No account needed.</span><span class="pd">Just looking? Choose <b>Try the demo</b> on the same page.</span></div><div class="pc"><small>ONE-TIME CODE</small><b>${esc(portal.code)}</b><small>Works for 24 hours from first use</small></div></div>`
+    : `<div class="portal"><div class="pl"><b>Follow patients like ${first} live in the Glucose Guardian Doctor Portal</b><span>Glucose, meals, insulin, and messages with the family in one place. See it at <u>${host}</u> and choose <b>Try the demo</b>.</span></div></div>`;
+}
+
 // ─── Document ──────────────────────────────────────────────────────────────────────────────────
 
 export function visitSummaryFileName(meta: Pick<VisitSummaryMeta, "patientName" | "generatedAt">): string {
@@ -440,12 +454,16 @@ table.log tr.day td{background:#EEF3FF;font-weight:700;color:${C.blue};padding:4
 .r{text-align:right!important}.b{font-weight:700}.t{white-space:nowrap;width:74px}.f{word-break:break-word}
 .na{color:#c3cad6}.cam{font-size:9px;color:${C.mute}}
 .striprow td{padding:2px 0 4px!important;border:none!important}.num{display:inline-block;width:15px;height:15px;border-radius:50%;background:#1F5FD6;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:15px;margin-right:5px}
+.portal{display:flex;gap:14px;align-items:center;margin:12px 0 2px;padding:11px 14px;border-radius:10px;background:#EEF4FF;border:1.5px solid #2F80FF}
+.portal .pl{flex:1}.portal .pl>b{display:block;font-size:12.5px;color:${C.ink};margin-bottom:3px}.portal .pl span b{color:${C.ink}}.portal .pl span{display:block;font-size:10.5px;color:${C.sub};line-height:1.45}.portal .pd{margin-top:3px}
+.portal .pc{text-align:center;padding:8px 12px;border-radius:8px;background:#fff;border:1px dashed #2F80FF;min-width:150px}.portal .pc small{display:block;font-size:8.5px;letter-spacing:.08em;color:${C.sub}}.portal .pc b{display:block;font-size:19px;letter-spacing:.06em;color:${C.blue};font-family:Menlo,Consolas,monospace;margin:3px 0}
 .ft{margin-top:14px;font-size:9.5px;color:${C.mute};border-top:1px solid ${C.line};padding-top:6px;display:flex;justify-content:space-between;gap:12px}
 </style></head><body>
 <div class="top"><div><h1>${esc(meta.patientName)} · Visit Summary</h1><div class="sub">${esc(range)} · ${esc(who)}</div></div>
 <div class="brand"><b>GLUCOSE GUARDIAN</b>${prepared}</div></div>
 <div class="meta"><div>CGM<b>Dexcom</b></div><div>Sensor wear<b>${data.sensorWear}%</b></div><div>Readings<b>${(s?.count ?? 0).toLocaleString("en-US")}</b></div><div>Finger sticks vs CGM<b>${data.sticks.checks ? `${data.sticks.checks} check${data.sticks.checks === 1 ? "" : "s"}${data.sticks.avgDiff != null ? ` · avg ${data.sticks.avgDiff} off` : ""}` : "None logged"}</b></div></div>
 
+${portalBox(meta, opts.portal)}
 <h3>Glucose at a glance</h3>
 <div class="kpis">
  <div class="k"><span>Time in range</span>${tirBar(data)}</div>
