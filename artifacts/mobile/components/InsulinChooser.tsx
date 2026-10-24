@@ -15,6 +15,7 @@ import {
   INSULIN_OPTIONS,
   INSULIN_TYPE_LABEL,
   insulinChipLabel,
+  insulinPack,
   type InsulinForm,
   type InsulinOption,
 } from "@/constants/insulin";
@@ -29,6 +30,7 @@ const GROUPS: InsulinOption["type"][] = ["rapid", "long", "ultra-long", "regular
 export default function InsulinChooser({
   value,
   onChange,
+  onTurnedOn,
   colors,
   readOnly = false,
   shaded = false,
@@ -36,6 +38,8 @@ export default function InsulinChooser({
 }: {
   value: InsulinChoice;
   onChange: (next: { insulinTypes: string[]; insulinPens: string[]; insulinVials: string[] }) => void;
+  /** Called after an insulin is switched ON in a form (e.g. to ask when it was opened). */
+  onTurnedOn?: (label: string, form: InsulinForm) => void;
   colors: Palette;
   /** Members and nurses see the owner's list but can't change it. */
   readOnly?: boolean;
@@ -77,13 +81,16 @@ export default function InsulinChooser({
       </View>
       <Text style={[styles.hint, { color: colors.textMuted }]}>
         {form === "pen"
-          ? "Insulin you dial up and inject with a pen."
-          : "Insulin you draw up from a bottle with a syringe."}{" "}
-        Pick every one you use. Have both? Choose them under Pen and Vial.
+          ? "Prefilled pens you dial up and inject. Only insulins sold as a pen are listed."
+          : "Bottles you draw up with a syringe. Only insulins sold as a vial are listed."}{" "}
+        Pick every one your doctor prescribed. Use both? Pick it under Pen and Vial.
       </Text>
 
       {GROUPS.map((groupType) => {
-        const groupOptions = INSULIN_OPTIONS.filter((o) => o.type === groupType && o.forms.includes(form));
+        // Only insulins really sold in this form; a discontinued one shows only if it's already picked.
+        const groupOptions = INSULIN_OPTIONS.filter(
+          (o) => o.type === groupType && insulinPack(o, form) && (!o.discontinued || isTaken(value, insulinChipLabel(o), form)),
+        );
         if (groupOptions.length === 0) return null;
         return (
           <View key={groupType} style={styles.group}>
@@ -92,6 +99,7 @@ export default function InsulinChooser({
               {groupOptions.map((opt) => {
                 const label = insulinChipLabel(opt);
                 const selected = isTaken(value, label, form);
+                const device = insulinPack(opt, form)?.device ?? "";
                 return (
                   <Pressable
                     key={opt.name}
@@ -110,13 +118,16 @@ export default function InsulinChooser({
                       if (readOnly) return;
                       onChange(toggleInsulinForm(value, label, form));
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      if (!selected) onTurnedOn?.(label, form);
                     }}
                   >
                     {shaded && (selected ? <TintShade color={COLORS.accent} radius={12} /> : <ControlShade radius={12} />)}
                     {selected && <Feather name="check" size={12} color={COLORS.accent} />}
                     <View>
                       <Text style={[styles.chipName, { color: selected ? COLORS.accent : colors.text }]}>{opt.name}</Text>
-                      <Text style={[styles.chipConc, { color: selected ? COLORS.accent + "99" : colors.textMuted }]}>{opt.concentration}</Text>
+                      <Text style={[styles.chipConc, { color: selected ? COLORS.accent + "99" : colors.textMuted }]}>
+                        {device} · {opt.concentration}
+                      </Text>
                     </View>
                   </Pressable>
                 );

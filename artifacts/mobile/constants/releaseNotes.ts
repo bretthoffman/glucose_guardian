@@ -34,12 +34,17 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         icon: "droplet",
         title: "Pens and vials",
-        body: "In Insulin Settings, tap Pen or Vial and pick the insulins you use. Use both? Pick them under each one.",
+        body: "In Insulin Settings, tap Pen or Vial. Each list shows only the insulins sold that way. Use both? Pick it under each one.",
+      },
+      {
+        icon: "plus-circle",
+        title: "More insulins",
+        body: "Added Lyumjev, Admelog, Insulin Lispro, Insulin Aspart, Semglee, Rezvoglar, Humulin 70/30, Novolin 70/30 and Humalog Mix 50/50.",
       },
       {
         icon: "clock",
         title: "My Insulin countdown",
-        body: "On the Insulin page, each one now shows its name, like Humalog vial or Lantus pen, with the days left. Vials count down using the days on the vial label.",
+        body: "After you pick one, tell us the day you opened it. The Insulin page shows each one, like Humalog vial or Lantus pen, with the days left from its label.",
       },
     ],
   },

@@ -8,7 +8,7 @@
  * can't see priming shots or missed logs, and a wrong "units left" is worse than none.
  */
 
-import type { InsulinForm } from "@/constants/insulin";
+import { findInsulinByChipLabel, insulinPack, type InsulinForm } from "../constants/insulin";
 import { formWord } from "./insulinForms";
 
 export type PenEndReason = "used_up" | "lost" | "damaged" | "temperature" | "reached_limit" | "other";
@@ -26,47 +26,6 @@ export interface PenLike {
   endReason?: PenEndReason;
 }
 
-/**
- * Days a pen is good for once opened, by insulin name (pens, room temperature), per the product
- * labels as summarized in pharmacy storage charts. Anything not listed falls back to 28.
- */
-export const PEN_DAYS_BY_INSULIN: Record<string, number> = {
-  Humalog: 28,
-  "Lispro Junior": 28,
-  NovoLog: 28,
-  Apidra: 28,
-  FIASP: 28,
-  Lantus: 28,
-  Basaglar: 28,
-  Toujeo: 56,
-  Levemir: 42,
-  Tresiba: 56,
-  "Humulin R": 28,
-  "Novolin R": 28,
-  "Humulin N": 14,
-  "Novolin N": 28,
-  "Humalog Mix 75/25": 10,
-  "NovoLog Mix 70/30": 14,
-};
-/**
- * Days an opened VIAL is good for at room temperature, per the product labels (pharmacy storage
- * charts). Only insulins sold as vials are listed; anything else falls back to 28.
- */
-export const VIAL_DAYS_BY_INSULIN: Record<string, number> = {
-  Humalog: 28,
-  NovoLog: 28,
-  Apidra: 28,
-  FIASP: 28,
-  Lantus: 28,
-  Levemir: 42,
-  Tresiba: 56,
-  "Humulin R": 31,
-  "Novolin R": 42,
-  "Humulin N": 31,
-  "Novolin N": 42,
-  "Humalog Mix 75/25": 28,
-  "NovoLog Mix 70/30": 28,
-};
 export const DEFAULT_PEN_DAYS = 28;
 export const MIN_PEN_DAYS = 1;
 export const MAX_PEN_DAYS = 120;
@@ -78,9 +37,13 @@ export function insulinName(label: string): string {
   return label.split(" · ")[0]!.trim();
 }
 
+/**
+ * Days it's good for once opened, from the label of that insulin's pen or vial (constants/insulin).
+ * Unknown insulins, or a form the insulin isn't sold as, fall back to 28.
+ */
 export function defaultPenDays(insulinLabel: string, form: InsulinForm = "pen"): number {
-  const table = form === "vial" ? VIAL_DAYS_BY_INSULIN : PEN_DAYS_BY_INSULIN;
-  return table[insulinName(insulinLabel)] ?? DEFAULT_PEN_DAYS;
+  const opt = findInsulinByChipLabel(insulinLabel);
+  return (opt && insulinPack(opt, form)?.days) ?? DEFAULT_PEN_DAYS;
 }
 
 /** Local calendar date → "YYYY-MM-DD". */

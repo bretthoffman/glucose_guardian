@@ -26,7 +26,7 @@ import { AccentShade, CardShade } from "@/components/Shade";
 import { useAuth, type PenEntry } from "@/context/AuthContext";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import { useHelpAnchor } from "@/context/HelpContext";
-import { formWord, type InsulinSupply } from "@/utils/insulinForms";
+import { formWord, showsCountdown, suppliesTaken, type InsulinChoice, type InsulinSupply } from "@/utils/insulinForms";
 import {
   MAX_PEN_DAYS,
   MIN_PEN_DAYS,
@@ -90,24 +90,37 @@ function PenRing({ fraction, tone, label, size = 44, colors }: { fraction: numbe
 export default function PensCard({
   colors,
   canEdit,
-  supplies,
+  choice,
 }: {
   colors: Palette;
   /** False for view-only sessions: the countdown shows, the buttons don't. */
   canEdit: boolean;
-  /** Insulins from Insulin Settings, each as a pen or vial (utils/insulinForms suppliesTaken). */
-  supplies: InsulinSupply[];
+  /** The insulins picked in Insulin Settings (profile insulinTypes / insulinPens / insulinVials). */
+  choice: InsulinChoice;
 }) {
   const { penLog, savePen, deletePen } = useAuth();
   const confirmLog = useCareLogConfirm();
   const helpPens = useHelpAnchor("insulin.pens");
   const today = toLocalDate(new Date());
-  const open = useMemo(() => activePens(penLog, today), [penLog, today]);
-  const [starting, setStarting] = useState(false);
+  const supplies = suppliesTaken(choice);
+  // Only countdowns for insulins still picked in Insulin Settings.
+  const open = useMemo(
+    () => activePens(penLog, today).filter((p) => showsCountdown(choice, p.insulinLabel, p.form)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [penLog, today, choice.insulinTypes, choice.insulinPens, choice.insulinVials],
+  );
+  const [starting, setStarting] = useState<InsulinSupply | true | null>(null);
   const [editing, setEditing] = useState<PenEntry | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const save = (pen: Parameters<typeof savePen>[0]) => confirmLog(() => savePen(pen));
+  // Picked in Insulin Settings but no countdown running yet.
+  const notStarted = supplies.filter(
+    (s) => !open.some((p) => p.insulinLabel === s.label && formWord(p.form) === s.form),
+  );
+
+  // No insulin picked in Insulin Settings: no card at all.
+  if (supplies.length === 0) return null;
 
   return (
     <View ref={helpPens} collapsable={false} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -119,7 +132,7 @@ export default function PensCard({
         </Pressable>
       </View>
 
-      {open.length === 0 ? (
+      {open.length === 0 && notStarted.length === 0 ? (
         <Text style={[styles.empty, { color: colors.textSecondary }]}>
           Nothing here yet. When you open a new pen or vial, start it here and we'll count down the days it's good for.
         </Text>
@@ -170,6 +183,32 @@ export default function PensCard({
           );
         })
       )}
+      {notStarted.map((s, i) => (
+        <Pressable
+          key={`${s.label}|${s.form}`}
+          onPress={canEdit ? () => setStarting(s) : undefined}
+          accessibilityRole={canEdit ? "button" : undefined}
+          accessibilityLabel={`${supplyName({ insulinLabel: s.label, form: s.form })}, not started`}
+          style={({ pressed }) => [
+            styles.row,
+            (open.length > 0 || i > 0) && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+            { opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <View style={[styles.emptyRing, { borderColor: colors.border }]}>
+            <Feather name="plus" size={18} color={colors.textMuted} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={1}>
+              {insulinName(s.label)} <Text style={{ color: colors.textSecondary, fontWeight: "600" }}>{s.form}</Text>
+            </Text>
+            <Text style={[styles.rowSub, { color: colors.textSecondary }]} numberOfLines={1}>
+              {canEdit ? "Not started · tap to start" : "Not started"}
+            </Text>
+          </View>
+          {canEdit && <Feather name="chevron-right" size={18} color={colors.textMuted} />}
+        </Pressable>
+      ))}
 
       {canEdit && (
         <Pressable
@@ -189,10 +228,10 @@ export default function PensCard({
       {starting && (
         <StartPenModal
           colors={colors}
-          supplies={supplies}
+          supplies={starting === true ? supplies : [starting]}
           pens={penLog}
           today={today}
-          onClose={() => setStarting(false)}
+          onClose={() => setStarting(null)}
           onStart={(next, replace) => {
             // One confirmation for caregivers, covering both the end and the start.
             confirmLog(() => {
@@ -200,7 +239,7 @@ export default function PensCard({
               savePen(next);
             });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setStarting(false);
+            setStarting(null);
           }}
         />
       )}
@@ -225,6 +264,34 @@ export default function PensCard({
       )}
       {historyOpen && <PenHistoryModal colors={colors} pens={penLog} onClose={() => setHistoryOpen(false)} />}
     </View>
+  );
+}
+
+/**
+ * Asked right after an insulin is picked in Insulin Settings: "When did you open it?" Starts the
+ * countdown, or "Not sure" skips it (it then waits on the Insulin page as "Not started").
+ */
+export function StartInsulinPrompt({ supply, colors, onDone }: { supply: InsulinSupply; colors: Palette; onDone: () => void }) {
+  const { penLog, savePen } = useAuth();
+  const confirmLog = useCareLogConfirm();
+  const today = toLocalDate(new Date());
+  return (
+    <StartPenModal
+      colors={colors}
+      supplies={[supply]}
+      pens={penLog}
+      today={today}
+      asked
+      onClose={onDone}
+      onStart={(next, replace) => {
+        confirmLog(() => {
+          if (replace) savePen(replace);
+          savePen(next);
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        onDone();
+      }}
+    />
   );
 }
 
@@ -431,6 +498,7 @@ function StartPenModal({
   supplies,
   pens,
   today,
+  asked = false,
   onClose,
   onStart,
 }: {
@@ -438,6 +506,8 @@ function StartPenModal({
   supplies: InsulinSupply[];
   pens: PenEntry[];
   today: string;
+  /** Opened from Insulin Settings right after picking it: "When did you open it?" + "Not sure". */
+  asked?: boolean;
   onClose: () => void;
   /** `replace`: the open pen being ended (with its reason) as this one starts. */
   onStart: (next: SaveInput, replace: SaveInput | null) => void;
@@ -500,14 +570,21 @@ function StartPenModal({
           />
         ) : (
           <View style={{ gap: 14 }}>
-            <Text style={[styles.title, { color: colors.text }]}>Start new insulin</Text>
+            <Text style={[styles.title, { color: colors.text }]}>
+              {supplies.length === 1 ? `When did you open this ${word}?` : "Start new insulin"}
+            </Text>
+            {supplies.length === 1 && (
+              <Text style={[styles.body, { color: colors.textSecondary }]}>
+                {supplyName({ insulinLabel: supplies[0]!.label, form: supplies[0]!.form })}. We'll count down the days it's good for and remind you before it's time for a new one.
+              </Text>
+            )}
             {supplies.length === 0 ? (
               <Text style={[styles.body, { color: colors.textSecondary }]}>
                 Add your insulins first: Dashboard → Insulin Settings. Then they'll show up here.
               </Text>
             ) : (
               <>
-                <View style={{ gap: 8 }}>
+                {supplies.length > 1 && <View style={{ gap: 8 }}>
                   <Text style={[styles.label, { color: colors.textMuted }]}>Insulin</Text>
                   <View style={styles.chipRow}>
                     {supplies.map((s) => (
@@ -520,7 +597,7 @@ function StartPenModal({
                       />
                     ))}
                   </View>
-                </View>
+                </View>}
                 <NamePicker value={name} onChange={setName} colors={colors} />
                 <OpenedPicker value={openedOn} onChange={setOpenedOn} today={today} colors={colors} />
                 <DaysInput value={daysText} onChange={(t) => { setDaysTouched(true); setDaysText(t); }} colors={colors} />
@@ -532,7 +609,7 @@ function StartPenModal({
                 <PrimaryButton label={`Start ${word}`} disabled={!supply || !days} onPress={submit} />
               </>
             )}
-            <TextButton label="Cancel" color={colors.textSecondary} onPress={onClose} />
+            <TextButton label={asked ? "Not sure, skip for now" : "Cancel"} color={colors.textSecondary} onPress={onClose} />
           </View>
         )}
       </View>
@@ -691,6 +768,7 @@ const styles = StyleSheet.create({
   link: { fontSize: 14, fontWeight: "600" },
   empty: { fontSize: 13.5, lineHeight: 19, paddingVertical: 6 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 9, minHeight: 56 },
+  emptyRing: { width: 44, height: 44, borderRadius: 22, borderWidth: 2, borderStyle: "dashed", alignItems: "center", justifyContent: "center" },
   rowTitle: { fontSize: 15, fontWeight: "700" },
   rowSub: { fontSize: 12.5, marginTop: 1 },
   startBtn: {

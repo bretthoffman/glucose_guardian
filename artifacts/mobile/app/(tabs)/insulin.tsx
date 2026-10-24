@@ -47,7 +47,6 @@ import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
 import LogFingerStickModal from "@/components/LogFingerStickModal";
 import PensCard from "@/components/PensCard";
-import { suppliesTaken } from "@/utils/insulinForms";
 import DosePredictionChart from "@/components/DosePredictionChart";
 import { runPrediction, type PredictionResult, type StrengthLabel } from "@/utils/predictionClient";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
@@ -1485,7 +1484,7 @@ export default function InsulinScreen() {
         <PensCard
           colors={colors}
           canEdit={canLog}
-          supplies={suppliesTaken({ insulinTypes: profile?.insulinTypes, insulinPens: profile?.insulinPens, insulinVials: profile?.insulinVials })}
+          choice={{ insulinTypes: profile?.insulinTypes, insulinPens: profile?.insulinPens, insulinVials: profile?.insulinVials }}
         />
       )}
 

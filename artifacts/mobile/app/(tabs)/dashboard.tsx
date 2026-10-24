@@ -40,6 +40,8 @@ import { useProfilePhotoPicker } from "@/hooks/useProfilePhotoPicker";
 import Colors, { COLORS } from "@/constants/colors";
 import { T, TYPE, withAlpha } from "@/constants/theme";
 import InsulinChooser from "@/components/InsulinChooser";
+import { StartInsulinPrompt } from "@/components/PensCard";
+import { formWord, type InsulinSupply } from "@/utils/insulinForms";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { ALERT_SOUND_OPTIONS, usePush } from "@/context/PushContext";
@@ -151,6 +153,7 @@ export default function DashboardScreen() {
     isCircleMember,
     circleOwnerName,
     isCaregiverViewingChild,
+    penLog,
   } = useAuth();
   const { prefs: pushPrefs, registered: pushRegistered, messagesLocked, careLogLocked, updatePrefs: updatePushPrefs, sounds: alertSounds, updateSounds: updateAlertSounds, ensureRegistered } = usePush();
   /** Which alert group the Choose Sound picker is open for (null = closed). */
@@ -163,6 +166,8 @@ export default function DashboardScreen() {
     ALERT_SOUND_OPTIONS.find((o) => o.file === file)?.label ?? "Silent";
   // A nurse viewing a child inherits settings read-only — treat edit gating like a co-guardian member.
   const settingsReadOnly = isCircleMember || isCaregiverViewingChild;
+  /** Just picked in Insulin Settings: ask when it was opened to start its countdown. */
+  const [askOpened, setAskOpened] = useState<InsulinSupply | null>(null);
 
   useEffect(() => {
     if (!profile?.doctorCode || !history.length) return;
@@ -1774,10 +1779,16 @@ export default function DashboardScreen() {
             <InsulinChooser
               value={{ insulinTypes: profile?.insulinTypes, insulinPens: profile?.insulinPens, insulinVials: profile?.insulinVials }}
               onChange={(next) => updateProfile(next)}
+              onTurnedOn={(label, form) => {
+                // Only when nothing is counting down for it yet (and not in a doctor or view-only session).
+                if (doctorSession || penLog.some((p) => !p.endedOn && p.insulinLabel === label && formWord(p.form) === form)) return;
+                setAskOpened({ label, form });
+              }}
               readOnly={settingsReadOnly}
               shaded
               colors={colors}
             />
+            {askOpened && <StartInsulinPrompt supply={askOpened} colors={colors} onDone={() => setAskOpened(null)} />}
           </View>
 
         </View>

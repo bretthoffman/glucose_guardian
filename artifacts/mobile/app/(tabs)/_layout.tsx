@@ -14,6 +14,7 @@ import EmergencyWaitPrompt from "@/components/EmergencyWaitPrompt";
 import HelpOverlay from "@/components/HelpOverlay";
 import { WhatsNewPrompt } from "@/components/WhatsNew";
 import PenReminders from "@/components/PenReminders";
+import { showsCountdown } from "@/utils/insulinForms";
 import { penNeedsAttention, toLocalDate } from "@/utils/pens";
 
 // Derive the tab-bar props type from expo-router's Tabs so we don't import @react-navigation directly
@@ -49,9 +50,14 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const { scheme, colors: c } = useTheme();
   const styles = useMemo(() => makeStyles(c, scheme === "dark"), [c, scheme]);
-  const { isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions, isCaregiverAccount, isViewingLinkedPatient, doctorMessages, penLog } = useAuth();
+  const { isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions, isCaregiverAccount, isViewingLinkedPatient, doctorMessages, penLog, profile } = useAuth();
   // Small amber dot on the Insulin tab when an open pen is within 3 days, due, or overdue.
-  const penDot = !doctorSession && penNeedsAttention(penLog, toLocalDate(new Date()));
+  const penDot =
+    !doctorSession &&
+    penNeedsAttention(
+      penLog.filter((p) => !profile || showsCountdown(profile, p.insulinLabel, p.form)),
+      toLocalDate(new Date()),
+    );
   const { unreadCount: careUnread } = useMessages();
   // Red "!" on the Chat tab for any unread message: the guardian's doctor thread (guardian-only) or
   // any cross-account thread (applies to guardians AND access-code / nurse sessions).

@@ -10,7 +10,7 @@
  * Accounts set up before pen/vial existed have no pen/vial lists: each insulin counts as a pen
  * (or as a vial when it only comes as one), which is exactly what the app showed before.
  */
-import { findInsulinByChipLabel, type InsulinForm } from "../constants/insulin";
+import { findInsulinByChipLabel, insulinForms, type InsulinForm } from "../constants/insulin";
 
 export interface InsulinChoice {
   insulinTypes?: string[];
@@ -26,7 +26,8 @@ export interface InsulinSupply {
 
 /** Forms this insulin is sold as; unknown labels allow both. */
 export function formsAvailable(label: string): readonly InsulinForm[] {
-  return findInsulinByChipLabel(label)?.forms ?? ["pen", "vial"];
+  const opt = findInsulinByChipLabel(label);
+  return opt ? insulinForms(opt) : ["pen", "vial"];
 }
 
 function defaultForm(label: string): InsulinForm {
@@ -77,6 +78,16 @@ export function toggleInsulinForm(
   const inUse = (l: string) => insulinPens.includes(l) || insulinVials.includes(l);
   const insulinTypes = [...types.filter(inUse), ...[label].filter((l) => inUse(l) && !types.includes(l))];
   return { insulinTypes, insulinPens, insulinVials };
+}
+
+/**
+ * Whether a countdown for this insulin + form belongs on screen: only for insulins still picked in
+ * Insulin Settings. Accounts from before pen/vial show every countdown of a picked insulin.
+ */
+export function showsCountdown(c: InsulinChoice, label: string, form: InsulinForm | undefined): boolean {
+  if (!(c.insulinTypes ?? []).includes(label)) return false;
+  if (!hasFormLists(c)) return true;
+  return isTaken(c, label, formWord(form));
 }
 
 /** "pen" / "vial" (a pen when unknown — every countdown before vials existed was a pen). */

@@ -7,15 +7,22 @@ import { useEffect, useMemo, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { syncPenReminders } from "@/services/notifications";
 import { penReminders, REMINDER_HOUR, toLocalDate } from "@/utils/pens";
+import { showsCountdown } from "@/utils/insulinForms";
 
 export default function PenReminders() {
-  const { penLog, isLoading, doctorSession } = useAuth();
+  const { penLog, isLoading, doctorSession, profile } = useAuth();
   const today = toLocalDate(new Date());
   const hour = new Date().getHours();
   const reminders = useMemo(
-    () => (doctorSession ? [] : penLog.flatMap((p) => penReminders(p, today, hour))),
+    () =>
+      doctorSession
+        ? []
+        : penLog
+            // No reminders for an insulin no longer picked in Insulin Settings (once the profile is known).
+            .filter((p) => !profile || showsCountdown(profile, p.insulinLabel, p.form))
+            .flatMap((p) => penReminders(p, today, hour)),
     // `hour` only matters around 9 AM; recomputing per render is cheap.
-    [penLog, today, hour, doctorSession],
+    [penLog, today, hour, doctorSession, profile],
   );
   const signature = reminders.map((r) => `${r.key}@${r.date}|${r.title}`).join(",");
   const last = useRef<string | null>(null);
