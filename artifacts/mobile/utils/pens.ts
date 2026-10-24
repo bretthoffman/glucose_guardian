@@ -1,17 +1,23 @@
 /**
- * Insulin pen countdown — pure rules (unit-tested). A pen is good for a fixed number of days once
- * opened (from its label; editable). Days are counted by LOCAL calendar date, so "opened Oct 5,
+ * Insulin pen / vial countdown — pure rules (unit-tested). A pen or vial is good for a fixed number
+ * of days once opened (from its label; editable). Entries without a `form` are pens (every
+ * countdown before vials existed). Days are counted by LOCAL calendar date, so "opened Oct 5,
  * good for 28 days" means change it by Nov 2, whatever time of day it was opened.
  *
  * This is a reminder about the pen's age only. It never estimates units left in a pen: the app
  * can't see priming shots or missed logs, and a wrong "units left" is worse than none.
  */
 
+import type { InsulinForm } from "@/constants/insulin";
+import { formWord } from "./insulinForms";
+
 export type PenEndReason = "used_up" | "lost" | "damaged" | "temperature" | "reached_limit" | "other";
 
 export interface PenLike {
   id: string;
   insulinLabel: string;
+  /** Pen or vial; missing = pen. */
+  form?: InsulinForm;
   name?: string;
   /** YYYY-MM-DD, local. */
   openedOn: string;
@@ -42,6 +48,25 @@ export const PEN_DAYS_BY_INSULIN: Record<string, number> = {
   "Humalog Mix 75/25": 10,
   "NovoLog Mix 70/30": 14,
 };
+/**
+ * Days an opened VIAL is good for at room temperature, per the product labels (pharmacy storage
+ * charts). Only insulins sold as vials are listed; anything else falls back to 28.
+ */
+export const VIAL_DAYS_BY_INSULIN: Record<string, number> = {
+  Humalog: 28,
+  NovoLog: 28,
+  Apidra: 28,
+  FIASP: 28,
+  Lantus: 28,
+  Levemir: 42,
+  Tresiba: 56,
+  "Humulin R": 31,
+  "Novolin R": 42,
+  "Humulin N": 31,
+  "Novolin N": 42,
+  "Humalog Mix 75/25": 28,
+  "NovoLog Mix 70/30": 28,
+};
 export const DEFAULT_PEN_DAYS = 28;
 export const MIN_PEN_DAYS = 1;
 export const MAX_PEN_DAYS = 120;
@@ -53,8 +78,9 @@ export function insulinName(label: string): string {
   return label.split(" · ")[0]!.trim();
 }
 
-export function defaultPenDays(insulinLabel: string): number {
-  return PEN_DAYS_BY_INSULIN[insulinName(insulinLabel)] ?? DEFAULT_PEN_DAYS;
+export function defaultPenDays(insulinLabel: string, form: InsulinForm = "pen"): number {
+  const table = form === "vial" ? VIAL_DAYS_BY_INSULIN : PEN_DAYS_BY_INSULIN;
+  return table[insulinName(insulinLabel)] ?? DEFAULT_PEN_DAYS;
 }
 
 /** Local calendar date → "YYYY-MM-DD". */
@@ -144,11 +170,16 @@ export function penNeedsAttention(pens: PenLike[], today: string): boolean {
 const sameName = (a?: string, b?: string) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
 
 /**
- * Starting a pen of the same insulin AND the same name (both blank counts as the same) replaces the
- * open one; a different name ("School" next to "Home") is an extra pen and replaces nothing.
+ * Starting one of the same insulin, the same form (pen / vial) AND the same name (both blank counts
+ * as the same) replaces the open one; a different name ("School" next to "Home") or the other form
+ * is an extra one and replaces nothing.
  */
-export function penBeingReplaced<T extends PenLike>(pens: T[], insulinLabel: string, name?: string): T | null {
-  return pens.find((p) => !p.endedOn && p.insulinLabel === insulinLabel && sameName(p.name, name)) ?? null;
+export function penBeingReplaced<T extends PenLike>(pens: T[], insulinLabel: string, name?: string, form?: InsulinForm): T | null {
+  return (
+    pens.find(
+      (p) => !p.endedOn && p.insulinLabel === insulinLabel && formWord(p.form) === formWord(form) && sameName(p.name, name),
+    ) ?? null
+  );
 }
 
 export const PEN_END_REASONS: { key: Exclude<PenEndReason, "reached_limit">; label: string }[] = [
@@ -164,9 +195,14 @@ export function penEndReasonLabel(reason: PenEndReason | undefined, goodForDays:
   return PEN_END_REASONS.find((r) => r.key === reason)?.label ?? "Ended";
 }
 
-/** "Lispro Junior · Home" */
-export function penTitle(pen: Pick<PenLike, "insulinLabel" | "name">): string {
-  const n = insulinName(pen.insulinLabel);
+/** "Lantus pen" / "Humalog vial" */
+export function supplyName(pen: Pick<PenLike, "insulinLabel" | "form">): string {
+  return `${insulinName(pen.insulinLabel)} ${formWord(pen.form)}`;
+}
+
+/** "Lantus pen · Home" / "Humalog vial" */
+export function penTitle(pen: Pick<PenLike, "insulinLabel" | "name" | "form">): string {
+  const n = supplyName(pen);
   return pen.name ? `${n} · ${pen.name}` : n;
 }
 
@@ -189,10 +225,11 @@ export function penReminders(pen: PenLike, nowDate: string, nowHour: number): Pe
   if (pen.endedOn) return [];
   const { changeBy } = penStatus(pen, nowDate);
   const title = penTitle(pen);
+  const word = formWord(pen.form);
   const out: PenReminder[] = [
-    { key: `${pen.id}:3`, date: addDays(changeBy, -3), title: `${title} pen: 3 days left`, body: `Plan a new pen by ${formatPenDate(changeBy)}.` },
-    { key: `${pen.id}:1`, date: addDays(changeBy, -1), title: `${title} pen: last day tomorrow`, body: "Have a new pen ready." },
-    { key: `${pen.id}:0`, date: changeBy, title: `Time to change the ${title} pen`, body: `It's been ${pen.goodForDays} days. Tap to start a new one.` },
+    { key: `${pen.id}:3`, date: addDays(changeBy, -3), title: `${title}: 3 days left`, body: `Plan a new ${word} by ${formatPenDate(changeBy)}.` },
+    { key: `${pen.id}:1`, date: addDays(changeBy, -1), title: `${title}: last day tomorrow`, body: `Have a new ${word} ready.` },
+    { key: `${pen.id}:0`, date: changeBy, title: `Time to change the ${title}`, body: `It's been ${pen.goodForDays} days. Tap to start a new one.` },
   ];
   return out.filter((r) => {
     const d = daysBetween(nowDate, r.date);

@@ -19,7 +19,7 @@ import {
 import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
-import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constants/insulin";
+import InsulinChooser from "@/components/InsulinChooser";
 import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
@@ -72,19 +72,16 @@ export default function OnboardingScreen() {
   const [birthDay, setBirthDay] = useState("");
   const [birthYear, setBirthYear] = useState("");
   const [diabetesType, setDiabetesType] = useState<"type1" | "type2" | "other">("type1");
-  const [insulinTypes, setInsulinTypes] = useState<string[]>([]);
+  const [insulinChoice, setInsulinChoice] = useState<{ insulinTypes: string[]; insulinPens: string[]; insulinVials: string[] }>({
+    insulinTypes: [],
+    insulinPens: [],
+    insulinVials: [],
+  });
   const [carbRatioInput, setCarbRatioInput] = useState("");
   const [carbUnitHalf, setCarbUnitHalf] = useState(false);
   const [targetGlucoseInput, setTargetGlucoseInput] = useState("");
   const [isfInput, setIsfInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-
-  function toggleInsulinType(t: string) {
-    setInsulinTypes((prev) =>
-      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
-    );
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -121,7 +118,9 @@ export default function OnboardingScreen() {
         diabetesType,
         dateOfBirth: dobStr,
         weightLbs: !isNaN(parsedWeight) && parsedWeight > 0 ? parsedWeight : undefined,
-        insulinTypes: insulinTypes.length > 0 ? insulinTypes : undefined,
+        insulinTypes: insulinChoice.insulinTypes.length > 0 ? insulinChoice.insulinTypes : undefined,
+        insulinPens: insulinChoice.insulinTypes.length > 0 ? insulinChoice.insulinPens : undefined,
+        insulinVials: insulinChoice.insulinTypes.length > 0 ? insulinChoice.insulinVials : undefined,
         // Persist dose settings to the backend profile too (not just device-local) so co-guardians
         // and caregivers inheriting via an access code / link read the guardian's real values.
         carbRatio: cr,
@@ -654,47 +653,14 @@ export default function OnboardingScreen() {
                 <Text style={[styles.insulinSectionOptional, { color: colors.textMuted }]}>Optional</Text>
               </View>
               <Text style={[styles.insulinSectionSub, { color: colors.textMuted }]}>
-                Select any that apply. You can change this later.
+                You can change this later in Insulin Settings.
               </Text>
-              {(["rapid", "long", "ultra-long", "regular", "intermediate", "premixed"] as const).map((groupType) => {
-                const groupOptions = INSULIN_OPTIONS.filter((o) => o.type === groupType);
-                return (
-                  <View key={groupType} style={styles.insulinGroup}>
-                    <Text style={[styles.insulinGroupLabel, { color: colors.textMuted }]}>
-                      {INSULIN_TYPE_LABEL[groupType].toUpperCase()}
-                    </Text>
-                    <View style={styles.insulinChipsRow}>
-                      {groupOptions.map((opt) => {
-                        const chipLabel = insulinChipLabel(opt);
-                        const selected = insulinTypes.includes(chipLabel);
-                        return (
-                          <Pressable
-                            key={opt.name}
-                            style={[
-                              styles.insulinChip,
-                              {
-                                backgroundColor: selected ? COLORS.accent + "18" : colors.card,
-                                borderColor: selected ? COLORS.accent : colors.border,
-                              },
-                            ]}
-                            onPress={() => toggleInsulinType(chipLabel)}
-                          >
-                            {selected && <Feather name="check" size={12} color={COLORS.accent} />}
-                            <View>
-                              <Text style={[styles.insulinChipName, { color: selected ? COLORS.accent : colors.text }]}>
-                                {opt.name}
-                              </Text>
-                              <Text style={[styles.insulinChipConc, { color: selected ? COLORS.accent + "99" : colors.textMuted }]}>
-                                {opt.concentration}
-                              </Text>
-                            </View>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-                );
-              })}
+              <InsulinChooser
+                value={insulinChoice}
+                onChange={(next) => setInsulinChoice(next)}
+                colors={colors}
+                chipBackground={colors.card}
+              />
             </View>
 
             <Pressable

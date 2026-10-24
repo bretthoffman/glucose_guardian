@@ -28,6 +28,22 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-24",
+    date: "2026-10-24",
+    items: [
+      {
+        icon: "droplet",
+        title: "Pens and vials",
+        body: "In Insulin Settings, tap Pen or Vial and pick the insulins you use. Use both? Pick them under each one.",
+      },
+      {
+        icon: "clock",
+        title: "My Insulin countdown",
+        body: "On the Insulin page, each one now shows its name, like Humalog vial or Lantus pen, with the days left. Vials count down using the days on the vial label.",
+      },
+    ],
+  },
+  {
     id: "2026-10-22d",
     date: "2026-10-22",
     items: [

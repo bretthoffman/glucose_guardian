@@ -1,27 +1,37 @@
+/** How the insulin comes: a pen, or a vial drawn up with a syringe. */
+export type InsulinForm = "pen" | "vial";
+export const INSULIN_FORMS: readonly InsulinForm[] = ["pen", "vial"];
+
 export interface InsulinOption {
   name: string;
   concentration: string;
   type: "rapid" | "regular" | "intermediate" | "long" | "ultra-long" | "premixed";
   genericName: string;
+  /** Which of pen / vial it is sold as (US labels). */
+  forms: readonly InsulinForm[];
 }
 
+const BOTH: readonly InsulinForm[] = ["pen", "vial"];
+const PEN_ONLY: readonly InsulinForm[] = ["pen"];
+const VIAL_ONLY: readonly InsulinForm[] = ["vial"];
+
 export const INSULIN_OPTIONS: InsulinOption[] = [
-  { name: "Humalog",          concentration: "100 u/mL", type: "rapid",        genericName: "lispro"    },
-  { name: "Lispro Junior",    concentration: "100 u/mL", type: "rapid",        genericName: "lispro"    },
-  { name: "NovoLog",          concentration: "100 u/mL", type: "rapid",        genericName: "aspart"    },
-  { name: "Apidra",           concentration: "100 u/mL", type: "rapid",        genericName: "glulisine" },
-  { name: "FIASP",            concentration: "100 u/mL", type: "rapid",        genericName: "aspart"    },
-  { name: "Lantus",           concentration: "100 u/mL", type: "long",         genericName: "glargine"  },
-  { name: "Basaglar",         concentration: "100 u/mL", type: "long",         genericName: "glargine"  },
-  { name: "Toujeo",           concentration: "300 u/mL", type: "ultra-long",   genericName: "glargine"  },
-  { name: "Levemir",          concentration: "100 u/mL", type: "long",         genericName: "detemir"   },
-  { name: "Tresiba",          concentration: "100 u/mL", type: "ultra-long",   genericName: "degludec"  },
-  { name: "Humulin R",        concentration: "100 u/mL", type: "regular",      genericName: "insulin"   },
-  { name: "Novolin R",        concentration: "100 u/mL", type: "regular",      genericName: "insulin"   },
-  { name: "Humulin N",        concentration: "100 u/mL", type: "intermediate", genericName: "NPH"       },
-  { name: "Novolin N",        concentration: "100 u/mL", type: "intermediate", genericName: "NPH"       },
-  { name: "Humalog Mix 75/25",concentration: "100 u/mL", type: "premixed",     genericName: "lispro mix"},
-  { name: "NovoLog Mix 70/30",concentration: "100 u/mL", type: "premixed",     genericName: "aspart mix"},
+  { name: "Humalog",          concentration: "100 u/mL", type: "rapid",        genericName: "lispro", forms: BOTH },
+  { name: "Lispro Junior",    concentration: "100 u/mL", type: "rapid",        genericName: "lispro", forms: PEN_ONLY },
+  { name: "NovoLog",          concentration: "100 u/mL", type: "rapid",        genericName: "aspart", forms: BOTH },
+  { name: "Apidra",           concentration: "100 u/mL", type: "rapid",        genericName: "glulisine", forms: BOTH },
+  { name: "FIASP",            concentration: "100 u/mL", type: "rapid",        genericName: "aspart", forms: BOTH },
+  { name: "Lantus",           concentration: "100 u/mL", type: "long",         genericName: "glargine", forms: BOTH },
+  { name: "Basaglar",         concentration: "100 u/mL", type: "long",         genericName: "glargine", forms: PEN_ONLY },
+  { name: "Toujeo",           concentration: "300 u/mL", type: "ultra-long",   genericName: "glargine", forms: PEN_ONLY },
+  { name: "Levemir",          concentration: "100 u/mL", type: "long",         genericName: "detemir", forms: BOTH },
+  { name: "Tresiba",          concentration: "100 u/mL", type: "ultra-long",   genericName: "degludec", forms: BOTH },
+  { name: "Humulin R",        concentration: "100 u/mL", type: "regular",      genericName: "insulin", forms: VIAL_ONLY },
+  { name: "Novolin R",        concentration: "100 u/mL", type: "regular",      genericName: "insulin", forms: BOTH },
+  { name: "Humulin N",        concentration: "100 u/mL", type: "intermediate", genericName: "NPH", forms: BOTH },
+  { name: "Novolin N",        concentration: "100 u/mL", type: "intermediate", genericName: "NPH", forms: BOTH },
+  { name: "Humalog Mix 75/25",concentration: "100 u/mL", type: "premixed",     genericName: "lispro mix", forms: BOTH },
+  { name: "NovoLog Mix 70/30",concentration: "100 u/mL", type: "premixed",     genericName: "aspart mix", forms: BOTH },
 ];
 
 export const INSULIN_TYPE_LABEL: Record<InsulinOption["type"], string> = {

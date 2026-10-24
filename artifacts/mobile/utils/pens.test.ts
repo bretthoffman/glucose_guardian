@@ -48,6 +48,17 @@ describe("defaultPenDays (from the label)", () => {
     expect(defaultPenDays("Humalog Mix 75/25 · 100 u/mL")).toBe(10);
     expect(defaultPenDays("Something New")).toBe(28);
   });
+  it("vials use the vial label, which differs for some insulins", () => {
+    expect(defaultPenDays("Humalog · 100 u/mL", "vial")).toBe(28);
+    expect(defaultPenDays("Humulin N · 100 u/mL", "vial")).toBe(31);
+    expect(defaultPenDays("Humulin N · 100 u/mL", "pen")).toBe(14);
+    expect(defaultPenDays("Novolin N · 100 u/mL", "vial")).toBe(42);
+    expect(defaultPenDays("Novolin R · 100 u/mL", "vial")).toBe(42);
+    expect(defaultPenDays("Humulin R · 100 u/mL", "vial")).toBe(31);
+    expect(defaultPenDays("Tresiba · 100 u/mL", "vial")).toBe(56);
+    expect(defaultPenDays("Humalog Mix 75/25 · 100 u/mL", "vial")).toBe(28);
+    expect(defaultPenDays("Something New", "vial")).toBe(28);
+  });
 });
 
 describe("penStatus", () => {
@@ -84,9 +95,17 @@ describe("lists", () => {
     expect(penBeingReplaced(pens, "Lantus · 100 u/mL", "Home")).toBeNull();
     expect(penBeingReplaced([pen("x")], "Lispro Junior · 100 u/mL", undefined)?.id).toBe("x");
   });
+  it("a vial never replaces a pen of the same insulin (and the other way round)", () => {
+    const both = [pen("p", { insulinLabel: "Humalog · 100 u/mL" }), pen("v", { insulinLabel: "Humalog · 100 u/mL", form: "vial" })];
+    expect(penBeingReplaced(both, "Humalog · 100 u/mL", undefined, "vial")?.id).toBe("v");
+    expect(penBeingReplaced(both, "Humalog · 100 u/mL", undefined, "pen")?.id).toBe("p");
+    expect(penBeingReplaced(both, "Humalog · 100 u/mL", undefined)?.id).toBe("p");
+    expect(penBeingReplaced([both[0]!], "Humalog · 100 u/mL", undefined, "vial")).toBeNull();
+  });
   it("titles and reasons", () => {
-    expect(penTitle(pen("a", { name: "Home" }))).toBe("Lispro Junior · Home");
-    expect(penTitle(pen("a"))).toBe("Lispro Junior");
+    expect(penTitle(pen("a", { name: "Home" }))).toBe("Lispro Junior pen · Home");
+    expect(penTitle(pen("a"))).toBe("Lispro Junior pen");
+    expect(penTitle(pen("a", { insulinLabel: "Humalog · 100 u/mL", form: "vial", name: "School" }))).toBe("Humalog vial · School");
     expect(penEndReasonLabel("lost", 28)).toBe("Lost or left somewhere");
     expect(penEndReasonLabel("reached_limit", 28)).toBe("Reached 28 days");
   });
@@ -96,8 +115,12 @@ describe("penReminders", () => {
   it("3 days before, the day before, and the change-by day", () => {
     const r = penReminders(pen("p", { name: "School" }), "2026-10-20", 8);
     expect(r.map((x) => x.date)).toEqual(["2026-10-30", "2026-11-01", "2026-11-02"]);
-    expect(r[0]!.title).toBe("Lispro Junior · School pen: 3 days left");
-    expect(r[2]!.title).toBe("Time to change the Lispro Junior · School pen");
+    expect(r[0]!.title).toBe("Lispro Junior pen · School: 3 days left");
+    expect(r[0]!.body).toBe("Plan a new pen by Nov 2.");
+    expect(r[2]!.title).toBe("Time to change the Lispro Junior pen · School");
+    const v = penReminders(pen("v", { insulinLabel: "Humalog · 100 u/mL", form: "vial" }), "2026-10-20", 8);
+    expect(v[0]!.title).toBe("Humalog vial: 3 days left");
+    expect(v[1]!.body).toBe("Have a new vial ready.");
   });
   it("skips reminders already passed, including today's after 9 AM; none for ended pens", () => {
     expect(penReminders(pen("p"), "2026-11-01", 8).map((x) => x.date)).toEqual(["2026-11-01", "2026-11-02"]);

@@ -35,6 +35,9 @@ const profile = v.object({
   weightLbs: v.optional(v.number()),
   doctorName: v.optional(v.string()),
   insulinTypes: v.optional(v.array(v.string())),
+  /** Of insulinTypes: the ones taken as a pen / as a vial (missing = from before pen/vial). */
+  insulinPens: v.optional(v.array(v.string())),
+  insulinVials: v.optional(v.array(v.string())),
   carbRatio: v.optional(v.number()),
   targetGlucose: v.optional(v.number()),
   correctionFactor: v.optional(v.number()),
@@ -155,6 +158,9 @@ const patientProfiles = defineTable({
   doctorPhone: v.optional(v.string()),
   doctorInstitution: v.optional(v.string()),
   insulinTypes: v.optional(v.array(v.string())),
+  /** Of insulinTypes: the ones taken as a pen / as a vial (missing = from before pen/vial). */
+  insulinPens: v.optional(v.array(v.string())),
+  insulinVials: v.optional(v.array(v.string())),
   profilePhotoUri: v.optional(v.string()),
   childModeEnabled: v.optional(v.boolean()),
   caregiverCode: v.optional(v.string()),
@@ -830,6 +836,8 @@ const carePens = defineTable({
   clientId: v.string(),
   /** Insulin chip label, e.g. "Humalog · 100 u/mL" (same labels as Insulin Settings). */
   insulinLabel: v.string(),
+  /** Pen or vial; missing = pen (every countdown from before vials). */
+  form: v.optional(v.union(v.literal("pen"), v.literal("vial"))),
   name: v.optional(v.string()),
   /** Local calendar date, YYYY-MM-DD. */
   openedOn: v.string(),

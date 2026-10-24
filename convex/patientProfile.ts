@@ -42,6 +42,9 @@ export const patientProfilePayload = v.object({
   doctorPhone: v.optional(v.string()),
   doctorInstitution: v.optional(v.string()),
   insulinTypes: v.optional(v.array(v.string())),
+  /** Of insulinTypes: the ones taken as a pen / as a vial (missing = from before pen/vial). */
+  insulinPens: v.optional(v.array(v.string())),
+  insulinVials: v.optional(v.array(v.string())),
   profilePhotoUri: v.optional(v.string()),
   childModeEnabled: v.optional(v.boolean()),
   caregiverCode: v.optional(v.string()),
@@ -84,6 +87,8 @@ export const getByCaregiverCode = query({
       doctorPhone: row.doctorPhone,
       doctorInstitution: row.doctorInstitution,
       insulinTypes: row.insulinTypes,
+      insulinPens: row.insulinPens,
+      insulinVials: row.insulinVials,
       profilePhotoUri: row.profilePhotoUri,
       childModeEnabled: row.childModeEnabled,
       caregiverCode: row.caregiverCode,
@@ -189,6 +194,8 @@ export const get = query({
       doctorPhone: row.doctorPhone,
       doctorInstitution: row.doctorInstitution,
       insulinTypes: row.insulinTypes,
+      insulinPens: row.insulinPens,
+      insulinVials: row.insulinVials,
       profilePhotoUri: row.profilePhotoUri,
       childModeEnabled: row.childModeEnabled,
       caregiverCode: row.caregiverCode,
@@ -278,6 +285,10 @@ export const replace = mutation({
       caregiverCodeIssuedAt: args.profile.caregiverCodeIssuedAt ?? existing?.caregiverCodeIssuedAt,
       doctorCode: args.profile.doctorCode ?? existing?.doctorCode,
       doctorCodeIssuedAt: args.profile.doctorCodeIssuedAt ?? existing?.doctorCodeIssuedAt,
+      // Pen / vial lists: an app version from before them sends neither, which means "not included",
+      // not "clear" (a current app always sends both, empty or not).
+      insulinPens: args.profile.insulinPens ?? existing?.insulinPens,
+      insulinVials: args.profile.insulinVials ?? existing?.insulinVials,
       accessLog:
         args.profile.accessLog && args.profile.accessLog.length > 0
           ? args.profile.accessLog

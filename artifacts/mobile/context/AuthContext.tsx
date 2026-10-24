@@ -18,6 +18,7 @@ import { apiUrl } from "@/utils/api-base-url";
 import type { DoseSettingsByTime } from "@/utils/doseSettings";
 import { mergeCloudLogs } from "@/utils/careLogsMerge";
 import { mergePens, type PenEndReason } from "@/utils/pens";
+import type { InsulinForm } from "@/constants/insulin";
 import { generateAccessCode } from "@/utils/accessCodeGen";
 import { splitSharedProfilePatch } from "@/utils/sharedProfilePatch";
 import { patchTouchesBackend, rollbackSyncedKeys } from "@/utils/alertPrefsSync";
@@ -90,6 +91,9 @@ export interface UserProfile {
   doctorPhone?: string;
   doctorInstitution?: string;
   insulinTypes?: string[];
+  /** Of insulinTypes: taken as a pen / as a vial (missing = from before pen/vial, see utils/insulinForms). */
+  insulinPens?: string[];
+  insulinVials?: string[];
   profilePhotoUri?: string;
   childModeEnabled?: boolean;
   caregiverCode?: string;
@@ -179,6 +183,8 @@ export interface PenEntry {
   /** LOCAL-ONLY sync marker — see the note on {@link InsulinLogEntry.pendingSync}. */
   pendingSync?: boolean;
   insulinLabel: string;
+  /** Pen or vial; missing = pen. */
+  form?: InsulinForm;
   name?: string;
   openedOn: string;
   goodForDays: number;
@@ -234,6 +240,9 @@ export interface CircleSharedProfile {
   doctorPhone?: string;
   doctorInstitution?: string;
   insulinTypes?: string[];
+  /** Of insulinTypes: taken as a pen / as a vial (missing = from before pen/vial, see utils/insulinForms). */
+  insulinPens?: string[];
+  insulinVials?: string[];
   carbRatio?: number;
   targetGlucose?: number;
   correctionFactor?: number;
@@ -634,6 +643,7 @@ function toPenPayload(p: PenEntry) {
   return {
     clientId: p.id,
     insulinLabel: p.insulinLabel,
+    ...(p.form ? { form: p.form } : {}),
     ...(p.name && p.name.trim() ? { name: p.name.trim() } : {}),
     openedOn: p.openedOn,
     goodForDays: p.goodForDays,
@@ -730,6 +740,8 @@ const SHARED_PROFILE_EDIT_KEYS = [
   "doctorPhone",
   "doctorInstitution",
   "insulinTypes",
+  "insulinPens",
+  "insulinVials",
   "carbRatio",
   "targetGlucose",
   "correctionFactor",
@@ -1112,6 +1124,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   dateOfBirth: slim.dateOfBirth ?? "",
                   weightLbs: slim.weightLbs,
                   insulinTypes: slim.insulinTypes,
+                  insulinPens: slim.insulinPens,
+                  insulinVials: slim.insulinVials,
                   profilePhotoUri: slim.profilePhotoUri,
                   carbRatio: slim.carbRatio,
                   targetGlucose: slim.targetGlucose,
@@ -3304,6 +3318,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               dateOfBirth: slim?.dateOfBirth ?? "",
               weightLbs: slim?.weightLbs,
               insulinTypes: slim?.insulinTypes,
+              insulinPens: slim?.insulinPens,
+              insulinVials: slim?.insulinVials,
               profilePhotoUri: slim?.profilePhotoUri,
               carbRatio: slim?.carbRatio,
               targetGlucose: slim?.targetGlucose,
@@ -3542,6 +3558,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         dateOfBirth: slim.dateOfBirth ?? "",
         weightLbs: slim.weightLbs,
         insulinTypes: slim.insulinTypes,
+        insulinPens: slim.insulinPens,
+        insulinVials: slim.insulinVials,
         profilePhotoUri: slim.profilePhotoUri,
         carbRatio: slim.carbRatio,
         targetGlucose: slim.targetGlucose,
@@ -3585,7 +3603,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         const s = slim as {
           childName?: string; diabetesType?: "type1" | "type2" | "other"; dateOfBirth?: string;
-          weightLbs?: number; insulinTypes?: string[]; profilePhotoUri?: string;
+          weightLbs?: number; insulinTypes?: string[]; insulinPens?: string[]; insulinVials?: string[]; profilePhotoUri?: string;
           carbRatio?: number; targetGlucose?: number; correctionFactor?: number;
           // `profileForAccessCode` spreads `slimPatientProfile`, which has always returned this —
           // it was only missing from this hand-written cast, so the nurse view silently lost the
@@ -3600,6 +3618,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           dateOfBirth: s?.dateOfBirth ?? "",
           weightLbs: s?.weightLbs,
           insulinTypes: s?.insulinTypes,
+          insulinPens: s?.insulinPens,
+          insulinVials: s?.insulinVials,
           profilePhotoUri: s?.profilePhotoUri,
           carbRatio: s?.carbRatio,
           targetGlucose: s?.targetGlucose,

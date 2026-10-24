@@ -51,6 +51,36 @@ describe("insulin pens", () => {
     expect(after.endedOn).toBeUndefined();
   });
 
+  it("keeps pen or vial; a save without it (an older app) never turns a vial into a pen", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await setupOwner(t);
+    const base = { userId: owner, passwordHash: "h-owner", patientUserId: owner };
+    await t.mutation(api.careLogs.savePen, { ...base, pen: pen("v1", { insulinLabel: "Humalog · 100 u/mL", form: "vial" }) });
+    await t.mutation(api.careLogs.savePen, { ...base, pen: pen("v1", { insulinLabel: "Humalog · 100 u/mL", name: "School" }) });
+    const logs = await t.query(api.careLogs.listLogs, base);
+    expect(logs?.penLog[0]).toMatchObject({ id: "v1", form: "vial", name: "School" });
+    await t.mutation(api.careLogs.savePen, { ...base, pen: pen("p1") });
+    const all = await t.query(api.careLogs.listLogs, base);
+    expect(all?.penLog.find((p: any) => p.id === "p1")?.form).toBeUndefined();
+  });
+
+  it("pen and vial lists survive a profile save from an app that doesn't know them", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await setupOwner(t);
+    const profile = { childName: "Bella", parentName: "Mom", diabetesType: "type1" as const, dateOfBirth: "2014-01-01", insulinTypes: ["Humalog · 100 u/mL"] };
+    await t.mutation(api.patientProfile.replace, {
+      userId: owner, passwordHash: "h-owner",
+      profile: { ...profile, insulinPens: [], insulinVials: ["Humalog · 100 u/mL"] },
+    });
+    await t.mutation(api.patientProfile.replace, { userId: owner, passwordHash: "h-owner", profile });
+    const got = await t.query(api.patientProfile.get, { userId: owner, passwordHash: "h-owner" });
+    expect(got).toMatchObject({ insulinPens: [], insulinVials: ["Humalog · 100 u/mL"] });
+    // A current app clearing them really clears them.
+    await t.mutation(api.patientProfile.replace, { userId: owner, passwordHash: "h-owner", profile: { ...profile, insulinTypes: [], insulinPens: [], insulinVials: [] } });
+    const cleared = await t.query(api.patientProfile.get, { userId: owner, passwordHash: "h-owner" });
+    expect(cleared).toMatchObject({ insulinTypes: [], insulinPens: [], insulinVials: [] });
+  });
+
   it("rejects bad dates, impossible day counts and a blank insulin", async () => {
     const t = convexTest(schema, modules);
     const owner = await setupOwner(t);

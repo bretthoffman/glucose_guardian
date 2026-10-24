@@ -78,9 +78,13 @@ const penEndReason = v.union(
 );
 
 /** An insulin pen in use (or ended). The whole pen is sent on every save — it is small and editable. */
+const penForm = v.union(v.literal("pen"), v.literal("vial"));
+
 const penPayload = v.object({
   clientId: v.string(),
   insulinLabel: v.string(),
+  /** Pen or vial; missing = pen (every countdown from before vials). */
+  form: v.optional(penForm),
   name: v.optional(v.string()),
   openedOn: v.string(),
   goodForDays: v.number(),
@@ -103,6 +107,7 @@ function cleanPen(p: typeof penPayload.type): typeof penPayload.type {
   return {
     clientId: p.clientId,
     insulinLabel,
+    ...(p.form ? { form: p.form } : {}),
     ...(name ? { name } : {}),
     openedOn: p.openedOn,
     goodForDays: p.goodForDays,
@@ -434,6 +439,8 @@ async function savePenRow(
   if (existing) {
     await ctx.db.patch(existing._id, {
       insulinLabel: clean.insulinLabel,
+      // Only when sent: an app version from before vials sends none, and must not turn a vial into a pen.
+      ...(clean.form ? { form: clean.form } : {}),
       name: clean.name,
       openedOn: clean.openedOn,
       goodForDays: clean.goodForDays,
@@ -590,6 +597,7 @@ export async function copyBucketLogs(
       updatedAt: row.updatedAt,
       clientId: row.clientId,
       insulinLabel: row.insulinLabel,
+      ...(row.form != null ? { form: row.form } : {}),
       ...(row.name != null ? { name: row.name } : {}),
       openedOn: row.openedOn,
       goodForDays: row.goodForDays,
@@ -918,7 +926,7 @@ function mapFingerStick(
 
 function mapPen(
   row: {
-    clientId: string; insulinLabel: string; name?: string; openedOn: string; goodForDays: number;
+    clientId: string; insulinLabel: string; form?: "pen" | "vial"; name?: string; openedOn: string; goodForDays: number;
     endedOn?: string; endReason?: typeof penEndReason.type; createdAt: number;
     authorUserId?: string; authorCode?: string; authorName: string;
   },
@@ -930,6 +938,7 @@ function mapPen(
     // `timestamp` = when the pen was started; lets the shared merge helpers order pens like logs.
     timestamp: new Date(row.createdAt).toISOString(),
     insulinLabel: row.insulinLabel,
+    form: row.form,
     name: row.name,
     openedOn: row.openedOn,
     goodForDays: row.goodForDays,

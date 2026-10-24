@@ -110,7 +110,7 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
                     <View
                       style={styles.penDot}
                       accessible
-                      accessibilityLabel="An insulin pen needs changing soon"
+                      accessibilityLabel="An insulin pen or vial needs changing soon"
                     />
                   )}
                   {route.name === "chat" && hasUnreadDoctorChat && (

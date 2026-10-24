@@ -138,9 +138,9 @@ const insulin: HelpStep[] = [
   {
     id: "insulin.pens",
     anchor: "insulin.pens",
-    title: "Pens",
+    title: "My Insulin",
     text:
-      "Opened a new insulin pen? Tap Start new pen, pick the insulin and where it lives (like Home or School), and Glucose Guardian counts down the days it's good for. You'll get a reminder 3 days before, the day before, and the day to change it, and the Insulin tab shows a dot when a pen is close. Tap a pen to edit it or mark it done, and History shows past pens.",
+      "Opened a new pen or vial? Tap Start new insulin, pick it (like Humalog vial or Lantus pen) and where it lives (like Home or School), and Glucose Guardian counts down the days it's good for. You'll get a reminder 3 days before, the day before, and the day to change it, and the Insulin tab shows a dot when one is close. Tap one to edit it or mark it done, and History shows past pens and vials.",
   },
   {
     id: "insulin.disclaimer",

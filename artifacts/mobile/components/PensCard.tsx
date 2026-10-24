@@ -1,12 +1,14 @@
 /**
- * Pens — the insulin pen countdown on the Insulin page (under Suggested Dose).
+ * My Insulin — the pen / vial countdown on the Insulin page (under Suggested Dose). Code names still
+ * say "pen" (data, ids, utils/pens); everything the family reads says the insulin and pen or vial.
  *
- *  - <PensCard />: every open pen with a countdown ring (purple → amber in the last 3 days → red when
- *    due), a History link and "Start new pen".
- *  - Start new pen: insulin (only the ones in Insulin Settings), optional name, opened date, and
- *    "good for" days prefilled from the label (utils/pens). Starting a pen with the same insulin and
- *    name as an open one replaces it — and asks why when that pen still had days left.
- *  - Edit pen: name, opened date, days; "I'm done with this pen" (asks why); "Delete, added by
+ *  - <PensCard />: every open pen or vial with a countdown ring (purple → amber in the last 3 days →
+ *    red when due), e.g. "Humalog vial · School", a History link and "Start new insulin".
+ *  - Start new insulin: insulin + pen/vial (only the ones in Insulin Settings), optional name, opened
+ *    date, and "good for" days prefilled from the pen or vial label (utils/pens). Starting one with
+ *    the same insulin, form and name as an open one replaces it, and asks why when it still had
+ *    days left.
+ *  - Edit: name, opened date, days; "I'm done with this pen/vial" (asks why); "Delete, added by
  *    mistake".
  *
  * Rules live in utils/pens; data in AuthContext (penLog / savePen / deletePen), shared with the
@@ -24,6 +26,7 @@ import { AccentShade, CardShade } from "@/components/Shade";
 import { useAuth, type PenEntry } from "@/context/AuthContext";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import { useHelpAnchor } from "@/context/HelpContext";
+import { formWord, type InsulinSupply } from "@/utils/insulinForms";
 import {
   MAX_PEN_DAYS,
   MIN_PEN_DAYS,
@@ -40,6 +43,7 @@ import {
   penEndReasonLabel,
   penStatus,
   penTitle,
+  supplyName,
   toLocalDate,
   daysBetween,
   type PenEndReason,
@@ -86,13 +90,13 @@ function PenRing({ fraction, tone, label, size = 44, colors }: { fraction: numbe
 export default function PensCard({
   colors,
   canEdit,
-  insulinLabels,
+  supplies,
 }: {
   colors: Palette;
   /** False for view-only sessions: the countdown shows, the buttons don't. */
   canEdit: boolean;
-  /** Insulins from Insulin Settings (chip labels). */
-  insulinLabels: string[];
+  /** Insulins from Insulin Settings, each as a pen or vial (utils/insulinForms suppliesTaken). */
+  supplies: InsulinSupply[];
 }) {
   const { penLog, savePen, deletePen } = useAuth();
   const confirmLog = useCareLogConfirm();
@@ -109,7 +113,7 @@ export default function PensCard({
     <View ref={helpPens} collapsable={false} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <CardShade radius={16} />
       <View style={styles.headRow}>
-        <Text style={[styles.headLabel, { color: colors.textSecondary }]}>PENS</Text>
+        <Text style={[styles.headLabel, { color: colors.textSecondary }]}>MY INSULIN</Text>
         <Pressable onPress={() => setHistoryOpen(true)} hitSlop={8} accessibilityRole="button">
           <Text style={[styles.link, { color: COLORS.primaryLight }]}>History</Text>
         </Pressable>
@@ -117,7 +121,7 @@ export default function PensCard({
 
       {open.length === 0 ? (
         <Text style={[styles.empty, { color: colors.textSecondary }]}>
-          No pens yet. Start one when you open a new pen and we'll count down the days for you.
+          Nothing here yet. When you open a new pen or vial, start it here and we'll count down the days it's good for.
         </Text>
       ) : (
         open.map((pen, i) => {
@@ -129,7 +133,7 @@ export default function PensCard({
                 ? `${st.label} · change soon`
                 : st.tone === "today"
                   ? "Change today"
-                  : `${st.label} · time for a new pen`;
+                  : `${st.label} · time for a new ${formWord(pen.form)}`;
           return (
             <Pressable
               key={pen.id}
@@ -150,7 +154,8 @@ export default function PensCard({
               />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={1}>
-                  {insulinName(pen.insulinLabel)}
+                  {insulinName(pen.insulinLabel)}{" "}
+                  <Text style={{ color: colors.textSecondary, fontWeight: "600" }}>{formWord(pen.form)}</Text>
                   {pen.name ? <Text style={{ color: colors.textSecondary, fontWeight: "500" }}> · {pen.name}</Text> : null}
                 </Text>
                 <Text
@@ -177,14 +182,14 @@ export default function PensCard({
         >
           <AccentShade radius={12} />
           <Feather name="plus" size={16} color="#fff" />
-          <Text style={styles.startText}>Start new pen</Text>
+          <Text style={styles.startText}>Start new insulin</Text>
         </Pressable>
       )}
 
       {starting && (
         <StartPenModal
           colors={colors}
-          insulinLabels={insulinLabels}
+          supplies={supplies}
           pens={penLog}
           today={today}
           onClose={() => setStarting(false)}
@@ -297,7 +302,7 @@ function NamePicker({ value, onChange, colors }: { value: string; onChange: (v: 
           placeholder="e.g. Grandma's house"
           placeholderTextColor={colors.textMuted}
           style={[styles.input, { color: colors.text, backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}
-          accessibilityLabel="Pen name"
+          accessibilityLabel="Name"
           autoFocus
         />
       )}
@@ -343,7 +348,7 @@ function DaysInput({ value, onChange, colors }: { value: string; onChange: (v: s
         keyboardType="number-pad"
         selectTextOnFocus
         style={[styles.input, styles.daysInput, { color: colors.text, backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}
-        accessibilityLabel="Days the pen is good for"
+        accessibilityLabel="Days it is good for"
       />
     </View>
   );
@@ -412,6 +417,7 @@ function toSaveInput(p: PenEntry): SaveInput {
   return {
     id: p.id,
     insulinLabel: p.insulinLabel,
+    ...(p.form ? { form: p.form } : {}),
     ...(p.name ? { name: p.name } : {}),
     openedOn: p.openedOn,
     goodForDays: p.goodForDays,
@@ -422,42 +428,51 @@ function toSaveInput(p: PenEntry): SaveInput {
 
 function StartPenModal({
   colors,
-  insulinLabels,
+  supplies,
   pens,
   today,
   onClose,
   onStart,
 }: {
   colors: Palette;
-  insulinLabels: string[];
+  supplies: InsulinSupply[];
   pens: PenEntry[];
   today: string;
   onClose: () => void;
   /** `replace`: the open pen being ended (with its reason) as this one starts. */
   onStart: (next: SaveInput, replace: SaveInput | null) => void;
 }) {
-  const [insulin, setInsulin] = useState<string | null>(insulinLabels[0] ?? null);
+  const first = supplies[0] ?? null;
+  const [supply, setSupply] = useState<InsulinSupply | null>(first);
   const [name, setName] = useState("");
   const [openedOn, setOpenedOn] = useState(today);
-  const [daysText, setDaysText] = useState(String(insulinLabels[0] ? defaultPenDays(insulinLabels[0]) : 28));
+  const [daysText, setDaysText] = useState(String(first ? defaultPenDays(first.label, first.form) : 28));
   const [daysTouched, setDaysTouched] = useState(false);
   const [askWhy, setAskWhy] = useState<PenEntry | null>(null);
   const days = parseDays(daysText);
+  const word = formWord(supply?.form);
 
-  const pickInsulin = (label: string) => {
-    setInsulin(label);
-    if (!daysTouched) setDaysText(String(defaultPenDays(label)));
+  const pickSupply = (s: InsulinSupply) => {
+    setSupply(s);
+    if (!daysTouched) setDaysText(String(defaultPenDays(s.label, s.form)));
   };
 
   const build = (): SaveInput | null =>
-    insulin && days
-      ? { id: newPenId(), insulinLabel: insulin, ...(name.trim() ? { name: name.trim() } : {}), openedOn, goodForDays: days }
+    supply && days
+      ? {
+          id: newPenId(),
+          insulinLabel: supply.label,
+          form: supply.form,
+          ...(name.trim() ? { name: name.trim() } : {}),
+          openedOn,
+          goodForDays: days,
+        }
       : null;
 
   const submit = () => {
     const next = build();
     if (!next) return;
-    const old = penBeingReplaced(pens, next.insulinLabel, next.name);
+    const old = penBeingReplaced(pens, next.insulinLabel, next.name, next.form);
     if (!old) return onStart(next, null);
     const st = penStatus(old, today);
     // An old pen that had run its days ends quietly; one with days left asks why.
@@ -466,16 +481,16 @@ function StartPenModal({
   };
 
   return (
-    <DashboardSectionModal visible onClose={onClose} accessibilityLabel="Start new pen">
+    <DashboardSectionModal visible onClose={onClose} accessibilityLabel="Start new insulin">
       <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <CardShade radius={16} />
         {askWhy ? (
           <ReasonStep
-            title={`This pen still has ${penStatus(askWhy, today).daysLeft} day${penStatus(askWhy, today).daysLeft === 1 ? "" : "s"} left`}
+            title={`This ${formWord(askWhy.form)} still has ${penStatus(askWhy, today).daysLeft} day${penStatus(askWhy, today).daysLeft === 1 ? "" : "s"} left`}
             subtitle={`${penTitle(askWhy)}, opened ${formatPenDate(askWhy.openedOn)}. Why are you starting a new one?`}
             overdue={false}
             goodForDays={askWhy.goodForDays}
-            confirmLabel="Start new pen"
+            confirmLabel={`Start new ${word}`}
             colors={colors}
             onCancel={() => setAskWhy(null)}
             onConfirm={(reason) => {
@@ -485,8 +500,8 @@ function StartPenModal({
           />
         ) : (
           <View style={{ gap: 14 }}>
-            <Text style={[styles.title, { color: colors.text }]}>Start new pen</Text>
-            {insulinLabels.length === 0 ? (
+            <Text style={[styles.title, { color: colors.text }]}>Start new insulin</Text>
+            {supplies.length === 0 ? (
               <Text style={[styles.body, { color: colors.textSecondary }]}>
                 Add your insulins first: Dashboard → Insulin Settings. Then they'll show up here.
               </Text>
@@ -495,20 +510,26 @@ function StartPenModal({
                 <View style={{ gap: 8 }}>
                   <Text style={[styles.label, { color: colors.textMuted }]}>Insulin</Text>
                   <View style={styles.chipRow}>
-                    {insulinLabels.map((l) => (
-                      <Chip key={l} label={insulinName(l)} selected={insulin === l} colors={colors} onPress={() => pickInsulin(l)} />
+                    {supplies.map((s) => (
+                      <Chip
+                        key={`${s.label}|${s.form}`}
+                        label={supplyName({ insulinLabel: s.label, form: s.form })}
+                        selected={supply?.label === s.label && supply?.form === s.form}
+                        colors={colors}
+                        onPress={() => pickSupply(s)}
+                      />
                     ))}
                   </View>
                 </View>
                 <NamePicker value={name} onChange={setName} colors={colors} />
                 <OpenedPicker value={openedOn} onChange={setOpenedOn} today={today} colors={colors} />
                 <DaysInput value={daysText} onChange={(t) => { setDaysTouched(true); setDaysText(t); }} colors={colors} />
-                {insulin && (
+                {supply && (
                   <Text style={[styles.hint, { color: colors.textSecondary }]}>
-                    {defaultPenDays(insulin)} days is what the {insulinName(insulin)} label says once a pen is opened. Change it if your doctor told you something different.
+                    {defaultPenDays(supply.label, supply.form)} days is what the {insulinName(supply.label)} label says once a {word} is opened. Change it if your doctor told you something different.
                   </Text>
                 )}
-                <PrimaryButton label="Start pen" disabled={!insulin || !days} onPress={submit} />
+                <PrimaryButton label={`Start ${word}`} disabled={!supply || !days} onPress={submit} />
               </>
             )}
             <TextButton label="Cancel" color={colors.textSecondary} onPress={onClose} />
@@ -545,16 +566,16 @@ function EditPenModal({
   const base = { ...toSaveInput(pen), ...(name.trim() ? { name: name.trim() } : { name: undefined }), openedOn, goodForDays: days ?? pen.goodForDays };
 
   return (
-    <DashboardSectionModal visible onClose={onClose} accessibilityLabel="Edit pen">
+    <DashboardSectionModal visible onClose={onClose} accessibilityLabel={`Edit ${formWord(pen.form)}`}>
       <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <CardShade radius={16} />
         {ending ? (
           <ReasonStep
-            title="Done with this pen?"
+            title={`Done with this ${formWord(pen.form)}?`}
             subtitle={`${penTitle(pen)}, opened ${formatPenDate(pen.openedOn)}. Why are you done with it?`}
             overdue={live.daysLeft <= 0}
             goodForDays={pen.goodForDays}
-            confirmLabel="End this pen"
+            confirmLabel={`End this ${formWord(pen.form)}`}
             colors={colors}
             onCancel={() => setEnding(false)}
             onConfirm={(reason) => onSave({ ...base, endedOn: today, endReason: reason })}
@@ -570,9 +591,9 @@ function EditPenModal({
                 colors={colors}
               />
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.title, { color: colors.text }]}>Edit pen</Text>
+                <Text style={[styles.title, { color: colors.text }]}>Edit {formWord(pen.form)}</Text>
                 <Text style={[styles.body, { color: colors.textSecondary }]} numberOfLines={1}>
-                  {insulinName(pen.insulinLabel)} · {live.label}
+                  {supplyName(pen)} · {live.label}
                 </Text>
               </View>
             </View>
@@ -589,13 +610,13 @@ function EditPenModal({
               onPress={() => setEnding(true)}
               style={({ pressed }) => [styles.outlineBtn, { borderColor: COLORS.primaryLight + "99", opacity: pressed ? 0.7 : 1 }]}
             >
-              <Text style={[styles.outlineText, { color: COLORS.primaryLight }]}>I'm done with this pen</Text>
+              <Text style={[styles.outlineText, { color: COLORS.primaryLight }]}>I'm done with this {formWord(pen.form)}</Text>
             </Pressable>
             <TextButton
               label="Delete, added by mistake"
               color={COLORS.danger}
               onPress={() =>
-                Alert.alert("Delete this pen?", "Use this only if it was added by mistake. It won't show in History.", [
+                Alert.alert(`Delete this ${formWord(pen.form)}?`, "Use this only if it was added by mistake. It won't show in History.", [
                   { text: "Cancel", style: "cancel" },
                   { text: "Delete", style: "destructive", onPress: onDelete },
                 ])
@@ -614,11 +635,11 @@ function PenHistoryModal({ colors, pens, onClose }: { colors: Palette; pens: Pen
   const today = toLocalDate(new Date());
   const rows = [...activePens(pens, today), ...endedPens(pens)];
   return (
-    <DashboardSectionModal visible onClose={onClose} accessibilityLabel="Pen history">
+    <DashboardSectionModal visible onClose={onClose} accessibilityLabel="Insulin history">
       <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <CardShade radius={16} />
-        <Text style={[styles.title, { color: colors.text }]}>Pen history</Text>
-        <Text style={[styles.body, { color: colors.textSecondary, marginBottom: 6 }]}>Every pen, newest first.</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Insulin history</Text>
+        <Text style={[styles.body, { color: colors.textSecondary, marginBottom: 6 }]}>Every pen and vial, newest first.</Text>
         {rows.length === 0 ? (
           <Text style={[styles.body, { color: colors.textSecondary }]}>Nothing yet.</Text>
         ) : (
@@ -633,7 +654,8 @@ function PenHistoryModal({ colors, pens, onClose }: { colors: Palette; pens: Pen
                 >
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={1}>
-                      {insulinName(p.insulinLabel)}
+                      {insulinName(p.insulinLabel)}{" "}
+                      <Text style={{ color: colors.textSecondary, fontWeight: "600" }}>{formWord(p.form)}</Text>
                       {p.name ? <Text style={{ color: colors.textSecondary, fontWeight: "500" }}> · {p.name}</Text> : null}
                     </Text>
                     <Text style={[styles.rowSub, { color: colors.textSecondary }]}>

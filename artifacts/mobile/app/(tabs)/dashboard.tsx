@@ -39,7 +39,7 @@ import {
 import { useProfilePhotoPicker } from "@/hooks/useProfilePhotoPicker";
 import Colors, { COLORS } from "@/constants/colors";
 import { T, TYPE, withAlpha } from "@/constants/theme";
-import { INSULIN_OPTIONS, INSULIN_TYPE_LABEL, insulinChipLabel } from "@/constants/insulin";
+import InsulinChooser from "@/components/InsulinChooser";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import { ALERT_SOUND_OPTIONS, usePush } from "@/context/PushContext";
@@ -1771,52 +1771,13 @@ export default function DashboardScreen() {
 
           <View style={[styles.insulinTypesSection, { borderTopColor: colors.separator }]}>
             <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Insulin Used</Text>
-            {(["rapid", "long", "ultra-long", "regular", "intermediate", "premixed"] as const).map((groupType) => {
-              const groupOptions = INSULIN_OPTIONS.filter((o) => o.type === groupType);
-              return (
-                <View key={groupType} style={styles.insulinGroup}>
-                  <Text style={[styles.insulinGroupLabel, { color: colors.textMuted }]}>
-                    {INSULIN_TYPE_LABEL[groupType].toUpperCase()}
-                  </Text>
-                  <View style={styles.insulinChipsRow}>
-                    {groupOptions.map((opt) => {
-                      const chipLabel = insulinChipLabel(opt);
-                      const selected = (profile?.insulinTypes ?? []).includes(chipLabel);
-                      return (
-                        <Pressable
-                          key={opt.name}
-                          style={({ pressed }) => [
-                            styles.insulinChip,
-                            {
-                              backgroundColor: selected ? COLORS.accent + "18" : colors.backgroundTertiary,
-                              borderColor: selected ? COLORS.accent : colors.border,
-                              opacity: pressed ? 0.7 : 1,
-                            },
-                          ]}
-                          onPress={() => {
-                            if (settingsReadOnly) return; // owner-only — members/nurse view the shared list
-                            const current = profile?.insulinTypes ?? [];
-                            const next = selected ? current.filter((x) => x !== chipLabel) : [...current, chipLabel];
-                            updateProfile({ insulinTypes: next });
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          }}
-                        >
-                          {selected ? <TintShade color={COLORS.accent} radius={12} /> : <ControlShade radius={12} />}
-                          {selected && <Feather name="check" size={11} color={COLORS.accent} />}
-                          <View>
-                            <Text style={[styles.insulinChipName, { color: selected ? COLORS.accent : colors.text }]}>{opt.name}</Text>
-                            <Text style={[styles.insulinChipConc, { color: selected ? COLORS.accent + "99" : colors.textMuted }]}>{opt.concentration}</Text>
-                          </View>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-              );
-            })}
-            {(profile?.insulinTypes ?? []).length === 0 && (
-              <Text style={[styles.insulinTypesEmpty, { color: colors.textMuted }]}>Tap to select the insulin you use</Text>
-            )}
+            <InsulinChooser
+              value={{ insulinTypes: profile?.insulinTypes, insulinPens: profile?.insulinPens, insulinVials: profile?.insulinVials }}
+              onChange={(next) => updateProfile(next)}
+              readOnly={settingsReadOnly}
+              shaded
+              colors={colors}
+            />
           </View>
 
         </View>
