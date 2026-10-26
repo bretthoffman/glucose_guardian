@@ -45,6 +45,9 @@ export const patientProfilePayload = v.object({
   /** Of insulinTypes: the ones taken as a pen / as a vial (missing = from before pen/vial). */
   insulinPens: v.optional(v.array(v.string())),
   insulinVials: v.optional(v.array(v.string())),
+  /** Meal tips: shown to caregivers / nurses, and in Child Mode (guardians always see them). */
+  mealTipsCaregivers: v.optional(v.boolean()),
+  mealTipsChildMode: v.optional(v.boolean()),
   profilePhotoUri: v.optional(v.string()),
   childModeEnabled: v.optional(v.boolean()),
   caregiverCode: v.optional(v.string()),
@@ -89,6 +92,8 @@ export const getByCaregiverCode = query({
       insulinTypes: row.insulinTypes,
       insulinPens: row.insulinPens,
       insulinVials: row.insulinVials,
+      mealTipsCaregivers: row.mealTipsCaregivers,
+      mealTipsChildMode: row.mealTipsChildMode,
       profilePhotoUri: row.profilePhotoUri,
       childModeEnabled: row.childModeEnabled,
       caregiverCode: row.caregiverCode,
@@ -196,6 +201,8 @@ export const get = query({
       insulinTypes: row.insulinTypes,
       insulinPens: row.insulinPens,
       insulinVials: row.insulinVials,
+      mealTipsCaregivers: row.mealTipsCaregivers,
+      mealTipsChildMode: row.mealTipsChildMode,
       profilePhotoUri: row.profilePhotoUri,
       childModeEnabled: row.childModeEnabled,
       caregiverCode: row.caregiverCode,
@@ -289,6 +296,8 @@ export const replace = mutation({
       // not "clear" (a current app always sends both, empty or not).
       insulinPens: args.profile.insulinPens ?? existing?.insulinPens,
       insulinVials: args.profile.insulinVials ?? existing?.insulinVials,
+      mealTipsCaregivers: args.profile.mealTipsCaregivers ?? existing?.mealTipsCaregivers,
+      mealTipsChildMode: args.profile.mealTipsChildMode ?? existing?.mealTipsChildMode,
       accessLog:
         args.profile.accessLog && args.profile.accessLog.length > 0
           ? args.profile.accessLog

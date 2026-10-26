@@ -36,7 +36,7 @@ describe("splitSharedProfilePatch", () => {
     // If someone edits OWNER_ONLY_PROFILE_FIELDS in convex/careCircle.ts, this is the reminder to
     // mirror it here — otherwise the client starts sending a field the server rejects wholesale.
     expect([...OWNER_ONLY_SHARED_FIELDS].sort()).toEqual(
-      ["carbRatio", "correctionFactor", "dateOfBirth", "doseSettingsByTime", "insulinTypes", "targetGlucose", "weightLbs"].sort(),
+      ["carbRatio", "correctionFactor", "dateOfBirth", "doseSettingsByTime", "insulinPens", "insulinTypes", "insulinVials", "mealTipsCaregivers", "mealTipsChildMode", "targetGlucose", "weightLbs"].sort(),
     );
   });
 });

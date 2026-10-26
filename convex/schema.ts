@@ -38,6 +38,9 @@ const profile = v.object({
   /** Of insulinTypes: the ones taken as a pen / as a vial (missing = from before pen/vial). */
   insulinPens: v.optional(v.array(v.string())),
   insulinVials: v.optional(v.array(v.string())),
+  /** Meal tips: shown to caregivers / nurses, and in Child Mode (guardians always see them). */
+  mealTipsCaregivers: v.optional(v.boolean()),
+  mealTipsChildMode: v.optional(v.boolean()),
   carbRatio: v.optional(v.number()),
   targetGlucose: v.optional(v.number()),
   correctionFactor: v.optional(v.number()),
@@ -161,6 +164,9 @@ const patientProfiles = defineTable({
   /** Of insulinTypes: the ones taken as a pen / as a vial (missing = from before pen/vial). */
   insulinPens: v.optional(v.array(v.string())),
   insulinVials: v.optional(v.array(v.string())),
+  /** Meal tips: shown to caregivers / nurses, and in Child Mode (guardians always see them). */
+  mealTipsCaregivers: v.optional(v.boolean()),
+  mealTipsChildMode: v.optional(v.boolean()),
   profilePhotoUri: v.optional(v.string()),
   childModeEnabled: v.optional(v.boolean()),
   caregiverCode: v.optional(v.string()),
@@ -825,6 +831,36 @@ const careFingerSticks = defineTable({
   .index("by_patient_client", ["patientUserId", "clientId"]);
 
 /**
+ * Lab results for a patient (care-circle bucket): typed in, read from a photo and confirmed, or
+ * pulled from MyChart. Shown under the A1C card next to the app's estimate.
+ */
+const labResults = defineTable({
+  patientUserId: v.id("users"),
+  clientId: v.string(),
+  authorUserId: v.optional(v.id("users")),
+  authorName: v.string(),
+  /** a1c | tsh | celiac | glucose | other */
+  test: v.string(),
+  /** Display name, e.g. "Hemoglobin A1c" or what the lab called it. */
+  name: v.string(),
+  value: v.optional(v.number()),
+  /** For results that aren't a number ("Negative"). */
+  valueText: v.optional(v.string()),
+  unit: v.optional(v.string()),
+  refRange: v.optional(v.string()),
+  /** Local calendar date the sample was drawn, YYYY-MM-DD. */
+  takenOn: v.string(),
+  source: v.union(v.literal("manual"), v.literal("photo"), v.literal("mychart")),
+  /** MyChart (FHIR Observation) id, so a re-import never duplicates. */
+  externalId: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index("by_patient_client", ["patientUserId", "clientId"])
+  .index("by_patient_taken", ["patientUserId", "takenOn"])
+  .index("by_patient_external", ["patientUserId", "externalId"]);
+
+/**
  * Insulin pens in use (Insulin page → Pens). One row per pen: which insulin, an optional name
  * ("Home", "School"), the local calendar date it was opened, and how many days it's good for once
  * opened (prefilled from the label, editable). Ending a pen keeps the row for History. Shared in the
@@ -982,6 +1018,7 @@ export default defineSchema({
   careInsulinLogs,
   careFingerSticks,
   carePens,
+  labResults,
   careMessages,
   pushTokens,
   pushAlertState,

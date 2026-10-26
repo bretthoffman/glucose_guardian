@@ -31,6 +31,9 @@ import { WhatsNewHistoryModal } from "@/components/WhatsNew";
 import CareCirclePanel from "@/components/CareCirclePanel";
 import DoctorOfficePanel from "@/components/DoctorOfficePanel";
 import A1CEstimateCard from "@/components/A1CEstimateCard";
+import LabResultsSection from "@/components/LabResultsSection";
+import { MIN_A1C_DAYS, estimateA1C } from "@/utils/a1c";
+import { availableDaysFromOldest } from "@/utils/a1cRange";
 import {
   dashboardGroups,
   dashboardSectionVisibility,
@@ -512,15 +515,22 @@ export default function DashboardScreen() {
     reportSaveResult(ok, "This emergency contact");
   }
 
+  /**
+   * GMI (same formula as the app's A1C card and the PDF) over `days`, or null unless the readings
+   * on hand really cover that window and at least the 14 days an estimate needs.
+   */
   function a1cForDays(days: number): string | null {
-    const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const cutoffMs = now - days * 24 * 60 * 60 * 1000;
     const filtered = history.filter((r) => new Date(r.timestamp).getTime() >= cutoffMs);
     if (filtered.length < 3) return null;
+    const oldest = filtered.reduce((m, r) => (r.timestamp < m ? r.timestamp : m), filtered[0]!.timestamp);
+    if (availableDaysFromOldest(oldest, now, days) < Math.max(days, MIN_A1C_DAYS)) return null;
     const avg = filtered.reduce((s, r) => s + r.glucose, 0) / filtered.length;
-    return ((avg + 46.7) / 28.7).toFixed(1);
+    return estimateA1C(avg).toFixed(1);
   }
 
-  const A1C_EXPORT_RANGES = [3, 7, 14, 30, 90] as const;
+  const A1C_EXPORT_RANGES = [14, 30, 90] as const;
 
   async function downloadSelectedLogs() {
     setIsSharing(true);
@@ -1611,6 +1621,7 @@ export default function DashboardScreen() {
             <StatCard label="Time in Range" value={history.length > 0 ? `${inRangePercent}%` : "—"} unit="80-180 mg/dL" icon="target" color={inRangePercent >= 70 ? COLORS.success : COLORS.warning} colors={colors} />
           </View>
         </View>
+        <LabResultsSection colors={colors} />
         </DashboardSectionModal>
 
         <DashboardSectionModal

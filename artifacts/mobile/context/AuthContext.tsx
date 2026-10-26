@@ -94,6 +94,8 @@ export interface UserProfile {
   /** Of insulinTypes: taken as a pen / as a vial (missing = from before pen/vial, see utils/insulinForms). */
   insulinPens?: string[];
   insulinVials?: string[];
+  mealTipsCaregivers?: boolean;
+  mealTipsChildMode?: boolean;
   profilePhotoUri?: string;
   childModeEnabled?: boolean;
   caregiverCode?: string;
@@ -243,6 +245,8 @@ export interface CircleSharedProfile {
   /** Of insulinTypes: taken as a pen / as a vial (missing = from before pen/vial, see utils/insulinForms). */
   insulinPens?: string[];
   insulinVials?: string[];
+  mealTipsCaregivers?: boolean;
+  mealTipsChildMode?: boolean;
   carbRatio?: number;
   targetGlucose?: number;
   correctionFactor?: number;
@@ -742,6 +746,8 @@ const SHARED_PROFILE_EDIT_KEYS = [
   "insulinTypes",
   "insulinPens",
   "insulinVials",
+  "mealTipsCaregivers",
+  "mealTipsChildMode",
   "carbRatio",
   "targetGlucose",
   "correctionFactor",
@@ -1126,6 +1132,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   insulinTypes: slim.insulinTypes,
                   insulinPens: slim.insulinPens,
                   insulinVials: slim.insulinVials,
+                  mealTipsCaregivers: slim.mealTipsCaregivers,
+                  mealTipsChildMode: slim.mealTipsChildMode,
                   profilePhotoUri: slim.profilePhotoUri,
                   carbRatio: slim.carbRatio,
                   targetGlucose: slim.targetGlucose,
@@ -3320,6 +3328,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               insulinTypes: slim?.insulinTypes,
               insulinPens: slim?.insulinPens,
               insulinVials: slim?.insulinVials,
+              mealTipsCaregivers: slim?.mealTipsCaregivers,
+              mealTipsChildMode: slim?.mealTipsChildMode,
               profilePhotoUri: slim?.profilePhotoUri,
               carbRatio: slim?.carbRatio,
               targetGlucose: slim?.targetGlucose,
@@ -3560,6 +3570,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         insulinTypes: slim.insulinTypes,
         insulinPens: slim.insulinPens,
         insulinVials: slim.insulinVials,
+        mealTipsCaregivers: slim.mealTipsCaregivers,
+        mealTipsChildMode: slim.mealTipsChildMode,
         profilePhotoUri: slim.profilePhotoUri,
         carbRatio: slim.carbRatio,
         targetGlucose: slim.targetGlucose,
@@ -3603,7 +3615,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         const s = slim as {
           childName?: string; diabetesType?: "type1" | "type2" | "other"; dateOfBirth?: string;
-          weightLbs?: number; insulinTypes?: string[]; insulinPens?: string[]; insulinVials?: string[]; profilePhotoUri?: string;
+          weightLbs?: number; insulinTypes?: string[]; insulinPens?: string[]; insulinVials?: string[]; mealTipsCaregivers?: boolean; mealTipsChildMode?: boolean; profilePhotoUri?: string;
           carbRatio?: number; targetGlucose?: number; correctionFactor?: number;
           // `profileForAccessCode` spreads `slimPatientProfile`, which has always returned this —
           // it was only missing from this hand-written cast, so the nurse view silently lost the
@@ -3620,6 +3632,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           insulinTypes: s?.insulinTypes,
           insulinPens: s?.insulinPens,
           insulinVials: s?.insulinVials,
+          mealTipsCaregivers: s?.mealTipsCaregivers,
+          mealTipsChildMode: s?.mealTipsChildMode,
           profilePhotoUri: s?.profilePhotoUri,
           carbRatio: s?.carbRatio,
           targetGlucose: s?.targetGlucose,

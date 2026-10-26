@@ -30,6 +30,7 @@ import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import { getEffectiveTrend, trendTone } from "@/utils/trend";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
 import FoodInsulinModal from "@/components/FoodInsulinModal";
+import MealTipCard from "@/components/MealTipCard";
 import { apiUrl } from "@/utils/api-base-url";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
@@ -1103,6 +1104,23 @@ export default function FoodScreen() {
                   {savedToQuick ? `Saved "${mealName}" to Favorites` : `Save "${mealName}" to Favorites`}
                 </Text>
               </Pressable>
+            )}
+
+            {!result.manual && !!result.foodName && (
+              <MealTipCard
+                foodName={result.foodName}
+                proteinGrams={result.proteinGrams}
+                colors={colors}
+                onAdd={
+                  logged
+                    ? undefined
+                    : (idea) =>
+                        setExtraItems((items) => [
+                          ...items.filter((it) => it.name.trim() || it.carbs.trim()),
+                          { id: extraId.current++, name: idea.name, carbs: String(idea.carbs) },
+                        ])
+                }
+              />
             )}
 
             {/* Servings — barcode results only, and only when the package holds more than one serving

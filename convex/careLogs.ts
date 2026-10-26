@@ -165,7 +165,7 @@ async function guardianDisplayName(ctx: QueryCtx | MutationCtx, userId: Id<"user
   return profile?.childName?.trim() || "Guardian";
 }
 
-interface WriteAuth {
+export interface WriteAuth {
   authorUserId?: Id<"users">;
   /** Set for an ACCOUNTLESS code session — the only identity such a write has. */
   authorCode?: string;
@@ -173,7 +173,7 @@ interface WriteAuth {
 }
 
 /** Resolve whether `callerUserId` may WRITE logs to `patientUserId`, and under what byline. */
-async function resolveAccountWriteAuth(
+export async function resolveAccountWriteAuth(
   ctx: QueryCtx | MutationCtx,
   callerUserId: Id<"users">,
   patientUserId: Id<"users">,
@@ -203,7 +203,7 @@ async function resolveAccountWriteAuth(
 }
 
 /** Resolve whether `callerUserId` may READ `patientUserId`'s logs. */
-async function resolveAccountReadAuth(
+export async function resolveAccountReadAuth(
   ctx: QueryCtx,
   callerUserId: Id<"users">,
   patientUserId: Id<"users">,
