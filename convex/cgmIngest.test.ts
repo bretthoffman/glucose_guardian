@@ -292,7 +292,7 @@ describe("scheduled ingestion — Libre", () => {
     expect(res.inserted).toBe(1);
     const readings = await getReadings(t, userId);
     expect(readings[0].glucose).toBe(150);
-    expect(readings[0].dexcomTrend).toBe(3);
+    expect(readings[0].dexcomTrend).toBe(4); // Libre TrendArrow 3 (stable) → Dexcom 4 (Flat)
     const state = await getState(t, userId, "libre");
     expect(state?.providerDiagnosticCategory).toBe("connected");
   });
