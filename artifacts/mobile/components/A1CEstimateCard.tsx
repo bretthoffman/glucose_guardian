@@ -1,5 +1,6 @@
 /**
- * Estimated-A1C card + time-range selector (1D–90D). Extracted from the Insulin "Dose" tab so it can
+ * Estimated-A1C card + time-range selector (14D / 30D / 90D). GMI from the window's average, shown
+ * only with 14+ days of readings and with sensor wear, per the CGM consensus (utils/a1c). Extracted from the Insulin "Dose" tab so it can
  * live on the Dashboard (where the old Glucose Trend window used to be). Self-contained: reads the
  * glucose history + logs from context and fetches longer-range aggregate stats from Convex on demand.
  *
@@ -20,10 +21,13 @@ import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import {
   A1C_RANGES,
   DEFAULT_A1C_RANGE,
+  MIN_A1C_DAYS,
   a1cInsight,
   a1cLabel,
+  a1cReadiness,
   estimateA1C,
   rangeCutoffMs,
+  sensorWearPct,
   type A1cRange,
 } from "@/utils/a1c";
 import {
@@ -65,7 +69,7 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
   const { scheme, colors: tc } = useTheme();
   const colors = scheme === "dark" ? Colors.dark : Colors.light;
   const { history, cgmSyncSuccessTick } = useGlucose();
-  const { account, caregiverSession, foodLog, insulinLog } = useAuth();
+  const { account, caregiverSession, cgmConnection } = useAuth();
 
   const [timeRange, setTimeRange] = useState<A1cRange>(DEFAULT_A1C_RANGE);
 
@@ -84,7 +88,7 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
   useEffect(() => {
     setRemoteRangeStats(null);
     const acc = account;
-    if (timeRange === 1 || caregiverSession || !acc?.convexUserId) {
+    if (caregiverSession || !acc?.convexUserId) {
       setRangeLoading(false);
       return;
     }
@@ -129,23 +133,17 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
   }, [timeRange, caregiverSession, account?.convexUserId, account?.passwordHash, cgmSyncSuccessTick]);
 
   const rangeStats = useMemo(() => {
-    const agg =
-      timeRange !== 1 && remoteRangeStats != null
-        ? remoteRangeStats
-        : statsFromEntries(rangeReadings, LOW_THRESH, HIGH_THRESH);
+    const agg = remoteRangeStats ?? statsFromEntries(rangeReadings, LOW_THRESH, HIGH_THRESH);
     if (agg.count === 0) return null;
     const avg = Math.round(agg.sum / agg.count);
     const tir = Math.round(((agg.count - agg.lowCount - agg.highCount) / agg.count) * 100);
-    const pctHigh = Math.round((agg.highCount / agg.count) * 100);
     const pctLow = Math.round((agg.lowCount / agg.count) * 100);
     const a1c = estimateA1C(avg);
-    const windowStart = rangeCutoffMs(timeRange, Date.now());
-    const foodInRange = (foodLog ?? []).filter((f) => new Date(f.timestamp).getTime() >= windowStart);
-    const totalDays = timeRange;
-    const avgCarbs = foodInRange.length > 0 ? Math.round(foodInRange.reduce((s, f) => s + f.estimatedCarbs, 0) / totalDays) : 0;
     const availableDays = availableDaysFromOldest(agg.oldestTimestamp, Date.now(), timeRange);
-    return { avg, tir, pctHigh, pctLow, a1c, avgCarbs, availableDays };
-  }, [timeRange, remoteRangeStats, rangeReadings, foodLog]);
+    const wear = sensorWearPct(agg.count, availableDays, cgmConnection?.type);
+    const readiness = a1cReadiness(availableDays, wear);
+    return { avg, tir, pctLow, a1c, availableDays, wear, readiness };
+  }, [timeRange, remoteRangeStats, rangeReadings, cgmConnection?.type]);
 
   // Read-only access-code sessions (accountless caregiver / kid) never saw this section.
   if (caregiverSession) return null;
@@ -180,7 +178,7 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
           <View style={[styles.a1cTop, eTop]}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.a1cLabel, { color: colors.textSecondary }]}>
-                Estimated A1C · {timeRange}-day avg
+                Estimated A1C (GMI) · {timeRange} days
               </Text>
               {rangeLoading ? (
                 <View style={[styles.a1cValueRow, { paddingVertical: 12 }]}>
@@ -189,14 +187,21 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
                     Loading {timeRange} days of readings…
                   </Text>
                 </View>
+              ) : rangeStats.readiness === "too_few_days" ? (
+                <View style={{ paddingVertical: 6, gap: 4 }}>
+                  <Text style={[styles.a1cNeedTitle, { color: colors.text }]}>Needs {MIN_A1C_DAYS} days of readings</Text>
+                  <Text style={[styles.a1cNeedBody, { color: colors.textSecondary }]}>
+                    {rangeStats.availableDays} {rangeStats.availableDays === 1 ? "day" : "days"} so far. An A1C estimate from less than two weeks isn't reliable.
+                  </Text>
+                </View>
               ) : (
                 <View style={styles.a1cValueRow}>
-                  <Text style={[styles.a1cValue, { color: a1cLabel(rangeStats.a1c).color }]}>
+                  <Text style={[styles.a1cValue, { color: colors.text }]}>
                     {rangeStats.a1c}%
                   </Text>
                   <View style={[styles.a1cBadge, { backgroundColor: a1cLabel(rangeStats.a1c).color + "20" }]}>
                     <Text style={[styles.a1cBadgeText, { color: a1cLabel(rangeStats.a1c).color }]}>
-                      {a1cLabel(rangeStats.a1c).emoji} {a1cLabel(rangeStats.a1c).label}
+                      {a1cLabel(rangeStats.a1c).label}
                     </Text>
                   </View>
                 </View>
@@ -205,13 +210,21 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
           </View>
 
           <View style={[styles.a1cStatsRow, { opacity: rangeLoading ? 0.4 : 1 }, eStats]}>
+            <A1CStat label="Avg mg/dL" value={`${rangeStats.avg}`} color={COLORS.accent} colors={colors} />
             <A1CStat label="Time in Range" value={`${rangeStats.tir}%`} color={rangeStats.tir >= 70 ? COLORS.success : COLORS.warning} colors={colors} />
-            <A1CStat label="% High" value={`${rangeStats.pctHigh}%`} color={rangeStats.pctHigh > 25 ? COLORS.warning : COLORS.success} colors={colors} />
             <A1CStat label="% Low" value={`${rangeStats.pctLow}%`} color={rangeStats.pctLow > 5 ? COLORS.danger : COLORS.success} colors={colors} />
-            <A1CStat label="Avg Carbs/day" value={`${rangeStats.avgCarbs}g`} color={COLORS.accent} colors={colors} />
+            <A1CStat label="Sensor worn" value={`${rangeStats.wear}%`} color={rangeStats.wear >= 70 ? COLORS.success : COLORS.warning} colors={colors} />
           </View>
 
-          {!rangeLoading && rangeStats.availableDays > 0 && rangeStats.availableDays < timeRange && (
+          {!rangeLoading && rangeStats.readiness === "low_wear" && (
+            <View style={[styles.a1cCoverageNote, eCoverage]}>
+              <Feather name="info" size={12} color={COLORS.warning} />
+              <Text style={[styles.a1cCoverageText, { color: COLORS.warning }]}>
+                Sensor worn {rangeStats.wear}% of the time. Under 70%, this estimate is less reliable.
+              </Text>
+            </View>
+          )}
+          {!rangeLoading && rangeStats.readiness !== "too_few_days" && rangeStats.availableDays < timeRange && (
             <View style={[styles.a1cCoverageNote, eCoverage]}>
               <Feather name="info" size={12} color={COLORS.warning} />
               <Text style={[styles.a1cCoverageText, { color: COLORS.warning }]}>
@@ -224,13 +237,15 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
           <View style={[styles.a1cInsightBox, { backgroundColor: colors.backgroundTertiary, opacity: rangeLoading ? 0.4 : 1 }, eInsight]}>
             <Feather name="zap" size={13} color={COLORS.primary} />
             <Text style={[styles.a1cInsightText, { color: colors.textSecondary }]}>
-              {a1cInsight(rangeStats.avg, timeRange)}
+              {rangeStats.readiness === "too_few_days"
+                ? "Keep the sensor on and this fills in on its own."
+                : `${a1cInsight(rangeStats.a1c)} Estimates and lab A1C often differ by about half a point.`}
             </Text>
           </View>
         </View>
       ) : (
         <View style={[styles.a1cCard, { backgroundColor: colors.card, borderColor: colors.border, alignItems: "center", paddingVertical: 20 }, eCard]}>
-          <Text style={{ fontSize: 28 }}>📊</Text>
+          <Feather name="bar-chart-2" size={26} color={colors.textMuted} />
           <Text style={[styles.a1cLabel, { color: colors.textSecondary, textAlign: "center", marginTop: 6 }]}>
             No glucose data for this period. Sync your CGM to see A1C estimates.
           </Text>
@@ -260,6 +275,8 @@ const styles = StyleSheet.create({
   a1cInsightBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, margin: 12, marginTop: 0, borderRadius: 10 },
   a1cInsightText: { flex: 1, fontSize: 12, fontWeight: "400", lineHeight: 18 },
   a1cLoadingText: { fontSize: 12, fontWeight: "500" },
+  a1cNeedTitle: { fontSize: 18, fontWeight: "700" },
+  a1cNeedBody: { fontSize: 13, lineHeight: 18 },
   a1cCoverageNote: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingBottom: 10, marginTop: -2 },
   a1cCoverageText: { fontSize: 11, fontWeight: "600" },
 });

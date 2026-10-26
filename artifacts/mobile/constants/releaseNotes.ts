@@ -28,6 +28,27 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-26",
+    date: "2026-10-26",
+    items: [
+      {
+        icon: "activity",
+        title: "A truer A1C estimate",
+        body: "It now uses the same formula as CGM reports from your doctor, covers 14, 30 or 90 days, and shows how much the sensor was worn.",
+      },
+      {
+        icon: "file-text",
+        title: "Lab results",
+        body: "In Dashboard, A1C, add a lab result by snapping a photo or typing it in. See the lab A1C next to the app's estimate.",
+      },
+      {
+        icon: "sun",
+        title: "Meal tips and ways to help",
+        body: "If a meal has run high before, you may see an idea to add some protein, at most once a day. Choose who sees tips under A1C.",
+      },
+    ],
+  },
+  {
     id: "2026-10-24",
     date: "2026-10-24",
     items: [
