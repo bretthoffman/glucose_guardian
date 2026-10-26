@@ -1,11 +1,10 @@
 /**
- * MIRROR of glucose_guardian artifacts/mobile/utils/doseTuning.ts (at 2ae6a7fa) so the portal calculates
+ * MIRROR of glucose_guardian artifacts/mobile/utils/doseTuning.ts (at b465fdc) so the portal calculates
  * doses exactly the way the app does. Do not change the math here: when the app’s file changes,
  * copy it over again. Only the import lines differ from the original.
  */
 import type { InsulinLogEntry } from "@doctor-portal/api-client-react";
 import { MEAL_BUCKET_LABELS, mealBucketForHour, type MealBucket } from "./doseSettings";
-
 /**
  * Pattern tuning — learns from the family's own logs, never from silently changing settings.
  *
@@ -114,7 +113,7 @@ export function tuningSuggestions(tuning: PatternTuning): TuningSuggestion[] {
       title: `${label} doses run ~${pct}% ${dir} the recommendation`,
       body:
         t.medianRatio > 1
-          ? `Across ${t.sampleCount} recent ${label.toLowerCase()} doses, the amount actually given was typically ~${pct}% more than suggested. The calculator now nudges its ${label.toLowerCase()} suggestions up (shown as "Pattern adjustment"), but the better fix is a settings review — your ${label.toLowerCase()} carb ratio or correction factor may be too weak. Discuss with your care team before changing them.`
+          ? `Across ${t.sampleCount} recent ${label.toLowerCase()} doses, the amount actually given was typically ~${pct}% more than suggested. The calculator now nudges its ${label.toLowerCase()} suggestions up (shown as "Pattern adjustment"), but the better fix is a settings review: your ${label.toLowerCase()} carb ratio or correction factor may be too weak. Discuss with your care team before changing them.`
           : `Across ${t.sampleCount} recent ${label.toLowerCase()} doses, the amount actually given was typically ~${pct}% less than suggested. The calculator now nudges its ${label.toLowerCase()} suggestions down (shown as "Pattern adjustment"). Consider reviewing these settings with your care team.`,
     });
   }
