@@ -312,6 +312,8 @@ async function libreFetchConnections(
   const base = (session.apiBase || LIBRE_DEFAULT_BASE).replace(/\/$/, "");
   const connResp = await doFetch(`${base}/llu/connections`, { headers: libreAuthHeaders(session) });
   if (!connResp.ok) {
+    // Status code only — never response bodies, tokens, or credentials.
+    console.warn(`[libre] connections HTTP ${connResp.status}`);
     return {
       ok: false,
       // 403 = token/Account-Id no longer accepted: a fresh login fixes it, same as 401.
@@ -340,6 +342,7 @@ async function libreFetchGraph(
   const base = (session.apiBase || LIBRE_DEFAULT_BASE).replace(/\/$/, "");
   const graphResp = await doFetch(`${base}/llu/connections/${patientId}/graph`, { headers: libreAuthHeaders(session) });
   if (!graphResp.ok) {
+    console.warn(`[libre] graph HTTP ${graphResp.status}`);
     return {
       ok: false,
       sessionExpired: graphResp.status === 401 || graphResp.status === 403,
