@@ -68,8 +68,9 @@ export default function CGMSetupScreen() {
   const colors = isDark ? Colors.dark : Colors.light;
   const { cgmConnection, setCGMConnection, disconnectCGM, account, signOut } = useAuth();
 
-  // Dexcom only for now (FreeStyle Libre is hidden): new connections always go to Dexcom.
-  const [selectedType, setSelectedType] = useState<CGMType>("dexcom");
+  const [selectedType, setSelectedType] = useState<CGMType>(
+    (cgmConnection.type as CGMType) ?? "dexcom"
+  );
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -302,13 +303,11 @@ export default function CGMSetupScreen() {
         ) : null}
 
         <Text style={[styles.sectionTitle, { color: colors.text }]}>
-          {isConnected ? "Your CGM Device" : "Connect Your CGM"}
+          {isConnected ? "Switch Device" : "Choose Your CGM Device"}
         </Text>
 
         <View style={styles.typeRow}>
-          {/* FreeStyle Libre is hidden for now (no access yet). Its connect path stays in the code so an
-              existing Libre connection still shows and can be disconnected; add "libre" back here to offer it. */}
-          {(["dexcom"] as const).map((type) => (
+          {(["dexcom", "libre"] as const).map((type) => (
             <Pressable
               key={type}
               style={({ pressed }) => [
