@@ -451,6 +451,8 @@ const patientCgmConnections = defineTable({
   token: v.optional(v.string()),
   outsideUS: v.optional(v.boolean()),
   libreApiBase: v.optional(v.string()),
+  /** SHA-256 hex of the LibreLinkUp user id (the `Account-Id` header LibreLinkUp requires). */
+  libreAccountId: v.optional(v.string()),
   connectedAt: v.optional(v.string()),
   updatedAt: v.number(),
 }).index("by_userId", ["userId"]);

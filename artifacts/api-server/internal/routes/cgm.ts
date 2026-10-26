@@ -9,6 +9,7 @@ import { dexcomShareLogin } from "../dexcom-share-login.js";
 import {
   LIBRE_DEFAULT_BASE,
   LIBRE_HEADERS,
+  libreConnectionCount,
   libreLinkLogin,
 } from "../libre-link-login.js";
 
@@ -274,6 +275,15 @@ router.post("/libre/connect", async (req, res) => {
     const result = await libreLinkLogin({ email: String(email ?? ""), password: String(password ?? "") });
     if (!result.ok) {
       res.status(result.httpStatus).json({ error: result.error });
+      return;
+    }
+    // Signed in, but nobody shares with this account yet: say how to fix it instead of "connected"
+    // with no data forever.
+    if ((await libreConnectionCount(result)) === 0) {
+      res.status(409).json({
+        error:
+          "Signed in to LibreLinkUp, but no one is sharing with this account yet. On the phone with the sensor, open the FreeStyle Libre app: Menu, Connected Apps, LibreLinkUp, Add Connection, and enter this LibreLinkUp email. Then open the LibreLinkUp app, accept the invite, and connect here again.",
+      });
       return;
     }
     res.json({

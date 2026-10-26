@@ -122,6 +122,7 @@ export const runLibreDiagnostic = action({
           userId: auth.userId,
           token: session.token,
           libreApiBase: session.apiBase,
+          libreAccountId: session.accountId,
         });
       }
     }
