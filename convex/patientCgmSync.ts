@@ -21,7 +21,12 @@ function resolveDiagnostic(
   },
   hasCredentials: boolean,
 ): { category: ProviderDiagnosticCategory; messageKey: string; reconnectRequired: boolean } {
-  if (row.providerDiagnosticCategory) {
+  // A stored `no_credentials` diagnostic can be stale: the first ingest may have raced the
+  // credential write. Once credentials exist, never report it back to the device.
+  if (
+    row.providerDiagnosticCategory &&
+    !(row.providerDiagnosticCategory === "no_credentials" && hasCredentials)
+  ) {
     const category = row.providerDiagnosticCategory as ProviderDiagnosticCategory;
     return {
       category,

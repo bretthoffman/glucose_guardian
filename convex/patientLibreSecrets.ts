@@ -3,6 +3,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { legacyAuthArgs, userCompat } from "./identity";
+import { resetSyncStateForNewCredentials } from "./cgm/credentialReset";
 
 function requirePatientBackendSecret(provided: string) {
   const expected = process.env.CONVEX_PATIENT_BACKEND_SECRET;
@@ -42,6 +43,7 @@ export const upsertCredentials = mutation({
     } else {
       await ctx.db.insert("patientLibreCredentials", doc);
     }
+    await resetSyncStateForNewCredentials(ctx, user!._id, "libre", now);
     return { ok: true as const };
   },
 });

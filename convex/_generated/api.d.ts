@@ -16,6 +16,7 @@ import type * as careSchedule from "../careSchedule.js";
 import type * as caregiverAccounts from "../caregiverAccounts.js";
 import type * as cgm_config from "../cgm/config.js";
 import type * as cgm_core from "../cgm/core.js";
+import type * as cgm_credentialReset from "../cgm/credentialReset.js";
 import type * as cgm_diagnostics from "../cgm/diagnostics.js";
 import type * as cgm_providers from "../cgm/providers.js";
 import type * as cgmDiagnostics from "../cgmDiagnostics.js";
@@ -65,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   caregiverAccounts: typeof caregiverAccounts;
   "cgm/config": typeof cgm_config;
   "cgm/core": typeof cgm_core;
+  "cgm/credentialReset": typeof cgm_credentialReset;
   "cgm/diagnostics": typeof cgm_diagnostics;
   "cgm/providers": typeof cgm_providers;
   cgmDiagnostics: typeof cgmDiagnostics;
