@@ -5,12 +5,22 @@ const LIBRE_HEADERS = {
   "Accept-Encoding": "gzip",
   "Cache-Control": "no-cache",
   Connection: "Keep-Alive",
+  // LibreLinkUp rejects older app versions (status 920) and, since Oct 2025, needs 4.16+ plus the
+  // Account-Id header on connections/graph calls (see libreAccountIdHash).
   product: "llu.android",
-  version: "4.7.0",
+  version: "4.16.0",
 } as const;
 
+/** `Account-Id` header value: SHA-256 hex of the LibreLinkUp user id. */
+export async function libreAccountIdHash(userId: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(userId));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export type LibreLinkLoginResult =
-  | { ok: true; token: string; accountId?: string; apiBase: string }
+  | { ok: true; token: string; accountId?: string; accountIdHash?: string; apiBase: string }
   | { ok: false; httpStatus: number; error: string };
 
 /**
@@ -64,6 +74,17 @@ export async function libreLinkLogin(input: {
     return { ok: false, httpStatus: 401, error: msg };
   }
 
+  // LibreLinkUp answers HTTP 200 with a status code in the body.
+  if (loginData?.status === 2) {
+    return { ok: false, httpStatus: 401, error: "Wrong email or password. Use the email and password you sign in to the LibreLinkUp app with." };
+  }
+  if (loginData?.status === 4) {
+    return { ok: false, httpStatus: 409, error: "LibreLinkUp needs you to accept its updated terms. Open the LibreLinkUp app, sign in, tap Accept, then try again here." };
+  }
+  if (loginData?.status === 920) {
+    return { ok: false, httpStatus: 502, error: "LibreLinkUp asked for a newer app version. Please let us know so we can update." };
+  }
+
   const token = (loginData?.data as { authTicket?: { token?: string } } | undefined)?.authTicket?.token;
   if (!token) {
     return {
@@ -75,8 +96,31 @@ export async function libreLinkLogin(input: {
   }
 
   const accountId = (loginData?.data as { user?: { id?: string } } | undefined)?.user?.id;
+  const accountIdHash = accountId ? await libreAccountIdHash(accountId) : undefined;
 
-  return { ok: true, token, accountId, apiBase };
+  return { ok: true, token, accountId, accountIdHash, apiBase };
+}
+
+/**
+ * How many people this LibreLinkUp account follows. 0 = signed in fine but nobody has shared with
+ * it yet (the usual "connected but no data" cause). null = couldn't check (don't block on it).
+ */
+export async function libreConnectionCount(login: { token: string; apiBase: string; accountIdHash?: string }): Promise<number | null> {
+  try {
+    const resp = await fetch(`${login.apiBase.replace(/\/$/, "")}/llu/connections`, {
+      headers: {
+        ...LIBRE_HEADERS,
+        Authorization: `Bearer ${login.token}`,
+        Accept: "application/json",
+        ...(login.accountIdHash ? { "Account-Id": login.accountIdHash } : {}),
+      },
+    });
+    if (!resp.ok) return null;
+    const body = (await resp.json()) as { data?: { patientId?: string }[] };
+    return (body?.data ?? []).filter((p) => Boolean(p?.patientId)).length;
+  } catch {
+    return null;
+  }
 }
 
 export { LIBRE_HEADERS };

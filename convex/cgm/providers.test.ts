@@ -136,6 +136,52 @@ describe("libre adapter", () => {
     expect(attempts).toBe(2);
   });
 
+  it("sends LibreLinkUp 4.16 headers and the Account-Id (SHA-256 of the user id) on data calls", async () => {
+    const seen: Record<string, Record<string, string>> = {};
+    const adapter = makeLibreAdapter({
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const u = String(input);
+        const h = (init?.headers ?? {}) as Record<string, string>;
+        if (u.includes("/llu/auth/login")) {
+          seen.login = h;
+          return json({ status: 0, data: { user: { id: "abc" }, authTicket: { token: "tok" } } });
+        }
+        if (u.endsWith("/llu/connections")) {
+          seen.conn = h;
+          return json({ data: [{ patientId: "p1" }] });
+        }
+        seen.graph = h;
+        return json({ data: { graphData: [] } });
+      }) as typeof fetch,
+    });
+    const login = await adapter.login({ email: "a@b.com", password: "p" });
+    expect(login.ok).toBe(true);
+    if (!login.ok) return;
+    // sha256("abc")
+    const hash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    expect(login.session.accountId).toBe(hash);
+    await adapter.read(login.session, plan);
+    expect(seen.login!.version).toBe("4.16.0");
+    expect(seen.login!["Account-Id"]).toBeUndefined();
+    expect(seen.conn!["Account-Id"]).toBe(hash);
+    expect(seen.graph!["Account-Id"]).toBe(hash);
+  });
+
+  it("a 403 on connections (old session without Account-Id) counts as expired, so it logs in again", async () => {
+    const adapter = makeLibreAdapter({
+      fetch: router([{ test: (u) => u.endsWith("/llu/connections"), res: () => json({ message: "Forbidden" }, 403) }]),
+    });
+    const out = await adapter.read({ token: "old", apiBase: "https://api.libreview.io" }, plan);
+    expect(out).toMatchObject({ ok: false, sessionExpired: true });
+  });
+
+  it("wrong email or password (status 2, no redirect) is invalid_credentials", async () => {
+    const adapter = makeLibreAdapter({
+      fetch: router([{ test: (u) => u.includes("/llu/auth/login"), res: () => json({ status: 2, error: { message: "notAuthenticated" } }) }]),
+    });
+    expect(await adapter.login({ email: "a@b.com", password: "x" })).toEqual({ ok: false, category: "invalid_credentials" });
+  });
+
   it("treats a missing share token as sharing_not_enabled (sharing not enabled)", async () => {
     const adapter = makeLibreAdapter({
       fetch: router([{ test: (u) => u.includes("/llu/auth/login"), res: () => json({ data: {} }) }]),

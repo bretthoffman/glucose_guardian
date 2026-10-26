@@ -197,6 +197,20 @@ export interface LibreCreds {
 export interface LibreSession {
   token: string;
   apiBase: string;
+  /**
+   * SHA-256 (hex) of the LibreLinkUp user id. Required as the `Account-Id` header on connections and
+   * graph calls since LibreLinkUp 4.16 (Oct 2025); without it those calls fail with 403, which counts
+   * as an expired session, so a session saved before this change logs in once more and gets it.
+   */
+  accountId?: string;
+}
+
+/** `Account-Id` header value: SHA-256 hex of the LibreLinkUp user id (Web Crypto: Convex and Node). */
+export async function libreAccountIdHash(userId: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(userId));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 export const LIBRE_DEFAULT_BASE = "https://api.libreview.io";
@@ -205,14 +219,17 @@ const LIBRE_HEADERS = {
   "Accept-Encoding": "gzip",
   "Cache-Control": "no-cache",
   Connection: "Keep-Alive",
+  // LibreLinkUp rejects older app versions (status 920) and, since Oct 2025, needs 4.16+ with the
+  // Account-Id header below on data calls.
   product: "llu.android",
-  version: "4.7.0",
+  version: "4.16.0",
 } as const;
 
 type LibreLoginAttempt = {
   ok: true;
   token: string;
   apiBase: string;
+  accountId?: string;
   regionResolved: boolean;
 };
 type LibreLoginFailure = { ok: false; category: FailureCategory };
@@ -263,11 +280,25 @@ async function libreAttemptLogin(
       category: resp.status === 401 ? "invalid_credentials" : httpTransientCategory(resp.status),
     };
   }
+  // status 2 without a redirect = wrong email or password (LibreLinkUp answers HTTP 200).
+  if (data?.status === 2) return { ok: false, category: "invalid_credentials" };
   const token = (data?.data as { authTicket?: { token?: string } } | undefined)?.authTicket?.token;
   if (!token) {
+    // status 4 = new terms to accept in the LibreLinkUp app; anything else: account not ready to follow.
     return { ok: false, category: "sharing_not_enabled" };
   }
-  return { ok: true, token, apiBase: base, regionResolved };
+  const userId = (data?.data as { user?: { id?: string } } | undefined)?.user?.id;
+  const accountId = userId ? await libreAccountIdHash(userId) : undefined;
+  return { ok: true, token, apiBase: base, accountId, regionResolved };
+}
+
+function libreAuthHeaders(session: LibreSession): Record<string, string> {
+  return {
+    ...LIBRE_HEADERS,
+    Authorization: `Bearer ${session.token}`,
+    Accept: "application/json",
+    ...(session.accountId ? { "Account-Id": session.accountId } : {}),
+  };
 }
 
 type LibreConnectionsResult =
@@ -279,13 +310,13 @@ async function libreFetchConnections(
   session: LibreSession,
 ): Promise<LibreConnectionsResult> {
   const base = (session.apiBase || LIBRE_DEFAULT_BASE).replace(/\/$/, "");
-  const authHeaders = { ...LIBRE_HEADERS, Authorization: `Bearer ${session.token}`, Accept: "application/json" };
-  const connResp = await doFetch(`${base}/llu/connections`, { headers: authHeaders });
+  const connResp = await doFetch(`${base}/llu/connections`, { headers: libreAuthHeaders(session) });
   if (!connResp.ok) {
     return {
       ok: false,
-      sessionExpired: connResp.status === 401,
-      category: connResp.status === 401 ? "none" : httpTransientCategory(connResp.status),
+      // 403 = token/Account-Id no longer accepted: a fresh login fixes it, same as 401.
+      sessionExpired: connResp.status === 401 || connResp.status === 403,
+      category: connResp.status === 401 || connResp.status === 403 ? "none" : httpTransientCategory(connResp.status),
     };
   }
   const connections = (await connResp.json()) as { data?: { patientId?: string }[] };
@@ -307,13 +338,12 @@ async function libreFetchGraph(
   patientId: string,
 ): Promise<LibreGraphResult> {
   const base = (session.apiBase || LIBRE_DEFAULT_BASE).replace(/\/$/, "");
-  const authHeaders = { ...LIBRE_HEADERS, Authorization: `Bearer ${session.token}`, Accept: "application/json" };
-  const graphResp = await doFetch(`${base}/llu/connections/${patientId}/graph`, { headers: authHeaders });
+  const graphResp = await doFetch(`${base}/llu/connections/${patientId}/graph`, { headers: libreAuthHeaders(session) });
   if (!graphResp.ok) {
     return {
       ok: false,
-      sessionExpired: graphResp.status === 401,
-      category: graphResp.status === 401 ? "none" : httpTransientCategory(graphResp.status),
+      sessionExpired: graphResp.status === 401 || graphResp.status === 403,
+      category: graphResp.status === 401 || graphResp.status === 403 ? "none" : httpTransientCategory(graphResp.status),
     };
   }
   const graphData = (await graphResp.json()) as { data?: { graphData?: Record<string, unknown>[] } };
@@ -337,7 +367,7 @@ export function makeLibreAdapter(deps?: { fetch?: FetchLike }): ProviderAdapter<
       try {
         const result = await libreAttemptLogin(doFetch, creds);
         if (!result.ok) return result;
-        return { ok: true, session: { token: result.token, apiBase: result.apiBase } };
+        return { ok: true, session: { token: result.token, apiBase: result.apiBase, accountId: result.accountId } };
       } catch {
         return { ok: false, category: "network_timeout" };
       }
@@ -443,7 +473,7 @@ export async function runLibreDiagnosticFlow(
           retryable: retryableForDiagnostic(status),
         };
       }
-      session = { token: login.token, apiBase: login.apiBase };
+      session = { token: login.token, apiBase: login.apiBase, accountId: login.accountId };
       regionResolved = login.regionResolved;
     } catch {
       const status: ProviderDiagnosticCategory = "provider_unavailable";

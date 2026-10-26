@@ -104,7 +104,11 @@ export const getCredsAndSession = internalQuery({
       : null;
     const session: LibreSession | null =
       conn?.type === "libre" && conn.token
-        ? { token: conn.token, apiBase: conn.libreApiBase ?? c?.libreApiBase ?? LIBRE_DEFAULT_BASE }
+        ? {
+            token: conn.token,
+            apiBase: conn.libreApiBase ?? c?.libreApiBase ?? LIBRE_DEFAULT_BASE,
+            ...(conn.libreAccountId ? { accountId: conn.libreAccountId } : {}),
+          }
         : null;
     return { provider: "libre", creds, session };
   },
@@ -302,7 +306,7 @@ export const updateDexcomSession = internalMutation({
 });
 
 export const updateLibreSession = internalMutation({
-  args: { userId: v.id("users"), token: v.string(), libreApiBase: v.string() },
+  args: { userId: v.id("users"), token: v.string(), libreApiBase: v.string(), libreAccountId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("patientCgmConnections")
@@ -312,6 +316,7 @@ export const updateLibreSession = internalMutation({
     await ctx.db.patch(existing._id, {
       token: args.token,
       libreApiBase: args.libreApiBase,
+      ...(args.libreAccountId ? { libreAccountId: args.libreAccountId } : {}),
       updatedAt: Date.now(),
     });
   },
@@ -515,6 +520,7 @@ async function processConnection(
             userId: params.userId,
             token: s.token,
             libreApiBase: s.apiBase,
+            libreAccountId: s.accountId,
           });
         },
         persist,
