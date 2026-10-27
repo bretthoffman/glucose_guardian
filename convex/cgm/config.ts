@@ -45,32 +45,6 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function envStr(name: string, fallback: string): string {
-  const raw = typeof process !== "undefined" ? process.env?.[name]?.trim() : undefined;
-  return raw || fallback;
-}
-
-/**
- * LibreLinkUp client identity — what makes Abbott accept us as the official app. These are the three
- * values Abbott periodically breaks (minimum-version bumps, product checks), so they are env-var
- * config, not constants: a Convex env change fixes prod without a code deploy.
- * Keep in sync with `artifacts/api-server/internal/libre-link-login.ts` (same names via Vercel env).
- */
-export const libreLluConfig = {
-  get product(): string {
-    return envStr("LIBRE_LLU_PRODUCT", "llu.ios");
-  },
-  get version(): string {
-    return envStr("LIBRE_LLU_VERSION", "4.16.0");
-  },
-  get userAgent(): string {
-    return envStr(
-      "LIBRE_LLU_USER_AGENT",
-      "Mozilla/5.0 (iPhone; CPU OS 17_4.1 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/17.4.1 Mobile/10A5355d Safari/8536.25",
-    );
-  },
-};
-
 /** Operational knobs (Convex env vars, with defaults). */
 export const ingestConfig = {
   /** Max connections processed per dispatcher run (bounded workload). */

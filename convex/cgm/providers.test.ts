@@ -1,11 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  libreTrendToDexcom,
-  makeDexcomAdapter,
-  makeLibreAdapter,
-  parseLibreUtcTimestamp,
-  runLibreDiagnosticFlow,
-} from "./providers";
+import { makeDexcomAdapter, makeLibreAdapter, runLibreDiagnosticFlow } from "./providers";
 import type { FetchPlan } from "./core";
 
 const plan: FetchPlan = { count: 12, windowMinutes: 120, reason: "incremental", expectUnrecoverableGap: false };
@@ -142,7 +136,7 @@ describe("libre adapter", () => {
     expect(attempts).toBe(2);
   });
 
-  it("sends the official-app headers (llu.ios, version, Safari UA) and the Account-Id (SHA-256 of the user id) on data calls", async () => {
+  it("sends LibreLinkUp 4.16 headers and the Account-Id (SHA-256 of the user id) on data calls", async () => {
     const seen: Record<string, Record<string, string>> = {};
     const adapter = makeLibreAdapter({
       fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -168,54 +162,9 @@ describe("libre adapter", () => {
     expect(login.session.accountId).toBe(hash);
     await adapter.read(login.session, plan);
     expect(seen.login!.version).toBe("4.16.0");
-    expect(seen.login!.product).toBe("llu.ios");
-    expect(seen.login!["User-Agent"]).toContain("iPhone");
     expect(seen.login!["Account-Id"]).toBeUndefined();
     expect(seen.conn!["Account-Id"]).toBe(hash);
     expect(seen.graph!["Account-Id"]).toBe(hash);
-    expect(seen.graph!.product).toBe("llu.ios");
-  });
-
-  it("auto-accepts a pending terms-of-use step (status 4) via /auth/continue/tou", async () => {
-    const calls: string[] = [];
-    const adapter = makeLibreAdapter({
-      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
-        const u = String(input);
-        calls.push(u);
-        if (u.includes("/llu/auth/login")) {
-          return json({
-            status: 4,
-            data: { step: { type: "tou" }, user: { id: "abc" }, authTicket: { token: "step-token" } },
-          });
-        }
-        if (u.endsWith("/auth/continue/tou")) {
-          const h = (init?.headers ?? {}) as Record<string, string>;
-          expect(h.Authorization).toBe("Bearer step-token");
-          return json({ status: 0, data: { user: { id: "abc" }, authTicket: { token: "fresh-token" } } });
-        }
-        throw new Error("unexpected fetch: " + u);
-      }) as typeof fetch,
-    });
-    const out = await adapter.login({ email: "a@b.com", password: "p" });
-    expect(out.ok).toBe(true);
-    if (out.ok) expect(out.session.token).toBe("fresh-token");
-    expect(calls.some((u) => u.endsWith("/auth/continue/tou"))).toBe(true);
-  });
-
-  it("falls back to sharing_not_enabled when the terms-acceptance call fails", async () => {
-    const adapter = makeLibreAdapter({
-      fetch: router([
-        {
-          test: (u) => u.includes("/llu/auth/login"),
-          res: () => json({ status: 4, data: { step: { type: "tou" }, authTicket: { token: "t" } } }),
-        },
-        { test: (u) => u.includes("/auth/continue/"), res: () => text("nope", 500) },
-      ]),
-    });
-    expect(await adapter.login({ email: "a@b.com", password: "p" })).toEqual({
-      ok: false,
-      category: "sharing_not_enabled",
-    });
   });
 
   it("a 403 on connections (old session without Account-Id) counts as expired, so it logs in again", async () => {
@@ -231,16 +180,6 @@ describe("libre adapter", () => {
       fetch: router([{ test: (u) => u.includes("/llu/auth/login"), res: () => json({ status: 2, error: { message: "notAuthenticated" } }) }]),
     });
     expect(await adapter.login({ email: "a@b.com", password: "x" })).toEqual({ ok: false, category: "invalid_credentials" });
-  });
-
-  it("maps status 920 (client version below Abbott's minimum) to provider_outage, not a reconnect", async () => {
-    const adapter = makeLibreAdapter({
-      fetch: router([{ test: (u) => u.includes("/llu/auth/login"), res: () => json({ status: 920 }) }]),
-    });
-    expect(await adapter.login({ email: "a@b.com", password: "p" })).toEqual({
-      ok: false,
-      category: "provider_outage",
-    });
   });
 
   it("treats a missing share token as sharing_not_enabled (sharing not enabled)", async () => {
@@ -280,7 +219,7 @@ describe("libre adapter", () => {
     }
   });
 
-  it("reads connections → graph, normalizes the real LibreLinkUp shape, and skips malformed rows", async () => {
+  it("reads connections → graph, normalizes, and skips malformed rows", async () => {
     const tsSec = 1_700_000_000;
     const adapter = makeLibreAdapter({
       fetch: router([
@@ -290,21 +229,9 @@ describe("libre adapter", () => {
           res: () =>
             json({
               data: {
-                connection: {
-                  glucoseMeasurement: {
-                    // The live reading — newer than anything in graphData, carries the trend.
-                    FactoryTimestamp: "10/26/2026 2:15:15 PM",
-                    Timestamp: "10/26/2026 10:15:15 AM", // patient-local; must be ignored
-                    ValueInMgPerDl: 101,
-                    TrendArrow: 5, // Libre "rising fast"
-                    GlucoseUnits: 1,
-                  },
-                },
                 graphData: [
-                  { FactoryTimestamp: "10/26/2026 2:10:14 PM", ValueInMgPerDl: 98, GlucoseUnits: 1 },
-                  { Timestamp: tsSec, ValueInMgPerDl: 140, TrendArrow: 3 }, // legacy numeric shape still accepted
+                  { Timestamp: tsSec, ValueInMgPerDl: 140, TrendArrow: 3 },
                   { Timestamp: "not-a-number", Value: null }, // skipped
-                  { FactoryTimestamp: "10/26/2026 2:05:14 PM", Value: 5.5, GlucoseUnits: 0 }, // mmol display value, no mg/dL → skipped
                 ],
               },
             }),
@@ -314,48 +241,14 @@ describe("libre adapter", () => {
     const out = await adapter.read({ token: "t", apiBase: "https://api.eu.libreview.io" }, plan);
     expect(out.ok).toBe(true);
     if (out.ok) {
-      expect(out.entries).toHaveLength(3);
-      // FactoryTimestamp is UTC wall-clock — parsed as UTC regardless of host timezone.
+      expect(out.entries).toHaveLength(1);
       expect(out.entries[0]).toEqual({
-        glucose: 98,
-        timestamp: "2026-10-26T14:10:14.000Z",
-        anomaly: { warning: false },
-      });
-      expect(out.entries[1]).toEqual({
         glucose: 140,
         timestamp: new Date(tsSec * 1000).toISOString(),
         anomaly: { warning: false },
-        dexcomTrend: 4, // Libre 3 (stable) → Dexcom 4 (Flat), NOT the raw value
-      });
-      // The current reading from connection.glucoseMeasurement is included last.
-      expect(out.entries[2]).toEqual({
-        glucose: 101,
-        timestamp: "2026-10-26T14:15:15.000Z",
-        anomaly: { warning: false },
-        dexcomTrend: 2, // Libre 5 (rising fast) → Dexcom 2 (SingleUp) — raw storage would INVERT this
+        dexcomTrend: 3,
       });
     }
-  });
-
-  it("maps every Libre trend arrow onto the Dexcom scale the clients interpret", () => {
-    expect(libreTrendToDexcom(1)).toBe(6); // falling fast → SingleDown
-    expect(libreTrendToDexcom(2)).toBe(5); // falling → FortyFiveDown
-    expect(libreTrendToDexcom(3)).toBe(4); // stable → Flat
-    expect(libreTrendToDexcom(4)).toBe(3); // rising → FortyFiveUp
-    expect(libreTrendToDexcom(5)).toBe(2); // rising fast → SingleUp
-    expect(libreTrendToDexcom(0)).toBeUndefined();
-    expect(libreTrendToDexcom("junk")).toBeUndefined();
-  });
-
-  it("parses LibreLinkUp wall-clock timestamps as UTC, including 12 AM/PM edges", () => {
-    expect(parseLibreUtcTimestamp("10/8/2021 2:35:46 PM")).toBe(Date.UTC(2021, 9, 8, 14, 35, 46));
-    expect(parseLibreUtcTimestamp("1/2/2026 12:00:05 AM")).toBe(Date.UTC(2026, 0, 2, 0, 0, 5));
-    expect(parseLibreUtcTimestamp("1/2/2026 12:30:00 PM")).toBe(Date.UTC(2026, 0, 2, 12, 30, 0));
-    expect(parseLibreUtcTimestamp(1_700_000_000)).toBe(1_700_000_000_000); // epoch seconds
-    expect(parseLibreUtcTimestamp(1_700_000_000_000)).toBe(1_700_000_000_000); // already ms
-    expect(parseLibreUtcTimestamp("2026-10-26T14:10:14Z")).toBe(Date.UTC(2026, 9, 26, 14, 10, 14));
-    expect(parseLibreUtcTimestamp("not-a-date")).toBeNull();
-    expect(parseLibreUtcTimestamp(null)).toBeNull();
   });
 
   it("reports an expired session on a 401 from connections", async () => {
