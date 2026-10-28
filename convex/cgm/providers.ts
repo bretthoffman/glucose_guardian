@@ -16,7 +16,7 @@ import {
   type ReadingRecord,
   type ReadOutcome,
 } from "./core";
-import { PROVIDER_LIMITS } from "./config";
+import { libreLluConfig, PROVIDER_LIMITS } from "./config";
 import {
   type LibreDiagnosticSummary,
   type ProviderDiagnosticCategory,
@@ -214,16 +214,24 @@ export async function libreAccountIdHash(userId: string): Promise<string> {
 }
 
 export const LIBRE_DEFAULT_BASE = "https://api.libreview.io";
-const LIBRE_HEADERS = {
-  "Content-Type": "application/json",
-  "Accept-Encoding": "gzip",
-  "Cache-Control": "no-cache",
-  Connection: "Keep-Alive",
-  // LibreLinkUp rejects older app versions (status 920) and, since Oct 2025, needs 4.16+ with the
-  // Account-Id header below on data calls.
-  product: "llu.android",
-  version: "4.16.0",
-} as const;
+
+/**
+ * Base headers every LibreLinkUp request must carry — this is what makes Abbott accept us as the
+ * official app. LibreLinkUp rejects older app versions (status 920) and, since Oct 2025, needs
+ * 4.16+ with the Account-Id header on data calls. product/version/User-Agent are env-overridable
+ * (`libreLluConfig`) because Abbott periodically raises the minimum version.
+ * Keep in sync with `artifacts/api-server/internal/libre-link-login.ts`.
+ */
+function libreBaseHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "application/json;charset=UTF-8",
+    Accept: "application/json",
+    "Cache-Control": "no-cache",
+    product: libreLluConfig.product,
+    version: libreLluConfig.version,
+    "User-Agent": libreLluConfig.userAgent,
+  };
+}
 
 type LibreLoginAttempt = {
   ok: true;
@@ -242,6 +250,41 @@ function apiHostLabel(apiBase: string): string {
   }
 }
 
+/**
+ * Login can answer `status: 4` ("account action required"): new terms of use or privacy policy are
+ * pending for the follower account, and every API login is blocked until they are accepted. The
+ * response names the step (`data.step.type`: "tou" | "pp") and carries a step token; accepting is a
+ * bare POST to `/auth/continue/<type>` with that token, which answers with a fresh login payload.
+ * Bounded to two steps (tou, then pp); anything unexpected returns the last payload unchanged so the
+ * caller falls back to the "sign in to the LibreLinkUp app once" path.
+ */
+async function libreAcceptPendingSteps(
+  doFetch: FetchLike,
+  base: string,
+  data: Record<string, unknown> | null,
+): Promise<Record<string, unknown> | null> {
+  for (let i = 0; i < 2 && data?.status === 4; i++) {
+    const d = data.data as { step?: { type?: string }; authTicket?: { token?: string } } | undefined;
+    const stepType = d?.step?.type;
+    const stepToken = d?.authTicket?.token;
+    if (!stepToken || (stepType !== "tou" && stepType !== "pp")) break;
+    const resp = await doFetch(`${base}/auth/continue/${stepType}`, {
+      method: "POST",
+      headers: { ...libreBaseHeaders(), Authorization: `Bearer ${stepToken}` },
+    });
+    if (!resp.ok) break;
+    const text = await resp.text();
+    let next: Record<string, unknown> | null = null;
+    try {
+      next = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      break;
+    }
+    data = next;
+  }
+  return data;
+}
+
 async function libreAttemptLogin(
   doFetch: FetchLike,
   creds: LibreCreds,
@@ -254,7 +297,7 @@ async function libreAttemptLogin(
   const attempt = async (b: string) => {
     const resp = await doFetch(`${b}/llu/auth/login`, {
       method: "POST",
-      headers: { ...LIBRE_HEADERS, Accept: "application/json" },
+      headers: libreBaseHeaders(),
       body,
     });
     const text = await resp.text();
@@ -268,7 +311,12 @@ async function libreAttemptLogin(
   };
 
   let { resp, data } = await attempt(base);
-  if (data?.status === 2 && (data.data as Record<string, unknown> | undefined)?.redirect === true) {
+  // Regional redirect (`data.redirect` + `region`): switch host and retry, capped at 2 hops.
+  for (
+    let hop = 0;
+    hop < 2 && data?.status === 2 && (data.data as Record<string, unknown> | undefined)?.redirect === true;
+    hop++
+  ) {
     const region = String((data.data as { region?: string })?.region ?? "us");
     base = `https://api.${region}.libreview.io`;
     regionResolved = true;
@@ -282,9 +330,24 @@ async function libreAttemptLogin(
   }
   // status 2 without a redirect = wrong email or password (LibreLinkUp answers HTTP 200).
   if (data?.status === 2) return { ok: false, category: "invalid_credentials" };
+
+  data = await libreAcceptPendingSteps(doFetch, base, data);
+  if (data?.status === 4) {
+    // Terms still pending (auto-accept failed). The status-4 payload DOES carry a token, but it is
+    // the step token, not a data-call token — treating it as a session would "succeed" here and then
+    // fail every data call. User fix: sign in to the LibreLinkUp app once and tap Accept.
+    return { ok: false, category: "sharing_not_enabled" };
+  }
+  if (data?.status === 920) {
+    // Our client version is below Abbott's minimum — an operator problem (bump LIBRE_LLU_VERSION in
+    // the deployment env), never the user's: back off instead of demanding a reconnect.
+    console.warn("[libre] login rejected: below minimum app version (status 920)");
+    return { ok: false, category: "provider_outage" };
+  }
+
   const token = (data?.data as { authTicket?: { token?: string } } | undefined)?.authTicket?.token;
   if (!token) {
-    // status 4 = new terms to accept in the LibreLinkUp app; anything else: account not ready to follow.
+    // Account not ready to follow (no share token on an otherwise-successful login).
     return { ok: false, category: "sharing_not_enabled" };
   }
   const userId = (data?.data as { user?: { id?: string } } | undefined)?.user?.id;
@@ -294,9 +357,8 @@ async function libreAttemptLogin(
 
 function libreAuthHeaders(session: LibreSession): Record<string, string> {
   return {
-    ...LIBRE_HEADERS,
+    ...libreBaseHeaders(),
     Authorization: `Bearer ${session.token}`,
-    Accept: "application/json",
     ...(session.accountId ? { "Account-Id": session.accountId } : {}),
   };
 }
@@ -349,11 +411,24 @@ async function libreFetchGraph(
       category: graphResp.status === 401 || graphResp.status === 403 ? "none" : httpTransientCategory(graphResp.status),
     };
   }
-  const graphData = (await graphResp.json()) as { data?: { graphData?: Record<string, unknown>[] } };
+  const graphData = (await graphResp.json()) as {
+    data?: {
+      connection?: { glucoseMeasurement?: Record<string, unknown> };
+      graphData?: Record<string, unknown>[];
+    };
+  };
   const raw = graphData?.data?.graphData ?? [];
   const entries: ReadingRecord[] = [];
   for (const item of raw) {
     const entry = normalizeLibreReading(item);
+    if (entry) entries.push(entry);
+  }
+  // `connection.glucoseMeasurement` is the CURRENT reading — `graphData` lags several minutes behind
+  // it, so without it the freshest point (the one alerts fire on) would never be ingested. The
+  // timestamp-keyed dedupe in `insertReadings` absorbs any overlap with graphData.
+  const current = graphData?.data?.connection?.glucoseMeasurement;
+  if (current) {
+    const entry = normalizeLibreReading(current);
     if (entry) entries.push(entry);
   }
   return { ok: true, entries };
@@ -591,21 +666,75 @@ export async function runLibreDiagnosticFlow(
   }
 }
 
+/** `"M/D/YYYY h:mm:ss AM"` — the shape LibreLinkUp uses for both of its timestamp fields. */
+const LIBRE_TS_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i;
+
 /**
- * Mirrors the api-server `/libre/readings` mapping. Returns null (skipped) for rows lacking a usable
- * numeric timestamp/value rather than fabricating a "now" reading — so we never insert a row the
- * client path would not have produced, keeping the dedupe key stable across both writers.
+ * LibreLinkUp timestamps are wall-clock strings with NO timezone suffix. `FactoryTimestamp` is UTC;
+ * parsed explicitly (never via `new Date(string)`) so the host timezone can never shift readings.
+ * Numeric input is tolerated as epoch seconds (the legacy assumed shape). Returns epoch ms or null.
+ */
+export function parseLibreUtcTimestamp(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+    return raw > 1e11 ? raw : raw * 1000; // > 1e11 can only be milliseconds already
+  }
+  if (typeof raw !== "string") return null;
+  const m = LIBRE_TS_RE.exec(raw.trim());
+  if (m) {
+    const [, month, day, year, hour12, minute, second, ampm] = m;
+    let hour = parseInt(hour12!, 10) % 12; // "12:xx AM" → 0
+    if (/pm/i.test(ampm!)) hour += 12;
+    const ms = Date.UTC(+year!, +month! - 1, +day!, hour, +minute!, +second!);
+    return Number.isFinite(ms) ? ms : null;
+  }
+  // Defensive: accept an unambiguous ISO string (explicit zone) should Abbott ever switch shapes.
+  const parsed = Date.parse(raw);
+  return /\d[Tt ]\d.*(Z|[+-]\d{2}:?\d{2})$/.test(raw.trim()) && Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Libre `TrendArrow` (1 = falling fast … 3 = stable … 5 = rising fast) → the Dexcom trend scale
+ * (1 = DoubleUp … 4 = Flat … 7 = DoubleDown), which is what `dexcomTrend` means everywhere
+ * downstream (mobile `utils/trend.ts`, portal `app-dose/trend.ts`, dose trend-adjustment). Storing
+ * the raw Libre value would INVERT the arrows — Libre 5 "rising fast" renders as Dexcom 5 "falling
+ * slowly". Libre has no double-arrow state, so its extremes map to SingleUp/SingleDown (2/6): still
+ * inside the "fast" band that drives trend warnings, without claiming the maximum speed.
+ */
+const LIBRE_TO_DEXCOM_TREND: Record<number, number> = { 1: 6, 2: 5, 3: 4, 4: 3, 5: 2 };
+
+export function libreTrendToDexcom(trend: unknown): number | undefined {
+  return LIBRE_TO_DEXCOM_TREND[Number(trend)];
+}
+
+/**
+ * Normalizes one LibreLinkUp glucose item (`graphData[]` row or `connection.glucoseMeasurement`).
+ * Mirrors the api-server `/libre/readings` mapping — keep both in sync so the dedupe key
+ * (ISO timestamp) stays stable across writers. Returns null (skipped) for rows lacking a usable
+ * timestamp/value rather than fabricating a "now" reading.
  */
 function normalizeLibreReading(item: Record<string, unknown>): ReadingRecord | null {
-  const ms = Number(item.Timestamp) * 1000;
-  const glucose = Number(item.ValueInMgPerDl ?? item.Value);
-  if (!Number.isFinite(ms) || !Number.isFinite(glucose)) return null;
+  // `Timestamp` (the patient's LOCAL clock) is only trusted when numeric; its string form has no
+  // zone and would shift readings by the patient's UTC offset.
+  const ms =
+    parseLibreUtcTimestamp(item.FactoryTimestamp) ??
+    (typeof item.Timestamp === "number" ? parseLibreUtcTimestamp(item.Timestamp) : null);
+  // `ValueInMgPerDl` is always mg/dL. `Value` is in the account's DISPLAY unit, so it is a safe
+  // fallback only when `GlucoseUnits` says mg/dL (1) — a mmol/L value stored as mg/dL would read
+  // ~18× low and spray false low-glucose alerts.
+  const mgdl = Number(item.ValueInMgPerDl);
+  const displayValue = Number(item.Value);
+  const glucose = Number.isFinite(mgdl) && mgdl > 0
+    ? mgdl
+    : item.GlucoseUnits === 1 && Number.isFinite(displayValue) && displayValue > 0
+      ? displayValue
+      : NaN;
+  if (ms === null || !Number.isFinite(glucose)) return null;
   const entry: ReadingRecord = {
     glucose,
     timestamp: new Date(ms).toISOString(),
     anomaly: anomalyFor(glucose),
   };
-  const trend = item.TrendArrow;
-  if (trend != null) entry.dexcomTrend = trend as number | string;
+  const trend = libreTrendToDexcom(item.TrendArrow);
+  if (trend != null) entry.dexcomTrend = trend;
   return entry;
 }

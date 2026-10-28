@@ -8,9 +8,10 @@ import {
 import { dexcomShareLogin } from "../dexcom-share-login.js";
 import {
   LIBRE_DEFAULT_BASE,
-  LIBRE_HEADERS,
   libreConnectionCount,
+  libreHeaders,
   libreLinkLogin,
+  normalizeLibreGraphItem,
 } from "../libre-link-login.js";
 
 const router: IRouter = Router();
@@ -432,7 +433,7 @@ router.post("/libre/clear-credentials", async (req, res) => {
 router.post("/libre/readings", async (req, res) => {
   try {
     res.setHeader("Deprecation", "true");
-    const { token, apiBase } = req.body ?? {};
+    const { token, apiBase, accountIdHash } = req.body ?? {};
     if (!token) {
       res.status(400).json({ error: "token required" });
       return;
@@ -443,9 +444,15 @@ router.post("/libre/readings", async (req, res) => {
       : LIBRE_DEFAULT_BASE
     ).replace(/\/$/, "");
 
-    const connectionsResp = await fetch(`${base}/llu/connections`, {
-      headers: { ...LIBRE_HEADERS, Authorization: `Bearer ${token}`, Accept: "application/json" },
-    });
+    // Since Oct 2025 data calls need the Account-Id header; callers without it get a 401 below and
+    // reconnect, which refreshes their token through /libre/connect.
+    const authHeaders = {
+      ...libreHeaders(),
+      Authorization: `Bearer ${token}`,
+      ...(typeof accountIdHash === "string" && accountIdHash ? { "Account-Id": accountIdHash } : {}),
+    };
+
+    const connectionsResp = await fetch(`${base}/llu/connections`, { headers: authHeaders });
 
     if (!connectionsResp.ok) {
       console.log("Libre readings: connections non-OK status", connectionsResp.status);
@@ -461,9 +468,7 @@ router.post("/libre/readings", async (req, res) => {
     }
 
     const patientId = patients[0]!.patientId;
-    const graphResp = await fetch(`${base}/llu/connections/${patientId}/graph`, {
-      headers: { ...LIBRE_HEADERS, Authorization: `Bearer ${token}`, Accept: "application/json" },
-    });
+    const graphResp = await fetch(`${base}/llu/connections/${patientId}/graph`, { headers: authHeaders });
 
     if (!graphResp.ok) {
       console.log("Libre readings: graph non-OK status", graphResp.status);
@@ -471,15 +476,27 @@ router.post("/libre/readings", async (req, res) => {
       return;
     }
 
-    const graphData = (await graphResp.json()) as { data?: { graphData?: Record<string, unknown>[] } };
-    const rawReadings = graphData?.data?.graphData ?? [];
+    const graphData = (await graphResp.json()) as {
+      data?: {
+        connection?: { glucoseMeasurement?: Record<string, unknown> };
+        graphData?: Record<string, unknown>[];
+      };
+    };
+    // `connection.glucoseMeasurement` is the CURRENT reading; `graphData` lags several minutes
+    // behind it. Clients dedupe by timestamp, same as the Convex path.
+    const rawReadings = [
+      ...(graphData?.data?.graphData ?? []),
+      ...(graphData?.data?.connection?.glucoseMeasurement ? [graphData.data.connection.glucoseMeasurement] : []),
+    ];
 
-    const readings = rawReadings.map((item) => {
-      const glucose = (item.ValueInMgPerDl ?? item.Value) as number;
-      return {
+    const readings = rawReadings.flatMap((item) => {
+      const normalized = normalizeLibreGraphItem(item);
+      if (!normalized) return [];
+      const { glucose, timestamp, trend } = normalized;
+      return [{
         glucose,
-        timestamp: new Date((item.Timestamp as number) * 1000).toISOString(),
-        trend: item.TrendArrow,
+        timestamp,
+        trend,
         anomaly: {
           warning: glucose < 70 || glucose > 240,
           message:
@@ -489,7 +506,7 @@ router.post("/libre/readings", async (req, res) => {
                 ? `High glucose: ${glucose} mg/dL`
                 : undefined,
         },
-      };
+      }];
     });
 
     res.json({ readings });
