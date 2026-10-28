@@ -598,31 +598,39 @@ export const runDueIngest = internalAction({
     let inserted = 0;
     let failures = 0;
 
-    for (let i = 0; i < due.length; i += concurrency) {
-      const batch = due.slice(i, i + concurrency);
-      const results = await Promise.allSettled(
-        batch.map((item, idx) =>
-          processConnection(ctx, {
-            userId: item.userId,
-            provider: item.provider,
-            leaseOwner: `${runId}:${i + idx}`,
-            now: Date.now(),
-            force: false,
-            minSinceAttemptMs: 0,
-          }),
-        ),
-      );
-      for (const r of results) {
-        processed++;
-        if (r.status === "fulfilled") {
-          inserted += r.value.inserted;
-          if (r.value.outcome === "failed") failures++;
-        } else {
-          failures++;
-          console.warn(`[cgmIngest] worker error: ${String(r.reason)}`);
+    // Each provider runs in its own lane, side by side: Dexcom users never wait on a slow
+    // LibreLinkUp (or the reverse). Within a lane, batches of `concurrency` exactly as before.
+    const runLane = async (lane: typeof due, laneName: string) => {
+      for (let i = 0; i < lane.length; i += concurrency) {
+        const batch = lane.slice(i, i + concurrency);
+        const results = await Promise.allSettled(
+          batch.map((item, idx) =>
+            processConnection(ctx, {
+              userId: item.userId,
+              provider: item.provider,
+              leaseOwner: `${runId}:${laneName}:${i + idx}`,
+              now: Date.now(),
+              force: false,
+              minSinceAttemptMs: 0,
+            }),
+          ),
+        );
+        for (const r of results) {
+          processed++;
+          if (r.status === "fulfilled") {
+            inserted += r.value.inserted;
+            if (r.value.outcome === "failed") failures++;
+          } else {
+            failures++;
+            console.warn(`[cgmIngest] worker error: ${String(r.reason)}`);
+          }
         }
       }
-    }
+    };
+    await Promise.all([
+      runLane(due.filter((d) => d.provider === "dexcom"), "dexcom"),
+      runLane(due.filter((d) => d.provider === "libre"), "libre"),
+    ]);
 
     console.log(
       `[cgmIngest] due run: processed=${processed} inserted=${inserted} failures=${failures} seeded=${seeded}`,

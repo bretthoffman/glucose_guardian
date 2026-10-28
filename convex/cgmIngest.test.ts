@@ -508,11 +508,15 @@ describe("scheduling, seeding and isolation", () => {
 
   it("a hung LibreLinkUp request times out and never holds up Dexcom", async () => {
     const prev = process.env.LIBRE_REQUEST_TIMEOUT_MS;
-    process.env.LIBRE_REQUEST_TIMEOUT_MS = "50";
+    process.env.LIBRE_REQUEST_TIMEOUT_MS = "1500";
     try {
       const t = convexTest(schema, modules);
-      const dexUser = await seedDexcom(t);
-      const libUser = await seedAppSavedLibre(t, "hang@x.com");
+      // Five stuck Libre users are first in line; the Dexcom user is sixth (a later batch if the
+      // providers shared batches).
+      const libUsers = [];
+      for (let k = 0; k < 5; k++) libUsers.push(await seedAppSavedLibre(t, `hang${k}@x.com`));
+      const libUser = libUsers[0]!;
+      const dexUser = await seedDexcom(t, { state: { nextEligibleAt: 10 } });
       stubFetch([
         { test: (u) => u.includes("ReadPublisher"), res: () => json(dexcomItems(2, 5 * MINUTE)) },
         { test: (u) => u.includes("libreview.io"), res: () => new Promise<Response>(() => {}) as unknown as Response },
@@ -522,7 +526,10 @@ describe("scheduling, seeding and isolation", () => {
       const res = await t.action(internal.cgmIngest.runDueIngest, {});
       expect(Date.now() - started).toBeLessThan(5_000);
       expect((await getReadings(t, dexUser))).toHaveLength(2);
-      expect(res.failures).toBe(1);
+      // Separate lanes: Dexcom was saved well before Libre's 1.5s limit ran out.
+      const dexOkAt = (await getState(t, dexUser, "dexcom"))?.lastSuccessAt ?? Infinity;
+      expect(dexOkAt - started).toBeLessThan(1_000);
+      expect(res.failures).toBe(5);
       expect((await getState(t, libUser, "libre"))?.lastFailureCategory).toBe("network_timeout");
     } finally {
       if (prev === undefined) delete process.env.LIBRE_REQUEST_TIMEOUT_MS;
