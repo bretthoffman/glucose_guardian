@@ -363,6 +363,16 @@ function libreAuthHeaders(session: LibreSession): Record<string, string> {
   };
 }
 
+/**
+ * HTTP statuses on a LibreLinkUp data call that mean "this saved session is not usable": 401/403
+ * (token expired or Account-Id rejected) and 400 (LibreLinkUp's answer when the Account-Id header is
+ * missing, e.g. a session the app saved at connect time). The sync core retries once with a fresh
+ * login, so a persistent 400 still ends as a normal backed-off failure, never a loop.
+ */
+export function libreNeedsFreshLogin(status: number): boolean {
+  return status === 400 || status === 401 || status === 403;
+}
+
 type LibreConnectionsResult =
   | { ok: true; connectionCount: number; patientId: string | null }
   | { ok: false; sessionExpired: boolean; category: FailureCategory };
@@ -378,9 +388,10 @@ async function libreFetchConnections(
     console.warn(`[libre] connections HTTP ${connResp.status}`);
     return {
       ok: false,
-      // 403 = token/Account-Id no longer accepted: a fresh login fixes it, same as 401.
-      sessionExpired: connResp.status === 401 || connResp.status === 403,
-      category: connResp.status === 401 || connResp.status === 403 ? "none" : httpTransientCategory(connResp.status),
+      // 400 (missing/stale Account-Id), 401, 403 = this session is no longer accepted: one fresh
+      // login fixes it. A 400 that survives the fresh login falls through to a backed-off failure.
+      sessionExpired: libreNeedsFreshLogin(connResp.status),
+      category: libreNeedsFreshLogin(connResp.status) ? "none" : httpTransientCategory(connResp.status),
     };
   }
   const connections = (await connResp.json()) as { data?: { patientId?: string }[] };
@@ -407,8 +418,8 @@ async function libreFetchGraph(
     console.warn(`[libre] graph HTTP ${graphResp.status}`);
     return {
       ok: false,
-      sessionExpired: graphResp.status === 401 || graphResp.status === 403,
-      category: graphResp.status === 401 || graphResp.status === 403 ? "none" : httpTransientCategory(graphResp.status),
+      sessionExpired: libreNeedsFreshLogin(graphResp.status),
+      category: libreNeedsFreshLogin(graphResp.status) ? "none" : httpTransientCategory(graphResp.status),
     };
   }
   const graphData = (await graphResp.json()) as {

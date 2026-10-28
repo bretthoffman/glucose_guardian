@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   libreTrendToDexcom,
+  libreNeedsFreshLogin,
   makeDexcomAdapter,
   makeLibreAdapter,
   parseLibreUtcTimestamp,
@@ -224,6 +225,30 @@ describe("libre adapter", () => {
     });
     const out = await adapter.read({ token: "old", apiBase: "https://api.libreview.io" }, plan);
     expect(out).toMatchObject({ ok: false, sessionExpired: true });
+  });
+
+  it("a 400 on connections (LibreLinkUp's missing Account-Id answer) also triggers one fresh login", async () => {
+    const adapter = makeLibreAdapter({
+      fetch: router([{ test: (u) => u.endsWith("/llu/connections"), res: () => json({ message: "RequiredHeaderMissing" }, 400) }]),
+    });
+    const out = await adapter.read({ token: "app-saved", apiBase: "https://api.libreview.io" }, plan);
+    expect(out).toMatchObject({ ok: false, sessionExpired: true });
+  });
+
+  it("a 400 on graph also triggers one fresh login", async () => {
+    const adapter = makeLibreAdapter({
+      fetch: router([
+        { test: (u) => u.endsWith("/llu/connections"), res: () => json({ data: [{ patientId: "p1" }] }) },
+        { test: (u) => u.endsWith("/graph"), res: () => json({ message: "RequiredHeaderMissing" }, 400) },
+      ]),
+    });
+    const out = await adapter.read({ token: "t", apiBase: "https://api.libreview.io", accountId: "abc" }, plan);
+    expect(out).toMatchObject({ ok: false, sessionExpired: true });
+  });
+
+  it("libreNeedsFreshLogin: 400/401/403 yes; 429/500 no", () => {
+    expect([400, 401, 403].map(libreNeedsFreshLogin)).toEqual([true, true, true]);
+    expect([429, 500, 502].map(libreNeedsFreshLogin)).toEqual([false, false, false]);
   });
 
   it("wrong email or password (status 2, no redirect) is invalid_credentials", async () => {

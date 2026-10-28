@@ -277,7 +277,7 @@ describe("scheduled ingestion — Libre", () => {
     const t = convexTest(schema, modules);
     const userId = await t.run(async (ctx) => {
       const uid = await ctx.db.insert("users", { email: "l@x.com", passwordHash: "ph", createdAt: 0, updatedAt: 0 });
-      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok-existing", libreApiBase: "https://api.eu.libreview.io", updatedAt: 0 });
+      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok-existing", libreApiBase: "https://api.eu.libreview.io", libreAccountId: "acct-hash", updatedAt: 0 });
       await ctx.db.insert("patientLibreCredentials", { userId: uid, libreEmail: "l@x.com", librePassword: "pw", updatedAt: 0 });
       await ctx.db.insert("cgmSyncState", { userId: uid, provider: "libre", consecutiveFailures: 0, status: "pending", nextEligibleAt: 0, generation: 0, updatedAt: 0 });
       return uid;
@@ -297,11 +297,42 @@ describe("scheduled ingestion — Libre", () => {
     expect(state?.providerDiagnosticCategory).toBe("connected");
   });
 
+  it("a session the app saved without an Account-Id signs in fresh, sends Account-Id, and keeps it", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run(async (ctx) => {
+      const uid = await ctx.db.insert("users", { email: "app@x.com", passwordHash: "ph", createdAt: 0, updatedAt: 0 });
+      // What the connect screen writes today: token only, no libreAccountId.
+      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok-from-app", libreApiBase: "https://api.libreview.io", updatedAt: 0 });
+      await ctx.db.insert("patientLibreCredentials", { userId: uid, libreEmail: "app@x.com", librePassword: "pw", libreApiBase: "https://api.libreview.io", updatedAt: 0 });
+      await ctx.db.insert("cgmSyncState", { userId: uid, provider: "libre", consecutiveFailures: 0, status: "pending", nextEligibleAt: 0, generation: 0, updatedAt: 0 });
+      return uid;
+    });
+    const tsSec = Math.floor(Date.now() / 1000) - 300;
+    const fn = stubFetch([
+      { test: (u) => u.endsWith("/llu/auth/login"), res: () => json({ status: 0, data: { authTicket: { token: "tok-server" }, user: { id: "user-123" } } }) },
+      { test: (u) => u.endsWith("/llu/connections"), res: () => json({ data: [{ patientId: "pid" }] }) },
+      { test: (u) => u.includes("/graph"), res: () => json({ data: { graphData: [{ Timestamp: tsSec, ValueInMgPerDl: 132, TrendArrow: 3 }] } }) },
+    ]);
+
+    const res = await t.action(internal.cgmIngest.runDueIngest, {});
+    expect(res.inserted).toBe(1);
+    const urls = fn.mock.calls.map((c) => String(c[0]));
+    expect(urls[0]).toMatch(/\/llu\/auth\/login$/); // the app-saved token was never used
+    const connCall = fn.mock.calls.find((c) => String(c[0]).endsWith("/llu/connections"));
+    const headers = (connCall?.[1] as RequestInit | undefined)?.headers as Record<string, string>;
+    expect(headers["Account-Id"]).toMatch(/^[0-9a-f]{64}$/);
+    const conn = await t.run((ctx) =>
+      ctx.db.query("patientCgmConnections").withIndex("by_userId", (q) => q.eq("userId", userId)).unique(),
+    );
+    expect(conn?.libreAccountId).toBe(headers["Account-Id"]);
+    expect(conn?.token).toBe("tok-server");
+  });
+
   it("Libre with no shared connections sets no_shared_patient diagnostic", async () => {
     const t = convexTest(schema, modules);
     const userId = await t.run(async (ctx) => {
       const uid = await ctx.db.insert("users", { email: "l2@x.com", passwordHash: "ph", createdAt: 0, updatedAt: 0 });
-      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok", libreApiBase: "https://api.eu.libreview.io", updatedAt: 0 });
+      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok", libreApiBase: "https://api.eu.libreview.io", libreAccountId: "acct-hash", updatedAt: 0 });
       await ctx.db.insert("patientLibreCredentials", { userId: uid, libreEmail: "l2@x.com", librePassword: "pw", updatedAt: 0 });
       await ctx.db.insert("cgmSyncState", { userId: uid, provider: "libre", consecutiveFailures: 0, status: "pending", nextEligibleAt: 0, generation: 0, updatedAt: 0 });
       return uid;
@@ -320,7 +351,7 @@ describe("scheduled ingestion — Libre", () => {
     const t = convexTest(schema, modules);
     const userId = await t.run(async (ctx) => {
       const uid = await ctx.db.insert("users", { email: "l3@x.com", passwordHash: "ph", createdAt: 0, updatedAt: 0 });
-      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok", libreApiBase: "https://api.eu.libreview.io", updatedAt: 0 });
+      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok", libreApiBase: "https://api.eu.libreview.io", libreAccountId: "acct-hash", updatedAt: 0 });
       await ctx.db.insert("patientLibreCredentials", { userId: uid, libreEmail: "l3@x.com", librePassword: "pw", updatedAt: 0 });
       await ctx.db.insert("cgmSyncState", { userId: uid, provider: "libre", consecutiveFailures: 0, status: "pending", nextEligibleAt: 0, generation: 0, updatedAt: 0 });
       return uid;
@@ -422,7 +453,7 @@ describe("scheduling, seeding and isolation", () => {
     const dexUser = await seedDexcom(t);
     const libUser = await t.run(async (ctx) => {
       const uid = await ctx.db.insert("users", { email: "li@x.com", passwordHash: "ph", createdAt: 0, updatedAt: 0 });
-      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok", libreApiBase: "https://api.eu.libreview.io", updatedAt: 0 });
+      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok", libreApiBase: "https://api.eu.libreview.io", libreAccountId: "acct-hash", updatedAt: 0 });
       await ctx.db.insert("patientLibreCredentials", { userId: uid, libreEmail: "li@x.com", librePassword: "pw", updatedAt: 0 });
       await ctx.db.insert("cgmSyncState", { userId: uid, provider: "libre", consecutiveFailures: 0, status: "pending", nextEligibleAt: 0, generation: 0, updatedAt: 0 });
       return uid;

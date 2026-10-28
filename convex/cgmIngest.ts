@@ -102,12 +102,15 @@ export const getCredsAndSession = internalQuery({
     const creds: LibreCreds | null = c
       ? { email: c.libreEmail, password: c.librePassword, apiBase: c.libreApiBase }
       : null;
+    // A Libre session is only reusable with its Account-Id (required on every data call since
+    // LibreLinkUp 4.16). The app saves the token at connect time without it, so such a session is
+    // skipped and the server signs in fresh, which stores the Account-Id for every later run.
     const session: LibreSession | null =
-      conn?.type === "libre" && conn.token
+      conn?.type === "libre" && conn.token && conn.libreAccountId
         ? {
             token: conn.token,
             apiBase: conn.libreApiBase ?? c?.libreApiBase ?? LIBRE_DEFAULT_BASE,
-            ...(conn.libreAccountId ? { accountId: conn.libreAccountId } : {}),
+            accountId: conn.libreAccountId,
           }
         : null;
     return { provider: "libre", creds, session };
