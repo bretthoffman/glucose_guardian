@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Glucose Guardian — Schools, Doctors & Families</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Glucose Guardian helps families and people with diabetes see every Dexcom reading, snap meals, estimate insulin, and share care with co-guardians and caregivers. Estimates only, not medical advice. iPhone beta on TestFlight.">
+<meta name="description" content="Glucose Guardian helps families and people with diabetes see every Dexcom or FreeStyle Libre reading, snap meals, estimate insulin, and share care with co-guardians and caregivers. Estimates only, not medical advice. iPhone beta on TestFlight.">
 <meta name="theme-color" content="#05060c">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%2234 12 134 178%22%3E%3Cpath fill=%22%2322c8f0%22 d=%22M97 16C70 44 38 84 38 124c0 36 28 62 62 62 18 0 34-7 46-19-18 9-42 9-58-3-18-14-26-30-26-46 0-26 22-54 42-76 4-8 0-20-7-26z%22/%3E%3Cpath fill=%22%232ef2c6%22 d=%22M114 46c-6 6-8 16-2 24 14 18 26 34 26 54 0 22-18 42-40 44 22 8 48 2 60-20 6-10 8-18 6-30-4-24-24-48-44-70-2-2-4-3-6-2z%22/%3E%3Cpath fill=%22%232f80ff%22 d=%22M100 76s-20 26-20 44a20 20 0 0 0 40 0c0-18-20-44-20-44z%22/%3E%3C/svg%3E">
 
@@ -684,7 +684,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="montage" style="--gg-play: {{heroPlay}}">
 <div style="display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: 52px; padding: 0 22px">
 <div aria-hidden="true" style="position: relative; height: 40px; width: 100%; max-width: 640px; text-align: center; font-size: clamp(22px, 3vw, 30px); font-weight: 600; letter-spacing: -0.01em; color: #f5f5f7">
-<div class="cap c1">Live from Dexcom.</div>
+<div class="cap c1">Live from your CGM.</div>
 <div class="cap c2">Snap the meal.</div>
 <div class="cap c3">Watch the math.</div>
 <div class="cap c4">{{p.cap4}}</div>
@@ -698,7 +698,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 </div>
 <div class="phones" style="align-items: flex-end; margin-top: 84px; padding: 0 22px 40px">
 
-<div class="iphone" role="img" aria-label="Animated tour of Glucose Guardian on iPhone: a live Dexcom reading, snapping a meal photo, the dose calculated step by step, and the Dose page showing the carbs and insulin still active">
+<div class="iphone" role="img" aria-label="Animated tour of Glucose Guardian on iPhone: a live CGM reading, snapping a meal photo, the dose calculated step by step, and the Dose page showing the carbs and insulin still active">
 <div style="position: absolute; bottom: -38px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 14px; color: #a1a1a6"><b style="color: #f5f5f7">iPhone</b> · Beta on TestFlight</div>
 <div style="position: absolute; top: -46px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 13px; font-weight: 600; border-radius: 980px; padding: 6px 14px; background: #1f6fe6; color: #fff">Parent view · Mia’s Guardian</div>
 
@@ -951,7 +951,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div style="background: #0b1424; color: #fff; border-radius: 28px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
 <div class="eyebrow" style="color: #5cc8ff">After · what Glucose Guardian does</div>
 <div style="display: flex; flex-direction: column; font-size: 16px; line-height: 1.4">
-<div style="display: flex; gap: 14px; padding: 15px 0; border-bottom: 1px solid #1c2a44"><span style="color: #34d399; font-weight: 800">✓</span><span><b>Readings</b> <span style="color: #a1a1a6">— live from Dexcom, for everyone you choose</span></span></div>
+<div style="display: flex; gap: 14px; padding: 15px 0; border-bottom: 1px solid #1c2a44"><span style="color: #34d399; font-weight: 800">✓</span><span><b>Readings</b> <span style="color: #a1a1a6">— live from Dexcom or FreeStyle Libre, for everyone you choose</span></span></div>
 <div style="display: flex; gap: 14px; padding: 15px 0; border-bottom: 1px solid #1c2a44"><span style="color: #34d399; font-weight: 800">✓</span><span><b>Meals and doses</b> <span style="color: #a1a1a6">— logged once, with who gave them</span></span></div>
 <div style="display: flex; gap: 14px; padding: 15px 0; border-bottom: 1px solid #1c2a44"><span style="color: #34d399; font-weight: 800">✓</span><span><b>The math</b> <span style="color: #a1a1a6">— shown line by line, every time</span></span></div>
 <div style="display: flex; gap: 14px; padding: 15px 0; border-bottom: 1px solid #1c2a44"><span style="color: #34d399; font-weight: 800">✓</span><span><b>{{p.row4b}}</b> <span style="color: #a1a1a6">{{p.row4}}</span></span></div>
@@ -1374,7 +1374,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="wrap" style="display: flex; flex-direction: column; gap: 40px">
 <h2 class="h2">Get the highlights.</h2>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px">
-<div class="tile"><div style="display: flex; gap: 8px"><span class="chip" style="color: #047857; background: #d1fae5">Dexcom</span></div><h3>Live from Dexcom.</h3><p>Readings sync on their own, with trend arrows and color‑coded ranges — and the connection quietly signs itself back in so the numbers keep coming.</p></div>
+<div class="tile"><div style="display: flex; gap: 8px"><span class="chip" style="color: #047857; background: #d1fae5">Dexcom</span><span class="chip" style="color: #047857; background: #d1fae5">FreeStyle Libre</span></div><h3>Live from your CGM.</h3><p>Dexcom and FreeStyle Libre readings sync on their own, with trend arrows and color‑coded ranges — and the connection quietly signs itself back in so the numbers keep coming.</p></div>
 <div class="tile"><div style="font-size: 22px; font-weight: 700; color: #0b63d6; letter-spacing: -0.01em">0.5 + 2.5 = 3.0 u</div><h3>The dose, with the math shown.</h3><p>Correction, carbs, active carbs, and active insulin each get their own line — so you understand the suggestion before you act on it.</p></div>
 <div class="tile"><svg width="48" height="48" style="color: #0b63d6" aria-hidden="true"><use href="#i-cam"></use></svg><h3>Photo. Barcode. Done.</h3><p>Snap the plate for an AI carb estimate, or scan a package’s barcode. Your go‑to foods stay a tap away.</p></div>
 <div class="tile"><div style="display: flex; flex-direction: column; gap: 6px; font-size: 13px"><div style="align-self: flex-end; background: var(--brand-grad); color: #fff; border-radius: 16px 16px 4px 16px; padding: 7px 12px">Why the spike after lunch?</div><div style="align-self: flex-start; background: #f0f0f5; border-radius: 16px 16px 16px 4px; padding: 7px 12px">Three of the last five lunches…</div></div><h3>Insights you can ask about.</h3><p>The app spots patterns — meal spikes, dose timing, time in range — and every insight has an “Ask AI about this” button.</p></div>
@@ -1392,7 +1392,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <h2 class="h2">How it Works</h2>
 </div>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 32px">
-<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0b63d6; line-height: 1">1</div><h3 style="font-size: 21px; font-weight: 700">Connect Dexcom.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Sign in with Dexcom once. Readings flow in, with the latest always on the home screen.</p></div>
+<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0b63d6; line-height: 1">1</div><h3 style="font-size: 21px; font-weight: 700">Connect your CGM.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Sign in with Dexcom or LibreLinkUp once. Readings flow in, with the latest always on the home screen.</p></div>
 <div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0b63d6; line-height: 1">2</div><h3 style="font-size: 21px; font-weight: 700">Enter your care plan.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Add the carb ratio, target, and correction factor from your doctor, and the insulins you use.</p></div>
 <div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0b63d6; line-height: 1">3</div><h3 style="font-size: 21px; font-weight: 700">Log, review, decide.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Snap the meal, see the suggested dose and every part of it, then log what you gave with one tap.</p></div>
 <div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #1d1d1f; padding-top: 20px"><div style="font-size: 48px; font-weight: 700; color: #0b63d6; line-height: 1">4</div><h3 style="font-size: 21px; font-weight: 700">Bring everyone in.</h3><p style="font-size: 17px; color: #6e6e73; line-height: 1.45">Invite co‑guardians, hand out caregiver codes, and link the doctor’s office.</p></div>
@@ -1678,7 +1678,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <p class="lede" style="color: #6e6e73; max-width: 640px">The latest beta updates, straight from the build.</p>
 </div>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px">
-<div class="card"><div class="chip" style="color: #b45309; background: #fdecd3">New</div><h3>Stay signed in to Dexcom</h3><p>The Dexcom connection quietly signs back in, so readings don’t stop overnight.</p></div>
+<div class="card"><div class="chip" style="color: #b45309; background: #fdecd3">New</div><h3>Stay connected overnight</h3><p>Your Dexcom or FreeStyle Libre connection quietly signs back in, so readings don’t stop overnight.</p></div>
 <div class="card"><div class="chip" style="color: #b45309; background: #fdecd3">New</div><h3>No‑stacking hold</h3><p>Right after a dose, extra corrections wait until that insulin has had time to work.</p></div>
 <div class="card"><div class="chip" style="color: #0b63d6; background: #e2efff">Improved</div><h3>Smarter insulin on board</h3><p>A more realistic insulin curve, credited only against corrections — never the meal itself.</p></div>
 <div class="card"><div class="chip" style="color: #b45309; background: #fdecd3">New</div><h3>Barcode scanning</h3><p>Switch the food camera to Barcode for packaged snacks.</p></div>
@@ -1743,8 +1743,8 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="wrap" style="display: flex; flex-direction: column; gap: 24px; max-width: 880px">
 <h2 class="h2">Questions? Answers.</h2>
 <div>
-<details><summary><span>What is Glucose Guardian?</span><span aria-hidden="true">+</span></summary><p>An app for families and people managing diabetes. It shows live Dexcom readings, estimates carbs from photos, barcodes, or search, suggests insulin doses with the math laid out, sends alerts, and keeps co‑guardians, caregivers, the school nurse, and the doctor on the same page.</p></details>
-<details><summary><span>Which glucose monitors does it work with?</span><span aria-hidden="true">+</span></summary><p>Dexcom, through Dexcom Share. Sign in once and readings sync automatically. [OTHER CGMS — COMING LATER?]</p></details>
+<details><summary><span>What is Glucose Guardian?</span><span aria-hidden="true">+</span></summary><p>An app for families and people managing diabetes. It shows live Dexcom or FreeStyle Libre readings, estimates carbs from photos, barcodes, or search, suggests insulin doses with the math laid out, sends alerts, and keeps co‑guardians, caregivers, the school nurse, and the doctor on the same page.</p></details>
+<details><summary><span>Which glucose monitors does it work with?</span><span aria-hidden="true">+</span></summary><p>Dexcom, through Dexcom Share, and FreeStyle Libre, through LibreLinkUp. Sign in once and readings sync automatically.</p></details>
 <details><summary><span>What’s the difference between a co‑guardian and a caregiver?</span><span aria-hidden="true">+</span></summary><p>Co‑guardians have their own account and full access — they can log, fix, and dose from anywhere. Caregivers use a code with no account, and only get the permissions and hours you choose.</p></details>
 <details><summary><span>Does a babysitter or teacher need an account?</span><span aria-hidden="true">+</span></summary><p>No. Create a caregiver code, choose what they can see and do and when, and share it by text or QR. They enter it on the sign‑in screen. Retire it any time.</p></details>
 <details><summary><span>Who can change insulin settings?</span><span aria-hidden="true">+</span></summary><p>Only the primary guardian. Doctors can propose changes from the portal, but nothing changes until a guardian approves it.</p></details>
@@ -1949,9 +1949,9 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="ic fs" role="dialog" aria-label="Log Finger Stick">
 <button type="button" class="nb ic-x" onClick="{{nCloseFs}}" aria-label="Close" style="width: auto">×</button>
 <h4>Log Finger Stick</h4>
-<div class="ic-sub">Enter the number from your meter. We’ll compare it with Dexcom at the same moment.</div>
+<div class="ic-sub">Enter the number from your meter. We’ll compare it with the CGM at the same moment.</div>
 <div class="fs-row"><span>Meter reading</span><div class="fs-val">{{ns.fsMeter}}</div></div>
-<div class="fs-row"><span>Dexcom at this time</span><b>{{ns.bg}} mg/dL</b></div>
+<div class="fs-row"><span>CGM at this time</span><b>{{ns.bg}} mg/dL</b></div>
 <div class="fs-l">Why did you check?</div>
 <div class="fs-chips"><span>Number seemed off</span><span>Felt low or high</span><span class="on">Before dosing</span><span>Routine</span></div>
 <button type="button" class="nb fs-log" onClick="{{nSaveFs}}">✓ Log</button>
@@ -2133,7 +2133,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="wrap" style="display: flex; flex-direction: column; gap: 24px; max-width: 880px">
 <h2 class="h2">Questions from schools.</h2>
 <div>
-<details><summary><span>Which CGMs does it work with?</span><span aria-hidden="true">+</span></summary><p>Right now, Glucose Guardian works with Dexcom CGMs only. The family turns on Sharing in the Dexcom app and connects their Dexcom account, and the readings show up on your menu.</p></details>
+<details><summary><span>Which CGMs does it work with?</span><span aria-hidden="true">+</span></summary><p>Glucose Guardian works with Dexcom and FreeStyle Libre CGMs. The family turns on Sharing in the Dexcom app or sets up LibreLinkUp for FreeStyle Libre, connects it once, and the readings show up on your menu.</p></details>
 <details><summary><span>Does each nurse need their own account?</span><span aria-hidden="true">+</span></summary><p>Yes. Each nurse, teacher, or aide signs up as a Caregiver and adds the students they look after.</p></details>
 <details><summary><span>Where do the access codes come from?</span><span aria-hidden="true">+</span></summary><p>From each student’s guardian, in the Care Circle section of their Dashboard. Codes are 8 characters and can be shared by text or QR.</p></details>
 <details><summary><span>Can a nurse change a student’s insulin settings?</span><span aria-hidden="true">+</span></summary><p>No. Insulin settings belong to the primary guardian. A nurse can use the calculator only if the family allows it.</p></details>
@@ -2267,7 +2267,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="wrap" style="display: flex; flex-direction: column; gap: 24px; max-width: 880px">
 <h2 class="h2">Questions from clinicians.</h2>
 <div>
-<details><summary><span>Where does the glucose data come from?</span><span aria-hidden="true">+</span></summary><p>From the family’s Dexcom CGM. Right now, Glucose Guardian works with Dexcom CGMs only.</p></details>
+<details><summary><span>Where does the glucose data come from?</span><span aria-hidden="true">+</span></summary><p>From the family’s Dexcom or FreeStyle Libre CGM.</p></details>
 <details><summary><span>Who can sign in to the portal?</span><span aria-hidden="true">+</span></summary><p>Clinicians with a license key or invite code from their organization. The demo is open to anyone, but it only contains made‑up sample patients.</p></details>
 <details><summary><span>How do I add a patient?</span><span aria-hidden="true">+</span></summary><p>The family shares a Doctor Code from their Glucose Guardian app. You enter it in the portal and the patient appears on your list.</p></details>
 <details><summary><span>Can I change a patient’s settings?</span><span aria-hidden="true">+</span></summary><p>You can propose carb‑ratio, correction, and target changes. They take effect only after the caregiver confirms in the app.</p></details>
@@ -2296,7 +2296,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <footer style="background: #f5f5f7; color: #6e6e73; font-size: 12px; line-height: 1.6; padding: 32px 0 40px">
 <div class="wrap" style="display: flex; flex-direction: column; gap: 14px">
 <p>Glucose Guardian provides estimates only and does not replace medical advice. Always follow your doctor’s instructions. Screens show sample data.</p>
-<p>Dexcom is a registered trademark of Dexcom, Inc. iPhone and App Store are trademarks of Apple Inc. Android and Google Play are trademarks of Google LLC.</p>
+<p>Dexcom is a registered trademark of Dexcom, Inc. FreeStyle Libre and LibreLinkUp are trademarks of Abbott. iPhone and App Store are trademarks of Apple Inc. Android and Google Play are trademarks of Google LLC.</p>
 <div style="display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-top: 1px solid #d2d2d7; padding-top: 14px">
 <span>Copyright © 2026 Glucose Guardian LLC. All rights reserved.</span>
 <span style="display: flex; gap: 18px; flex-wrap: wrap"><a href="#top" onClick="{{goSchools}}" style="color: #424245">For Schools &amp; Organizations</a><a href="#top" onClick="{{goDoctors}}" style="color: #424245">For Doctors</a><a href="index.html" style="color: #424245">For Families</a></span>
@@ -2371,8 +2371,8 @@ class Component extends DCLogic {
     // ── Audience + personas ──
     var aud = 'parent';
     var heroCopy = {
-      parent: { title: 'Care, shared.', sub: 'A helping hand for every reading, meal, and dose.', body: 'Glucose Guardian helps you keep track of your child’s Dexcom readings, meals, and insulin — and keeps everyone who cares for them on the same page: your co‑guardian, the school nurse, grandparents, sitters, and the doctor. It assists. You and your care team stay in charge.' },
-      me: { title: 'Diabetes, with backup.', sub: 'Your numbers. Your math. Your people.', body: 'Live Dexcom readings, a dose calculator that shows its work, and someone you trust who gets the alert if you don’t answer — all in one calm place.' }
+      parent: { title: 'Care, shared.', sub: 'A helping hand for every reading, meal, and dose.', body: 'Glucose Guardian helps you keep track of your child’s Dexcom or FreeStyle Libre readings, meals, and insulin — and keeps everyone who cares for them on the same page: your co‑guardian, the school nurse, grandparents, sitters, and the doctor. It assists. You and your care team stay in charge.' },
+      me: { title: 'Diabetes, with backup.', sub: 'Your numbers. Your math. Your people.', body: 'Live Dexcom or FreeStyle Libre readings, a dose calculator that shows its work, and someone you trust who gets the alert if you don’t answer — all in one calm place.' }
     };
     var hero = heroCopy[aud];
     var audiences = [['parent', 'Managing someone with diabetes'], ['me', 'I have diabetes']].map(function (d) {
@@ -2892,7 +2892,7 @@ class Component extends DCLogic {
       ['Fix a log', 'Someone typed 20u instead of 2u. Edit it and save.', { nKid: 0, nTab: 'log', nIns: 'log', nFs: false, nDay: 0, nRead: false, nLog: 'm1', nEditing: true, nVal: nEdits.m1 != null ? nEdits.m1 : 20 }],
       ['Snap lunch, get the dose', 'Photo → carbs → the insulin math, then it’s logged.', { nKid: 0, nTab: 'food', nSnap: 'cam', nRead: false, nLog: null }],
       ['Check the pens', 'On the Insulin page, see how many days each pen has left, or start a new one.', { nKid: 0, nTab: 'log', nIns: 'dose', nRead: false, nLog: null, nFs: false }],
-      ['Log a finger stick', 'Add Entry → Finger Stick, and see right away how close Dexcom was.', { nKid: 0, nTab: 'log', nIns: 'log', nDay: 0, nRead: false, nLog: null, nFs: true }],
+      ['Log a finger stick', 'Add Entry → Finger Stick, and see right away how close the CGM was.', { nKid: 0, nTab: 'log', nIns: 'log', nDay: 0, nRead: false, nLog: null, nFs: true }],
       ['Message the parent', 'Send Mia’s mom an update from the Chat tab.', { nKid: 0, nTab: 'chat', nRead: false, nLog: null }]
     ];
     var nGuides = guideDefs.map(function (g, i) {
