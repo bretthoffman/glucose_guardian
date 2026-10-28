@@ -470,6 +470,65 @@ describe("scheduling, seeding and isolation", () => {
     expect((await getReadings(t, dexUser))).toHaveLength(0);
     expect((await getReadings(t, libUser))).toHaveLength(1); // libre still ingested
   });
+
+  /** A Libre user whose connection the app just saved (no Account-Id), in the same run as Dexcom. */
+  async function seedAppSavedLibre(t: ReturnType<typeof convexTest>, email: string) {
+    return t.run(async (ctx) => {
+      const uid = await ctx.db.insert("users", { email, passwordHash: "ph", createdAt: 0, updatedAt: 0 });
+      await ctx.db.insert("patientCgmConnections", { userId: uid, type: "libre", token: "tok-from-app", libreApiBase: "https://api.libreview.io", updatedAt: 0 });
+      await ctx.db.insert("patientLibreCredentials", { userId: uid, libreEmail: email, librePassword: "pw", libreApiBase: "https://api.libreview.io", updatedAt: 0 });
+      await ctx.db.insert("cgmSyncState", { userId: uid, provider: "libre", consecutiveFailures: 0, status: "pending", nextEligibleAt: 0, generation: 0, updatedAt: 0 });
+      return uid;
+    });
+  }
+
+  it("Dexcom ingests normally in the same run as a Libre fresh login + 400 retry", async () => {
+    const t = convexTest(schema, modules);
+    const dexUser = await seedDexcom(t);
+    const libUser = await seedAppSavedLibre(t, "mix@x.com");
+    const fn = stubFetch([
+      { test: (u) => u.includes("ReadPublisher"), res: () => json(dexcomItems(3, 5 * MINUTE)) },
+      { test: (u) => u.endsWith("/llu/auth/login"), res: () => json({ status: 0, data: { authTicket: { token: "tok-server" }, user: { id: "u-1" } } }) },
+      { test: (u) => u.endsWith("/llu/connections"), res: () => json({ message: "RequiredHeaderMissing" }, 400) },
+    ]);
+
+    const res = await t.action(internal.cgmIngest.runDueIngest, {});
+    expect((await getReadings(t, dexUser))).toHaveLength(3);
+    expect((await getState(t, dexUser, "dexcom"))?.status).toBe("ok");
+    expect((await getReadings(t, libUser))).toHaveLength(0);
+    expect(res.failures).toBe(1); // only the Libre user
+    // Dexcom requests carry no Libre headers.
+    for (const [url, init] of fn.mock.calls) {
+      if (!String(url).includes("dexcom")) continue;
+      const h = ((init as RequestInit | undefined)?.headers ?? {}) as Record<string, string>;
+      expect(h["Account-Id"]).toBeUndefined();
+      expect(h.product).toBeUndefined();
+    }
+  });
+
+  it("a hung LibreLinkUp request times out and never holds up Dexcom", async () => {
+    const prev = process.env.LIBRE_REQUEST_TIMEOUT_MS;
+    process.env.LIBRE_REQUEST_TIMEOUT_MS = "50";
+    try {
+      const t = convexTest(schema, modules);
+      const dexUser = await seedDexcom(t);
+      const libUser = await seedAppSavedLibre(t, "hang@x.com");
+      stubFetch([
+        { test: (u) => u.includes("ReadPublisher"), res: () => json(dexcomItems(2, 5 * MINUTE)) },
+        { test: (u) => u.includes("libreview.io"), res: () => new Promise<Response>(() => {}) as unknown as Response },
+      ]);
+
+      const started = Date.now();
+      const res = await t.action(internal.cgmIngest.runDueIngest, {});
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect((await getReadings(t, dexUser))).toHaveLength(2);
+      expect(res.failures).toBe(1);
+      expect((await getState(t, libUser, "libre"))?.lastFailureCategory).toBe("network_timeout");
+    } finally {
+      if (prev === undefined) delete process.env.LIBRE_REQUEST_TIMEOUT_MS;
+      else process.env.LIBRE_REQUEST_TIMEOUT_MS = prev;
+    }
+  });
 });
 
 describe("mobile foreground + caregiver flow", () => {

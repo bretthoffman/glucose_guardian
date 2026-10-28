@@ -69,6 +69,13 @@ export const libreLluConfig = {
       "Mozilla/5.0 (iPhone; CPU OS 17_4.1 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/17.4.1 Mobile/10A5355d Safari/8536.25",
     );
   },
+  /**
+   * Hard cap on each LibreLinkUp request. Dexcom and Libre users share the same sync batches, so a
+   * hung LibreLinkUp call must never hold up Dexcom users in the same or later batches.
+   */
+  get requestTimeoutMs(): number {
+    return envInt("LIBRE_REQUEST_TIMEOUT_MS", 15_000);
+  },
 };
 
 /** Operational knobs (Convex env vars, with defaults). */

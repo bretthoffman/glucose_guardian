@@ -445,8 +445,30 @@ async function libreFetchGraph(
   return { ok: true, entries };
 }
 
+/**
+ * Wraps a fetch so every LibreLinkUp request gives up after `libreLluConfig.requestTimeoutMs`. The
+ * abort surfaces as a thrown error, which the adapter already maps to `network_timeout` (backed off).
+ * Libre-only on purpose: the Dexcom adapter's requests are left exactly as they were.
+ */
+export function libreFetchWithTimeout(inner: FetchLike, timeoutMs = libreLluConfig.requestTimeoutMs): FetchLike {
+  return (async (input: Parameters<FetchLike>[0], init?: Parameters<FetchLike>[1]) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await Promise.race([
+        inner(input, { ...(init ?? {}), signal: controller.signal }),
+        new Promise<never>((_, reject) => {
+          controller.signal.addEventListener("abort", () => reject(new Error("libre request timed out")));
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }) as FetchLike;
+}
+
 export function makeLibreAdapter(deps?: { fetch?: FetchLike }): ProviderAdapter<LibreCreds, LibreSession> {
-  const doFetch: FetchLike = deps?.fetch ?? fetch;
+  const doFetch: FetchLike = libreFetchWithTimeout(deps?.fetch ?? fetch);
 
   return {
     provider: "libre",
@@ -544,7 +566,7 @@ export async function runLibreDiagnosticFlow(
     };
   }
 
-  const doFetch: FetchLike = deps?.fetch ?? fetch;
+  const doFetch: FetchLike = libreFetchWithTimeout(deps?.fetch ?? fetch);
   let session = deps?.existingSession ?? null;
   let regionResolved = Boolean(creds.apiBase?.trim());
 
