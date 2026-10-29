@@ -28,6 +28,27 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-29g",
+    date: "2026-10-29",
+    items: [
+      {
+        icon: "repeat",
+        title: "Handoff",
+        body: "When the school nurse or grandma first opens the app each day, they see a quick catch-up: the latest number, insulin still working, meals and any lows. It fills in by itself.",
+      },
+      {
+        icon: "edit-3",
+        title: "Leave a note",
+        body: "In Dashboard, Handoff, add a note for everyone or just one caregiver, and see when they read it. Caregivers can leave a note back for you.",
+      },
+      {
+        icon: "home",
+        title: "While you were away",
+        body: "Back after a while and someone else logged? You'll see what happened since you last looked.",
+      },
+    ],
+  },
+  {
     id: "2026-10-29f",
     date: "2026-10-29",
     items: [

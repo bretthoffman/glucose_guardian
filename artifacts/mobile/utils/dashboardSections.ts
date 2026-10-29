@@ -16,6 +16,7 @@
  *    (`!doctorSession && !isChildMode && !caregiverSession`; owner-only — hidden for the doctor's own
  *    session and any access-code / child-view session).
  *  - Care Circle → `showAccessManagement` (owner-only: `(isParent || isAdult)` and not child/caregiver/doctor).
+ *  - Handoff (the catch-up caregivers see, and the parent's optional note) → same gate as Care Circle.
  *  - Child View Mode → `showChildView`: RETIRED for turning on. A child's own phone uses a Child
  *    code from Care Circle instead. The switch only appears while a phone still has child mode ON,
  *    so that phone can always turn it off; nobody can turn it on anymore.
@@ -31,6 +32,7 @@ export type DashboardSectionKey =
   | "doctor"
   | "doctorCode"
   | "careCircle"
+  | "handoff"
   | "childView";
 
 export interface DashboardRoleFlags {
@@ -129,6 +131,7 @@ const GROUPS: { title: string; rows: Entry[] }[] = [
     title: "Care Team",
     rows: [
       { key: "careCircle", title: "Care Circle", gate: "showAccessManagement" },
+      { key: "handoff", title: "Handoff", gate: "showAccessManagement" },
       { key: "doctor", title: "Doctor Office", gate: "showDoctorCareTeam" },
       { key: "doctorCode", title: "Doctor Code", gate: "showDoctorCareTeam" },
     ],

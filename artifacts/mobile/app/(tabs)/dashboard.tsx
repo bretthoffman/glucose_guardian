@@ -26,6 +26,7 @@ import ProfileChip from "@/components/ProfileChip";
 import TreatmentProposalCard from "@/components/TreatmentProposalCard";
 import { SettingsModal } from "@/components/SettingsModal";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
+import HandoffPanel from "@/components/HandoffPanel";
 import { DashboardGroup, DashboardRow } from "@/components/DashboardGroupList";
 import { WhatsNewHistoryModal } from "@/components/WhatsNew";
 import CareCirclePanel from "@/components/CareCirclePanel";
@@ -86,6 +87,7 @@ const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Fea
   doctor: "activity",
   doctorCode: "key",
   careCircle: "share-2",
+  handoff: "repeat",
   childView: "eye",
 };
 
@@ -101,6 +103,7 @@ const SECTION_COLORS: Record<DashboardSectionKey, string> = {
   doctor: DOCTOR_INDIGO,
   doctorCode: "#6CC4FF",
   careCircle: COLORS.success,
+  handoff: "#A78BFA",
   childView: COLORS.primary,
 };
 
@@ -2045,6 +2048,16 @@ export default function DashboardScreen() {
             accessibilityLabel="Care Circle"
           >
             <CareCirclePanel colors={colors} onClose={() => setOpenSection(null)} />
+          </DashboardSectionModal>
+        )}
+
+        {showAccessManagement && (
+          <DashboardSectionModal
+            visible={openSection === "handoff"}
+            onClose={() => setOpenSection(null)}
+            accessibilityLabel="Handoff"
+          >
+            <HandoffPanel colors={colors} onClose={() => setOpenSection(null)} />
           </DashboardSectionModal>
         )}
 

@@ -113,6 +113,7 @@ describe("availableDashboardSections", () => {
       "thresholds",
       "emergency",
       "careCircle",
+      "handoff",
       "doctor",
       "doctorCode",
     ]);

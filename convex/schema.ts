@@ -837,6 +837,25 @@ const careFingerSticks = defineTable({
   .index("by_patient_client", ["patientUserId", "clientId"]);
 
 /**
+ * Handoff notes (convex/handoff.ts): a short note to whoever takes over next. A family account
+ * writes to caregivers (optionally only some access codes); a caregiver code writes back to the
+ * family. Only the newest note per audience is kept; it is shown for 24 hours. `seen` records who
+ * opened it, so the family sees "Holly saw it at 8:02 AM".
+ */
+const handoffNotes = defineTable({
+  patientUserId: v.id("users"),
+  audience: v.union(v.literal("caregivers"), v.literal("family")),
+  text: v.string(),
+  fromName: v.string(),
+  fromUserId: v.optional(v.id("users")),
+  fromCode: v.optional(v.string()),
+  /** For audience "caregivers": only these access codes (empty or absent = every caregiver). */
+  recipientCodes: v.optional(v.array(v.string())),
+  createdAt: v.number(),
+  seen: v.array(v.object({ name: v.string(), at: v.number() })),
+}).index("by_patient_audience", ["patientUserId", "audience", "createdAt"]);
+
+/**
  * The assistant chat, one document per person per local day (convex/assistantChat.ts). PRIVATE to
  * its owner: `owner` is "u:<userId>" for an account or "c:<access code>" for a code session
  * (grandma, the school nurse, Child Mode). Nobody else can list or read it.
@@ -1047,6 +1066,7 @@ export default defineSchema({
   carePens,
   labResults,
   assistantChats,
+  handoffNotes,
   careMessages,
   pushTokens,
   pushAlertState,

@@ -37,6 +37,7 @@ import type * as guardianPin_config from "../guardianPin/config.js";
 import type * as guardianPin_hashNode from "../guardianPin/hashNode.js";
 import type * as guardianPin_internal from "../guardianPin/internal.js";
 import type * as guardianPin_validate from "../guardianPin/validate.js";
+import type * as handoff from "../handoff.js";
 import type * as identity from "../identity.js";
 import type * as labResults from "../labResults.js";
 import type * as patientCgm from "../patientCgm.js";
@@ -90,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   "guardianPin/hashNode": typeof guardianPin_hashNode;
   "guardianPin/internal": typeof guardianPin_internal;
   "guardianPin/validate": typeof guardianPin_validate;
+  handoff: typeof handoff;
   identity: typeof identity;
   labResults: typeof labResults;
   patientCgm: typeof patientCgm;

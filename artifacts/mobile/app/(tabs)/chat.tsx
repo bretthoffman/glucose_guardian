@@ -205,7 +205,7 @@ export default function ChatScreen() {
   );
   // A child/caregiver access-code session only sees the AI chat if the parent enabled it.
   const chatLocked = accessCodeRole != null && !accessCodePermissions?.chat;
-  const { prompt, fromParent } = useLocalSearchParams<{ prompt?: string; fromParent?: string }>();
+  const { prompt, fromParent, openMessages } = useLocalSearchParams<{ prompt?: string; fromParent?: string; openMessages?: string }>();
   const promptSentRef = useRef<string | null>(null);
 
   const name = profile?.childName ?? "there";
@@ -340,6 +340,16 @@ export default function ChatScreen() {
       return () => clearTimeout(delay);
     }
   }, [prompt]);
+
+  // The handoff sheet's "Message Holly" button lands here with ?openMessages=<stamp>: open the list.
+  const openMessagesRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (openMessages && openMessages !== openMessagesRef.current && !chatLocked) {
+      openMessagesRef.current = openMessages;
+      setActiveThread(null);
+      setShowMessages(true);
+    }
+  }, [openMessages, chatLocked]);
 
   async function send(text?: string) {
     const msg = (text ?? input).trim();

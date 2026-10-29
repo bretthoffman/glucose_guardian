@@ -29,6 +29,29 @@ type Palette = (typeof Colors)["light"];
 /** Let launch settle (other prompts, first render) before the sheet slides up. */
 const SHOW_DELAY_MS = 1500;
 
+/**
+ * True from launch until What's new has decided (and, if it showed, been closed). Other launch sheets
+ * (the handoff sheet) wait for this, so two sheets never stack on top of each other.
+ */
+let whatsNewBusy = true;
+const busyListeners = new Set<(busy: boolean) => void>();
+function setWhatsNewBusy(busy: boolean) {
+  if (whatsNewBusy === busy) return;
+  whatsNewBusy = busy;
+  busyListeners.forEach((l) => l(busy));
+}
+export function useWhatsNewBusy(): boolean {
+  const [busy, setBusy] = useState(whatsNewBusy);
+  useEffect(() => {
+    setBusy(whatsNewBusy);
+    busyListeners.add(setBusy);
+    return () => {
+      busyListeners.delete(setBusy);
+    };
+  }, []);
+  return busy;
+}
+
 export function WhatsNewPrompt() {
   const { isLoading, insulinLog, foodLog, fingerStickLog } = useAuth();
   const [note, setNote] = useState<ReleaseNote | null>(null);
@@ -49,18 +72,26 @@ export function WhatsNewPrompt() {
       try {
         lastSeen = await AsyncStorage.getItem(WHATS_NEW_SEEN_STORAGE_KEY);
       } catch {
+        setWhatsNewBusy(false);
         return; // storage unavailable — skip quietly rather than risk showing it every launch
       }
       const latest = RELEASE_NOTES[0];
       const action = whatsNewAction(RELEASE_NOTES, lastSeen, hasExistingData);
-      if (action === "none" || !latest) return;
+      if (action === "none" || !latest) {
+        setWhatsNewBusy(false);
+        return;
+      }
       if (action === "markSeen") {
         AsyncStorage.setItem(WHATS_NEW_SEEN_STORAGE_KEY, latest.id).catch(() => {});
+        setWhatsNewBusy(false);
         return;
       }
       // Only what changed since this device last looked (several skipped updates → one sheet).
       const sheet = combineNotes(unseenNotes(RELEASE_NOTES, lastSeen));
-      if (!sheet) return;
+      if (!sheet) {
+        setWhatsNewBusy(false);
+        return;
+      }
       timer.current = setTimeout(() => {
         if (!mounted.current) return;
         setNote(sheet);
@@ -80,14 +111,23 @@ export function WhatsNewPrompt() {
     <>
       <WhatsNewSheet
         note={note}
-        onClose={() => setNote(null)}
+        onClose={() => {
+          setNote(null);
+          setWhatsNewBusy(false);
+        }}
         onSeeAll={() => {
           setNote(null);
           // iOS can't present a second modal while the first is still sliding away.
           setTimeout(() => setHistoryOpen(true), 400);
         }}
       />
-      <WhatsNewHistoryModal visible={historyOpen} onClose={() => setHistoryOpen(false)} />
+      <WhatsNewHistoryModal
+        visible={historyOpen}
+        onClose={() => {
+          setHistoryOpen(false);
+          setWhatsNewBusy(false);
+        }}
+      />
     </>
   );
 }
