@@ -299,13 +299,7 @@ const dashboard: HelpStep[] = [
     anchor: "dashboard.care",
     title: "Care Team",
     text:
-      "Care Circle is where you invite a co-guardian and make access codes for grandparents, sitters or the school nurse. For the nurse you can set school hours by spinning the time wheel. Doctor Office connects your doctor's portal so they see the same numbers.",
-  },
-  {
-    id: "dashboard.childSafety",
-    anchor: "dashboard.childSafety",
-    title: "Child View Mode",
-    text: "Turn this on when your child uses this phone. Settings are hidden so nothing important can be changed by accident.",
+      "Care Circle is where you invite a co-guardian and make access codes for grandparents, sitters, the school nurse, or your child's own phone (a Child code). For the nurse you can set school hours by spinning the time wheel. Doctor Office connects your doctor's portal so they see the same numbers.",
   },
   {
     id: "dashboard.whatsNew",

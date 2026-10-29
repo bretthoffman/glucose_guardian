@@ -26,7 +26,7 @@ describe("dashboardSectionVisibility", () => {
       showAccessManagement: true,
       showActivityLog: false, // no entries yet
       showDownloadLogs: false,
-      showChildView: true,
+      showChildView: false, // retired: Care Circle's Child code covers a child's own phone
     });
   });
 
@@ -97,6 +97,8 @@ describe("dashboardSectionVisibility", () => {
 
   it("keeps the Child View switch for the parent while child mode is ON, so it can be turned off", () => {
     expect(dashboardSectionVisibility({ ...patientParent, isChildMode: true }).showChildView).toBe(true);
+    // …but it is never offered to turn ON: Care Circle's Child code replaced it.
+    expect(dashboardSectionVisibility(patientParent).showChildView).toBe(false);
     expect(dashboardSectionVisibility({ ...patientParent, caregiverSession: true }).showChildView).toBe(false);
     expect(dashboardSectionVisibility({ ...patientParent, isParent: false, isAdult: true }).showChildView).toBe(false);
   });
@@ -113,7 +115,6 @@ describe("availableDashboardSections", () => {
       "careCircle",
       "doctor",
       "doctorCode",
-      "childView",
     ]);
   });
 
@@ -137,7 +138,6 @@ describe("availableDashboardSections", () => {
       "notifications",
       "thresholds",
       "emergency",
-      "childView",
     ]);
   });
 
@@ -171,12 +171,11 @@ describe("availableDashboardSections", () => {
 });
 
 describe("dashboardGroups", () => {
-  it("renders four titled groups for a regular patient, in order", () => {
+  it("renders three titled groups for a regular patient, in order (no Child Safety)", () => {
     expect(dashboardGroups(patientParent).map((g) => g.title)).toEqual([
       "Glucose & Dosing",
       "Alerts & Notifications",
       "Care Team",
-      "Child Safety",
     ]);
   });
 

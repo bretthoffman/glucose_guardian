@@ -16,8 +16,9 @@
  *    (`!doctorSession && !isChildMode && !caregiverSession`; owner-only — hidden for the doctor's own
  *    session and any access-code / child-view session).
  *  - Care Circle → `showAccessManagement` (owner-only: `(isParent || isAdult)` and not child/caregiver/doctor).
- *  - Child View Mode → `showChildView`: the union of the two old inline cards ("Enable" when off,
- *    "Turn Off" when on), now one row with a switch.
+ *  - Child View Mode → `showChildView`: RETIRED for turning on. A child's own phone uses a Child
+ *    code from Care Circle instead. The switch only appears while a phone still has child mode ON,
+ *    so that phone can always turn it off; nobody can turn it on anymore.
  */
 export type DashboardSectionKey =
   | "summary"
@@ -89,7 +90,7 @@ export function dashboardSectionVisibility(role: DashboardRoleFlags): DashboardS
       (role.isParent || role.isAdult) && !role.isChildMode && !role.caregiverSession && !role.doctorSession && !viewingChild,
     showActivityLog: !!role.hasLogEntries && !guardianDeviceChildMode,
     showDownloadLogs: role.doctorSession,
-    showChildView: role.isParent && !role.caregiverSession && (role.isChildMode || !viewingChild),
+    showChildView: role.isParent && !role.caregiverSession && role.isChildMode,
   };
 }
 

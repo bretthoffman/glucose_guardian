@@ -218,13 +218,11 @@ export default function DashboardScreen() {
   const helpGlucose = useHelpAnchor("dashboard.glucose");
   const helpAlerts = useHelpAnchor("dashboard.alerts");
   const helpCare = useHelpAnchor("dashboard.care");
-  const helpChildSafety = useHelpAnchor("dashboard.childSafety");
   const helpWhatsNew = useHelpAnchor("dashboard.whatsNew");
   const groupAnchor: Record<string, (node: View | null) => void> = {
     "Glucose & Dosing": helpGlucose,
     "Alerts & Notifications": helpAlerts,
     "Care Team": helpCare,
-    "Child Safety": helpChildSafety,
   };
   const { enterHelp } = useHelp();
   // Manage Logs popup: paginated view of the full activity log. logsVisibleCount resets on open so
