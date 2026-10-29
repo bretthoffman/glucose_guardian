@@ -255,6 +255,13 @@ const chat: HelpStep[] = [
       "This chat is Glucose Guardian, your built-in assistant. It sees the live reading, the last hour of readings, logged doses and meals, your settings, and the time of day, so you can ask things like \"why am I high?\" or \"is she okay to go back to sleep?\" It explains, but it never changes doses, and it isn't medical advice.",
   },
   {
+    id: "chat.history",
+    anchor: "chat.history",
+    title: "Chat history",
+    text:
+      "Every day's conversation with the assistant is saved. Tap History to scroll back through past days, or tap the calendar to jump to any date. Only you can see your own chats.",
+  },
+  {
     id: "chat.suggestions",
     anchor: "chat.suggestions",
     title: "Ready-made questions",

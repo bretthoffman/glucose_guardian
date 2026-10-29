@@ -35,6 +35,9 @@ import { useHelpAnchor, useHelpPage } from "@/context/HelpContext";
 import { BrandMark } from "@/components/BrandLogo";
 import { CloseButton } from "@/components/CloseButton";
 import { capFirst } from "@/utils/capitalize";
+import ChatHistoryModal from "@/components/ChatHistoryModal";
+import { loadChatDay, saveChatMessages, useChatOwner } from "@/hooks/useChatHistory";
+import { chatDayKey } from "@/utils/chatHistory";
 
 interface Message {
   id: string;
@@ -261,6 +264,41 @@ export default function ChatScreen() {
   const helpInput = useHelpAnchor("chat.input");
   const conversationRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
   const prevSpeakingToParent = useRef(speakingToParent);
+  const helpHistory = useHelpAnchor("chat.history");
+
+  // ── Chat history: each day's conversation is saved, private to this person (hooks/useChatHistory).
+  const chatOwner = useChatOwner();
+  const chatOwnerKey = chatOwner ? JSON.stringify(chatOwner) : null;
+  const chatDayRef = useRef(chatDayKey());
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const restoredFor = useRef<string | null>(null);
+  // Reopening the app picks up today's conversation where it left off (the greeting stays oldest).
+  useEffect(() => {
+    if (!chatOwner || !chatOwnerKey || restoredFor.current === chatOwnerKey) return;
+    restoredFor.current = chatOwnerKey;
+    const today = chatDayKey();
+    let cancelled = false;
+    loadChatDay(chatOwner, today)
+      .then((saved) => {
+        if (cancelled || saved.length === 0) return;
+        chatDayRef.current = today;
+        setMessages((prev) => {
+          if (prev.some((m) => m.role === "user")) return prev; // already chatting this session
+          const greeting = prev[prev.length - 1];
+          const restored: Message[] = saved
+            .slice()
+            .reverse()
+            .map((m) => ({ id: m.id, role: m.role, text: m.text, timestamp: new Date(m.at) }));
+          return greeting ? [...restored, greeting] : restored;
+        });
+        conversationRef.current = saved.slice(-14).map((m) => ({ role: m.role, content: m.text }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatOwnerKey]);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -301,7 +339,18 @@ export default function ChatScreen() {
       text: msg,
       timestamp: new Date(),
     };
-    setMessages((prev) => [userMsg, ...prev]);
+    // A new day starts a fresh conversation; yesterday's stays in History.
+    const sendDay = chatDayKey(userMsg.timestamp);
+    if (sendDay !== chatDayRef.current) {
+      chatDayRef.current = sendDay;
+      conversationRef.current = [];
+      setMessages([
+        userMsg,
+        { id: `${userMsg.id}-greet`, role: "assistant", text: buildGreeting(speakingToParent), timestamp: new Date(userMsg.timestamp.getTime() - 1) },
+      ]);
+    } else {
+      setMessages((prev) => [userMsg, ...prev]);
+    }
     setInput("");
     setIsThinking(true);
 
@@ -401,6 +450,12 @@ export default function ChatScreen() {
       };
       setMessages((prev) => [aiMsg, ...prev]);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (chatOwner) {
+        void saveChatMessages(chatOwner, sendDay, [
+          { id: userMsg.id, role: "user", text: userMsg.text, at: userMsg.timestamp.getTime() },
+          { id: aiMsg.id, role: "assistant", text: aiMsg.text, at: aiMsg.timestamp.getTime() },
+        ]);
+      }
     } catch {
       setError("Couldn't reach Glucose Guardian right now. Check your connection and try again.");
       conversationRef.current = conversationRef.current.slice(0, -1);
@@ -601,6 +656,28 @@ export default function ChatScreen() {
           />
         </TabGlucoseHeaderShell>
       </View>
+
+      {/* Floating "History" bar (top-left): past days' chats with the assistant. */}
+      {!!chatOwner && !chatLocked && headerH > 0 && (
+        <Pressable
+          ref={helpHistory}
+          style={[styles.messagesFab, styles.historyFab, { top: headerH + 8, backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={() => setHistoryOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Chat history"
+        >
+          <ControlShade radius={18} />
+          <Feather name="clock" size={14} color={COLORS.primary} />
+          <Text style={[styles.messagesFabText, { color: colors.text }]}>History</Text>
+        </Pressable>
+      )}
+      <ChatHistoryModal
+        visible={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        owner={chatOwner}
+        colors={colors}
+        renderMessage={(m) => <MessageBubble message={m} colors={colors} isKidMode={isKidMode} />}
+      />
 
       {/* Floating "Messages" bar (top-right), with a total-unread count badge on its left. */}
       {showMessagesBtn && headerH > 0 && (
@@ -905,6 +982,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   messagesFabText: { fontSize: 13, fontWeight: "600" },
+  historyFab: { right: undefined, left: 12 },
   messagesFabBadge: {
     backgroundColor: "#EF4444",
     borderRadius: 9,

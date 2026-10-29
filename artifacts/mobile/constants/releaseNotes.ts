@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-29e",
+    date: "2026-10-29",
+    items: [
+      {
+        icon: "clock",
+        title: "Chat history",
+        body: "Your chats with the assistant are now saved by day. Tap History at the top of Chat to read any past day. Only you can see your own chats.",
+      },
+    ],
+  },
+  {
     id: "2026-10-29d",
     date: "2026-10-29",
     items: [

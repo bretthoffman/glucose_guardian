@@ -837,6 +837,27 @@ const careFingerSticks = defineTable({
   .index("by_patient_client", ["patientUserId", "clientId"]);
 
 /**
+ * The assistant chat, one document per person per local day (convex/assistantChat.ts). PRIVATE to
+ * its owner: `owner` is "u:<userId>" for an account or "c:<access code>" for a code session
+ * (grandma, the school nurse, Child Mode). Nobody else can list or read it.
+ */
+const assistantChats = defineTable({
+  owner: v.string(),
+  /** Local calendar day on the phone, YYYY-MM-DD. */
+  day: v.string(),
+  messages: v.array(
+    v.object({
+      id: v.string(),
+      role: v.union(v.literal("user"), v.literal("assistant")),
+      text: v.string(),
+      /** Epoch ms. */
+      at: v.number(),
+    }),
+  ),
+  updatedAt: v.number(),
+}).index("by_owner_day", ["owner", "day"]);
+
+/**
  * Lab results for a patient (care-circle bucket): typed in, read from a photo and confirmed, or
  * pulled from MyChart. Shown under the A1C card next to the app's estimate.
  */
@@ -1025,6 +1046,7 @@ export default defineSchema({
   careFingerSticks,
   carePens,
   labResults,
+  assistantChats,
   careMessages,
   pushTokens,
   pushAlertState,

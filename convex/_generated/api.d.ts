@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as assistantChat from "../assistantChat.js";
 import type * as auth from "../auth.js";
 import type * as careCircle from "../careCircle.js";
 import type * as careLogs from "../careLogs.js";
@@ -60,6 +61,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  assistantChat: typeof assistantChat;
   auth: typeof auth;
   careCircle: typeof careCircle;
   careLogs: typeof careLogs;
