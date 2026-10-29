@@ -604,7 +604,7 @@ export default function DashboardScreen() {
         return `<tr><td>${d}-Day</td><td style="color:${color};font-weight:700">${val != null ? `${val}%` : "—"}</td><td>${val ? (parseFloat(val) < 7 ? "Good" : parseFloat(val) < 8 ? "Needs Attention" : "High Risk") : "Insufficient data"}</td></tr>`;
       }).join("");
       const recentBSRows = [...history].reverse().slice(0, 50).map((r) => {
-        const color = r.glucose < 70 ? "#ef4444" : r.glucose < 80 || r.glucose > 180 ? "#f59e0b" : "#22c55e";
+        const color = r.glucose < 70 ? "#ef4444" : r.glucose > 180 ? "#f59e0b" : "#22c55e";
         return `<tr><td>${new Date(r.timestamp).toLocaleString()}</td><td style="color:${color};font-weight:600">${r.glucose} mg/dL</td><td>${r.anomaly.warning ? "⚠ Alert" : "—"}</td></tr>`;
       }).join("");
       const foodRows = foodLog.slice(0, 30).map((f) => `<tr><td>${new Date(f.timestamp).toLocaleString()}</td><td>${f.foodName}</td><td>${f.estimatedCarbs}g</td><td>${f.insulinUnits}u</td><td>${f.fromPhoto ? "📸 AI" : "Manual"}</td></tr>`).join("");

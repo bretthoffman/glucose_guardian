@@ -194,6 +194,7 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
       insulin: insulinLog,
       sticks: fingerStickLog ?? [],
       accessLog: profile?.accessLog ?? [],
+      provider: auth.cgmConnection?.type,
     });
     const meta = {
       patientName,
@@ -203,6 +204,7 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
       correctionFactor,
       targetGlucose,
       generatedAt: Date.now(),
+      cgmName: auth.cgmConnection?.type === "libre" ? "FreeStyle Libre" : auth.cgmConnection?.type === "dexcom" ? "Dexcom" : "CGM",
     };
     const code = await passCodeForPdf();
     const html = buildVisitSummaryHtml(data, meta, { sections, includeEveryMeal: everyMeal, portal: { code, url: PORTAL_URL } });

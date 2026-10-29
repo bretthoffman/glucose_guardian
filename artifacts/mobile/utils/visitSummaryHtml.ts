@@ -27,6 +27,8 @@ export interface VisitSummaryMeta {
   correctionFactor: number;
   targetGlucose: number;
   generatedAt: number;
+  /** "Dexcom" / "FreeStyle Libre" (shown in the report header); "CGM" when unknown. */
+  cgmName?: string;
 }
 
 /** Parts of the PDF the family can switch off. The glucose overview is always included. */
@@ -40,7 +42,7 @@ export const SECTIONS: { key: SectionKey; title: string; hint: string }[] = [
   { key: "meals", title: "Food log", hint: "Each day's glucose graph with every meal" },
   { key: "insulin", title: "Insulin log", hint: "Every dose with the glucose at that time" },
   { key: "lows", title: "Lows", hint: "Each low: when, how low, how long" },
-  { key: "sticks", title: "Finger sticks", hint: "Meter checks next to the Dexcom reading" },
+  { key: "sticks", title: "Finger sticks", hint: "Meter checks next to the CGM reading" },
 ];
 
 export type SectionChoices = Record<SectionKey, boolean>;
@@ -307,7 +309,7 @@ function lowsTable(data: VisitSummaryData): string {
 }
 
 const STICK_REASON: Record<string, string> = {
-  seemed_off: "Dexcom seemed off",
+  seemed_off: "CGM seemed off",
   symptoms: "Had symptoms",
   before_dosing: "Before dosing",
   new_sensor: "New sensor",
@@ -323,8 +325,8 @@ function sticksTable(data: VisitSummaryData): string {
       return `<tr><td>${esc(fmtWeekday(f.timestamp))}</td><td class="t">${fmtTime(f.timestamp)}</td><td class="r b" style="color:${glucoseColor(f.glucose)}">${f.glucose}</td><td class="r">${f.cgmGlucose ?? dash}</td><td class="r">${diff == null ? dash : `${diff >= 0 ? "+" : ""}${diff}`}</td><td class="f">${esc(note)}</td></tr>`;
     })
     .join("");
-  const avg = data.sticks.avgDiff != null ? `<div class="tiny">On average the Dexcom was ${data.sticks.avgDiff} mg/dL off from the meter.</div>` : "";
-  return `<table class="log"><thead><tr><th>Day</th><th>Time</th><th class="r">Meter</th><th class="r">Dexcom</th><th class="r">Dexcom minus meter</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table>${avg}`;
+  const avg = data.sticks.avgDiff != null ? `<div class="tiny">On average the CGM was ${data.sticks.avgDiff} mg/dL off from the meter.</div>` : "";
+  return `<table class="log"><thead><tr><th>Day</th><th>Time</th><th class="r">Meter</th><th class="r">CGM</th><th class="r">CGM minus meter</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table>${avg}`;
 }
 
 function portalBox(meta: VisitSummaryMeta, portal?: VisitSummaryOptions["portal"]): string {
@@ -423,7 +425,7 @@ ${coverage}`;
     ? `<div class="page">
 <div class="top"><div><h2>${logTitle}</h2><div class="sub">${esc(meta.patientName)} · ${esc(range)}</div></div><div class="brand"><b>GLUCOSE GUARDIAN</b>${prepared}</div></div>
 ${logParts.join("\n")}
-<div class="ft"><span>Carbs, insulin, and finger sticks are what the family logged in Glucose Guardian. Glucose from Dexcom.</span><span>Estimates only. Does not replace medical advice.</span></div>
+<div class="ft"><span>Carbs, insulin, and finger sticks are what the family logged in Glucose Guardian. Glucose from the CGM.</span><span>Estimates only. Does not replace medical advice.</span></div>
 </div>`
     : "";
 
@@ -465,7 +467,7 @@ table.log tr.day td{background:#EEF3FF;font-weight:700;color:${C.blue};padding:4
 </style></head><body>
 <div class="top"><div><h1>${esc(meta.patientName)} · Visit Summary</h1><div class="sub">${esc(range)} · ${esc(who)}</div></div>
 <div class="brand"><b>GLUCOSE GUARDIAN</b>${prepared}</div></div>
-<div class="meta"><div>CGM<b>Dexcom</b></div><div>Sensor wear<b>${data.sensorWear}%</b></div><div>Readings<b>${(s?.count ?? 0).toLocaleString("en-US")}</b></div><div>Finger sticks vs CGM<b>${data.sticks.checks ? `${data.sticks.checks} check${data.sticks.checks === 1 ? "" : "s"}${data.sticks.avgDiff != null ? ` · avg ${data.sticks.avgDiff} off` : ""}` : "None logged"}</b></div></div>
+<div class="meta"><div>CGM<b>${esc(meta.cgmName || "CGM")}</b></div><div>Sensor wear<b>${data.sensorWear}%</b></div><div>Readings<b>${(s?.count ?? 0).toLocaleString("en-US")}</b></div><div>Finger sticks vs CGM<b>${data.sticks.checks ? `${data.sticks.checks} check${data.sticks.checks === 1 ? "" : "s"}${data.sticks.avgDiff != null ? ` · avg ${data.sticks.avgDiff} off` : ""}` : "None logged"}</b></div></div>
 
 ${portalBox(meta, opts.portal)}
 <h3>Glucose at a glance</h3>

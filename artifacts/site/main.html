@@ -1925,11 +1925,11 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="a-card nd-math"><div><span>Correct BG</span><b style="color: #5cb8ff">0.05 u</b><i>{{ns.bg}} mg/dL</i></div><em>+</em><div><span>Carb Dose</span><b style="color: var(--g-tx)">0 u</b><i>0 g</i></div><em>+</em><div><span>Active Carbs</span><b style="color: var(--o-tx)">0 u</b><i>0 g</i></div><em>−</em><div><span>Active Insulin</span><b style="color: #5cb8ff">1.2 u</b><i>1.2 u</i></div></div>
 <div class="a-card nd-card"><div class="nd-sug"><b>SUGGESTED DOSE</b><div class="nd-sb"><div class="a-dosebox">0 <small>units</small></div><span>Tap to edit</span></div></div>
 <div class="nd-btns"><span class="nd-alt">↗ Predict</span><span class="nd-alt">✓ I Just Took This Dose</span></div></div>
-<div class="a-card nd-pens"><div class="nd-ph"><b>PENS</b><span>History</span></div>
+<div class="a-card nd-pens"><div class="nd-ph"><b>MY INSULIN</b><span>History</span></div>
 <sc-for list="{{ns.pens}}" as="pn" hint-placeholder-count="2">
 <div class="nd-pen"><span class="nd-rw"><svg class="nd-ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="var(--a-line)" stroke-width="3.5"></circle><circle cx="18" cy="18" r="15" fill="none" stroke="{{pn.color}}" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="{{pn.dash}}" transform="rotate(-90 18 18)"></circle></svg><b class="nd-rn">{{pn.days}}</b></span><div class="nd-pt"><b>{{pn.name}}<span class="nd-loc">{{pn.loc}}</span></b><span style="color: {{pn.subColor}}">{{pn.sub}}</span></div><span class="a-chev">›</span></div>
 </sc-for>
-<span class="nd-start">+ Start new pen</span></div>
+<span class="nd-start">+ Start new insulin</span></div>
 <div class="a-card nd-disc">ⓘ This app provides estimates only and does not replace medical advice. Always follow your doctor's instructions.</div>
 </div>
 </sc-if>

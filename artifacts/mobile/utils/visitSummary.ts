@@ -111,9 +111,12 @@ export function glucoseStats(readings: SummaryReading[]): GlucoseStats | null {
   };
 }
 
-/** Percent of the window the sensor was reporting, assuming a reading every 5 minutes. */
-export function sensorWearPercent(count: number, startMs: number, endMs: number): number {
-  const expected = (endMs - startMs) / (5 * MINUTE);
+/**
+ * Percent of the window the sensor was reporting. Dexcom sends a reading every 5 minutes; FreeStyle
+ * Libre (through LibreLinkUp) every 15, so a Libre wearer isn't shown a third of their real wear.
+ */
+export function sensorWearPercent(count: number, startMs: number, endMs: number, minutesPerReading = 5): number {
+  const expected = (endMs - startMs) / (minutesPerReading * MINUTE);
   if (expected <= 0) return 0;
   return Math.min(100, Math.round((count / expected) * 100));
 }
@@ -573,6 +576,8 @@ export function buildVisitSummary(input: {
   insulin: SummaryInsulin[];
   sticks: SummaryStick[];
   accessLog: SummaryAccessLog[];
+  /** The connected CGM ("dexcom" / "libre"); sets the expected reading interval for sensor wear. */
+  provider?: string | null;
 }): VisitSummaryData {
   const endMs = input.endMs;
   const startMs = endMs - input.days * DAY_MS;
@@ -589,7 +594,7 @@ export function buildVisitSummary(input: {
     endMs,
     days: input.days,
     stats: glucoseStats(readings),
-    sensorWear: sensorWearPercent(readings.length, startMs, endMs),
+    sensorWear: sensorWearPercent(readings.length, startMs, endMs, input.provider === "libre" ? 15 : 5),
     pattern,
     lows,
     lowPattern: lowPattern(lows),

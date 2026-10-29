@@ -51,6 +51,9 @@ describe("sensor wear", () => {
   it("is readings over expected 5-minute readings, capped at 100", () => {
     expect(sensorWearPercent(144, 0, 86_400_000)).toBe(50);
     expect(sensorWearPercent(400, 0, 86_400_000)).toBe(100);
+    // FreeStyle Libre reports every 15 minutes: a full day is 96 readings, not 288.
+    expect(sensorWearPercent(96, 0, 86_400_000, 15)).toBe(100);
+    expect(sensorWearPercent(48, 0, 86_400_000, 15)).toBe(50);
   });
 });
 
@@ -203,7 +206,7 @@ describe("visit summary document", () => {
     expect(all).toContain("Insulin log (1 doses)");
     expect(all).toContain("Humalog");
     expect(all).toContain("before school");
-    expect(all).toContain("Dexcom seemed off");
+    expect(all).toContain("CGM seemed off");
     expect(all).toContain("+11");
     expect(all).toContain("Daily pattern by time of day");
     const lean = buildVisitSummaryHtml(data, meta, { sections: { pattern: false, eachDay: false, meals: false, insulin: false, lows: false, sticks: false } });

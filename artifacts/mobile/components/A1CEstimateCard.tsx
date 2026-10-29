@@ -26,6 +26,7 @@ import {
   a1cLabel,
   a1cReadiness,
   estimateA1C,
+  inferProviderFromReadings,
   rangeCutoffMs,
   sensorWearPct,
   type A1cRange,
@@ -140,10 +141,12 @@ export default function A1CEstimateCard({ embedded = false }: { embedded?: boole
     const pctLow = Math.round((agg.lowCount / agg.count) * 100);
     const a1c = estimateA1C(avg);
     const availableDays = availableDaysFromOldest(agg.oldestTimestamp, Date.now(), timeRange);
-    const wear = sensorWearPct(agg.count, availableDays, cgmConnection?.type);
+    // A co-guardian's phone has no CGM of its own: tell Dexcom from Libre by the readings' spacing.
+    const provider = cgmConnection?.type ?? inferProviderFromReadings(history.map((r) => r.timestamp));
+    const wear = sensorWearPct(agg.count, availableDays, provider);
     const readiness = a1cReadiness(availableDays, wear);
     return { avg, tir, pctLow, a1c, availableDays, wear, readiness };
-  }, [timeRange, remoteRangeStats, rangeReadings, cgmConnection?.type]);
+  }, [timeRange, remoteRangeStats, rangeReadings, cgmConnection?.type, history]);
 
   // Read-only access-code sessions (accountless caregiver / kid) never saw this section.
   if (caregiverSession) return null;

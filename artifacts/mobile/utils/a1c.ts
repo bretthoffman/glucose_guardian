@@ -50,6 +50,27 @@ export function readingsPerDay(provider: string | null | undefined): number {
   return provider === "libre" ? 96 : 288;
 }
 
+/**
+ * The CGM behind a set of readings, from how far apart they are: Dexcom about every 5 minutes, Libre
+ * (LibreLinkUp history) about every 15. For a phone that has no CGM of its own connected, like a
+ * co-guardian's. Null when there are too few readings to tell.
+ */
+export function inferProviderFromReadings(timestamps: readonly string[]): "dexcom" | "libre" | null {
+  const ms = timestamps
+    .map((t) => new Date(t).getTime())
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => a - b);
+  const gaps: number[] = [];
+  for (let i = 1; i < ms.length; i++) {
+    const g = (ms[i]! - ms[i - 1]!) / 60_000;
+    if (g > 0.5 && g < 60) gaps.push(g); // ignore duplicates and sensor-off stretches
+  }
+  if (gaps.length < 6) return null;
+  gaps.sort((a, b) => a - b);
+  const median = gaps[Math.floor(gaps.length / 2)]!;
+  return median > 10 ? "libre" : "dexcom";
+}
+
 /** Percent of the time the sensor was sending readings over `days` (capped at 100). */
 export function sensorWearPct(count: number, days: number, provider: string | null | undefined): number {
   if (days <= 0) return 0;

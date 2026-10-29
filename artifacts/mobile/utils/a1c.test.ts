@@ -9,8 +9,7 @@ import {
   rangeCutoffMs,
   rangePhrase,
   readingsPerDay,
-  sensorWearPct,
-} from "./a1c";
+  sensorWearPct, inferProviderFromReadings } from "./a1c";
 
 describe("Estimated-A1C ranges", () => {
   it("only offers windows an A1C estimate needs (14+ days), defaulting to 90", () => {
@@ -60,5 +59,20 @@ describe("labels and copy", () => {
   it("copy never has long dashes", () => {
     expect(a1cInsight(6)).not.toContain("—");
     expect(a1cInsight(9)).not.toContain("—");
+  });
+});
+
+describe("inferProviderFromReadings", () => {
+  const series = (n: number, minutes: number) =>
+    Array.from({ length: n }, (_, i) => new Date(Date.UTC(2026, 9, 29, 0, 0) + i * minutes * 60_000).toISOString());
+  it("tells Dexcom (5 min) from Libre (15 min) by spacing", () => {
+    expect(inferProviderFromReadings(series(20, 5))).toBe("dexcom");
+    expect(inferProviderFromReadings(series(20, 15))).toBe("libre");
+  });
+  it("ignores sensor gaps and duplicates, and needs enough readings", () => {
+    const withGap = [...series(10, 5), ...series(10, 5).map((t) => new Date(new Date(t).getTime() + 6 * 3_600_000).toISOString())];
+    expect(inferProviderFromReadings(withGap)).toBe("dexcom");
+    expect(inferProviderFromReadings(series(4, 15))).toBeNull();
+    expect(inferProviderFromReadings([])).toBeNull();
   });
 });
