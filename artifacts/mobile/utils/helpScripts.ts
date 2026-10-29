@@ -18,7 +18,7 @@ export type HelpStep = {
   effects?: readonly string[];
 };
 
-export type HelpPageId = "home" | "insulin" | "food" | "chat";
+export type HelpPageId = "home" | "insulin" | "food" | "chat" | "dashboard";
 
 /** Every effect a script may carry — pages switch on these; the test pins the set. */
 export const HELP_EFFECTS = ["insulin.logTab"] as const;
@@ -43,7 +43,7 @@ const home: HelpStep[] = [
     anchor: "home.cgmChip",
     title: "Your CGM connection",
     text:
-      "This chip is the sensor link to your Dexcom. Green means connected, and it shows how many new readings arrived and when. If it ever says attention is needed, tapping it opens the connection screen where you can sign in again or switch devices.",
+      "This chip is the link to your CGM, Dexcom or FreeStyle Libre. Green means connected, and it shows how many new readings arrived and when. If it ever says attention is needed, tapping it opens the connection screen where you can sign in again or switch devices.",
   },
   {
     id: "home.logsBtn",
@@ -175,7 +175,7 @@ const insulin: HelpStep[] = [
     anchor: "insulin.log.events",
     title: "Event Log",
     text:
-      "Every entry for the day, insulin and meals together, newest first. Tap an entry to see its details, and to edit or delete it if your role allows.",
+      "Every entry for the day, insulin and meals together, newest first. Tap an entry to see its details, and to edit or delete it if your role allows. When you edit the time, spin the wheel to the right hour and minute.",
     effects: ["insulin.logTab"],
   },
   {
@@ -183,7 +183,7 @@ const insulin: HelpStep[] = [
     anchor: "insulin.log.add",
     title: "Add Entry",
     text:
-      "Log something after the fact onto whichever day you're viewing: an insulin dose, a meal, or a finger stick. A finger stick shows next to the Dexcom reading from the same time, so you can see how close the sensor was.",
+      "Log something after the fact onto whichever day you're viewing: an insulin dose, a meal, or a finger stick. Tap the time and spin the hour, minute and AM or PM, like the iPhone alarm. A finger stick shows next to the CGM reading from the same time, so you can see how close the sensor was.",
     effects: ["insulin.logTab"],
   },
 ];
@@ -215,6 +215,13 @@ const food: HelpStep[] = [
     title: "Estimate Carbs",
     text:
       "Runs the lookup for what you typed. The result card shows the carbs (tap the number to correct it), a spike forecast, and buttons to calculate insulin for it or log it as a meal. Tap the heart to add it to your Favorites.",
+  },
+  {
+    id: "food.mealTip",
+    anchor: "food.mealTip",
+    title: "A tip from your own pattern",
+    text:
+      "If this meal went over 250 within a couple of hours more than once before, a tip shows here with one-tap protein ideas. Tapping one adds it, with its carbs, to the meal. Tips are ideas, not rules, at most one a day, and parents choose who sees them in Dashboard, A1C.",
   },
   {
     id: "food.quick",
@@ -261,13 +268,61 @@ const chat: HelpStep[] = [
   },
 ];
 
-export const HELP_SCRIPTS: Record<HelpPageId, HelpStep[]> = { home, insulin, food, chat };
+/**
+ * The Dashboard tour runs as soon as Help is turned on (the Help button lives here). Steps anchor on
+ * whole groups, so a role that doesn't see a group simply skips its step.
+ */
+const dashboard: HelpStep[] = [
+  {
+    id: "dashboard.profile",
+    anchor: "dashboard.profile",
+    title: "Photo and settings",
+    text:
+      "Tap here for Settings: change the photo, edit the profile, choose Light or Dark, check for updates, or sign out. The photo a parent picks shows on every phone in the care circle, including grandparents, the school nurse and Child Mode.",
+  },
+  {
+    id: "dashboard.glucose",
+    anchor: "dashboard.glucose",
+    title: "Glucose and dosing",
+    text:
+      "Insulin Settings holds the carb ratio, target, correction factor, time-of-day overrides, and which insulins you use as a pen or a vial. Activity Log lists every entry. A1C estimates A1C from the last 14, 30 or 90 days of sensor readings and shows how much the sensor was worn. In A1C you can also add lab results by snapping a photo of the report or typing them in, see Ways to help, and choose who sees meal tips.",
+  },
+  {
+    id: "dashboard.alerts",
+    anchor: "dashboard.alerts",
+    title: "Alerts",
+    text:
+      "Notifications sets which alerts this phone shows. Alert Thresholds sets the low and high lines used for alerts, the graph and its colors. Emergency Contacts are the people a one-tap emergency text goes to.",
+  },
+  {
+    id: "dashboard.care",
+    anchor: "dashboard.care",
+    title: "Care Team",
+    text:
+      "Care Circle is where you invite a co-guardian and make access codes for grandparents, sitters or the school nurse. For the nurse you can set school hours by spinning the time wheel. Doctor Office connects your doctor's portal so they see the same numbers.",
+  },
+  {
+    id: "dashboard.childSafety",
+    anchor: "dashboard.childSafety",
+    title: "Child View Mode",
+    text: "Turn this on when your child uses this phone. Settings are hidden so nothing important can be changed by accident.",
+  },
+  {
+    id: "dashboard.whatsNew",
+    anchor: "dashboard.whatsNew",
+    title: "What's new",
+    text: "Every update and what it added, newest first. After this, tap any tab below to tour that page.",
+  },
+];
 
-/** Route pathname → script page (expo-router tabs). The Dashboard deliberately has NO script yet. */
+export const HELP_SCRIPTS: Record<HelpPageId, HelpStep[]> = { home, insulin, food, chat, dashboard };
+
+/** Route pathname → script page (expo-router tabs). */
 export const HELP_PAGE_FOR_PATH: Record<string, HelpPageId> = {
   "/": "home",
   "/index": "home",
   "/insulin": "insulin",
   "/food": "food",
   "/chat": "chat",
+  "/dashboard": "dashboard",
 };

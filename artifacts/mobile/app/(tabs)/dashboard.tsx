@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -57,7 +57,7 @@ import {
 } from "@/services/notifications";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
-import { useHelp, useHelpPage } from "@/context/HelpContext";
+import { useHelp, useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 import {
   MEAL_BUCKETS,
   MEAL_BUCKET_HOURS,
@@ -211,6 +211,21 @@ export default function DashboardScreen() {
   // Help Mode: entered here; the Dashboard itself has no tour yet (the button lives here), so being
   // on this page shows the overlay's idle "open a page below" card.
   useHelpPage();
+  // Help Mode's Dashboard tour: one spotlight per group (a group the role can't see is skipped).
+  const dashScrollRef = useRef<ScrollView>(null);
+  const dashHelpScroll = useHelpScroll("dashboard", dashScrollRef);
+  const helpProfile = useHelpAnchor("dashboard.profile");
+  const helpGlucose = useHelpAnchor("dashboard.glucose");
+  const helpAlerts = useHelpAnchor("dashboard.alerts");
+  const helpCare = useHelpAnchor("dashboard.care");
+  const helpChildSafety = useHelpAnchor("dashboard.childSafety");
+  const helpWhatsNew = useHelpAnchor("dashboard.whatsNew");
+  const groupAnchor: Record<string, (node: View | null) => void> = {
+    "Glucose & Dosing": helpGlucose,
+    "Alerts & Notifications": helpAlerts,
+    "Care Team": helpCare,
+    "Child Safety": helpChildSafety,
+  };
   const { enterHelp } = useHelp();
   // Manage Logs popup: paginated view of the full activity log. logsVisibleCount resets on open so
   // nothing loaded stays around after close.
@@ -670,6 +685,8 @@ export default function DashboardScreen() {
       {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
       <ScreenShade />
       <ScrollView
+        ref={dashScrollRef}
+        {...dashHelpScroll}
         scrollEnabled={openSection === null}
         contentContainerStyle={[styles.scroll, { paddingTop: topPadding + 12, paddingBottom: bottomPadding + 80 }]}
         showsVerticalScrollIndicator={false}
@@ -703,7 +720,7 @@ export default function DashboardScreen() {
               <Text style={[styles.helpBtnText, { color: colors.text }]} maxFontSizeMultiplier={1.2}>Help</Text>
             )}
           </Pressable>
-          <View style={styles.profileChipWrap}>
+          <View style={styles.profileChipWrap} ref={helpProfile} collapsable={false}>
             <ProfileChip
               colors={colors}
               canEdit={!caregiverSession && !doctorSession && !isChildMode}
@@ -842,7 +859,7 @@ export default function DashboardScreen() {
           caregiverViewingChild: isCaregiverViewingChild,
           hasLogEntries: combinedEntries.length > 0,
         }).map((group) => (
-          <DashboardGroup key={group.title} title={group.title} colors={colors}>
+          <DashboardGroup key={group.title} title={group.title} colors={colors} anchorRef={groupAnchor[group.title]}>
             {group.rows.map((row, i) => {
               const last = i === group.rows.length - 1;
               const common = { title: row.title, icon: SECTION_ICONS[row.key], color: SECTION_COLORS[row.key], colors, last };
@@ -876,7 +893,7 @@ export default function DashboardScreen() {
         ))}
 
         {/* App updates — open to every session type. Lives outside the role-gated groups on purpose. */}
-        <DashboardGroup title="App" colors={colors}>
+        <DashboardGroup title="App" colors={colors} anchorRef={helpWhatsNew}>
           <DashboardRow
             title="What's new"
             icon="gift"

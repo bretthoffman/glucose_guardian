@@ -15,9 +15,20 @@ import { CardShade } from "@/components/Shade";
 
 type Palette = (typeof Colors)["light"];
 
-export function DashboardGroup({ title, colors, children }: { title: string; colors: Palette; children: React.ReactNode }) {
+export function DashboardGroup({
+  title,
+  colors,
+  children,
+  anchorRef,
+}: {
+  title: string;
+  colors: Palette;
+  children: React.ReactNode;
+  /** Help Mode spotlight anchor (useHelpAnchor) for the whole group. */
+  anchorRef?: (node: View | null) => void;
+}) {
   return (
-    <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View ref={anchorRef} collapsable={false} style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <CardShade radius={16} />
       <View style={[styles.groupHeader, { borderBottomColor: colors.border }]}>
         <Text style={[styles.groupTitle, { color: colors.text }]}>{title}</Text>

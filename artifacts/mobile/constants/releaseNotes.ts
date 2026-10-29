@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-29b",
+    date: "2026-10-29",
+    items: [
+      {
+        icon: "help-circle",
+        title: "Help covers everything new",
+        body: "Tap Help on the Dashboard for a tour of it, including A1C, lab results and the shared photo. Each tab's tour now covers the newest features too.",
+      },
+    ],
+  },
+  {
     id: "2026-10-29",
     date: "2026-10-29",
     items: [

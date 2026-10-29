@@ -21,7 +21,10 @@ export default function MealTipCard({
   proteinGrams,
   colors,
   onAdd,
+  anchorRef,
 }: {
+  /** Help Mode spotlight anchor; attached only while a tip is showing, so the step skips otherwise. */
+  anchorRef?: (node: View | null) => void;
   foodName: string;
   proteinGrams?: number;
   colors: Palette;
@@ -91,7 +94,7 @@ export default function MealTipCard({
 
   if (!tip) return null;
   return (
-    <View style={[styles.card, { borderColor: COLORS.success + "59", backgroundColor: COLORS.success + "14" }]}>
+    <View ref={anchorRef} collapsable={false} style={[styles.card, { borderColor: COLORS.success + "59", backgroundColor: COLORS.success + "14" }]}>
       <View style={styles.head}>
         <Feather name="sun" size={15} color={COLORS.success} />
         <Text style={[styles.label, { color: COLORS.success }]}>A TIP FROM {name ? `${name.toUpperCase()}'S` : "YOUR"} PATTERN</Text>

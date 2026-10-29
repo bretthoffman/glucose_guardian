@@ -83,6 +83,8 @@ Plus the artifact you touched:
 
 **Every OTA a user could notice gets a "What's new" entry** at the TOP of `artifacts/mobile/constants/releaseNotes.ts` (new unique `id`, plain patient-friendly words, no em dashes), committed in the same push as the change. The app combines every note a device hasn't seen into one sheet, so someone who skipped several updates sees them all at once. Never edit or reorder older entries; to announce something that missed its note, add a NEW top entry. Pure bug fixes nobody would notice are the only exception.
 
+**Every such update also updates Help Mode** (`artifacts/mobile/utils/helpScripts.ts`), in the same push. Help Mode must always explain what the app can do now: add a step for anything new (with a `useHelpAnchor` on the element it spotlights) and fix any step whose wording changed (device names, renamed buttons, new controls). One tour per tab page, the Dashboard included; steps whose element isn't on screen are skipped automatically, so it is fine to cover conditional UI. Plain patient-friendly words, no em dashes.
+
 Env note: the `EXPO_PUBLIC_*` values in `artifacts/mobile/.env` are **inlined into the OTA bundle at publish time**. Never point them at a different backend before publishing.
 
 ## 5. Shipping api / portal / site changes

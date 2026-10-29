@@ -2,9 +2,17 @@ import { describe, expect, it } from "vitest";
 import { HELP_EFFECTS, HELP_PAGE_FOR_PATH, HELP_SCRIPTS } from "./helpScripts";
 
 describe("help walkthrough scripts", () => {
-  it("covers the four tab pages (and deliberately not the dashboard)", () => {
-    expect(Object.keys(HELP_SCRIPTS).sort()).toEqual(["chat", "food", "home", "insulin"]);
-    expect(Object.values(HELP_PAGE_FOR_PATH)).not.toContain("dashboard");
+  it("covers every tab page, the Dashboard included", () => {
+    expect(Object.keys(HELP_SCRIPTS).sort()).toEqual(["chat", "dashboard", "food", "home", "insulin"]);
+    expect(HELP_PAGE_FOR_PATH["/dashboard"]).toBe("dashboard");
+  });
+
+  it("explains what recent updates added", () => {
+    const all = Object.values(HELP_SCRIPTS).flat().map((s) => s.text).join(" ");
+    for (const phrase of ["FreeStyle Libre", "spin", "lab results", "pen or a vial", "meal tips", "photo a parent picks"]) {
+      expect(all).toContain(phrase);
+    }
+    expect(all).not.toMatch(/\u2014/); // no em dashes in app wording
   });
 
   it("every step is complete and ids are globally unique", () => {

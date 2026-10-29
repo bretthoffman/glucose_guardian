@@ -359,6 +359,7 @@ export default function FoodScreen() {
   const helpEstimate = useHelpAnchor("food.estimate");
   const helpQuick = useHelpAnchor("food.quick");
   const helpSeeAll = useHelpAnchor("food.seeAll");
+  const helpMealTip = useHelpAnchor("food.mealTip");
   // Camera screen (barcode detection + shutter) and the barcode lookup it drives.
   const [scannerOpen, setScannerOpen] = useState(false);
   const [barcodeLookup, setBarcodeLookup] = useState<BarcodeLookupState>("idle");
@@ -1112,6 +1113,7 @@ export default function FoodScreen() {
                 foodName={result.foodName}
                 proteinGrams={result.proteinGrams}
                 colors={colors}
+                anchorRef={helpMealTip}
                 onAdd={
                   logged
                     ? undefined

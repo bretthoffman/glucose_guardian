@@ -168,11 +168,18 @@ export function HelpProvider({ children }: { children: React.ReactNode }) {
     void activate(tour.page, next);
   }, [tour, activate, clearTour]);
 
+  // The page the user is on (reported by useHelpPage), so Help can start that page's tour.
+  const lastPath = useRef<string | null>(null);
+
   const enterHelp = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setHelpMode(true);
     clearTour();
-  }, [clearTour]);
+    // The Help button lives on the Dashboard, so turning Help on starts the page you're on (the
+    // Dashboard tour); its last step points to the tabs below.
+    const page = lastPath.current ? HELP_PAGE_FOR_PATH[lastPath.current] : undefined;
+    if (page) startTour(page);
+  }, [clearTour, startTour]);
 
   const exitHelp = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -183,7 +190,6 @@ export function HelpProvider({ children }: { children: React.ReactNode }) {
   // Route changes drive tours: landing on a scripted page starts (or restarts) its tour from the
   // top; landing anywhere else (Dashboard) drops back to the idle card. Pages report their path
   // through useHelpPage so this works without a navigation-container dependency.
-  const lastPath = useRef<string | null>(null);
   const _reportPath = useCallback(
     (path: string) => {
       if (lastPath.current === path) return;
@@ -195,8 +201,6 @@ export function HelpProvider({ children }: { children: React.ReactNode }) {
     },
     [helpMode, startTour, clearTour],
   );
-  // Entering help mode while already sitting on a scripted page (deep link edge) does nothing —
-  // the Help button lives on the Dashboard, and the first tab press from there starts the tour.
 
   const isTouring = useCallback((page: HelpPageId) => helpMode && tour?.page === page, [helpMode, tour?.page]);
 
