@@ -56,7 +56,62 @@ interface ChatRequestBody {
     localTime?: string;
     localWeekday?: string;
     localHour?: number;
+    /** The app's best guess at who's with the child (utils/careNow on the phone). */
+    careNow?: {
+      lastLog?: { by: string; byYou: boolean; minutesAgo: number; what: string };
+      scheduledNow?: { name: string; until?: string }[];
+    };
   };
+}
+
+function minutesPhrase(m: number): string {
+  if (m < 2) return "just now";
+  if (m < 60) return `${m} minutes ago`;
+  const h = Math.round((m / 60) * 10) / 10;
+  return `${h} hour${h === 1 ? "" : "s"} ago`;
+}
+
+/**
+ * Who is probably with the child right now, from who logged last (the strongest sign) and which
+ * Care Circle schedules are open (school hours). Guidance differs by who is typing: a guardian gets
+ * "I see she's with Holly" / "Is she still with grandma?"; the caregiver doing the care is simply
+ * talked to as the person with the child.
+ */
+export function buildCareNowSection(ctx: ChatRequestBody["context"], name: string, guardianSpeaker: boolean): string {
+  const care = ctx.careNow;
+  if (!care) return "";
+  const last = care.lastLog;
+  const scheduled = (care.scheduledNow ?? []).filter((s) => s?.name);
+  const lines: string[] = [];
+  if (last && !last.byYou) {
+    lines.push(`• Last log: ${last.by} logged ${last.what} ${minutesPhrase(last.minutesAgo)}.`);
+  } else if (last?.byYou) {
+    lines.push(`• Last log: the person you're talking with logged ${last.what} ${minutesPhrase(last.minutesAgo)}.`);
+  }
+  if (scheduled.length) {
+    lines.push(
+      `• Care Circle schedule open right now: ${scheduled.map((s) => `${s.name}${s.until ? ` (until ${s.until})` : ""}`).join(", ")}.`,
+    );
+  }
+  if (lines.length === 0) return "";
+
+  let guidance: string;
+  if (!guardianSpeaker) {
+    guidance = `The person typing is the one with ${name} right now (or is ${name}). Talk to them directly and never ask who ${name} is with. Use the last log only as information (for example, insulin someone else already gave).`;
+  } else if (last && !last.byYou && last.minutesAgo <= 60) {
+    guidance = `${name} is most likely with ${last.by} right now, since they logged last and recently. When it helps the answer, say it naturally ("I see ${name}'s with ${last.by.split(" (")[0]} right now") and suggest what ${last.by.split(" (")[0]} could do, which they can ask through the Messages button if they haven't already. Don't mention it on small talk.`;
+  } else if (last && !last.byYou && last.minutesAgo <= 240) {
+    guidance = `${name} may still be with ${last.by}, but that log is getting old. If it matters for the answer, ask once and lightly ("Is ${name} still with ${last.by.split(" (")[0]}?"), and never ask again in the same conversation.`;
+  } else if (scheduled.length) {
+    guidance = `Nobody else has logged recently, but ${scheduled.map((s) => s.name).join(" or ")} ${scheduled.length === 1 ? "is" : "are"} scheduled right now, so ${name} is probably with them (school hours, for example). Mention it only when it helps, and suggest messaging them through the Messages button.`;
+  } else {
+    guidance = `Assume ${name} is with the person you're talking with unless they say otherwise.`;
+  }
+  return `
+
+WHO'S WITH ${name.toUpperCase()} (the app's best guess, never certain; say "I see" or "looks like", never state it as fact):
+${lines.join("\n")}
+• ${guidance}`;
 }
 
 type DayPart = "overnight" | "morning" | "daytime" | "evening";
@@ -277,6 +332,7 @@ ${list}`;
 
   const liveSection = buildLiveCgmSection(ctx, speakingToParent ? `${name}'s` : "your");
   const timeSection = timeOfDaySection(ctx, name, speakingToParent);
+  const careNowSection = buildCareNowSection(ctx, name, speakingToParent && !isCaregiverSpeaker);
 
   let recentTrend = "";
   if (ctx.recentReadings && ctx.recentReadings.length >= 3) {
@@ -412,7 +468,7 @@ YOUR CORE PERSONALITY:
 - PUNCTUATION: Never use dashes between words or clauses (no "—", no "–", no " - "). Use a period or a comma instead. Hyphenated words like "fast-acting" are fine.
 
 CURRENT HEALTH SNAPSHOT:
-${glucoseStatus ? `• ${glucoseStatus}` : "• No glucose reading available yet — ask them to sync"}${liveSection}${timeSection}
+${glucoseStatus ? `• ${glucoseStatus}` : "• No glucose reading available yet — ask them to sync"}${liveSection}${timeSection}${careNowSection}
 ${recentTrend ? `• ${recentTrend}` : ""}
 ${ctx.trendLabel ? `• Trend: ${ctx.trendLabel} ${ctx.trendArrow ?? ""}` : ""}
 ${ctx.anomalyWarning && ctx.anomalyMessage ? `• ⚠️ Active alert: ${ctx.anomalyMessage}` : ""}

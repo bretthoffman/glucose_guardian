@@ -38,6 +38,11 @@ import { capFirst } from "@/utils/capitalize";
 import ChatHistoryModal from "@/components/ChatHistoryModal";
 import { loadChatDay, saveChatMessages, useChatOwner } from "@/hooks/useChatHistory";
 import { chatDayKey } from "@/utils/chatHistory";
+import { buildCareNow } from "@/utils/careNow";
+import { useQuery } from "convex/react";
+import { api } from "@/utils/convex-auth-client";
+import type { Id } from "../../../../convex/_generated/dataModel";
+import type { CareAccess } from "../../../../convex/careSchedule";
 
 interface Message {
   id: string;
@@ -187,7 +192,17 @@ export default function ChatScreen() {
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
   const { history, latestReading, carbRatio, targetGlucose, correctionFactor } = useGlucose();
-  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession, doctorSession, doctorMessages, markDoctorMessagesRead, foodLog, insulinLog, accessCodeRole, accessCodePermissions, viewingPatientId, nurseViewCode, ownParentName } = useAuth();
+  const { profile, ageYears, alertPrefs, isChildMode, caregiverSession, doctorSession, doctorMessages, markDoctorMessagesRead, foodLog, insulinLog, fingerStickLog, accessCodeRole, accessCodePermissions, viewingPatientId, nurseViewCode, ownParentName, account, isSignedIn, caregiverCloudCode } = useAuth();
+  // ── Who's with the child (utils/careNow): family accounts load the circle's access codes so the
+  // assistant knows the nurse's school hours; everyone sends who logged last. ──
+  const myUserId = (account?.convexUserId as Id<"users"> | undefined) ?? null;
+  const familyAccount = isSignedIn && !!myUserId && !caregiverSession && !doctorSession;
+  const careMemberships = useQuery(api.careCircle.myMemberships, familyAccount ? {} : "skip");
+  const careAnchor = ((careMemberships?.[0]?.patientUserId as Id<"users"> | undefined) ?? myUserId) as Id<"users"> | null;
+  const careCircleData = useQuery(
+    api.careCircle.getCircle,
+    familyAccount && careMemberships !== undefined && careAnchor ? { patientUserId: careAnchor } : "skip",
+  );
   // A child/caregiver access-code session only sees the AI chat if the parent enabled it.
   const chatLocked = accessCodeRole != null && !accessCodePermissions?.chat;
   const { prompt, fromParent } = useLocalSearchParams<{ prompt?: string; fromParent?: string }>();
@@ -429,6 +444,20 @@ export default function ChatScreen() {
             localTime: new Date(nowMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
             localWeekday: new Date(nowMs).toLocaleDateString([], { weekday: "long" }),
             localHour: new Date(nowMs).getHours(),
+            careNow: buildCareNow({
+              logs: [
+                ...(insulinLog ?? []).map((e) => ({ timestamp: e.timestamp, what: "insulin", authorName: e.authorName, authorUserId: e.authorUserId, authorCode: e.authorCode })),
+                ...(foodLog ?? []).map((f) => ({ timestamp: f.timestamp, what: "a meal", authorName: f.authorName, authorUserId: f.authorUserId, authorCode: f.authorCode })),
+                ...(fingerStickLog ?? []).map((f) => ({ timestamp: f.timestamp, what: "a finger stick", authorName: f.authorName, authorUserId: f.authorUserId, authorCode: f.authorCode })),
+              ],
+              helpers: ((careCircleData?.accessCodes ?? []) as { label: string; access: CareAccess; kind?: "caregiver" | "child" }[]).map((c) => ({
+                name: c.label,
+                access: c.access,
+                kind: c.kind,
+              })),
+              me: { userId: myUserId, code: caregiverCloudCode },
+              nowMs,
+            }),
           },
         }),
       });

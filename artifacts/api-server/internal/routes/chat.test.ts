@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildLiveCgmSection, buildSystemPrompt, dayPart, localTimeOfDay } from "./chat";
+import { buildCareNowSection, buildLiveCgmSection, buildSystemPrompt, dayPart, localTimeOfDay } from "./chat";
 
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 
@@ -89,5 +89,40 @@ describe("chat time of day", () => {
     expect(p).toContain("probably asleep");
     expect(p).toContain("okay to go back to sleep");
     expect(p).toContain("MATCH THE MESSAGE");
+  });
+});
+
+describe("chat knows who's with the child", () => {
+  const holly = { by: "Holly (school nurse)", byYou: false, what: "insulin" };
+
+  it("a recent log by the nurse: 'I see she's with Holly right now'", () => {
+    const s = buildCareNowSection({ ...ctx, careNow: { lastLog: { ...holly, minutesAgo: 25 }, scheduledNow: [{ name: "Holly (school nurse)", until: "2:30 PM" }] } }, "Bella", true);
+    expect(s).toContain("Holly (school nurse) logged insulin 25 minutes ago");
+    expect(s).toContain("most likely with Holly (school nurse)");
+    expect(s).toContain("I see Bella's with Holly right now");
+    expect(s).toContain("until 2:30 PM");
+  });
+
+  it("an older log by grandma: ask once, lightly", () => {
+    const s = buildCareNowSection({ ...ctx, careNow: { lastLog: { by: "Grandma", byYou: false, what: "a meal", minutesAgo: 95 } } }, "Bella", true);
+    expect(s).toContain("Is Bella still with Grandma?");
+    expect(s).toContain("never ask again in the same conversation");
+  });
+
+  it("grandma chatting herself: talk to her, never ask who Bella is with", () => {
+    const s = buildCareNowSection({ ...ctx, careNow: { lastLog: { by: "Grandma", byYou: true, what: "a meal", minutesAgo: 10 } } }, "Bella", false);
+    expect(s).toContain("The person typing is the one with Bella");
+    expect(s).not.toContain("still with");
+  });
+
+  it("nobody logged lately but school is in: probably with the nurse", () => {
+    const s = buildCareNowSection({ ...ctx, careNow: { scheduledNow: [{ name: "Holly (school nurse)", until: "2:30 PM" }] } }, "Bella", true);
+    expect(s).toContain("probably with them");
+  });
+
+  it("says nothing when there's nothing to go on, and rides in the prompt otherwise", () => {
+    expect(buildCareNowSection({ ...ctx, careNow: { scheduledNow: [] } }, "Bella", true)).toBe("");
+    const p = buildSystemPrompt({ ...ctx, careNow: { lastLog: { ...holly, minutesAgo: 25 } } });
+    expect(p).toContain("WHO'S WITH BELLA");
   });
 });

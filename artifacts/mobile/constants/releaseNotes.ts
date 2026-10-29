@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-29f",
+    date: "2026-10-29",
+    items: [
+      {
+        icon: "users",
+        title: "Chat knows who's with your child",
+        body: "The assistant goes by who logged last, like the school nurse or grandma, and can suggest messaging them. When they're the ones chatting, it just talks with them.",
+      },
+    ],
+  },
+  {
     id: "2026-10-29e",
     date: "2026-10-29",
     items: [
