@@ -53,6 +53,9 @@ describe("chat live CGM context", () => {
     expect(p).toContain("YOU CAN SEE THE NUMBERS");
     expect(p).toContain("never ask for the current number or arrow");
     expect(p).toContain("BE SPECIFIC, NEVER GENERIC");
+    // Caregiver and friend, not a pamphlet.
+    expect(p).toContain("Part caregiver, part friend");
+    expect(p).toContain("Sound like a real person");
     expect(p).toContain("Lowest was 64");
     // Safety rules are unchanged.
     expect(p).toContain("For falling glucose: never suggest insulin");
