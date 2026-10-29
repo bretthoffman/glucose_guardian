@@ -376,6 +376,10 @@ export default function ChatScreen() {
             recentInsulinLog,
             recentFoodLog,
             readingsHistory,
+            // The phone's clock, so answers fit the time of day (2am vs. after school).
+            localTime: new Date(nowMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+            localWeekday: new Date(nowMs).toLocaleDateString([], { weekday: "long" }),
+            localHour: new Date(nowMs).getHours(),
           },
         }),
       });

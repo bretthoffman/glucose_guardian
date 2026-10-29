@@ -52,7 +52,62 @@ interface ChatRequestBody {
       glucose: number;
       time: string;
     }[];
+    /** The phone's local clock when the message was sent, e.g. "4:27 AM" / "Thursday" / 4. */
+    localTime?: string;
+    localWeekday?: string;
+    localHour?: number;
   };
+}
+
+type DayPart = "overnight" | "morning" | "daytime" | "evening";
+
+/**
+ * The person's local time of day. Newer apps send it; older apps only send device-local labels on
+ * the 24h history (~20-minute resolution), whose newest same-day label is close enough to tell night
+ * from day.
+ */
+export function localTimeOfDay(ctx: ChatRequestBody["context"]): { hour: number; label: string; weekday?: string; exact: boolean } | null {
+  if (Number.isFinite(ctx.localHour) && ctx.localHour! >= 0 && ctx.localHour! < 24) {
+    return { hour: Math.floor(ctx.localHour!), label: ctx.localTime?.trim() || `${ctx.localHour}:00`, weekday: ctx.localWeekday?.trim() || undefined, exact: true };
+  }
+  const last = [...(ctx.readingsHistory ?? [])].reverse().find((r) => r?.time && !/^yesterday/i.test(r.time));
+  const m = last?.time.match(/(\d{1,2}):(\d{2})\s*([AaPp])?/);
+  if (!m) return null;
+  let hour = parseInt(m[1]!, 10);
+  const ap = m[3]?.toLowerCase();
+  if (ap === "p" && hour !== 12) hour += 12;
+  if (ap === "a" && hour === 12) hour = 0;
+  if (hour > 23) return null;
+  return { hour, label: `around ${last!.time}`, exact: false };
+}
+
+export function dayPart(hour: number): DayPart {
+  if (hour >= 22 || hour < 6) return "overnight";
+  if (hour < 9) return "morning";
+  if (hour < 17) return "daytime";
+  return "evening";
+}
+
+function timeOfDaySection(ctx: ChatRequestBody["context"], name: string, speakingToParent: boolean): string {
+  const t = localTimeOfDay(ctx);
+  if (!t) return "";
+  const part = dayPart(t.hour);
+  const when = `${t.exact ? "" : "about "}${t.label}${t.weekday ? ` on ${t.weekday}` : ""}`;
+  const them = speakingToParent ? name : "they";
+  const guidance: Record<DayPart, string> = {
+    overnight: speakingToParent
+      ? `It's the middle of the night. The person you're talking with was probably woken up, is tired and worried, and ${name} is probably asleep. Keep it calm and short. Give the next check as a clock time ("check again around 4:50"). Once the numbers are safe and steady, tell them plainly it's okay to go back to sleep and what would be worth waking for (dropping under 70 or a down arrow), and to keep their low alert on. Don't suggest waking ${name} to eat unless ${name} needs carbs for a low. Long-acting (basal) insulin keeps working overnight, and many people drift up in the early morning hours (around 3 to 8 AM).`
+      : `It's the middle of the night, so they were probably woken up and are tired. Keep it calm and short, give the next check as a clock time, and once things are safe and steady tell them it's okay to go back to sleep with their low alert on.`,
+    morning: `It's morning: breakfast, getting ready, maybe school or work. Keep advice quick and practical for a busy start, and think about breakfast carbs and the early-morning rise.`,
+    daytime: speakingToParent
+      ? `It's daytime${t.weekday && /saturday|sunday/i.test(t.weekday) ? "" : ", so on a school day " + name + " may be at school with the nurse"}. Keep in mind lunch, snacks, and activity like recess or sports.`
+      : `It's daytime. Keep in mind lunch, snacks, and activity.`,
+    evening: `It's evening: dinner, activity winding down, and bedtime coming. Help ${them} head into the night in a safe, steady range, and mention a bedtime check when it fits.`,
+  };
+  return `
+
+TIME OF DAY: it's ${when} for them (${part}). Be mindful of it in every answer, and give recheck times as clock times when you can.
+• ${guidance[part]}`;
 }
 
 /** Compact relative age for log lines, e.g. "35m ago" / "3.5h ago" — timezone-safe. */
@@ -221,6 +276,7 @@ ${list}`;
   }
 
   const liveSection = buildLiveCgmSection(ctx, speakingToParent ? `${name}'s` : "your");
+  const timeSection = timeOfDaySection(ctx, name, speakingToParent);
 
   let recentTrend = "";
   if (ctx.recentReadings && ctx.recentReadings.length >= 3) {
@@ -346,7 +402,8 @@ YOUR CORE PERSONALITY:
 - Caring, warm, never robotic. Talk like a person, not a pamphlet.
 - Acknowledge feelings briefly and specifically (what they said, the time of night, what they already tried), then give one clear action
 - Light humor when the mood allows — read the situation
-- Never preachy or repetitive
+- Never preachy or repetitive. Never repeat an update you already gave in this conversation unless the numbers have meaningfully changed.
+- MATCH THE MESSAGE: a "thanks", "ok", "got it", an emoji, or small talk gets a short, human reply of one or two sentences, like a friend would send ("Anytime. You handled that really well, now try to get some rest."). No new numbers or instructions unless something has changed that they need to know.
 - REPLY LENGTH: 2–4 sentences for almost everything. Never more than 5. Short is kind — caregivers are busy and worried.
 - BE SPECIFIC, NEVER GENERIC: every answer must use THIS moment's real data: the live number, its direction, how it moved over the last readings (e.g. "up 13 since 3:50"), insulin and meals logged recently, and insulin still active. An answer that would fit any person with diabetes is a bad answer.
 - YOU CAN SEE THE NUMBERS: you are connected to the CGM through the app. The LIVE CGM section below is live data, not something the person typed. NEVER say you can't see the CGM, never call it a "snapshot they shared", and never ask for the current number or arrow when you have them. Only ask about things the app doesn't know (e.g. something eaten that wasn't logged, symptoms).
@@ -355,7 +412,7 @@ YOUR CORE PERSONALITY:
 - PUNCTUATION: Never use dashes between words or clauses (no "—", no "–", no " - "). Use a period or a comma instead. Hyphenated words like "fast-acting" are fine.
 
 CURRENT HEALTH SNAPSHOT:
-${glucoseStatus ? `• ${glucoseStatus}` : "• No glucose reading available yet — ask them to sync"}${liveSection}
+${glucoseStatus ? `• ${glucoseStatus}` : "• No glucose reading available yet — ask them to sync"}${liveSection}${timeSection}
 ${recentTrend ? `• ${recentTrend}` : ""}
 ${ctx.trendLabel ? `• Trend: ${ctx.trendLabel} ${ctx.trendArrow ?? ""}` : ""}
 ${ctx.anomalyWarning && ctx.anomalyMessage ? `• ⚠️ Active alert: ${ctx.anomalyMessage}` : ""}
