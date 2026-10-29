@@ -298,7 +298,8 @@ export default function DashboardScreen() {
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   const values = history.map((h) => h.glucose);
-  const inRange = history.filter((h) => h.glucose >= 80 && h.glucose <= 180).length;
+  // Standard time-in-range band (70-180 mg/dL), the same one the A1C card and CGM reports use.
+  const inRange = history.filter((h) => h.glucose >= 70 && h.glucose <= 180).length;
   const avgGlucose = values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
   const minGlucose = values.length > 0 ? Math.min(...values) : 0;
   const maxGlucose = values.length > 0 ? Math.max(...values) : 0;
@@ -642,10 +643,11 @@ export default function DashboardScreen() {
           <p><strong>Carb Ratio:</strong> 1:${carbRatio} g/unit  ·  <strong>Target BG:</strong> ${targetGlucose} mg/dL  ·  <strong>ISF:</strong> 1:${correctionFactor}</p>
           ${profile?.doctorName ? `<p><strong>Doctor:</strong> ${profile.doctorName}${profile.doctorInstitution ? `, ${profile.doctorInstitution}` : ""}</p>` : ""}
         </div>
+        ${history.length > 0 ? `<p style="margin:0 0 8px;color:#64748b;font-size:12px">Readings below cover ${new Date(history.reduce((m, r) => (r.timestamp < m ? r.timestamp : m), history[0]!.timestamp)).toLocaleString()} to ${new Date(history.reduce((m, r) => (r.timestamp > m ? r.timestamp : m), history[0]!.timestamp)).toLocaleString()}.</p>` : ""}
         <div class="stats-grid">
           <div class="stat-box"><div class="stat-value">${history.length}</div><div class="stat-label">Total Readings</div></div>
           <div class="stat-box"><div class="stat-value" style="color:${avgGlucose < 70 ? "#ef4444" : avgGlucose > 180 ? "#f59e0b" : "#22c55e"}">${avgGlucose}</div><div class="stat-label">Avg Glucose (mg/dL)</div></div>
-          <div class="stat-box"><div class="stat-value" style="color:${inRangePercent >= 70 ? "#22c55e" : "#f59e0b"}">${inRangePercent}%</div><div class="stat-label">Time In Range</div></div>
+          <div class="stat-box"><div class="stat-value" style="color:${inRangePercent >= 70 ? "#22c55e" : "#f59e0b"}">${inRangePercent}%</div><div class="stat-label">Time In Range (70-180)</div></div>
           <div class="stat-box"><div class="stat-value">${foodLog.length}</div><div class="stat-label">Meals Logged</div></div>
         </div>
         <div class="section">
@@ -1640,8 +1642,7 @@ export default function DashboardScreen() {
         </DashboardSectionModal>
 
         {/* ── A1C popup: ONE window (same chrome as the other popups) holding the Estimated A1C content
-            — range selector, value, breakdown, insight — with the all-time Avg Glucose / Time in Range
-            tiles underneath it. These used to sit inline on the page as three separate cards. ── */}
+            (range selector, value, breakdown, insight), then Lab results. ── */}
         <DashboardSectionModal
           visible={openSection === "summary"}
           onClose={() => setOpenSection(null)}
@@ -1650,11 +1651,11 @@ export default function DashboardScreen() {
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <CardShade radius={16} />
           <Text style={[styles.cardTitle, { color: colors.text }]}>A1C</Text>
+          {/* The card's own stats row (average, time in range, lows, sensor worn) covers the chosen
+              14 / 30 / 90 days. The old Avg Glucose / Time in Range tiles that sat here used only the
+              readings loaded on the phone (often about a day) and an 80-180 range, so the popup showed
+              two different averages; they were removed. */}
           <A1CEstimateCard embedded />
-          <View style={[styles.statsGrid, { marginBottom: 0 }]}>
-            <StatCard label="Avg Glucose" value={avgGlucose > 0 ? `${avgGlucose}` : "—"} unit="mg/dL" icon="activity" color={COLORS.primary} colors={colors} />
-            <StatCard label="Time in Range" value={history.length > 0 ? `${inRangePercent}%` : "—"} unit="80-180 mg/dL" icon="target" color={inRangePercent >= 70 ? COLORS.success : COLORS.warning} colors={colors} />
-          </View>
         </View>
         <LabResultsSection colors={colors} />
         </DashboardSectionModal>
