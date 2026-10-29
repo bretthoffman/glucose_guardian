@@ -65,7 +65,41 @@ function formatLogAge(timestamp: string): string {
   return `${Math.round(hours * 10) / 10}h ago`;
 }
 
-function buildSystemPrompt(ctx: ChatRequestBody["context"]): string {
+/**
+ * The live CGM picture the assistant must reason from: the latest reading with its age, the last
+ * ~50 minutes of readings (what the app sends as `recentReadings`), and the low point / change in
+ * that window. Ages are relative ("12m ago") so the server never guesses the device's time zone.
+ */
+export function buildLiveCgmSection(ctx: ChatRequestBody["context"], possessive: string): string {
+  const readings = (ctx.recentReadings ?? [])
+    .filter((r) => Number.isFinite(r?.glucose) && Number.isFinite(new Date(r?.timestamp).getTime()))
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  if (readings.length === 0) return "";
+  const latest = readings[readings.length - 1]!;
+  const ageMin = Math.round((Date.now() - new Date(latest.timestamp).getTime()) / 60_000);
+  const stale = ageMin > 15;
+  const list = readings.map((r) => `${Math.round(r.glucose)} (${formatLogAge(r.timestamp)})`).join(" → ");
+  const lowest = readings.reduce((m, r) => (r.glucose < m.glucose ? r : m), readings[0]!);
+  const first = readings[0]!;
+  const sinceLow = Math.round(latest.glucose - lowest.glucose);
+  const overall = Math.round(latest.glucose - first.glucose);
+  const lines = [
+    `\n\nLIVE CGM (connected through the app; this is ${possessive} real sensor data, refreshed automatically):`,
+    `• Latest reading: ${Math.round(latest.glucose)} mg/dL ${ctx.trendArrow ?? ""} ${ctx.trendLabel ? `(${ctx.trendLabel})` : ""}, ${formatLogAge(latest.timestamp)}.`,
+    `• Recent readings, oldest → newest: ${list}`,
+    `• Change across these readings: ${overall >= 0 ? "+" : ""}${overall} mg/dL.${
+      lowest !== latest && sinceLow > 0 ? ` Lowest was ${Math.round(lowest.glucose)} (${formatLogAge(lowest.timestamp)}); up ${sinceLow} since then.` : ""
+    }`,
+  ];
+  if (stale) {
+    lines.push(
+      `• The latest reading is ${ageMin} minutes old: the sensor or phone may not be syncing. Say so, and suggest a finger stick if it matters right now.`,
+    );
+  }
+  return lines.join("\n");
+}
+
+export function buildSystemPrompt(ctx: ChatRequestBody["context"]): string {
   const name = ctx.childName ?? "there";
   const age = ctx.ageYears ?? null;
   const isChild = age !== null && age < 18;
@@ -186,6 +220,8 @@ GLUCOSE HISTORY (last 24 hours, one reading about every 20 minutes, oldest → n
 ${list}`;
   }
 
+  const liveSection = buildLiveCgmSection(ctx, speakingToParent ? `${name}'s` : "your");
+
   let recentTrend = "";
   if (ctx.recentReadings && ctx.recentReadings.length >= 3) {
     const sorted = [...ctx.recentReadings].sort(
@@ -257,12 +293,13 @@ Always remind them to confirm doses with their care team.`;
 - You are speaking with ${speakerLabel}, NOT with ${name}. "You/your" in your replies means ${speakerLabel} — NEVER ${name}.
 - Refer to ${name} by name, in the third person, every time. Say "keep an eye on ${name}'s sugar", never "watch your sugar".
 - NEVER address the person you're talking to as "${name}" — they are ${speakerLabel}.
-- KEEP IT SHORT: 2–3 plain sentences maximum. One clear action, one brief reason.
+- KEEP IT SHORT: 3–4 plain sentences maximum. Start with what ${name}'s numbers are doing right now (the actual number, direction, and how it moved recently), then the one thing to do, then when to check again.
 - No markdown. No bold text. No bullet points. No numbered lists. No formulas. Just plain sentences.
 - Do NOT show dose math — just give the final number. Say "give 1.5 units" not "(293−125)÷125=1.34 → 1.5u".
-- Lead with the single most important thing to do right now, then a brief reason.
+- Lead with what the sensor shows right now, then the single most important thing to do.
 - Warm but direct. Speak like a knowledgeable friend, not a medical textbook.
-- Example: "Bella's glucose is high at 293. Give her 1.5 units now and offer some water. Check back in 90 minutes."`
+- Example: "Bella's glucose is high at 293 and has climbed about 60 in the last hour. Give her 1.5 units now and offer some water. Check back in 90 minutes."
+- Example after treating a low: "Bella is at 77 and holding steady, up from 64 about 25 minutes ago, so the juice is working. No rapid insulin since dinner, and her Lantus just runs in the background. Recheck in 15 minutes and give another 15g only if she slips under 70."`
     : isChild
     ? `LANGUAGE STYLE — CHILD (${ageStr}):
 - You are talking to a KID. Use the simplest words possible — like you are talking to a 7-year-old.
@@ -306,12 +343,15 @@ YOUR CORE PERSONALITY:
 - Acknowledge feelings briefly, then give one clear action
 - Light humor when the mood allows — read the situation
 - Never preachy or repetitive
-- REPLY LENGTH: 2–3 sentences for almost everything. Never more than 4. Short is kind — caregivers are busy and worried.
+- REPLY LENGTH: 2–4 sentences for almost everything. Never more than 5. Short is kind — caregivers are busy and worried.
+- BE SPECIFIC, NEVER GENERIC: every answer must use THIS moment's real data: the live number, its direction, how it moved over the last readings (e.g. "up 13 since 3:50"), insulin and meals logged recently, and insulin still active. An answer that would fit any person with diabetes is a bad answer.
+- YOU CAN SEE THE NUMBERS: you are connected to the CGM through the app. The LIVE CGM section below is live data, not something the person typed. NEVER say you can't see the CGM, never call it a "snapshot they shared", and never ask for the current number or arrow when you have them. Only ask about things the app doesn't know (e.g. something eaten that wasn't logged, symptoms).
+- If what the person says doesn't match the sensor (e.g. "she's still dropping" while the readings are flat or rising), gently say what the sensor shows and how it has moved, then advise for the real situation. Sensors lag a finger stick by 5 to 15 minutes, so if they're worried, a finger stick settles it.
 - FORMATTING: Plain sentences only. No markdown. No asterisks. No bold. No bullets. No numbered lists. No formulas with equals signs.
 - PUNCTUATION: Never use dashes between words or clauses (no "—", no "–", no " - "). Use a period or a comma instead. Hyphenated words like "fast-acting" are fine.
 
 CURRENT HEALTH SNAPSHOT:
-${glucoseStatus ? `• ${glucoseStatus}` : "• No glucose reading available yet — ask them to sync"}
+${glucoseStatus ? `• ${glucoseStatus}` : "• No glucose reading available yet — ask them to sync"}${liveSection}
 ${recentTrend ? `• ${recentTrend}` : ""}
 ${ctx.trendLabel ? `• Trend: ${ctx.trendLabel} ${ctx.trendArrow ?? ""}` : ""}
 ${ctx.anomalyWarning && ctx.anomalyMessage ? `• ⚠️ Active alert: ${ctx.anomalyMessage}` : ""}
