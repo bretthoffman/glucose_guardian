@@ -16,6 +16,7 @@ import { useMessages, useThreadMessages, type CareMessage } from "@/context/Mess
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import { AccentShade, ControlShade } from "@/components/Shade";
+import { capFirst } from "@/utils/capitalize";
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -174,11 +175,12 @@ export default function CareThreadMessaging({ colors, threadKey, title, bottomSp
 
       <View style={[styles.inputBar, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: keyboardVisible ? 10 : bottomSpace }]}>
         <TextInput
+          autoCapitalize="sentences"
           style={[styles.input, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, color: colors.text }]}
           placeholder={`Message ${title}…`}
           placeholderTextColor={colors.textMuted}
           value={input}
-          onChangeText={setInput}
+          onChangeText={(t) => setInput(capFirst(t))}
           multiline
           maxLength={1000}
           returnKeyType="send"

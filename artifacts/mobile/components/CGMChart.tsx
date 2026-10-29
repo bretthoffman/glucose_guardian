@@ -717,7 +717,7 @@ export function CGMChart({
                   onTouchMove={onFingerStickPress ? (e) => e.stopPropagation() : undefined}
                   onTouchEnd={onFingerStickPress ? (e) => e.stopPropagation() : undefined}
                   accessibilityRole={onFingerStickPress ? "button" : undefined}
-                  accessibilityLabel={`Finger stick ${m.glucose}${m.cgmGlucose != null ? `, Dexcom ${Math.round(m.cgmGlucose)}` : ""}`}
+                  accessibilityLabel={`Finger stick ${m.glucose}${m.cgmGlucose != null ? `, CGM ${Math.round(m.cgmGlucose)}` : ""}`}
                   hitSlop={8}
                   style={({ pressed }) => ({
                     position: "absolute",

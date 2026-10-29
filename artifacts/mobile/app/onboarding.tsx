@@ -25,6 +25,7 @@ import { useGlucose } from "@/context/GlucoseContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { AccentShade, ScreenShade } from "@/components/Shade";
 import { BrandLockup } from "@/components/BrandLogo";
+import { capFirst, capWords } from "@/utils/capitalize";
 
 type Step = "welcome" | "role" | "parent_name" | "organization" | "name" | "birthday" | "diabetes" | "insulin_formula";
 
@@ -194,7 +195,7 @@ export default function OnboardingScreen() {
                 { icon: "activity", text: "Real-time glucose monitoring" },
                 { icon: "camera", text: "AI food photo carb analysis" },
                 { icon: "droplet", text: "Insulin dose calculator" },
-                { icon: "wifi", text: "Dexcom CGM sync" },
+                { icon: "wifi", text: "Dexcom and FreeStyle Libre sync" },
                 { icon: "users", text: "Parent dashboard & doctor sharing" },
               ].map((f) => (
                 <View key={f.text} style={styles.featureRow}>
@@ -300,6 +301,7 @@ export default function OnboardingScreen() {
             </Text>
 
             <TextInput
+              autoCapitalize="words"
               style={[
                 styles.nameInput,
                 {
@@ -309,7 +311,7 @@ export default function OnboardingScreen() {
                 },
               ]}
               value={parentNameInput}
-              onChangeText={setParentNameInput}
+              onChangeText={(t) => setParentNameInput(capWords(t))}
               placeholder="Your first name..."
               placeholderTextColor={colors.textMuted}
               autoFocus
@@ -317,12 +319,13 @@ export default function OnboardingScreen() {
               maxLength={30}
             />
             <TextInput
+              autoCapitalize="words"
               style={[
                 styles.nameInput,
                 { marginTop: 12, backgroundColor: colors.card, borderColor: parentLastNameInput.trim() ? COLORS.primary : colors.border, color: colors.text },
               ]}
               value={parentLastNameInput}
-              onChangeText={setParentLastNameInput}
+              onChangeText={(t) => setParentLastNameInput(capWords(t))}
               placeholder="Last name..."
               placeholderTextColor={colors.textMuted}
               returnKeyType="next"
@@ -363,6 +366,7 @@ export default function OnboardingScreen() {
             </Text>
 
             <TextInput
+              autoCapitalize="sentences"
               style={[
                 styles.nameInput,
                 {
@@ -372,7 +376,7 @@ export default function OnboardingScreen() {
                 },
               ]}
               value={organizationInput}
-              onChangeText={setOrganizationInput}
+              onChangeText={(t) => setOrganizationInput(capFirst(t))}
               placeholder="Organization (optional)..."
               placeholderTextColor={colors.textMuted}
               autoFocus
@@ -412,6 +416,7 @@ export default function OnboardingScreen() {
             </Text>
 
             <TextInput
+              autoCapitalize="words"
               style={[
                 styles.nameInput,
                 {
@@ -421,7 +426,7 @@ export default function OnboardingScreen() {
                 },
               ]}
               value={childName}
-              onChangeText={setChildName}
+              onChangeText={(t) => setChildName(capWords(t))}
               placeholder={accountRole === "parent" ? "Child's first name..." : "Your first name..."}
               placeholderTextColor={colors.textMuted}
               autoFocus
@@ -429,12 +434,13 @@ export default function OnboardingScreen() {
               maxLength={30}
             />
             <TextInput
+              autoCapitalize="words"
               style={[
                 styles.nameInput,
                 { marginTop: 12, backgroundColor: colors.card, borderColor: childLastName.trim() ? COLORS.primary : colors.border, color: colors.text },
               ]}
               value={childLastName}
-              onChangeText={setChildLastName}
+              onChangeText={(t) => setChildLastName(capWords(t))}
               placeholder="Last name..."
               placeholderTextColor={colors.textMuted}
               returnKeyType="next"

@@ -33,8 +33,10 @@ import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
 import { useQuery } from "convex/react";
 import { convexErrorMessage } from "@/utils/convexError";
 import { formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
+import { TimeButton, TimeWheel } from "@/components/TimeWheel";
 import { applyPermissionChange } from "@/utils/carePermissions";
 import { AccentShade, CardShade, ControlShade, TintShade } from "@/components/Shade";
+import { capFirst } from "@/utils/capitalize";
 
 type AccessState = { state: "ok" | "before_window" | "outside_window" | "disabled"; nextStartMs?: number };
 
@@ -317,6 +319,7 @@ function ScheduleEditor({
   );
 
   const weeklyDays = value.mode === "weekly" ? value.days : [1, 2, 3, 4, 5];
+  const [openTime, setOpenTime] = useState<"start" | "end" | null>(null);
 
   const commitWeekly = (days: number[], sText: string, eText: string) => {
     const s = parseTimeInputText(sText);
@@ -437,32 +440,47 @@ function ScheduleEditor({
             })}
           </View>
           <View style={styles.timeRow}>
-            <TextInput
+            <TimeButton
               value={startText}
-              onChangeText={(t) => {
+              open={openTime === "start"}
+              onPress={() => setOpenTime((o) => (o === "start" ? null : "start"))}
+              accessibilityLabel="School hours start"
+              colors={colors}
+            />
+            <Text style={{ color: colors.textMuted }}>to</Text>
+            <TimeButton
+              value={endText}
+              open={openTime === "end"}
+              onPress={() => setOpenTime((o) => (o === "end" ? null : "end"))}
+              accessibilityLabel="School hours end"
+              colors={colors}
+            />
+          </View>
+          {openTime === "start" && (
+            <TimeWheel
+              value={startText}
+              onChange={(t) => {
                 setStartText(t);
                 commitWeekly(weeklyDays, t, endText);
               }}
-              style={[styles.timeInput, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: parseTimeInputText(startText) ? colors.border : COLORS.danger }]}
-              placeholder="8:00 AM"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="characters"
-              autoCorrect={false}
+              onDone={() => setOpenTime(null)}
+              colors={colors}
             />
-            <Text style={{ color: colors.textMuted }}>to</Text>
-            <TextInput
+          )}
+          {openTime === "end" && (
+            <TimeWheel
               value={endText}
-              onChangeText={(t) => {
+              onChange={(t) => {
                 setEndText(t);
                 commitWeekly(weeklyDays, startText, t);
               }}
-              style={[styles.timeInput, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: parseTimeInputText(endText) ? colors.border : COLORS.danger }]}
-              placeholder="3:30 PM"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="characters"
-              autoCorrect={false}
+              onDone={() => setOpenTime(null)}
+              colors={colors}
             />
-          </View>
+          )}
+          {!hoursInOrder(startText, endText) && (
+            <Text style={[styles.editorHint, { color: COLORS.danger }]}>The end time needs to be after the start time.</Text>
+          )}
           <Text style={[styles.editorHint, { color: colors.textMuted }]}>
             Access turns on only during these hours (your timezone).
           </Text>
@@ -470,6 +488,13 @@ function ScheduleEditor({
       )}
     </View>
   );
+}
+
+/** True when both times read and the end comes after the start. */
+function hoursInOrder(startText: string, endText: string): boolean {
+  const s = parseTimeInputText(startText);
+  const e = parseTimeInputText(endText);
+  return !!s && !!e && e.hours * 60 + e.minutes > s.hours * 60 + s.minutes;
 }
 
 export default function CareCirclePanel({
@@ -1022,8 +1047,9 @@ export default function CareCirclePanel({
             {isAdmin && showCreateCode && (
               <View style={{ gap: 10, marginTop: 4 }}>
                 <TextInput
+                  autoCapitalize="sentences"
                   value={newCodeLabel}
-                  onChangeText={setNewCodeLabel}
+                  onChangeText={(t) => setNewCodeLabel(capFirst(t))}
                   placeholder={'Who is this for? e.g. "Ms. Rivera (teacher)"'}
                   placeholderTextColor={colors.textMuted}
                   style={[styles.labelInput, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border }]}
@@ -1112,8 +1138,8 @@ export default function CareCirclePanel({
               {sensorSearched && sensorResult && sensorResult.matches.length === 0 && (
                 <Text style={[styles.sectionSub, { color: colors.textMuted }]}>
                   {sensorResult.hasCredentials
-                    ? "No other accounts found on this sensor. If you expect one, have them reconnect their Dexcom first."
-                    : "Connect your Dexcom to your account first, then check again."}
+                    ? "No other accounts found on this sensor. If you expect one, have them reconnect their CGM first."
+                    : "Connect your CGM to your account first, then check again."}
                 </Text>
               )}
               {sensorResult?.matches.map((m) => (

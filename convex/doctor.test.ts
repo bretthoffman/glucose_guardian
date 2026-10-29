@@ -208,3 +208,23 @@ describe("doctor.upsertFromSync profile", () => {
     expect(state?.profile?.doseSettingsByTime).toEqual(doseSettingsByTime);
   });
 });
+
+describe("doctor portal photo", () => {
+  it("uses the circle's shared child photo when the app sends none, and the app's when it does", async () => {
+    const t = convexTest(schema, modules);
+    const shared = "data:image/jpeg;base64," + "C".repeat(500);
+    await t.run(async (ctx) => {
+      const uid = await ctx.db.insert("users", { email: "p@x.com", passwordHash: "ph", createdAt: 0, updatedAt: 0 });
+      await ctx.db.insert("patientProfiles", {
+        userId: uid, childName: "Emma", diabetesType: "type1", dateOfBirth: "2014-06-15", doctorCode: CODE, sharedPhoto: shared, updatedAt: 0,
+      } as never);
+    });
+    await t.mutation(api.doctor.upsertFromSync, baseSnapshotArgs);
+    let state = await t.query(api.doctor.getState, { serverSecret: SECRET, accessCode: CODE });
+    expect(state?.profile.photoDataUri).toBe(shared);
+    const sent = "data:image/jpeg;base64,DDDD";
+    await t.mutation(api.doctor.upsertFromSync, { ...baseSnapshotArgs, profile: { ...baseSnapshotArgs.profile, photoDataUri: sent } });
+    state = await t.query(api.doctor.getState, { serverSecret: SECRET, accessCode: CODE });
+    expect(state?.profile.photoDataUri).toBe(sent);
+  });
+});

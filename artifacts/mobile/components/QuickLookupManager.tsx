@@ -23,6 +23,7 @@ import { moveQuickFood, QUICK_LOOKUP_VISIBLE, type QuickFood } from "@/utils/qui
 import { AccentShade, CardShade } from "@/components/Shade";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { CloseButton } from "@/components/CloseButton";
+import { capFirst } from "@/utils/capitalize";
 
 const ROW_H = 52;
 
@@ -220,7 +221,7 @@ function ManagedRow({
           <Pressable style={styles.rowBody} onPress={onPick} accessibilityRole="button" accessibilityLabel={`Look up ${food.name}`}>
             <Text style={[styles.rowIndex, { color: index < QUICK_LOOKUP_VISIBLE ? COLORS.primary : colors.textMuted }]}>{index + 1}</Text>
             <Text style={[styles.rowName, { color: colors.text }]} numberOfLines={1}>
-              {food.name}
+              {capFirst(food.name)}
             </Text>
             <Text style={[styles.rowCarbs, { color: colors.textSecondary }]}>{food.carbs != null ? `${food.carbs} g` : "—"}</Text>
           </Pressable>

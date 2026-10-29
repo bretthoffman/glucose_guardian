@@ -43,6 +43,7 @@ import {
   scheduleDoctorMessageNotification,
   scheduleTreatmentProposalNotification,
 } from "@/services/notifications";
+import { capLogEntries } from "@/utils/capitalize";
 
 export type AccountRole = "parent" | "adult" | "caregiver";
 
@@ -1514,9 +1515,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * field, so the own profile always carries the right one.
    */
   const ownParentName = mergedOwnProfile?.parentName?.trim() || null;
-  const effectiveFoodLog = isViewingLinkedPatient ? viewedFoodLog : foodLog;
-  const effectiveInsulinLog = isViewingLinkedPatient ? viewedInsulinLog : insulinLog;
-  const effectiveFingerStickLog = isViewingLinkedPatient ? viewedFingerStickLog : fingerStickLog;
+  // Lists show food names and notes with a capital first letter, however they were typed.
+  const effectiveFoodLog = useMemo(
+    () => capLogEntries(isViewingLinkedPatient ? viewedFoodLog : foodLog),
+    [isViewingLinkedPatient, viewedFoodLog, foodLog],
+  );
+  const effectiveInsulinLog = useMemo(
+    () => capLogEntries(isViewingLinkedPatient ? viewedInsulinLog : insulinLog),
+    [isViewingLinkedPatient, viewedInsulinLog, insulinLog],
+  );
+  const effectiveFingerStickLog = useMemo(
+    () => capLogEntries(isViewingLinkedPatient ? viewedFingerStickLog : fingerStickLog),
+    [isViewingLinkedPatient, viewedFingerStickLog, fingerStickLog],
+  );
   const effectivePenLog = isViewingLinkedPatient ? viewedPenLog : penLog;
   const viewingPatientName = isViewingLinkedPatient ? viewedProfile.childName : null;
   /** Doctor sync + report paths must see the INHERITED profile (owner's child data + doctor code). */

@@ -12,6 +12,7 @@ import Colors, { COLORS } from "@/constants/colors";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { AccentShade, CardShade } from "@/components/Shade";
 import { formatCarbs } from "@/utils/quickFoods";
+import { capFirst } from "@/utils/capitalize";
 
 export default function EditFoodModal({
   title,
@@ -43,9 +44,10 @@ export default function EditFoodModal({
         <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
         <Text style={[styles.label, { color: colors.textMuted }]}>Food</Text>
         <TextInput
+          autoCapitalize="sentences"
           style={[styles.input, styles.nameInput, { color: colors.text, backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}
           value={name}
-          onChangeText={setName}
+          onChangeText={(t) => setName(capFirst(t))}
           placeholder="Food name"
           placeholderTextColor={colors.textMuted}
           accessibilityLabel="Food name"

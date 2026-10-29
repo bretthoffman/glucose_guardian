@@ -4,6 +4,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { useState } from "react";
 import { Alert } from "react-native";
 import { useAuth } from "@/context/AuthContext";
+import { shareChildPhoto, useCanChangeChildPhoto } from "@/hooks/useSharedChildPhoto";
 
 /**
  * Profile-photo selection — extracted verbatim from the previous `ProfileChip.pickPhoto` so the exact
@@ -13,6 +14,7 @@ import { useAuth } from "@/context/AuthContext";
 export function useProfilePhotoPicker() {
   const { updateProfile, account } = useAuth();
   const [uploading, setUploading] = useState(false);
+  const canShare = useCanChangeChildPhoto();
 
   async function pickPhoto() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -54,6 +56,9 @@ export function useProfilePhotoPicker() {
         (FileSystem.documentDirectory ?? "") + `profile_photo_${scope}_${Date.now()}.${ext}`;
       await FileSystem.copyAsync({ from: src, to: dest });
       await updateProfile({ profilePhotoUri: dest });
+      // Share it with the whole care circle (grandma, the nurse, Child Mode, the other guardian).
+      // A failed upload is retried on the next app open, so the local photo still shows meanwhile.
+      if (canShare && account?.convexUserId) await shareChildPhoto(account.convexUserId, dest);
     } catch {
       Alert.alert("Error", "Could not save the photo. Please try again.");
     } finally {

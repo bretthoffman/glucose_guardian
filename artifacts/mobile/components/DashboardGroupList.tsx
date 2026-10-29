@@ -46,7 +46,7 @@ export function DashboardRow({ title, icon, color, colors, onPress, right, last 
       <View style={[styles.iconTile, { backgroundColor: withAlpha(color, 0.18) }]}>
         <Feather name={icon} size={19} color={color} />
       </View>
-      <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={1}>
+      <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.4}>
         {title}
       </Text>
       {right ?? <Feather name="chevron-right" size={19} color={colors.textMuted} />}

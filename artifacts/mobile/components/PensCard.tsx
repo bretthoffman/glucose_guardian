@@ -49,6 +49,7 @@ import {
   type PenEndReason,
   type PenTone,
 } from "@/utils/pens";
+import { capFirst } from "@/utils/capitalize";
 
 type Palette = (typeof Colors)["light"];
 
@@ -364,8 +365,9 @@ function NamePicker({ value, onChange, colors }: { value: string; onChange: (v: 
       </View>
       {otherOpen && (
         <TextInput
+          autoCapitalize="sentences"
           value={isPreset ? "" : value}
-          onChangeText={(t) => onChange(t.slice(0, 30))}
+          onChangeText={(raw) => { const t = capFirst(raw); return onChange(t.slice(0, 30)); }}
           placeholder="e.g. Grandma's house"
           placeholderTextColor={colors.textMuted}
           style={[styles.input, { color: colors.text, backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}

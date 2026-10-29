@@ -34,6 +34,7 @@ import { AccentShade, CardShade, ControlShade, HeaderShade, ScreenShade } from "
 import { useHelpAnchor, useHelpPage } from "@/context/HelpContext";
 import { BrandMark } from "@/components/BrandLogo";
 import { CloseButton } from "@/components/CloseButton";
+import { capFirst } from "@/utils/capitalize";
 
 interface Message {
   id: string;
@@ -708,9 +709,10 @@ export default function ChatScreen() {
         ]}
       >
         <TextInput
+          autoCapitalize="sentences"
           style={[styles.inputField, { backgroundColor: colors.card, color: colors.text, borderColor: colors.border }]}
           value={input}
-          onChangeText={setInput}
+          onChangeText={(t) => setInput(capFirst(t))}
           placeholder={isKidMode ? "Tell me how you're feeling... 😊" : "Ask Glucose Guardian anything..."}
           placeholderTextColor={colors.textMuted}
           returnKeyType="send"

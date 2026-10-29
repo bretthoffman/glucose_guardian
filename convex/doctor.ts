@@ -169,6 +169,12 @@ export const upsertFromSync = mutation({
       .query("doctorPortalState")
       .withIndex("by_accessCode", (q) => q.eq("accessCode", accessCode))
       .unique();
+    // The circle's shared child photo (convex/profilePhoto.ts) is the portal photo when the app sends
+    // none: it lives on the profile that owns this doctor code.
+    const codeOwner = await ctx.db
+      .query("patientProfiles")
+      .withIndex("by_doctorCode", (q) => q.eq("doctorCode", accessCode))
+      .first();
     const doc = {
       accessCode,
       messages: rest.messages,
@@ -176,7 +182,7 @@ export const upsertFromSync = mutation({
       // without it must not wipe the one already stored.
       profile: {
         ...rest.profile,
-        photoDataUri: rest.profile.photoDataUri ?? existing?.profile?.photoDataUri,
+        photoDataUri: rest.profile.photoDataUri ?? codeOwner?.sharedPhoto ?? existing?.profile?.photoDataUri,
       },
       glucoseReadings: rest.glucoseReadings,
       insulinLog: rest.insulinLog,

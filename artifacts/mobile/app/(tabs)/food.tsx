@@ -55,6 +55,7 @@ import {
 type QuickTab = "recent" | "favorites";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 import { CloseButton } from "@/components/CloseButton";
+import { capFirst } from "@/utils/capitalize";
 
 interface FoodResult {
   foodName: string;
@@ -867,12 +868,12 @@ export default function FoodScreen() {
           <TextInput
             style={[styles.searchInput, { color: colors.text }]}
             value={query}
-            onChangeText={setQuery}
+            onChangeText={(t) => setQuery(capFirst(t))}
             placeholder="e.g. apple, pizza, rice..."
             placeholderTextColor={colors.textMuted}
             returnKeyType="search"
             onSubmitEditing={() => search(query)}
-            autoCapitalize="none"
+            autoCapitalize="sentences"
           />
           {query.length > 0 && (
             <Pressable onPress={resetAnalysis} accessibilityRole="button" accessibilityLabel="Clear the search">
@@ -1029,7 +1030,7 @@ export default function FoodScreen() {
                     <TextInput
                       style={[styles.extraName, { color: colors.text }]}
                       value={it.name}
-                      onChangeText={(t) => updateExtra(it.id, { name: t })}
+                      onChangeText={(raw) => { const t = capFirst(raw); return updateExtra(it.id, { name: t }); }}
                       placeholder={result.manual ? (i === 0 ? "Food, like Hot dog" : "Another food") : "Food it missed"}
                       placeholderTextColor={colors.textMuted}
                       autoCapitalize="sentences"
@@ -1363,7 +1364,7 @@ export default function FoodScreen() {
           <View ref={helpQuick} collapsable={false} style={[styles.quickList, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <CardShade radius={16} />
             {quickFoods.slice(0, QUICK_LOOKUP_VISIBLE).map((food, i, arr) => {
-              const parts = splitFoodName(food.name);
+              const parts = splitFoodName(capFirst(food.name));
               return (
                 <QuickFoodRow
                   key={food.name}

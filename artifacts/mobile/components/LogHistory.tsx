@@ -18,6 +18,7 @@ import InsulinTypePicker from "@/components/InsulinTypePicker";
 import LogFoodModal from "@/components/LogFoodModal";
 import { AccentShade, CardShade, ControlShade } from "@/components/Shade";
 import CalendarPicker from "@/components/CalendarPicker";
+import { TimeButton, TimeWheel } from "@/components/TimeWheel";
 import LogDetailModal, { type SelectedLog } from "@/components/LogDetailModal";
 import LogFingerStickModal, { FingerStickDetailModal } from "@/components/LogFingerStickModal";
 import { compareFingerStick, comparisonShort } from "@/utils/fingerStick";
@@ -110,6 +111,7 @@ export default function LogHistory({
   const [logModalVisible, setLogModalVisible] = useState(false);
   const [logUnitsText, setLogUnitsText] = useState("");
   const [logTimeText, setLogTimeText] = useState("");
+  const [logTimeOpen, setLogTimeOpen] = useState(false);
   const [logPendingLabel, setLogPendingLabel] = useState<string | null>(null);
   const [logLoggedAtTick, setLogLoggedAtTick] = useState<number | null>(null);
   const logBtnGreen = logLoggedAtTick !== null && logLoggedAtTick === cgmSyncSuccessTick;
@@ -143,6 +145,7 @@ export default function LogHistory({
     setLogPendingLabel(defaultLabel);
     setLogUnitsText("");
     setLogTimeText(formatTimeInputText(new Date()));
+    setLogTimeOpen(false);
     setLogModalVisible(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
@@ -240,24 +243,17 @@ export default function LogHistory({
             </View>
             <View style={styles.logWhenRow}>
               <Text style={[styles.logUnitsLabel, { color: colors.textSecondary }]}>Time</Text>
-              <TextInput
+              <TimeButton
                 value={logTimeText}
-                onChangeText={setLogTimeText}
-                style={[
-                  styles.logTimeInput,
-                  {
-                    backgroundColor: colors.backgroundTertiary,
-                    color: colors.text,
-                    borderColor: parsedLogTime ? colors.border : COLORS.danger,
-                  },
-                ]}
-                placeholder="5:38 PM"
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="characters"
-                autoCorrect={false}
+                open={logTimeOpen}
+                onPress={() => setLogTimeOpen((o) => !o)}
                 accessibilityLabel="Time the dose was taken"
+                colors={colors}
               />
             </View>
+            {logTimeOpen && (
+              <TimeWheel value={logTimeText} onChange={setLogTimeText} onDone={() => setLogTimeOpen(false)} colors={colors} />
+            )}
             {!parsedLogTime && (
               <Text style={[styles.logTimeError, { color: COLORS.danger }]}>
                 Enter a time like 5:38 PM or 17:38
@@ -748,10 +744,10 @@ function EventRow({
     title = `Finger stick ${fs.glucose}`;
     const parts: string[] = [];
     if (fs.cgmGlucose != null) {
-      parts.push(`Dexcom ${Math.round(fs.cgmGlucose)}`);
+      parts.push(`CGM ${Math.round(fs.cgmGlucose)}`);
       parts.push(comparisonShort(compareFingerStick(fs.glucose, fs.cgmGlucose)));
     } else {
-      parts.push("no Dexcom reading then");
+      parts.push("no CGM reading then");
     }
     const byline = authorByline(fs, myUserId, myCode).replace(/^ · /, "");
     if (byline) parts.push(byline);

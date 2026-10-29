@@ -168,6 +168,12 @@ const patientProfiles = defineTable({
   mealTipsCaregivers: v.optional(v.boolean()),
   mealTipsChildMode: v.optional(v.boolean()),
   profilePhotoUri: v.optional(v.string()),
+  /**
+   * The child's photo for the whole care circle: a small JPEG data URI (convex/profilePhoto.ts).
+   * Server-only field: never part of the profile save payload, carried forward by `replace`.
+   */
+  sharedPhoto: v.optional(v.string()),
+  sharedPhotoUpdatedAt: v.optional(v.number()),
   childModeEnabled: v.optional(v.boolean()),
   caregiverCode: v.optional(v.string()),
   caregiverCodeIssuedAt: v.optional(v.string()),

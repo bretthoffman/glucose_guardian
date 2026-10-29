@@ -18,6 +18,7 @@ import type { DoctorMessage } from "@/context/AuthContext";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import { AccentShade, ControlShade } from "@/components/Shade";
+import { capFirst } from "@/utils/capitalize";
 
 function fmtTime(iso: string): string {
   const d = new Date(iso);
@@ -195,11 +196,12 @@ export default function DoctorMessaging({ colors, isDoctor }: Props) {
         ]}
       >
         <TextInput
+          autoCapitalize="sentences"
           style={[styles.input, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, color: colors.text }]}
           placeholder={isDoctor ? `Message ${parentName}…` : `Reply to ${doctorName}…`}
           placeholderTextColor={colors.textMuted}
           value={input}
-          onChangeText={setInput}
+          onChangeText={(t) => setInput(capFirst(t))}
           multiline
           maxLength={1000}
           returnKeyType="send"

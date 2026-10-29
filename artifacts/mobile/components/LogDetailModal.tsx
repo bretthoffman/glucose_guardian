@@ -20,6 +20,8 @@ import { startOfLocalDay } from "@/utils/localDayBoundaries";
 import { useTheme } from "@/context/ThemeContext";
 import { CardShade } from "@/components/Shade";
 import { CloseButton } from "@/components/CloseButton";
+import { TimeButton, TimeWheel } from "@/components/TimeWheel";
+import { capFirst } from "@/utils/capitalize";
 
 export type SelectedLog =
   | { kind: "food"; data: FoodLogEntry }
@@ -58,6 +60,7 @@ export default function LogDetailModal({
   const [units, setUnits] = useState("");
   const [note, setNote] = useState("");
   const [timeText, setTimeText] = useState("");
+  const [timeOpen, setTimeOpen] = useState(false);
 
   const isFood = entry.kind === "food";
   const accent = isFood ? COLORS.accent : COLORS.primary;
@@ -73,6 +76,7 @@ export default function LogDetailModal({
       setNote(entry.data.note ?? "");
     }
     setTimeText(formatTimeInputText(new Date(entry.data.timestamp)));
+    setTimeOpen(false);
     setEditing(true);
   };
 
@@ -197,7 +201,7 @@ export default function LogDetailModal({
                 {entry.kind === "food" ? (
                   <>
                     <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Food</Text>
-                    <TextInput style={fieldStyle} value={foodName} onChangeText={setFoodName} placeholder="Food name" placeholderTextColor={colors.textMuted} />
+                    <TextInput style={fieldStyle} value={foodName} onChangeText={(t) => setFoodName(capFirst(t))} autoCapitalize="sentences" placeholder="Food name" placeholderTextColor={colors.textMuted} />
                     <View style={styles.fieldRow}>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Carbs (g)</Text>
@@ -214,11 +218,14 @@ export default function LogDetailModal({
                     <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Units</Text>
                     <TextInput style={fieldStyle} value={units} onChangeText={(t) => setUnits(t.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" placeholderTextColor={colors.textMuted} />
                     <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Note</Text>
-                    <TextInput style={fieldStyle} value={note} onChangeText={setNote} placeholder="Optional note" placeholderTextColor={colors.textMuted} />
+                    <TextInput style={fieldStyle} value={note} onChangeText={(t) => setNote(capFirst(t))} autoCapitalize="sentences" placeholder="Optional note" placeholderTextColor={colors.textMuted} />
                   </>
                 )}
                 <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Time</Text>
-                <TextInput style={fieldStyle} value={timeText} onChangeText={setTimeText} placeholder="9:51 AM" placeholderTextColor={colors.textMuted} autoCapitalize="characters" />
+                <View style={{ alignSelf: "flex-start" }}>
+                  <TimeButton value={timeText} open={timeOpen} onPress={() => setTimeOpen((o) => !o)} accessibilityLabel="Time of this entry" colors={colors} />
+                </View>
+                {timeOpen && <TimeWheel value={timeText} onChange={setTimeText} onDone={() => setTimeOpen(false)} colors={colors} />}
               </View>
             ) : (
               <View style={{ flex: 1 }}>

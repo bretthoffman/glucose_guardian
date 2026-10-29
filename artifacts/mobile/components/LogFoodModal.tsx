@@ -25,6 +25,8 @@ import { apiUrl } from "@/utils/api-base-url";
 import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
 import { QUICK_LOOKUP_VISIBLE } from "@/utils/quickFoods";
 import { CardShade } from "@/components/Shade";
+import { TimeButton, TimeWheel } from "@/components/TimeWheel";
+import { capFirst } from "@/utils/capitalize";
 
 interface FoodLookupResult {
   foodName: string;
@@ -66,6 +68,7 @@ export default function LogFoodModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [timeText, setTimeText] = useState("");
+  const [timeOpen, setTimeOpen] = useState(false);
 
   // Fresh popup per open: clear lookup state and prefill the time with the device clock.
   useEffect(() => {
@@ -76,6 +79,7 @@ export default function LogFoodModal({
     setError("");
     setIsLoading(false);
     setTimeText(formatTimeInputText(new Date()));
+    setTimeOpen(false);
   }, [visible]);
 
   async function search(food: string) {
@@ -144,12 +148,12 @@ export default function LogFoodModal({
           <TextInput
             style={[styles.searchInput, { color: colors.text }]}
             value={query}
-            onChangeText={setQuery}
+            onChangeText={(t) => setQuery(capFirst(t))}
             placeholder="e.g. apple, pizza, rice..."
             placeholderTextColor={colors.textMuted}
             returnKeyType="search"
             onSubmitEditing={() => search(query)}
-            autoCapitalize="none"
+            autoCapitalize="sentences"
             autoCorrect={false}
           />
         </View>
@@ -252,24 +256,9 @@ export default function LogFoodModal({
           </View>
           <View style={styles.whenRow}>
             <Text style={[styles.whenLabel, { color: colors.textSecondary }]}>Time</Text>
-            <TextInput
-              value={timeText}
-              onChangeText={setTimeText}
-              style={[
-                styles.timeInput,
-                {
-                  backgroundColor: colors.backgroundTertiary,
-                  color: colors.text,
-                  borderColor: parsedTime ? colors.border : COLORS.danger,
-                },
-              ]}
-              placeholder="5:38 PM"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              accessibilityLabel="Time the meal was eaten"
-            />
+            <TimeButton value={timeText} open={timeOpen} onPress={() => setTimeOpen((o) => !o)} accessibilityLabel="Time the meal was eaten" colors={colors} />
           </View>
+          {timeOpen && <TimeWheel value={timeText} onChange={setTimeText} onDone={() => setTimeOpen(false)} colors={colors} />}
           {!parsedTime && (
             <Text style={[styles.timeError, { color: COLORS.danger }]}>Enter a time like 5:38 PM or 17:38</Text>
           )}

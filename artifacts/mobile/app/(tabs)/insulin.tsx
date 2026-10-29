@@ -1054,7 +1054,7 @@ export default function InsulinScreen() {
               <>
             <View style={styles.doseInputHead}>
               <MaterialCommunityIcons name="silverware-fork-knife" size={15} color={COLORS.success} />
-              <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>CARBS</Text>
+              <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.3}>CARBS</Text>
             </View>
             <View style={styles.doseValueRow}>
               <TextInput
@@ -1084,7 +1084,7 @@ export default function InsulinScreen() {
           <View style={styles.doseInputGroup}>
             <View style={styles.doseInputHead}>
               <Feather name="droplet" size={14} color={COLORS.primary} />
-              <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]}>CURRENT BG</Text>
+              <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.3}>CURRENT BG</Text>
               {latest && !bgManual && bgDraft == null && (
                 <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}><TintShade color={COLORS.success} radius={6} />
                   <Text style={[styles.liveTagText, { color: COLORS.success }]}>LIVE</Text>
@@ -1106,7 +1106,7 @@ export default function InsulinScreen() {
                 placeholder="—"
                 placeholderTextColor={colors.textMuted}
               />
-              <Text style={[styles.doseUnit, { color: colors.textMuted }]}>mg/dL</Text>
+              <Text style={[styles.doseUnit, { color: colors.textMuted }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>mg/dL</Text>
               {bgManual && latest && (
                 <Pressable
                   onPress={() => {
@@ -1825,9 +1825,9 @@ const styles = StyleSheet.create({
    *  the centered title (whose accessibility growth is capped) at every text size. */
   overlayDismiss: { position: "absolute", top: -13, right: -11, zIndex: 2 },
   doseInputHead: { flexDirection: "row", alignItems: "center", gap: 6 },
-  doseInputLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
+  doseInputLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, flexShrink: 1 },
   doseValueRow: { flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 2 },
-  doseBigInput: { fontSize: 20, fontWeight: "700", textAlign: "center", minWidth: 30, padding: 0 },
+  doseBigInput: { fontSize: 20, fontWeight: "700", textAlign: "center", minWidth: 30, maxWidth: 80, padding: 0 },
   doseUnit: { fontSize: 12, fontWeight: "500" },
   doseHint: { fontSize: 12, fontWeight: "500", marginTop: 1 },
   // Laid out as a ROW so each bar sits under the column it belongs to — carbs left, insulin right,

@@ -14,6 +14,7 @@ import EmergencyWaitPrompt from "@/components/EmergencyWaitPrompt";
 import HelpOverlay from "@/components/HelpOverlay";
 import { WhatsNewPrompt } from "@/components/WhatsNew";
 import PenReminders from "@/components/PenReminders";
+import { SharedPhotoSync } from "@/hooks/useSharedChildPhoto";
 import { showsCountdown } from "@/utils/insulinForms";
 import { penNeedsAttention, toLocalDate } from "@/utils/pens";
 
@@ -174,6 +175,7 @@ export default function TabLayout() {
       <WhatsNewPrompt />
       {/* Pen reminders — schedules this device's 3-day / 1-day / change-day notifications. */}
       <PenReminders />
+      <SharedPhotoSync />
     </>
   );
 }

@@ -298,6 +298,9 @@ export const replace = mutation({
       insulinVials: args.profile.insulinVials ?? existing?.insulinVials,
       mealTipsCaregivers: args.profile.mealTipsCaregivers ?? existing?.mealTipsCaregivers,
       mealTipsChildMode: args.profile.mealTipsChildMode ?? existing?.mealTipsChildMode,
+      // The circle's shared photo is set only through convex/profilePhoto.ts; a profile save keeps it.
+      sharedPhoto: existing?.sharedPhoto,
+      sharedPhotoUpdatedAt: existing?.sharedPhotoUpdatedAt,
       accessLog:
         args.profile.accessLog && args.profile.accessLog.length > 0
           ? args.profile.accessLog

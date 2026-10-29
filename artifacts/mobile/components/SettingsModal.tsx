@@ -31,6 +31,7 @@ import { useGlucose } from "@/context/GlucoseContext";
 import UpdateDiagnostics from "@/components/UpdateDiagnostics";
 import { CardShade } from "@/components/Shade";
 import { CloseButton } from "@/components/CloseButton";
+import { capFirst, capWords } from "@/utils/capitalize";
 
 interface Props {
   visible: boolean;
@@ -307,7 +308,7 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
                   <View style={styles.nameRow}>
                     <TextInput
                       value={yourNameInput}
-                      onChangeText={setYourNameInput}
+                      onChangeText={(t) => setYourNameInput(capWords(t))}
                       placeholder="First"
                       placeholderTextColor={c.textMuted}
                       style={[styles.input, styles.nameFirst, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
@@ -317,7 +318,7 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
                     />
                     <TextInput
                       value={yourLastNameInput}
-                      onChangeText={setYourLastNameInput}
+                      onChangeText={(t) => setYourLastNameInput(capWords(t))}
                       placeholder="Last"
                       placeholderTextColor={c.textMuted}
                       style={[styles.input, styles.nameLast, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
@@ -337,7 +338,7 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
               <View style={styles.nameRow}>
                 <TextInput
                   value={nameInput}
-                  onChangeText={setNameInput}
+                  onChangeText={(t) => setNameInput(capWords(t))}
                   placeholder="First"
                   placeholderTextColor={c.textMuted}
                   style={[styles.input, styles.nameFirst, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
@@ -346,7 +347,7 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
                 />
                 <TextInput
                   value={lastNameInput}
-                  onChangeText={setLastNameInput}
+                  onChangeText={(t) => setLastNameInput(capWords(t))}
                   placeholder="Last"
                   placeholderTextColor={c.textMuted}
                   style={[styles.input, styles.nameLast, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}
@@ -360,7 +361,7 @@ export function SettingsModal({ visible, onClose, onUpdatePhoto, uploading, canE
                   <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 12 }]}>Organization</Text>
                   <TextInput
                     value={organizationInput}
-                    onChangeText={setOrganizationInput}
+                    onChangeText={(t) => setOrganizationInput(capFirst(t))}
                     placeholder="School or clinic (optional)"
                     placeholderTextColor={c.textMuted}
                     style={[styles.input, { backgroundColor: c.screen, borderColor: c.border, color: c.textPrimary }]}

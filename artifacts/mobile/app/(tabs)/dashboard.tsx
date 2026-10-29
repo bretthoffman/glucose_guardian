@@ -67,6 +67,7 @@ import {
   type MealBucket,
 } from "@/utils/doseSettings";
 import { CloseButton } from "@/components/CloseButton";
+import { capFirst, capWords } from "@/utils/capitalize";
 
 // Icon shown on each compact section card (presentation only; section availability lives in the pure
 // `utils/dashboardSections` helper). One entry per DashboardSectionKey.
@@ -114,7 +115,9 @@ function logDayLabel(timestamp: string): string {
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth, fontScale } = useWindowDimensions();
+  // Small phones (iPhone SE) and Larger Text: the Help button shows just its icon so the header fits.
+  const compactHeader = windowWidth / Math.max(1, fontScale) < 390;
   const { scheme } = useTheme();
   const isDark = scheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
@@ -674,17 +677,31 @@ export default function DashboardScreen() {
       >
         <View style={styles.pageHeader}>
           <View style={styles.pageTitleWrap}>
-            <Text style={[TYPE.pageTitle, { color: colors.text }]}>Dashboard</Text>
+            <Text
+              style={[TYPE.pageTitle, { color: colors.text }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+              maxFontSizeMultiplier={1.4}
+            >
+              Dashboard
+            </Text>
           </View>
+          {/* Help + the profile chip stay together; on a narrow phone or with Larger Text they move
+              under the title instead of squeezing it into one letter per line. */}
+          <View style={styles.headerControls}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Turn on Help Mode"
             onPress={enterHelp}
-            style={({ pressed }) => [styles.helpBtn, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+            hitSlop={compactHeader ? 6 : 0}
+            style={({ pressed }) => [styles.helpBtn, compactHeader && styles.helpBtnCompact, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
           >
             <ControlShade radius={17} />
-            <Feather name="help-circle" size={15} color={COLORS.primary} />
-            <Text style={[styles.helpBtnText, { color: colors.text }]} maxFontSizeMultiplier={1.2}>Help</Text>
+            <Feather name="help-circle" size={compactHeader ? 17 : 15} color={COLORS.primary} />
+            {!compactHeader && (
+              <Text style={[styles.helpBtnText, { color: colors.text }]} maxFontSizeMultiplier={1.2}>Help</Text>
+            )}
           </Pressable>
           <View style={styles.profileChipWrap}>
             <ProfileChip
@@ -693,6 +710,7 @@ export default function DashboardScreen() {
               onPress={() => { setOpenSection(null); setSettingsOpen(true); }}
               uploading={photoUploading}
             />
+          </View>
           </View>
         </View>
 
@@ -1552,9 +1570,10 @@ export default function DashboardScreen() {
               <ControlShade radius={14} />
               <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Name *</Text>
               <TextInput
+                autoCapitalize="words"
                 style={[styles.smallInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
                 value={newContactName}
-                onChangeText={setNewContactName}
+                onChangeText={(t) => setNewContactName(capWords(t))}
                 placeholder="Mom, Dad, Grandma..."
                 placeholderTextColor={colors.textMuted}
               />
@@ -1569,9 +1588,10 @@ export default function DashboardScreen() {
               />
               <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Relationship (optional)</Text>
               <TextInput
+                autoCapitalize="sentences"
                 style={[styles.smallInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
                 value={newContactRelation}
-                onChangeText={setNewContactRelation}
+                onChangeText={(t) => setNewContactRelation(capFirst(t))}
                 placeholder="Parent, Sibling, Nurse..."
                 placeholderTextColor={colors.textMuted}
               />
@@ -2254,10 +2274,12 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   // iPad: cap + center the content column so it doesn't stretch across a 13" screen. No-op on phones.
   scroll: { paddingHorizontal: 20, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
-  pageHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-  pageTitleWrap: { flex: 1, minWidth: 0, marginRight: 12 },
+  pageHeader: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", rowGap: 10, marginBottom: 16 },
+  headerControls: { flexDirection: "row", alignItems: "center", marginLeft: "auto" },
+  pageTitleWrap: { flexGrow: 1, flexShrink: 0, maxWidth: "100%", marginRight: 12 },
   helpBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 17, borderWidth: 1, marginRight: 10 },
   helpBtnText: { fontSize: 13.5, fontWeight: "600" },
+  helpBtnCompact: { paddingHorizontal: 8, width: 36, height: 36, justifyContent: "center", borderRadius: 18 },
   profileChipWrap: { flexShrink: 0 },
   patientCard: { flexDirection: "row", borderRadius: 16, borderWidth: 1, padding: 14, gap: 14, marginTop: 12, marginBottom: 4 },
   patientCardLeft: { justifyContent: "flex-start" },

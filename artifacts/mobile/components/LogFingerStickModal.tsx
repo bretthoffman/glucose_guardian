@@ -14,6 +14,7 @@ import * as Haptics from "expo-haptics";
 import Colors, { COLORS } from "@/constants/colors";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { AccentShade } from "@/components/Shade";
+import { TimeButton, TimeWheel } from "@/components/TimeWheel";
 import { useAuth, type FingerStickEntry, type FingerStickReason } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
@@ -29,6 +30,7 @@ import {
   type CgmMatch,
   type CgmPoint,
 } from "@/utils/fingerStick";
+import { capFirst } from "@/utils/capitalize";
 
 export interface LoggedFingerStick {
   glucose: number;
@@ -62,6 +64,7 @@ export default function LogFingerStickModal({
 
   const [meterText, setMeterText] = useState("");
   const [timeText, setTimeText] = useState(() => formatTimeInputText(new Date()));
+  const [timeOpen, setTimeOpen] = useState(false);
   const [reason, setReason] = useState<FingerStickReason | null>(initialReason);
   const [note, setNote] = useState("");
   const [result, setResult] = useState<LoggedFingerStick | null>(null);
@@ -73,6 +76,7 @@ export default function LogFingerStickModal({
     if (visible) {
       setMeterText("");
       setTimeText(formatTimeInputText(new Date()));
+      setTimeOpen(false);
       setReason(initialReason);
       setNote("");
       setResult(null);
@@ -159,24 +163,9 @@ export default function LogFingerStickModal({
               </View>
               <View style={styles.row}>
                 <Text style={[styles.label, { color: colors.textSecondary }]}>Time</Text>
-                <TextInput
-                  value={timeText}
-                  onChangeText={setTimeText}
-                  style={[
-                    styles.timeInput,
-                    {
-                      backgroundColor: colors.backgroundTertiary,
-                      color: colors.text,
-                      borderColor: parsedTime && !isFuture ? colors.border : COLORS.danger,
-                    },
-                  ]}
-                  placeholder="5:38 PM"
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  accessibilityLabel="Time of the finger stick"
-                />
+                <TimeButton value={timeText} open={timeOpen} onPress={() => setTimeOpen((o) => !o)} accessibilityLabel="Time of the finger stick" colors={colors} />
               </View>
+              {timeOpen && <TimeWheel value={timeText} onChange={setTimeText} onDone={() => setTimeOpen(false)} colors={colors} />}
               {!parsedTime && (
                 <Text style={[styles.error, { color: COLORS.danger }]}>Enter a time like 5:38 PM or 17:38</Text>
               )}
@@ -184,7 +173,7 @@ export default function LogFingerStickModal({
               <View style={[styles.cgmRow, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
                 <MaterialCommunityIcons name="water" size={16} color={COLORS.primary} />
                 <Text style={[styles.cgmLabel, { color: colors.textSecondary }]} numberOfLines={1}>
-                  {cgm ? `Dexcom at ${new Date(cgm.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Dexcom at this time"}
+                  {cgm ? `CGM at ${new Date(cgm.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "CGM at this time"}
                 </Text>
                 <Text style={[styles.cgmValue, { color: colors.text }]}>
                   {cgm ? `${Math.round(cgm.glucose)} mg/dL` : "No reading"}
@@ -223,8 +212,9 @@ export default function LogFingerStickModal({
                 })}
               </View>
               <TextInput
+                autoCapitalize="sentences"
                 value={note}
-                onChangeText={(t) => setNote(t.slice(0, 200))}
+                onChangeText={(raw) => { const t = capFirst(raw); return setNote(t.slice(0, 200)); }}
                 placeholder="Note (optional), e.g. washed hands first"
                 placeholderTextColor={colors.textMuted}
                 style={[styles.noteInput, { backgroundColor: colors.backgroundTertiary, color: colors.text, borderColor: colors.border }]}

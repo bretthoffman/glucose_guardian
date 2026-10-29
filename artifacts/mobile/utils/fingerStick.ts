@@ -92,12 +92,12 @@ export function isTrendMovingFast(trend: string | undefined): boolean {
   return /double|single|rising quickly|falling quickly|fast/.test(t) && !/45|flat|steady|stable/.test(t);
 }
 
-/** "Dexcom read 32 higher (+18%)" / "Dexcom read 14 lower" / "Dexcom matched exactly". */
+/** "The CGM read 32 higher (+18%)" / "The CGM read 14 lower" / "The CGM matched exactly". */
 export function comparisonSentence(c: FingerStickComparison): string {
-  if (c.direction === "same") return "Dexcom matched exactly";
+  if (c.direction === "same") return "The CGM matched exactly";
   const amount = Math.abs(c.diff);
   const pctText = c.pct > 0 ? ` (${c.direction === "higher" ? "+" : "−"}${c.pct}%)` : "";
-  return `Dexcom read ${amount} ${c.direction}${pctText}`;
+  return `The CGM read ${amount} ${c.direction}${pctText}`;
 }
 
 /** Short form for log rows: "32 higher" / "14 lower" / "exact match". */

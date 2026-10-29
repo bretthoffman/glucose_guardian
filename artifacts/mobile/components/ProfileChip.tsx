@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
+import { useChildPhoto } from "@/hooks/useSharedChildPhoto";
 
 interface Props {
   colors: (typeof Colors)["light"];
@@ -47,7 +48,8 @@ export default function ProfileChip({ colors, canEdit, onPress, uploading = fals
     .map((w) => w[0].toUpperCase())
     .join("");
 
-  const photoUri = profile?.profilePhotoUri ?? null;
+  // The circle-shared photo when there is one, so every phone shows the same picture.
+  const photoUri = useChildPhoto();
   // Give a newly picked photo another chance after a previous URI failed to load.
   useEffect(() => { setPhotoFailed(false); }, [photoUri]);
   const age = ageLabel(ageYears);
@@ -95,10 +97,10 @@ export default function ProfileChip({ colors, canEdit, onPress, uploading = fals
 
       <View style={styles.info}>
         {age ? (
-          <Text style={[styles.ageLine, { color: colors.text }]}>{age}</Text>
+          <Text style={[styles.ageLine, { color: colors.text }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>{age}</Text>
         ) : null}
         {type ? (
-          <Text style={[styles.typeLine, { color: COLORS.accent }]}>{type}</Text>
+          <Text style={[styles.typeLine, { color: COLORS.accent }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>{type}</Text>
         ) : null}
       </View>
 

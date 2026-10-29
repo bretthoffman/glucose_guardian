@@ -28,6 +28,27 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-29",
+    date: "2026-10-29",
+    items: [
+      {
+        icon: "clock",
+        title: "Spin to pick a time",
+        body: "When you log insulin, food or a finger stick, tap the time and spin the hour, minute and AM or PM, just like the iPhone alarm.",
+      },
+      {
+        icon: "image",
+        title: "One photo for everyone",
+        body: "The photo a parent picks now shows on every phone in the care circle, including grandparents, the school nurse and Child Mode.",
+      },
+      {
+        icon: "smartphone",
+        title: "Fits every phone",
+        body: "Titles and buttons now fit on smaller iPhones and with larger text turned on. Names, foods and notes start with a capital letter.",
+      },
+    ],
+  },
+  {
     id: "2026-10-26",
     date: "2026-10-26",
     items: [

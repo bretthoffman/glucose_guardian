@@ -59,9 +59,9 @@ describe("compareFingerStick (15/15 benchmark)", () => {
 
 describe("wording", () => {
   it("sentences and short forms", () => {
-    expect(comparisonSentence(compareFingerStick(182, 214))).toBe("Dexcom read 32 higher (+18%)");
-    expect(comparisonSentence(compareFingerStick(78, 64))).toBe("Dexcom read 14 lower (−18%)");
-    expect(comparisonSentence(compareFingerStick(120, 120))).toBe("Dexcom matched exactly");
+    expect(comparisonSentence(compareFingerStick(182, 214))).toBe("The CGM read 32 higher (+18%)");
+    expect(comparisonSentence(compareFingerStick(78, 64))).toBe("The CGM read 14 lower (−18%)");
+    expect(comparisonSentence(compareFingerStick(120, 120))).toBe("The CGM matched exactly");
     expect(comparisonShort(compareFingerStick(182, 214))).toBe("32 higher");
     expect(comparisonShort(compareFingerStick(120, 120))).toBe("exact match");
   });

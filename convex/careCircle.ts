@@ -30,6 +30,7 @@ import {
   type CarePermissions,
 } from "./careSchedule";
 import { copyBucketLogs } from "./careLogs";
+import { shareablePhoto } from "./profilePhoto";
 
 // ─── validators (mirror schema.ts) ───────────────────────────────────────────────────────────
 
@@ -217,7 +218,8 @@ async function slimPatientProfile(ctx: QueryCtx | MutationCtx, patientUserId: Id
     insulinVials: row.insulinVials,
     mealTipsCaregivers: row.mealTipsCaregivers,
     mealTipsChildMode: row.mealTipsChildMode,
-    profilePhotoUri: row.profilePhotoUri,
+    // Only a photo another phone can show (the shared one, or a web address), never a device path.
+    profilePhotoUri: shareablePhoto(row.sharedPhoto, row.profilePhotoUri),
     carbRatio: row.carbRatio,
     targetGlucose: row.targetGlucose,
     correctionFactor: row.correctionFactor,
@@ -743,6 +745,7 @@ export const circleContext = query({
           insulinVials: row.insulinVials,
           mealTipsCaregivers: row.mealTipsCaregivers,
           mealTipsChildMode: row.mealTipsChildMode,
+          sharedPhoto: row.sharedPhoto,
           carbRatio: row.carbRatio,
           targetGlucose: row.targetGlucose,
           correctionFactor: row.correctionFactor,
