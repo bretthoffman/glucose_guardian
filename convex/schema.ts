@@ -663,6 +663,8 @@ const careAccessCodes = defineTable({
   updatedAt: v.number(),
   retiredAt: v.optional(v.number()),
   lastUsedAt: v.optional(v.number()),
+  /** Handoff: does this caregiver get the daily morning catch-up? Absent = yes. Notes picked for them always show. */
+  handoffCatchUp: v.optional(v.boolean()),
 })
   .index("by_code", ["code"])
   .index("by_patient", ["patientUserId", "status"]);

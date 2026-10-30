@@ -73,6 +73,14 @@ describe("handoff sheet contents", () => {
     expect(s.items[0]).toMatchObject({ title: "Spaghetti with meatballs", sub: "35g carbs · 10:12 AM · by you" });
   });
 
+  it("a note-only sheet has no numbers or logs", () => {
+    const s = buildHandoffSummary({
+      kind: "caregiver", viewerName: "Grandma", childName: "Bella", nowMs: at(8, 0), readings, logs, fmtTime: fmt,
+      current: { glucose: 132 }, iob: { units: 2, remainingMin: 100 }, noteOnly: true,
+    });
+    expect(s).toMatchObject({ heading: "Good morning, Grandma. A note about Bella.", now: null, active: null, items: [], noteOnly: true });
+  });
+
   it("greets everyone picked by name, or nobody by name when it's for everyone", () => {
     const base = { kind: "caregiver" as const, viewerName: "", childName: "Bella", nowMs: at(18, 0), readings: [], logs: [], fmtTime: fmt };
     expect(buildHandoffSummary(base).heading).toBe("Good evening. Here's Bella's evening.");
@@ -90,6 +98,13 @@ describe("when the sheet pops up", () => {
     expect(shouldShowHandoff({ ...base, kind: "caregiver", lastShownDay: "2026-10-29", lastShownMs: at(8, 5) })).toBe(false);
     expect(shouldShowHandoff({ ...base, kind: "caregiver", lastShownDay: "2026-10-29", lastShownMs: at(8, 5), noteCreatedAt: at(9, 0) })).toBe(true);
     expect(shouldShowHandoff({ ...base, kind: "caregiver", hasContent: false })).toBe(false);
+  });
+
+  it("with the morning catch-up off, a caregiver only sees a note picked for them", () => {
+    const off = { ...base, kind: "caregiver" as const, catchUp: false };
+    expect(shouldShowHandoff(off)).toBe(false);
+    expect(shouldShowHandoff({ ...off, noteCreatedAt: at(7, 30) })).toBe(true);
+    expect(shouldShowHandoff({ ...off, noteCreatedAt: at(7, 30), lastShownMs: at(7, 45) })).toBe(false);
   });
 
   it("a parent sees it after being away 90+ minutes while someone else logged", () => {

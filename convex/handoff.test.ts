@@ -87,6 +87,28 @@ describe("handoff notes", () => {
     await expect(t.mutation(handoff.leaveNote, { code: "NOPE0000", text: "x" })).rejects.toThrow(/Not signed in/);
   });
 
+  it("the family can turn a caregiver's morning catch-up off and on; the child's phone can't be changed", async () => {
+    const t = convexTest(schema, modules);
+    const { brian, wife } = await setup(t);
+    expect((await t.query(handoff.forMe, brian)).caregivers).toEqual([
+      { code: "HOLLY001", name: "Holly", catchUp: true },
+      { code: "ANDREA01", name: "Andrea", catchUp: true },
+    ]);
+    await t.mutation(handoff.setCatchUp, { ...wife, code: "andrea01", on: false });
+    expect((await t.query(handoff.forMe, { code: "ANDREA01" })).catchUp).toBe(false);
+    expect((await t.query(handoff.forMe, { code: "HOLLY001" })).catchUp).toBe(true);
+    expect((await t.query(handoff.forMe, brian)).caregivers[1]).toMatchObject({ name: "Andrea", catchUp: false });
+    await t.mutation(handoff.setCatchUp, { ...brian, code: "ANDREA01", on: true });
+    expect((await t.query(handoff.forMe, { code: "ANDREA01" })).catchUp).toBe(true);
+    await expect(t.mutation(handoff.setCatchUp, { ...brian, code: "KIDPHONE", on: false })).rejects.toThrow(/not found/);
+  });
+
+  it("a caregiver can't change anyone's catch-up", async () => {
+    const t = convexTest(schema, modules);
+    await setup(t);
+    await expect(t.mutation(handoff.setCatchUp, { code: "HOLLY001", on: false })).rejects.toThrow();
+  });
+
   it("a personal account (managing their own care) gets no handoff, nor do its codes", async () => {
     const t = convexTest(schema, modules);
     const me = await t.mutation(api.auth.register, { email: "adult@example.com", passwordHash: "h-a" });

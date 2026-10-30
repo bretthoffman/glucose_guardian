@@ -8,12 +8,10 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useMutation, useQuery } from "convex/react";
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import Colors, { COLORS } from "@/constants/colors";
 import { AccentShade, CardShade } from "@/components/Shade";
 import { HandoffBody, fmtClock, useHandoffSummaryBuilder, useHandoffViewer } from "@/components/HandoffSheet";
-import { useAuth } from "@/context/AuthContext";
 import { api } from "@/utils/convex-auth-client";
 import { firstName, joinNames } from "@/utils/handoff";
 
@@ -28,23 +26,35 @@ interface SentNote {
 }
 
 export default function HandoffPanel({ colors }: { colors: Palette; onClose?: () => void }) {
-  const { account } = useAuth();
   const viewer = useHandoffViewer();
   const build = useHandoffSummaryBuilder(viewer);
-  const myUserId = (account?.convexUserId ?? null) as Id<"users"> | null;
-  const memberships = useQuery(api.careCircle.myMemberships, myUserId ? {} : "skip");
-  const anchor = ((memberships?.[0]?.patientUserId as Id<"users"> | undefined) ?? myUserId) as Id<"users"> | null;
-  const circle = useQuery(api.careCircle.getCircle, myUserId && memberships !== undefined && anchor ? { patientUserId: anchor } : "skip");
-  const forMe = useQuery(api.handoff.forMe, viewer?.kind === "family" ? {} : "skip") as { sent: SentNote | null } | null | undefined;
+  const forMe = useQuery(api.handoff.forMe, viewer?.kind === "family" ? {} : "skip") as
+    | { sent: SentNote | null; caregivers?: { code: string; name: string; catchUp: boolean }[] }
+    | null
+    | undefined;
   const leaveNote = useMutation(api.handoff.leaveNote);
+  const setCatchUp = useMutation(api.handoff.setCatchUp);
 
+  // Switch flips show at once; the server's answer replaces them when it arrives.
+  const [pendingCatchUp, setPendingCatchUp] = useState<Record<string, boolean>>({});
   const caregivers = useMemo(
-    () =>
-      ((circle?.accessCodes ?? []) as { code: string; label: string; kind: "caregiver" | "child" }[])
-        .filter((c) => c.kind !== "child")
-        .map((c) => ({ code: c.code, name: c.label })),
-    [circle?.accessCodes],
+    () => (forMe?.caregivers ?? []).map((c) => ({ ...c, catchUp: pendingCatchUp[c.code] ?? c.catchUp })),
+    [forMe?.caregivers, pendingCatchUp],
   );
+  const flipCatchUp = async (code: string, on: boolean) => {
+    Haptics.selectionAsync();
+    setPendingCatchUp((p) => ({ ...p, [code]: on }));
+    try {
+      await setCatchUp({ code, on });
+    } catch {
+      setError("Couldn't change that. Check your connection and try again.");
+    } finally {
+      setPendingCatchUp((p) => {
+        const { [code]: _done, ...rest } = p;
+        return rest;
+      });
+    }
+  };
 
   const sent = forMe?.sent ?? null;
   const [draft, setDraft] = useState("");
@@ -66,7 +76,10 @@ export default function HandoffPanel({ colors }: { colors: Palette; onClose?: ()
 
   // Greets whoever is picked ("Holly and Andrea"); for everyone, no name (each person sees their own).
   const pickedNames = picked.map((code) => caregivers.find((c) => c.code === code)?.name).filter((n): n is string => !!n).map(firstName);
-  const preview = build({ kind: "caregiver", greetAs: joinNames(pickedNames) });
+  // A note picked only for people whose catch-up is off previews as the note on its own.
+  const previewNoteOnly =
+    picked.length > 0 && picked.every((code) => caregivers.find((c) => c.code === code)?.catchUp === false);
+  const preview = build({ kind: "caregiver", greetAs: joinNames(pickedNames), noteOnly: previewNoteOnly });
   const ownName = viewer?.name || "you";
   const previewNote = draft.trim() ? { id: "preview", text: draft.trim(), fromName: ownName, createdAt: Date.now() } : null;
 
@@ -116,8 +129,43 @@ export default function HandoffPanel({ colors }: { colors: Palette; onClose?: ()
       <Text style={[styles.hint, { color: colors.textSecondary }]}>Each caregiver sees it with their own name.</Text>
       <View style={[styles.preview, { borderColor: colors.border, backgroundColor: colors.background }]}>
         <Text style={[styles.previewTitle, { color: colors.text }]}>{preview.heading}</Text>
-        <HandoffBody summary={preview} note={previewNote} colors={colors} />
+        {preview.noteOnly && !previewNote ? (
+          <Text style={[styles.hint, { color: colors.textSecondary, marginTop: 0 }]}>
+            Their catch-up is off, so they'll only see the note you type below.
+          </Text>
+        ) : (
+          <HandoffBody summary={preview} note={previewNote} colors={colors} />
+        )}
       </View>
+
+      {caregivers.length > 0 && (
+        <>
+          <Text style={[styles.section, { color: colors.textMuted }]}>WHO GETS THE MORNING CATCH-UP</Text>
+          <View style={[styles.switchList, { borderColor: colors.border }]}>
+            {caregivers.map((c, i) => (
+              <View
+                key={c.code}
+                style={[styles.switchRow, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.switchName, { color: colors.text }]}>{c.name}</Text>
+                  <Text style={[styles.switchSub, { color: colors.textSecondary }]}>
+                    {c.catchUp ? "Every day, first time they open the app" : "Only when you leave them a note"}
+                  </Text>
+                </View>
+                <Switch
+                  value={c.catchUp}
+                  onValueChange={(on) => void flipCatchUp(c.code, on)}
+                  trackColor={{ false: colors.backgroundTertiary, true: COLORS.primary + "80" }}
+                  thumbColor={c.catchUp ? COLORS.primary : colors.textMuted}
+                  ios_backgroundColor={colors.backgroundTertiary}
+                  accessibilityLabel={`Morning catch-up for ${c.name}`}
+                />
+              </View>
+            ))}
+          </View>
+        </>
+      )}
 
       <Text style={[styles.section, { color: colors.textMuted }]}>YOUR NOTE (OPTIONAL)</Text>
       <TextInput
@@ -204,6 +252,10 @@ const styles = StyleSheet.create({
   preview: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 12 },
   previewTitle: { fontSize: 18, fontWeight: "800", lineHeight: 24 },
   input: { borderWidth: 1, borderRadius: 14, padding: 12, minHeight: 72, fontSize: 16, textAlignVertical: "top" },
+  switchList: { borderWidth: 1, borderRadius: 14, overflow: "hidden" },
+  switchRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  switchName: { fontSize: 16, fontWeight: "700" },
+  switchSub: { fontSize: 13, marginTop: 2 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1.5, borderRadius: 99, paddingHorizontal: 14, paddingVertical: 8 },
   chipText: { fontSize: 15, fontWeight: "600" },

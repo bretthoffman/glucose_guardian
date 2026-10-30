@@ -43,6 +43,8 @@ export interface HandoffSummary {
   active: { units: number; wearsOffAt: number } | null;
   inRangePct: number | null;
   items: HandoffItem[];
+  /** Morning catch-up is off for this caregiver: the sheet carries only the note. */
+  noteOnly: boolean;
 }
 
 export const CAREGIVER_WINDOW_MS = 12 * 60 * 60 * 1000;
@@ -109,6 +111,8 @@ export function buildHandoffSummary(input: {
   current?: { glucose: number; trend?: string } | null;
   iob?: { units: number; remainingMin: number } | null;
   fmtTime: (ms: number) => string;
+  /** Catch-up is off for this caregiver: no numbers or logs, just a heading for the note. */
+  noteOnly?: boolean;
 }): HandoffSummary {
   const { kind, nowMs, fmtTime } = input;
   const sinceMs = kind === "caregiver" ? nowMs - CAREGIVER_WINDOW_MS : (input.sinceMs ?? nowMs - CAREGIVER_WINDOW_MS);
@@ -137,7 +141,9 @@ export function buildHandoffSummary(input: {
   const { greet, span } = partOfDay(hour);
   const greetName = (input.greetAs ?? firstName(input.viewerName)).trim();
   const heading =
-    kind === "caregiver"
+    kind === "caregiver" && input.noteOnly
+      ? `${greet}${greetName ? `, ${greetName}` : ""}. A note about ${input.childName}.`
+      : kind === "caregiver"
       ? `${greet}${greetName ? `, ${greetName}` : ""}. Here's ${input.childName}'s ${span}.`
       : "While you were away";
   const timeLabel = fmtTime(nowMs);
@@ -152,8 +158,13 @@ export function buildHandoffSummary(input: {
       ? { units: Math.round(input.iob.units * 10) / 10, wearsOffAt: nowMs + input.iob.remainingMin * 60_000 }
       : null;
 
+  if (kind === "caregiver" && input.noteOnly) {
+    return { kind, heading, timeLabel, sinceLine, now: null, active: null, inRangePct: null, items: [], noteOnly: true };
+  }
+
   return {
     kind,
+    noteOnly: false,
     heading,
     timeLabel,
     sinceLine,
@@ -166,7 +177,8 @@ export function buildHandoffSummary(input: {
 
 /**
  * Whether the sheet pops up now.
- * - caregiver: once a day (first open), or again if a newer note arrived since it last showed.
+ * - caregiver: once a day (first open), or again if a newer note arrived since it last showed. With
+ *   the catch-up turned off for them, only a new note picked for them pops up.
  * - family: back after 90+ minutes and someone else logged meanwhile, or a new caregiver note.
  */
 export function shouldShowHandoff(input: {
@@ -179,10 +191,13 @@ export function shouldShowHandoff(input: {
   othersLoggedSinceLastOpen: boolean;
   hasContent: boolean;
   noteCreatedAt: number | null;
+  /** caregiver: false = morning catch-up turned off by the family; only a new note pops up. */
+  catchUp?: boolean;
 }): boolean {
   const newNote = input.noteCreatedAt != null && (input.lastShownMs == null || input.noteCreatedAt > input.lastShownMs);
   if (input.kind === "caregiver") {
     if (newNote) return true;
+    if (input.catchUp === false) return false;
     return input.hasContent && input.lastShownDay !== input.todayKey;
   }
   if (newNote) return true;

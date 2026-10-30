@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-30",
+    date: "2026-10-30",
+    items: [
+      {
+        icon: "toggle-right",
+        title: "Choose who gets the catch-up",
+        body: "In Dashboard, Handoff, switch the morning catch-up on or off for each caregiver. Someone switched off still gets any note you pick them for.",
+      },
+    ],
+  },
+  {
     id: "2026-10-29g",
     date: "2026-10-29",
     items: [

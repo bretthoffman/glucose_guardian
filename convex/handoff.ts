@@ -22,7 +22,7 @@ const MAX_NOTE = 500;
 
 type Viewer =
   | { kind: "family"; patientUserId: Id<"users">; userId: Id<"users">; name: string }
-  | { kind: "caregiver"; patientUserId: Id<"users">; code: string; name: string };
+  | { kind: "caregiver"; patientUserId: Id<"users">; code: string; name: string; catchUp: boolean };
 
 function normalizeCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
@@ -67,7 +67,7 @@ async function resolveViewer(
       .withIndex("by_code", (q) => q.eq("code", code))
       .first();
     if (!row || row.status !== "active" || row.kind === "child") return null;
-    return { kind: "caregiver", patientUserId: row.patientUserId, code, name: row.label };
+    return { kind: "caregiver", patientUserId: row.patientUserId, code, name: row.label, catchUp: row.handoffCatchUp !== false };
   }
   const user = await userCompat(ctx, args);
   if (!user) return null;
@@ -111,14 +111,25 @@ export const forMe = query({
       return {
         /** The viewer's own name ("Holly"), for the greeting. */
         you: viewer.name,
+        /** false = no daily catch-up for this caregiver; only notes picked for them show. */
+        catchUp: viewer.catchUp,
         note: note ? { id: note._id, text: note.text, fromName: note.fromName, createdAt: note.createdAt } : null,
         sent: null,
       };
     }
     const n = fresh(await newestNote(ctx, viewer.patientUserId, "family"));
     const sent = fresh(await newestNote(ctx, viewer.patientUserId, "caregivers"));
+    const codes = await ctx.db
+      .query("careAccessCodes")
+      .withIndex("by_patient", (q) => q.eq("patientUserId", viewer.patientUserId).eq("status", "active"))
+      .collect();
     return {
       you: viewer.name,
+      /** Each caregiver code and whether it gets the morning catch-up (the Handoff screen's switches). */
+      caregivers: codes
+        .filter((c) => c.kind !== "child")
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((c) => ({ code: c.code, name: c.label, catchUp: c.handoffCatchUp !== false })),
       note: n ? { id: n._id, text: n.text, fromName: n.fromName, createdAt: n.createdAt } : null,
       sent: sent
         ? { id: sent._id, text: sent.text, recipientCodes: sent.recipientCodes ?? [], createdAt: sent.createdAt, seen: sent.seen }
@@ -155,6 +166,22 @@ export const leaveNote = mutation({
       seen: [],
     });
     return id;
+  },
+});
+
+/** Family only: turn one caregiver's morning catch-up on or off. */
+export const setCatchUp = mutation({
+  args: { ...legacyAuthArgs, code: v.string(), on: v.boolean() },
+  handler: async (ctx, args) => {
+    const viewer = await viewerFor(ctx, { userId: args.userId, passwordHash: args.passwordHash });
+    if (!viewer || viewer.kind !== "family") throw new ConvexError("Not signed in");
+    const code = normalizeCode(args.code);
+    const row = await ctx.db
+      .query("careAccessCodes")
+      .withIndex("by_code", (q) => q.eq("code", code))
+      .first();
+    if (!row || row.patientUserId !== viewer.patientUserId || row.kind === "child") throw new ConvexError("Code not found");
+    await ctx.db.patch(row._id, { handoffCatchUp: args.on, updatedAt: Date.now() });
   },
 });
 

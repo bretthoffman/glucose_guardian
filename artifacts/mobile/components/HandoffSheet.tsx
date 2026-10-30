@@ -156,7 +156,7 @@ export function useHandoffSummaryBuilder(viewer: { kind: HandoffKind; args: { co
   const { history, latestReading } = useGlucose();
   const logs = useHandoffLogs(viewer);
   return useCallback(
-    (opts: { kind?: HandoffKind; sinceMs?: number | null; viewerName?: string; greetAs?: string; nowMs?: number }): HandoffSummary => {
+    (opts: { kind?: HandoffKind; sinceMs?: number | null; viewerName?: string; greetAs?: string; nowMs?: number; noteOnly?: boolean }): HandoffSummary => {
       const nowMs = opts.nowMs ?? Date.now();
       const kind = opts.kind ?? viewer?.kind ?? "caregiver";
       const latestMs = latestReading ? new Date(latestReading.timestamp).getTime() : NaN;
@@ -166,6 +166,7 @@ export function useHandoffSummaryBuilder(viewer: { kind: HandoffKind; args: { co
         kind,
         viewerName: opts.viewerName ?? viewer?.name ?? "",
         greetAs: opts.greetAs,
+        noteOnly: opts.noteOnly,
         childName: profile?.childName?.trim() || "your child",
         nowMs,
         sinceMs: opts.sinceMs,
@@ -205,7 +206,7 @@ export function HandoffPrompt() {
   const whatsNewBusy = useWhatsNewBusy();
   const [waitedLongEnough, setWaitedLongEnough] = useState(false);
   const forMe = useQuery(api.handoff.forMe, viewer ? viewer.args : "skip") as
-    | { you?: string; note: HandoffNote | null; sent: unknown }
+    | { you?: string; catchUp?: boolean; note: HandoffNote | null; sent: unknown }
     | null
     | undefined;
   const markSeen = useMutation(api.handoff.markSeen);
@@ -236,7 +237,9 @@ export function HandoffPrompt() {
       const note = fm?.note ?? null;
       const sinceMs = v.kind === "family" ? stored.lastActiveMs ?? null : null;
       // Greet by the name on their code ("Holly"); the backend knows it, the phone doesn't.
-      const summary = b({ sinceMs, viewerName: fm?.you || v.name });
+      // The family can turn a caregiver's morning catch-up off: then only a note picked for them shows.
+      const catchUp = v.kind !== "caregiver" || fm.catchUp !== false;
+      const summary = b({ sinceMs, viewerName: fm?.you || v.name, noteOnly: !catchUp });
       const othersLogged =
         sinceMs != null && l.some((x) => !x.byYou && new Date(x.timestamp).getTime() > sinceMs);
       const show = shouldShowHandoff({
@@ -249,6 +252,7 @@ export function HandoffPrompt() {
         othersLoggedSinceLastOpen: othersLogged,
         hasContent: summary.items.length > 0 || summary.now != null || summary.active != null || !!note,
         noteCreatedAt: note?.createdAt ?? null,
+        catchUp,
       });
       if (show) {
         await new Promise((r) => setTimeout(r, SHOW_DELAY_MS));
@@ -366,7 +370,7 @@ export function HandoffBody({ summary, note, colors }: { summary: HandoffSummary
             </View>
           ))}
         </View>
-      ) : (
+      ) : summary.noteOnly ? null : (
         <Text style={[styles.itemSub, { color: colors.textSecondary }]}>Nothing logged yet.</Text>
       )}
     </View>
