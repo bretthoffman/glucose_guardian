@@ -24,6 +24,7 @@ describe("dashboardSectionVisibility", () => {
       showNotifications: true,
       showDoctorCareTeam: true,
       showAccessManagement: true,
+      showHandoff: true, // guardian account
       showActivityLog: false, // no entries yet
       showDownloadLogs: false,
       showChildView: false, // retired: Care Circle's Child code covers a child's own phone
