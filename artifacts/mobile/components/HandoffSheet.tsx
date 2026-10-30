@@ -227,7 +227,8 @@ export function HandoffPrompt() {
 
   const evaluate = useCallback(async () => {
     const { build: b, logs: l, forMe: fm, viewer: v } = latest.current;
-    if (!v || fm === undefined || busy.current || shown) return;
+    // null = no handoff here (a personal account, the child's own phone, an unknown code).
+    if (!v || !fm || busy.current || shown) return;
     busy.current = true;
     try {
       const nowMs = Date.now();

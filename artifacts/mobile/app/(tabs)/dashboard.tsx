@@ -196,7 +196,7 @@ export default function DashboardScreen() {
   // Which Dashboard management sections are available for the current role (pure helper, shared with
   // the section-card grid so cards and the inline guards/popups can never drift apart). These booleans
   // gate BOTH the inline content (analytics/trend + the section popups) and the matching grid cards.
-  const { showPatientSections, showNotifications, showDoctorCareTeam, showAccessManagement } = dashboardSectionVisibility({
+  const { showPatientSections, showNotifications, showDoctorCareTeam, showAccessManagement, showHandoff } = dashboardSectionVisibility({
     isChildMode,
     caregiverSession,
     doctorSession,
@@ -222,6 +222,7 @@ export default function DashboardScreen() {
   const helpAlerts = useHelpAnchor("dashboard.alerts");
   const helpCare = useHelpAnchor("dashboard.care");
   const helpWhatsNew = useHelpAnchor("dashboard.whatsNew");
+  const helpHandoff = useHelpAnchor("dashboard.handoff");
   const groupAnchor: Record<string, (node: View | null) => void> = {
     "Glucose & Dosing": helpGlucose,
     "Alerts & Notifications": helpAlerts,
@@ -890,7 +891,14 @@ export default function DashboardScreen() {
               }
               // Activity Log opens the Manage Logs window, which is its own popup (paginated list + clears).
               const onPress = row.key === "activity" ? openManageLogs : () => openSectionPopup(row.key);
-              return <DashboardRow key={row.key} {...common} onPress={onPress} />;
+              return (
+                <DashboardRow
+                  key={row.key}
+                  {...common}
+                  onPress={onPress}
+                  anchorRef={row.key === "handoff" ? helpHandoff : undefined}
+                />
+              );
             })}
           </DashboardGroup>
         ))}
@@ -2051,7 +2059,7 @@ export default function DashboardScreen() {
           </DashboardSectionModal>
         )}
 
-        {showAccessManagement && (
+        {showHandoff && (
           <DashboardSectionModal
             visible={openSection === "handoff"}
             onClose={() => setOpenSection(null)}

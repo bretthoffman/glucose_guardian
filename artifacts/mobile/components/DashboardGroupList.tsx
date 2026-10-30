@@ -49,9 +49,20 @@ interface RowProps {
   /** Trailing control (a Switch, say) in place of the chevron. */
   right?: React.ReactNode;
   last?: boolean;
+  /** Help Mode spotlight anchor (useHelpAnchor) for just this row. */
+  anchorRef?: (node: View | null) => void;
 }
 
-export function DashboardRow({ title, icon, color, colors, onPress, right, last }: RowProps) {
+export function DashboardRow({ anchorRef, ...props }: RowProps) {
+  if (!anchorRef) return <DashboardRowBody {...props} />;
+  return (
+    <View ref={anchorRef} collapsable={false}>
+      <DashboardRowBody {...props} />
+    </View>
+  );
+}
+
+function DashboardRowBody({ title, icon, color, colors, onPress, right, last }: Omit<RowProps, "anchorRef">) {
   const body = (
     <>
       <View style={[styles.iconTile, { backgroundColor: withAlpha(color, 0.18) }]}>

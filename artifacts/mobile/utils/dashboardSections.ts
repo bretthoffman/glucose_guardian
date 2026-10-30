@@ -16,7 +16,8 @@
  *    (`!doctorSession && !isChildMode && !caregiverSession`; owner-only — hidden for the doctor's own
  *    session and any access-code / child-view session).
  *  - Care Circle → `showAccessManagement` (owner-only: `(isParent || isAdult)` and not child/caregiver/doctor).
- *  - Handoff (the catch-up caregivers see, and the parent's optional note) → same gate as Care Circle.
+ *  - Handoff (the catch-up caregivers see, and the parent's optional note) → `showHandoff`: Care Circle's
+ *    gate, guardian (parent) accounts only. A personal account manages its own care, so it has none.
  *  - Child View Mode → `showChildView`: RETIRED for turning on. A child's own phone uses a Child
  *    code from Care Circle instead. The switch only appears while a phone still has child mode ON,
  *    so that phone can always turn it off; nobody can turn it on anymore.
@@ -63,6 +64,8 @@ export interface DashboardSectionVisibility {
   showNotifications: boolean;
   showDoctorCareTeam: boolean;
   showAccessManagement: boolean;
+  /** Handoff: like Care Circle, but guardian accounts only (not a personal / adult account). */
+  showHandoff: boolean;
   /** The Activity Log (Manage Logs) row: entries exist and this is not guardian-device child mode. */
   showActivityLog: boolean;
   /** Download Patient Logs: the doctor's own session. */
@@ -90,6 +93,8 @@ export function dashboardSectionVisibility(role: DashboardRoleFlags): DashboardS
     showDoctorCareTeam: !role.doctorSession && !role.isChildMode && !role.caregiverSession && !viewingChild,
     showAccessManagement:
       (role.isParent || role.isAdult) && !role.isChildMode && !role.caregiverSession && !role.doctorSession && !viewingChild,
+    showHandoff:
+      role.isParent && !role.isAdult && !role.isChildMode && !role.caregiverSession && !role.doctorSession && !viewingChild,
     showActivityLog: !!role.hasLogEntries && !guardianDeviceChildMode,
     showDownloadLogs: role.doctorSession,
     showChildView: role.isParent && !role.caregiverSession && role.isChildMode,
@@ -131,7 +136,7 @@ const GROUPS: { title: string; rows: Entry[] }[] = [
     title: "Care Team",
     rows: [
       { key: "careCircle", title: "Care Circle", gate: "showAccessManagement" },
-      { key: "handoff", title: "Handoff", gate: "showAccessManagement" },
+      { key: "handoff", title: "Handoff", gate: "showHandoff" },
       { key: "doctor", title: "Doctor Office", gate: "showDoctorCareTeam" },
       { key: "doctorCode", title: "Doctor Code", gate: "showDoctorCareTeam" },
     ],

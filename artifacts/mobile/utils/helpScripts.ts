@@ -306,7 +306,14 @@ const dashboard: HelpStep[] = [
     anchor: "dashboard.care",
     title: "Care Team",
     text:
-      "Care Circle is where you invite a co-guardian and make access codes for grandparents, sitters, the school nurse, or your child's own phone (a Child code). For the nurse you can set school hours by spinning the time wheel. Handoff shows the catch-up a caregiver sees when they first open the app each day (the latest reading, insulin still working, meals and any lows), fills in by itself, and lets you add a note and see who read it. Doctor Office connects your doctor's portal so they see the same numbers.",
+      "Care Circle is where you invite a co-guardian and make access codes for grandparents, sitters, the school nurse, or your child's own phone (a Child code). For the nurse you can set school hours by spinning the time wheel. Doctor Office connects your doctor's portal so they see the same numbers.",
+  },
+  {
+    id: "dashboard.handoff",
+    anchor: "dashboard.handoff",
+    title: "Handoff",
+    text:
+      "When the school nurse or grandma first opens the app each day, they see a quick catch-up: the latest number, insulin still working, meals and any lows, greeted by their own name. It fills in by itself. Tap Handoff to see what they'll see, add a note for everyone or just one caregiver, and see when they read it. When you come back after a while and someone else logged, you'll see While you were away.",
   },
   {
     id: "dashboard.whatsNew",

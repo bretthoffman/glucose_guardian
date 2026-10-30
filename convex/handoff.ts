@@ -37,7 +37,25 @@ async function familyName(ctx: QueryCtx | MutationCtx, userId: Id<"users">): Pro
   return p?.parentName?.trim() || user?.email?.split("@")[0] || "Family";
 }
 
+/** Handoff is for families caring for someone. A personal account (the person manages their own care) has none. */
+async function isPersonalAccount(ctx: QueryCtx | MutationCtx, patientUserId: Id<"users">): Promise<boolean> {
+  const p = await ctx.db
+    .query("patientProfiles")
+    .withIndex("by_userId", (q) => q.eq("userId", patientUserId))
+    .unique();
+  return p?.accountRole === "adult";
+}
+
 async function viewerFor(
+  ctx: QueryCtx | MutationCtx,
+  args: { code?: string; userId?: Id<"users">; passwordHash?: string },
+): Promise<Viewer | null> {
+  const v = await resolveViewer(ctx, args);
+  if (!v || (await isPersonalAccount(ctx, v.patientUserId))) return null;
+  return v;
+}
+
+async function resolveViewer(
   ctx: QueryCtx | MutationCtx,
   args: { code?: string; userId?: Id<"users">; passwordHash?: string },
 ): Promise<Viewer | null> {

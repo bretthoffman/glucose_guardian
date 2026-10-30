@@ -87,6 +87,25 @@ describe("handoff notes", () => {
     await expect(t.mutation(handoff.leaveNote, { code: "NOPE0000", text: "x" })).rejects.toThrow(/Not signed in/);
   });
 
+  it("a personal account (managing their own care) gets no handoff, nor do its codes", async () => {
+    const t = convexTest(schema, modules);
+    const me = await t.mutation(api.auth.register, { email: "adult@example.com", passwordHash: "h-a" });
+    await t.mutation(api.patientProfile.replace, {
+      userId: me, passwordHash: "h-a",
+      profile: { childName: "John", parentName: "John", accountRole: "adult", diabetesType: "type1", dateOfBirth: "1990-01-01" },
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("careAccessCodes", {
+        patientUserId: me, code: "SPOUSE01", label: "Spouse", kind: "caregiver", permissions: perms,
+        access: { mode: "always" }, status: "active", createdAt: now, updatedAt: now,
+      });
+    });
+    expect(await t.query(handoff.forMe, { userId: me, passwordHash: "h-a" })).toBeNull();
+    expect(await t.query(handoff.forMe, { code: "SPOUSE01" })).toBeNull();
+    await expect(t.mutation(handoff.leaveNote, { userId: me, passwordHash: "h-a", text: "x" })).rejects.toThrow(/Not signed in/);
+  });
+
   it("addresses notes by code, ignoring case and spacing", () => {
     expect(noteIsFor(undefined, "HOLLY001")).toBe(true);
     expect(noteIsFor([], "HOLLY001")).toBe(true);

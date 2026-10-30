@@ -171,6 +171,15 @@ describe("availableDashboardSections", () => {
   });
 });
 
+describe("Handoff row", () => {
+  it("shows for guardian accounts only, never for a personal account", () => {
+    expect(dashboardSectionVisibility(patientParent).showHandoff).toBe(true);
+    expect(dashboardSectionVisibility({ ...patientParent, isParent: false, isAdult: true }).showHandoff).toBe(false);
+    expect(keys({ ...patientParent, isParent: false, isAdult: true })).not.toContain("handoff");
+    expect(dashboardSectionVisibility({ ...patientParent, caregiverSession: true }).showHandoff).toBe(false);
+  });
+});
+
 describe("dashboardGroups", () => {
   it("renders three titled groups for a regular patient, in order (no Child Safety)", () => {
     expect(dashboardGroups(patientParent).map((g) => g.title)).toEqual([
