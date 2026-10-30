@@ -20,6 +20,8 @@ export interface HandoffLog {
   kind: "insulin" | "meal" | "stick";
   /** "Humalog 3 units", "Waffles · 45g carbs", "Finger stick 132". */
   title: string;
+  /** Shown first on the line under the title, e.g. "35g carbs". */
+  detail?: string;
   authorName?: string;
   byYou: boolean;
 }
@@ -52,6 +54,13 @@ function partOfDay(hour: number): { greet: string; span: string } {
   if (hour < 12) return { greet: "Good morning", span: "morning" };
   if (hour < 17) return { greet: "Good afternoon", span: "day" };
   return { greet: "Good evening", span: "evening" };
+}
+
+/** "Holly", "Holly and Andrea", "Holly, Andrea and Grandma". */
+export function joinNames(names: string[]): string {
+  const n = names.map((x) => x.trim()).filter(Boolean);
+  if (n.length <= 1) return n[0] ?? "";
+  return `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`;
 }
 
 export function firstName(name: string): string {
@@ -89,6 +98,8 @@ function highItem(readings: HandoffReading[], fmt: (ms: number) => string): Hand
 export function buildHandoffSummary(input: {
   kind: HandoffKind;
   viewerName: string;
+  /** Exact name(s) to greet ("Holly and Andrea"); "" greets nobody by name. Defaults to viewerName's first name. */
+  greetAs?: string;
   childName: string;
   nowMs: number;
   /** family: when they last opened the app. caregiver: ignored (12-hour window). */
@@ -115,7 +126,7 @@ export function buildHandoffSummary(input: {
   const items: HandoffItem[] = logs.slice(0, MAX_ITEMS).map((l) => ({
     icon: l.kind,
     title: l.title,
-    sub: `${fmtTime(new Date(l.timestamp).getTime())}${l.byYou ? " · by you" : l.authorName ? ` · ${firstName(l.authorName)}` : ""}`,
+    sub: `${l.detail ? `${l.detail} · ` : ""}${fmtTime(new Date(l.timestamp).getTime())}${l.byYou ? " · by you" : l.authorName ? ` · ${firstName(l.authorName)}` : ""}`,
   }));
   const low = lowItem(readings, fmtTime);
   const high = highItem(readings, fmtTime);
@@ -124,9 +135,10 @@ export function buildHandoffSummary(input: {
 
   const hour = new Date(nowMs).getHours();
   const { greet, span } = partOfDay(hour);
+  const greetName = (input.greetAs ?? firstName(input.viewerName)).trim();
   const heading =
     kind === "caregiver"
-      ? `${greet}, ${firstName(input.viewerName)}. Here's ${input.childName}'s ${span}.`
+      ? `${greet}${greetName ? `, ${greetName}` : ""}. Here's ${input.childName}'s ${span}.`
       : "While you were away";
   const timeLabel = fmtTime(nowMs);
   const sinceLine = kind === "family" ? `Since you last opened the app at ${fmtTime(sinceMs)}` : null;

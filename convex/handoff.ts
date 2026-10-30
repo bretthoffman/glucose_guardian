@@ -91,6 +91,8 @@ export const forMe = query({
       const n = fresh(await newestNote(ctx, viewer.patientUserId, "caregivers"));
       const note = n && noteIsFor(n.recipientCodes, viewer.code) ? n : null;
       return {
+        /** The viewer's own name ("Holly"), for the greeting. */
+        you: viewer.name,
         note: note ? { id: note._id, text: note.text, fromName: note.fromName, createdAt: note.createdAt } : null,
         sent: null,
       };
@@ -98,6 +100,7 @@ export const forMe = query({
     const n = fresh(await newestNote(ctx, viewer.patientUserId, "family"));
     const sent = fresh(await newestNote(ctx, viewer.patientUserId, "caregivers"));
     return {
+      you: viewer.name,
       note: n ? { id: n._id, text: n.text, fromName: n.fromName, createdAt: n.createdAt } : null,
       sent: sent
         ? { id: sent._id, text: sent.text, recipientCodes: sent.recipientCodes ?? [], createdAt: sent.createdAt, seen: sent.seen }

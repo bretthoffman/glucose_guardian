@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildHandoffSummary, firstName, shouldShowHandoff, type HandoffLog } from "./handoff";
+import { buildHandoffSummary, firstName, joinNames, shouldShowHandoff, type HandoffLog } from "./handoff";
 
 // Local times so the greeting doesn't depend on the test machine's zone.
 const at = (h: number, m = 0) => new Date(2026, 9, 29, h, m).getTime();
@@ -63,6 +63,22 @@ describe("handoff sheet contents", () => {
     expect(s.active).toBeNull();
     expect(s.heading).toBe("Good evening, Grandma. Here's Bella's evening.");
     expect(firstName("Andrea (backup nurse)")).toBe("Andrea");
+  });
+
+  it("puts a meal's carbs on the line under its name", () => {
+    const s = buildHandoffSummary({
+      kind: "caregiver", viewerName: "Holly", childName: "Bella", nowMs: at(12, 0), readings: [], fmtTime: fmt,
+      logs: [{ timestamp: iso(at(10, 12)), kind: "meal", title: "Spaghetti with meatballs", detail: "35g carbs", authorName: "Holly", byYou: true }],
+    });
+    expect(s.items[0]).toMatchObject({ title: "Spaghetti with meatballs", sub: "35g carbs · 10:12 AM · by you" });
+  });
+
+  it("greets everyone picked by name, or nobody by name when it's for everyone", () => {
+    const base = { kind: "caregiver" as const, viewerName: "", childName: "Bella", nowMs: at(18, 0), readings: [], logs: [], fmtTime: fmt };
+    expect(buildHandoffSummary(base).heading).toBe("Good evening. Here's Bella's evening.");
+    expect(buildHandoffSummary({ ...base, greetAs: joinNames(["Holly", "Andrea"]) }).heading).toBe("Good evening, Holly and Andrea. Here's Bella's evening.");
+    expect(joinNames(["Holly", "Andrea", "Grandma"])).toBe("Holly, Andrea and Grandma");
+    expect(joinNames([])).toBe("");
   });
 });
 

@@ -45,6 +45,7 @@ describe("handoff notes", () => {
     await t.mutation(handoff.leaveNote, { ...brian, text: "Rough night, extra snack in her backpack", recipientCodes: ["holly001"] });
     const holly = await t.query(handoff.forMe, { code: "HOLLY001" });
     expect(holly.note).toMatchObject({ text: "Rough night, extra snack in her backpack", fromName: "Brian" });
+    expect(holly.you).toBe("Holly");
     expect((await t.query(handoff.forMe, { code: "ANDREA01" })).note).toBeNull();
     await t.mutation(handoff.markSeen, { code: "HOLLY001", noteId: holly.note.id });
     await t.mutation(handoff.markSeen, { code: "HOLLY001", noteId: holly.note.id });

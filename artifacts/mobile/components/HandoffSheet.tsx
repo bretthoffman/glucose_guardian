@@ -88,8 +88,7 @@ function insulinTitle(e: InsulinLogEntry): string {
 }
 
 function mealTitle(f: FoodLogEntry): string {
-  const carbs = Math.round(f.estimatedCarbs);
-  return `${capFirst(f.foodName || "Meal")} · ${carbs}g carbs`;
+  return capFirst(f.foodName || "Meal");
 }
 
 /** Who is looking: a caregiver (by access code) or a family account. Null = no handoff here. */
@@ -139,7 +138,7 @@ export function useHandoffLogs(viewer: { kind: HandoffKind; args: { code?: strin
       ...(insulinLog ?? [])
         .filter((e) => e.units > 0)
         .map((e) => ({ timestamp: e.timestamp, kind: "insulin" as const, title: insulinTitle(e), authorName: e.authorName, byYou: mine(e) })),
-      ...(foodLog ?? []).map((f) => ({ timestamp: f.timestamp, kind: "meal" as const, title: mealTitle(f), authorName: f.authorName, byYou: mine(f) })),
+      ...(foodLog ?? []).map((f) => ({ timestamp: f.timestamp, kind: "meal" as const, title: mealTitle(f), detail: `${Math.round(f.estimatedCarbs)}g carbs`, authorName: f.authorName, byYou: mine(f) })),
       ...(fingerStickLog ?? []).map((f) => ({
         timestamp: f.timestamp,
         kind: "stick" as const,
@@ -157,7 +156,7 @@ export function useHandoffSummaryBuilder(viewer: { kind: HandoffKind; args: { co
   const { history, latestReading } = useGlucose();
   const logs = useHandoffLogs(viewer);
   return useCallback(
-    (opts: { kind?: HandoffKind; sinceMs?: number | null; viewerName?: string; nowMs?: number }): HandoffSummary => {
+    (opts: { kind?: HandoffKind; sinceMs?: number | null; viewerName?: string; greetAs?: string; nowMs?: number }): HandoffSummary => {
       const nowMs = opts.nowMs ?? Date.now();
       const kind = opts.kind ?? viewer?.kind ?? "caregiver";
       const latestMs = latestReading ? new Date(latestReading.timestamp).getTime() : NaN;
@@ -165,7 +164,8 @@ export function useHandoffSummaryBuilder(viewer: { kind: HandoffKind; args: { co
       const iob = computeActiveInsulin(insulinLog ?? [], nowMs);
       return buildHandoffSummary({
         kind,
-        viewerName: opts.viewerName ?? viewer?.name ?? (caregiverSession ? "there" : ""),
+        viewerName: opts.viewerName ?? viewer?.name ?? "",
+        greetAs: opts.greetAs,
         childName: profile?.childName?.trim() || "your child",
         nowMs,
         sinceMs: opts.sinceMs,
@@ -205,7 +205,7 @@ export function HandoffPrompt() {
   const whatsNewBusy = useWhatsNewBusy();
   const [waitedLongEnough, setWaitedLongEnough] = useState(false);
   const forMe = useQuery(api.handoff.forMe, viewer ? viewer.args : "skip") as
-    | { note: HandoffNote | null; sent: unknown }
+    | { you?: string; note: HandoffNote | null; sent: unknown }
     | null
     | undefined;
   const markSeen = useMutation(api.handoff.markSeen);
@@ -234,7 +234,8 @@ export function HandoffPrompt() {
       const stored = await readStore(v.storeKey);
       const note = fm?.note ?? null;
       const sinceMs = v.kind === "family" ? stored.lastActiveMs ?? null : null;
-      const summary = b({ sinceMs });
+      // Greet by the name on their code ("Holly"); the backend knows it, the phone doesn't.
+      const summary = b({ sinceMs, viewerName: fm?.you || v.name });
       const othersLogged =
         sinceMs != null && l.some((x) => !x.byYou && new Date(x.timestamp).getTime() > sinceMs);
       const show = shouldShowHandoff({
@@ -356,7 +357,9 @@ export function HandoffBody({ summary, note, colors }: { summary: HandoffSummary
                 <MaterialCommunityIcons name={ITEM_ICON[item.icon].name} size={18} color={ITEM_ICON[item.icon].color} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.itemTitle, { color: colors.text }]}>{item.title}</Text>
+                <Text style={[styles.itemTitle, { color: colors.text }]} numberOfLines={2}>
+                  {item.title}
+                </Text>
                 <Text style={[styles.itemSub, { color: colors.textSecondary }]}>{item.sub}</Text>
               </View>
             </View>

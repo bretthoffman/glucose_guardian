@@ -15,7 +15,7 @@ import { AccentShade, CardShade } from "@/components/Shade";
 import { HandoffBody, fmtClock, useHandoffSummaryBuilder, useHandoffViewer } from "@/components/HandoffSheet";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/utils/convex-auth-client";
-import { firstName } from "@/utils/handoff";
+import { firstName, joinNames } from "@/utils/handoff";
 
 type Palette = (typeof Colors)["light"];
 
@@ -64,8 +64,9 @@ export default function HandoffPanel({ colors }: { colors: Palette; onClose?: ()
     setPicked(sent?.recipientCodes ?? []);
   }, [forMe, sent, loadedFrom]);
 
-  const previewName = picked.length === 1 ? caregivers.find((c) => c.code === picked[0])?.name : caregivers[0]?.name;
-  const preview = build({ kind: "caregiver", viewerName: previewName ? firstName(previewName) : "there" });
+  // Greets whoever is picked ("Holly and Andrea"); for everyone, no name (each person sees their own).
+  const pickedNames = picked.map((code) => caregivers.find((c) => c.code === code)?.name).filter((n): n is string => !!n).map(firstName);
+  const preview = build({ kind: "caregiver", greetAs: joinNames(pickedNames) });
   const ownName = viewer?.name || "you";
   const previewNote = draft.trim() ? { id: "preview", text: draft.trim(), fromName: ownName, createdAt: Date.now() } : null;
 
@@ -112,6 +113,7 @@ export default function HandoffPanel({ colors }: { colors: Palette; onClose?: ()
       </View>
 
       <Text style={[styles.section, { color: colors.textMuted }]}>WHAT THEY'LL SEE</Text>
+      <Text style={[styles.hint, { color: colors.textSecondary }]}>Each caregiver sees it with their own name.</Text>
       <View style={[styles.preview, { borderColor: colors.border, backgroundColor: colors.background }]}>
         <Text style={[styles.previewTitle, { color: colors.text }]}>{preview.heading}</Text>
         <HandoffBody summary={preview} note={previewNote} colors={colors} />
@@ -197,6 +199,7 @@ const styles = StyleSheet.create({
   headerIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 17, fontWeight: "700" },
   subtitle: { fontSize: 13, marginTop: 2, lineHeight: 18 },
+  hint: { fontSize: 13, marginTop: -6 },
   section: { fontSize: 12, fontWeight: "700", letterSpacing: 0.8, marginTop: 4 },
   preview: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 12 },
   previewTitle: { fontSize: 18, fontWeight: "800", lineHeight: 24 },
