@@ -34,7 +34,7 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         icon: "toggle-right",
         title: "Choose who gets the catch-up",
-        body: "In Dashboard, Handoff, switch the morning catch-up on or off for each caregiver. Someone switched off still gets any note you pick them for.",
+        body: "For guardian accounts only. In Dashboard, Handoff, switch the morning catch-up on or off for each caregiver. Someone switched off still gets any note you pick them for.",
       },
     ],
   },
