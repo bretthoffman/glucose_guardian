@@ -9,7 +9,6 @@
  */
 
 import type * as assistantChat from "../assistantChat.js";
-import type * as shortcuts from "../shortcuts.js";
 import type * as auth from "../auth.js";
 import type * as careCircle from "../careCircle.js";
 import type * as careLogs from "../careLogs.js";
@@ -55,6 +54,7 @@ import type * as predictionReferences from "../predictionReferences.js";
 import type * as profilePhoto from "../profilePhoto.js";
 import type * as push from "../push.js";
 import type * as pushLogic from "../pushLogic.js";
+import type * as shortcuts from "../shortcuts.js";
 
 import type {
   ApiFromModules,
@@ -64,7 +64,6 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   assistantChat: typeof assistantChat;
-  shortcuts: typeof shortcuts;
   auth: typeof auth;
   careCircle: typeof careCircle;
   careLogs: typeof careLogs;
@@ -110,6 +109,7 @@ declare const fullApi: ApiFromModules<{
   profilePhoto: typeof profilePhoto;
   push: typeof push;
   pushLogic: typeof pushLogic;
+  shortcuts: typeof shortcuts;
 }>;
 
 /**
