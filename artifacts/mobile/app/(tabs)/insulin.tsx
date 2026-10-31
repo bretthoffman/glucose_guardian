@@ -193,6 +193,7 @@ export default function InsulinScreen() {
   const linkParams = useLocalSearchParams<{ tab?: string; t?: string }>();
   useEffect(() => {
     if (linkParams.tab === "log") setScreenTab("log");
+    else if (linkParams.tab === "predict") setScreenTab("predict");
   }, [linkParams.tab, linkParams.t]);
   // The tab actually shown: fall back to the first allowed tab when the stored one isn't available
   // (e.g. calculator grant off → default to Log; log grant off → only Dose).

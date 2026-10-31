@@ -862,6 +862,16 @@ const handoffNotes = defineTable({
  * its owner: `owner` is "u:<userId>" for an account or "c:<access code>" for a code session
  * (grandma, the school nurse, Child Mode). Nobody else can list or read it.
  */
+/**
+ * Each person's Glucose-screen shortcuts, in their order. Keyed like chat history: "u:<userId>" for
+ * an account, "c:<CODE>" for an access-code session. Ids are the app's shortcut keys (utils/shortcuts).
+ */
+const userShortcuts = defineTable({
+  owner: v.string(),
+  ids: v.array(v.string()),
+  updatedAt: v.number(),
+}).index("by_owner", ["owner"]);
+
 const assistantChats = defineTable({
   owner: v.string(),
   /** Local calendar day on the phone, YYYY-MM-DD. */
@@ -1068,6 +1078,7 @@ export default defineSchema({
   carePens,
   labResults,
   assistantChats,
+  userShortcuts,
   handoffNotes,
   careMessages,
   pushTokens,

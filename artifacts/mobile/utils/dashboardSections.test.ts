@@ -25,6 +25,7 @@ describe("dashboardSectionVisibility", () => {
       showDoctorCareTeam: true,
       showAccessManagement: true,
       showHandoff: true, // guardian account
+      showShortcuts: true,
       showActivityLog: false, // no entries yet
       showDownloadLogs: false,
       showChildView: false, // retired: Care Circle's Child code covers a child's own phone
@@ -75,6 +76,7 @@ describe("dashboardSectionVisibility", () => {
     expect(keys({ ...patientParent, caregiverViewingChild: true })).toEqual([
       "insulin",
       "summary",
+      "shortcuts",
       "notifications",
       "thresholds",
       "emergency",
@@ -110,6 +112,7 @@ describe("availableDashboardSections", () => {
     expect(keys(patientParent)).toEqual([
       "insulin",
       "summary",
+      "shortcuts",
       "notifications",
       "thresholds",
       "emergency",
@@ -124,8 +127,8 @@ describe("availableDashboardSections", () => {
     expect(keys({ ...patientParent, hasLogEntries: true }).slice(0, 3)).toEqual(["insulin", "activity", "summary"]);
   });
 
-  it("returns only Notifications in a caregiver session (device-own alert prefs; emergency locked inside)", () => {
-    expect(keys({ ...patientParent, caregiverSession: true })).toEqual(["notifications"]);
+  it("returns only Shortcuts and Notifications in a caregiver session (device-own alert prefs; emergency locked inside)", () => {
+    expect(keys({ ...patientParent, caregiverSession: true })).toEqual(["shortcuts", "notifications"]);
   });
 
   it("leaves only the Child View switch in child view (so it can be turned off)", () => {
@@ -147,6 +150,7 @@ describe("availableDashboardSections", () => {
     expect(keys({ ...patientParent, isParent: false, isAdult: false })).toEqual([
       "insulin",
       "summary",
+      "shortcuts",
       "notifications",
       "thresholds",
       "emergency",
@@ -191,10 +195,10 @@ describe("dashboardGroups", () => {
   });
 
   it("drops a group entirely when none of its rows apply", () => {
-    // A caregiver code session sees only Notifications — so only its group survives.
+    // A caregiver code session sees only Shortcuts and Notifications, so only their groups survive.
     const groups = dashboardGroups({ ...patientParent, caregiverSession: true });
-    expect(groups.map((g) => g.title)).toEqual(["Alerts & Notifications"]);
-    expect(groups[0]!.rows.map((r) => r.key)).toEqual(["notifications"]);
+    expect(groups.map((g) => g.title)).toEqual(["Glucose & Dosing", "Alerts & Notifications"]);
+    expect(groups.map((g) => g.rows.map((r) => r.key))).toEqual([["shortcuts"], ["notifications"]]);
   });
 
   it("never emits an empty group", () => {

@@ -54,7 +54,8 @@ import {
 } from "@/utils/homeScrollRecovery";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
-import { CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
+import { CardShade, ScreenShade, TintShade } from "@/components/Shade";
+import ShortcutsRow from "@/components/ShortcutsRow";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 import { CloseButton } from "@/components/CloseButton";
 
@@ -307,7 +308,6 @@ export default function HomeScreen() {
   });
   // The Insulin screen only offers its Log tab when the session's grant allows it — the shortcut
   // button follows the same rule so it never lands somewhere it can't go.
-  const canOpenLogsTab = accessCodeRole == null || !!accessCodePermissions?.log;
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const [backupMissing, setBackupMissing] = useState(false);
@@ -335,7 +335,7 @@ export default function HomeScreen() {
   const helpGauge = useHelpAnchor("home.gauge");
   const helpTrend = useHelpAnchor("home.trend");
   const helpCgmChip = useHelpAnchor("home.cgmChip");
-  const helpLogsBtn = useHelpAnchor("home.logsBtn");
+  const helpShortcuts = useHelpAnchor("home.shortcuts");
   const helpRange = useHelpAnchor("home.rangeToggle");
   const helpChart = useHelpAnchor("home.chart");
   const helpNotices = useHelpAnchor("home.notices");
@@ -1257,26 +1257,6 @@ export default function HomeScreen() {
                   setInsightsVisible(true);
                 }}
               />
-              {canOpenLogsTab && (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Open the logs page"
-                  hitSlop={8}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    // `t` is a nonce so a second tap re-triggers the insulin screen's param effect
-                    // even though expo-router keeps the previous params around.
-                    router.push({ pathname: "/(tabs)/insulin", params: { tab: "log", t: String(Date.now()) } });
-                  }}
-                  ref={helpLogsBtn}
-                  style={({ pressed }) => [styles.logsShortcut, { backgroundColor: c.cardElevated, borderColor: c.border, opacity: pressed ? 0.6 : 1 }]}
-                >
-                  {/* Control fill + shade, like the other secondary buttons and chips. */}
-                  <ControlShade radius={8} />
-                  <Feather name="list" size={11} color={c.textSecondary} />
-                  <Text style={[styles.logsShortcutText, { color: c.textSecondary }]}>Logs</Text>
-                </Pressable>
-              )}
             </View>
           ) : (
             <View style={[styles.gaugeBlock, { padding: T.space.lg }]}>
@@ -1289,6 +1269,10 @@ export default function HomeScreen() {
               </View>
             </View>
           )}
+
+          {/* The shortcuts this person picked on Dashboard, Shortcuts (nothing until they add one). The
+              old corner "Logs" button is gone; Logs lives on the Insulin tab or as a shortcut. */}
+          <ShortcutsRow padH={Math.round(T.space.lg * padScale)} anchorRef={helpShortcuts} />
 
           {/* No top padding and no divider on the chart block: the gauge block above already ends with
               its own padding, so the range toggle sits directly beneath the gauge and the two halves
@@ -1569,14 +1553,6 @@ const styles = StyleSheet.create({
   bannerTitle: { fontSize: 13, fontWeight: T.font.bold, marginBottom: 2 },
   bannerMessage: { fontSize: 12, fontWeight: T.font.regular, lineHeight: 17 },
 
-  /** Tiny top-right shortcut on the glucose card — quiet outline pill, muted like the card's
-      secondary text, absolute so the centered gauge layout is untouched. */
-  logsShortcut: {
-    position: "absolute", right: 12, top: 10,
-    flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, borderWidth: 1,
-  },
-  logsShortcutText: { fontSize: 11, fontWeight: "600" },
   emptyGauge: { alignItems: "center", gap: 8, paddingVertical: 24 },
   emptyGaugeText: { fontSize: 16, fontWeight: T.font.semibold },
   emptyGaugeSub: { fontSize: 12.5, fontWeight: T.font.regular, textAlign: "center" },

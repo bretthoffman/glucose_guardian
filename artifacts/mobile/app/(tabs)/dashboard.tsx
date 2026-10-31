@@ -4,6 +4,7 @@ import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
 import React, { useEffect, useRef, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
 import {
   Alert,
   FlatList,
@@ -27,6 +28,7 @@ import TreatmentProposalCard from "@/components/TreatmentProposalCard";
 import { SettingsModal } from "@/components/SettingsModal";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import HandoffPanel from "@/components/HandoffPanel";
+import ShortcutsPanel from "@/components/ShortcutsPanel";
 import { DashboardGroup, DashboardRow } from "@/components/DashboardGroupList";
 import { WhatsNewHistoryModal } from "@/components/WhatsNew";
 import CareCirclePanel from "@/components/CareCirclePanel";
@@ -88,6 +90,7 @@ const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Fea
   doctorCode: "key",
   careCircle: "share-2",
   handoff: "repeat",
+  shortcuts: "grid",
   childView: "eye",
 };
 
@@ -104,6 +107,7 @@ const SECTION_COLORS: Record<DashboardSectionKey, string> = {
   doctorCode: "#6CC4FF",
   careCircle: COLORS.success,
   handoff: "#A78BFA",
+  shortcuts: "#5CB8FF",
   childView: COLORS.primary,
 };
 
@@ -196,7 +200,7 @@ export default function DashboardScreen() {
   // Which Dashboard management sections are available for the current role (pure helper, shared with
   // the section-card grid so cards and the inline guards/popups can never drift apart). These booleans
   // gate BOTH the inline content (analytics/trend + the section popups) and the matching grid cards.
-  const { showPatientSections, showNotifications, showDoctorCareTeam, showAccessManagement, showHandoff } = dashboardSectionVisibility({
+  const { showPatientSections, showNotifications, showDoctorCareTeam, showAccessManagement, showHandoff, showShortcuts } = dashboardSectionVisibility({
     isChildMode,
     caregiverSession,
     doctorSession,
@@ -223,6 +227,7 @@ export default function DashboardScreen() {
   const helpCare = useHelpAnchor("dashboard.care");
   const helpWhatsNew = useHelpAnchor("dashboard.whatsNew");
   const helpHandoff = useHelpAnchor("dashboard.handoff");
+  const helpShortcutsRow = useHelpAnchor("dashboard.shortcuts");
   const groupAnchor: Record<string, (node: View | null) => void> = {
     "Glucose & Dosing": helpGlucose,
     "Alerts & Notifications": helpAlerts,
@@ -239,6 +244,16 @@ export default function DashboardScreen() {
     setOpenSection(key);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
+
+  // A Glucose-screen shortcut lands here with ?open=<section>&t=<stamp>: open that popup. Each popup
+  // is still rendered behind its own gate, so a section this person can't see simply doesn't open.
+  const linkParams = useLocalSearchParams<{ open?: string; t?: string }>();
+  useEffect(() => {
+    const key = linkParams.open as DashboardSectionKey | undefined;
+    if (!key || key === "childView") return;
+    setSettingsOpen(false);
+    setOpenSection(key);
+  }, [linkParams.open, linkParams.t]);
   const { pickPhoto, uploading: photoUploading } = useProfilePhotoPicker();
   const handleUpdatePhoto = () => {
     // Close the popup first, then launch the system picker (avoids modal-over-modal presentation
@@ -896,7 +911,7 @@ export default function DashboardScreen() {
                   key={row.key}
                   {...common}
                   onPress={onPress}
-                  anchorRef={row.key === "handoff" ? helpHandoff : undefined}
+                  anchorRef={row.key === "handoff" ? helpHandoff : row.key === "shortcuts" ? helpShortcutsRow : undefined}
                 />
               );
             })}
@@ -2056,6 +2071,16 @@ export default function DashboardScreen() {
             accessibilityLabel="Care Circle"
           >
             <CareCirclePanel colors={colors} onClose={() => setOpenSection(null)} />
+          </DashboardSectionModal>
+        )}
+
+        {showShortcuts && (
+          <DashboardSectionModal
+            visible={openSection === "shortcuts"}
+            onClose={() => setOpenSection(null)}
+            accessibilityLabel="Shortcuts"
+          >
+            <ShortcutsPanel colors={colors} />
           </DashboardSectionModal>
         )}
 

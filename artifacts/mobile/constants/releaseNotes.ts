@@ -28,6 +28,22 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-10-31",
+    date: "2026-10-31",
+    items: [
+      {
+        icon: "grid",
+        title: "Your own shortcuts",
+        body: "On the Dashboard, tap Shortcuts (under A1C) to pick up to 8 buttons for your Glucose screen, like Doctor Office, Logs or Messages. Each person picks their own.",
+      },
+      {
+        icon: "list",
+        title: "Logs moved",
+        body: "The small Logs button on the Glucose screen is gone. Find Logs on the Insulin page, or add it as a shortcut.",
+      },
+    ],
+  },
+  {
     id: "2026-10-30",
     date: "2026-10-30",
     items: [

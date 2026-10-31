@@ -16,6 +16,8 @@
  *    (`!doctorSession && !isChildMode && !caregiverSession`; owner-only — hidden for the doctor's own
  *    session and any access-code / child-view session).
  *  - Care Circle → `showAccessManagement` (owner-only: `(isParent || isAdult)` and not child/caregiver/doctor).
+ *  - Shortcuts (under A1C) → `showShortcuts`: pick the buttons on your Glucose screen. Everyone but the
+ *    doctor's session and guardian-device child mode; each person's list is their own.
  *  - Handoff (the catch-up caregivers see, and the parent's optional note) → `showHandoff`: Care Circle's
  *    gate, guardian (parent) accounts only. A personal account manages its own care, so it has none.
  *  - Child View Mode → `showChildView`: RETIRED for turning on. A child's own phone uses a Child
@@ -34,6 +36,7 @@ export type DashboardSectionKey =
   | "doctorCode"
   | "careCircle"
   | "handoff"
+  | "shortcuts"
   | "childView";
 
 export interface DashboardRoleFlags {
@@ -66,6 +69,8 @@ export interface DashboardSectionVisibility {
   showAccessManagement: boolean;
   /** Handoff: like Care Circle, but guardian accounts only (not a personal / adult account). */
   showHandoff: boolean;
+  /** Shortcuts (pick the Glucose-screen buttons): everyone but the doctor and guardian-device child mode. */
+  showShortcuts: boolean;
   /** The Activity Log (Manage Logs) row: entries exist and this is not guardian-device child mode. */
   showActivityLog: boolean;
   /** Download Patient Logs: the doctor's own session. */
@@ -95,6 +100,7 @@ export function dashboardSectionVisibility(role: DashboardRoleFlags): DashboardS
       (role.isParent || role.isAdult) && !role.isChildMode && !role.caregiverSession && !role.doctorSession && !viewingChild,
     showHandoff:
       role.isParent && !role.isAdult && !role.isChildMode && !role.caregiverSession && !role.doctorSession && !viewingChild,
+    showShortcuts: !role.doctorSession && !guardianDeviceChildMode,
     showActivityLog: !!role.hasLogEntries && !guardianDeviceChildMode,
     showDownloadLogs: role.doctorSession,
     showChildView: role.isParent && !role.caregiverSession && role.isChildMode,
@@ -121,6 +127,7 @@ const GROUPS: { title: string; rows: Entry[] }[] = [
       { key: "insulin", title: "Insulin Settings", gate: "showPatientSections" },
       { key: "activity", title: "Activity Log", gate: "showActivityLog" },
       { key: "summary", title: "A1C", gate: "showPatientSections" },
+      { key: "shortcuts", title: "Shortcuts", gate: "showShortcuts" },
       { key: "downloadLogs", title: "Download Patient Logs", gate: "showDownloadLogs" },
     ],
   },

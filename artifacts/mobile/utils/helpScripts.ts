@@ -46,10 +46,10 @@ const home: HelpStep[] = [
       "This chip is the link to your CGM, Dexcom or FreeStyle Libre. Green means connected, and it shows how many new readings arrived and when. If it ever says attention is needed, tapping it opens the connection screen where you can sign in again or switch devices.",
   },
   {
-    id: "home.logsBtn",
-    anchor: "home.logsBtn",
-    title: "Logs shortcut",
-    text: "A quick jump to the day's Event Log: every insulin dose and meal, on the Insulin page's Log tab.",
+    id: "home.shortcuts",
+    anchor: "home.shortcuts",
+    title: "My Shortcuts",
+    text: "The buttons you picked, one tap to Doctor Office, Logs, Messages and more. Change them on the Dashboard under Shortcuts. Only you see your shortcuts.",
   },
   {
     id: "home.rangeToggle",
@@ -293,6 +293,12 @@ const dashboard: HelpStep[] = [
     title: "Glucose and dosing",
     text:
       "Insulin Settings holds the carb ratio, target, correction factor, time-of-day overrides, and which insulins you use as a pen or a vial. Activity Log lists every entry. A1C estimates A1C from the last 14, 30 or 90 days of sensor readings and shows how much the sensor was worn. In A1C you can also add lab results by snapping a photo of the report or typing them in, see Ways to help, and choose who sees meal tips.",
+  },
+  {
+    id: "dashboard.shortcuts",
+    anchor: "dashboard.shortcuts",
+    title: "Shortcuts",
+    text: "Pick up to 8 buttons for your Glucose screen, like Doctor Office, Logs, Messages or Handoff. Tap the green plus to add, the red minus to remove, and the arrows to change the order. Each person has their own, and you only see the ones you're allowed to use.",
   },
   {
     id: "dashboard.alerts",

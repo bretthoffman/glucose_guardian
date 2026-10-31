@@ -668,7 +668,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="a-pad">
 <div class="a-hdr"><div><div class="a-greet">Good morning</div><div class="a-title">{{p.title}}</div></div><div class="a-dex gg-ping"><b>● Dexcom</b><span>1 new · Just now</span></div></div>
 <div class="a-card a-main">
-<div class="a-logsbtn">≡ Logs</div>
+
 <div class="a-ringrow">
 <div class="a-ring ok"><div class="n" style="position: relative"><span class="gg-numA" style="position: absolute; inset: 0">124</span><span class="gg-numB">128</span></div><div class="u">mg/dL</div><span class="a-tag tag-ok">In Range</span></div>
 <div class="a-trend"><div class="arr c-ok">→</div><span class="a-tag tag-ok">Stable</span><div class="upd">Updated just now</div></div>
@@ -803,7 +803,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="a-pad" style="padding-top: 40px">
 <div class="a-hdr"><div><div class="a-greet">Good afternoon</div><div class="a-title">{{joe.title}}</div></div><div class="a-dex"><b>● Dexcom</b><span>Just now</span></div></div>
 <div class="a-card a-main">
-<div class="a-logsbtn">≡ Logs</div>
+
 <div class="a-ringrow">
 <div class="a-ring hi"><div class="n">190</div><div class="u">mg/dL</div><span class="a-tag tag-hi">Above Range</span></div>
 <div class="a-trend"><div class="arr c-hi">↘</div><span class="a-tag tag-hi">Falling</span><div class="upd">Updated just now</div></div>
@@ -953,7 +953,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <sc-if value="{{cur.isGlucose}}" hint-placeholder-val="{{ true }}">
 <div class="a-hdr"><div><div class="a-greet">{{cur.greet}}</div><div class="a-title">{{cur.who}}</div></div><div class="a-dex"><b>● Dexcom</b><span>Just now</span></div></div>
 <div class="a-card a-main">
-<div class="a-logsbtn">≡ Logs</div>
+
 <div class="a-ringrow">
 <div class="a-ring {{cur.ringCls}}"><div class="n">{{cur.bg}}</div><div class="u">mg/dL</div><span class="a-tag {{cur.tagCls}}">{{cur.range}}</span></div>
 <div class="a-trend"><div class="arr {{cur.arrCls}}">{{cur.arrow}}</div><span class="a-tag {{cur.tagCls}}">{{cur.trendLabel}}</span><div class="upd">Updated just now</div></div>
@@ -1611,7 +1611,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="a-pad">
 <div class="a-hdr"><div><div class="a-greet">Good night</div><div class="a-title">{{p.title}}</div></div><div class="a-dex"><b>● Dexcom</b><span>Just now</span></div></div>
 <div class="a-card a-main">
-<div class="a-logsbtn">≡ Logs</div>
+
 <div class="a-ringrow">
 <div class="a-ring ok"><div class="n">116</div><div class="u">mg/dL</div><span class="a-tag tag-ok">In Range</span></div>
 <div class="a-trend"><div class="arr c-ok">→</div><span class="a-tag tag-ok">Stable</span><div class="upd">Updated just now</div></div>
@@ -1834,7 +1834,7 @@ figure.dev figcaption{font-size:15px;font-weight:600}
 <div class="a-hdr"><div><div class="a-greet">Good afternoon</div><div class="a-title">{{ns.title}}</div></div><div class="a-dex"><b>● Dexcom</b><span>2 min ago</span></div></div>
 <button type="button" class="nb vb" onClick="{{nBack}}"><svg><use href="#i-eye"></use></svg><span>Viewing {{ns.fullName}}’s data</span><b>Exit</b></button>
 <div class="a-card a-main">
-<div class="a-logsbtn">≡ Logs</div>
+
 <sc-if value="{{ns.showTap}}" hint-placeholder-val="{{ true }}"><span class="tapme">Tap for recent readings</span></sc-if>
 <div class="a-ringrow">
 <button type="button" class="nb" onClick="{{nOpenReadings}}" aria-label="Show recent readings" style="width: auto; border-radius: 50%"><div class="a-ring {{ns.ringCls}} pulse"><div class="n">{{ns.bg}}</div><div class="u">mg/dL</div><span class="a-tag {{ns.tagCls}}">{{ns.range}}</span></div></button>

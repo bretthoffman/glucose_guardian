@@ -205,7 +205,12 @@ export default function ChatScreen() {
   );
   // A child/caregiver access-code session only sees the AI chat if the parent enabled it.
   const chatLocked = accessCodeRole != null && !accessCodePermissions?.chat;
-  const { prompt, fromParent, openMessages } = useLocalSearchParams<{ prompt?: string; fromParent?: string; openMessages?: string }>();
+  const { prompt, fromParent, openMessages, openHistory } = useLocalSearchParams<{
+    prompt?: string;
+    fromParent?: string;
+    openMessages?: string;
+    openHistory?: string;
+  }>();
   const promptSentRef = useRef<string | null>(null);
 
   const name = profile?.childName ?? "there";
@@ -350,6 +355,15 @@ export default function ChatScreen() {
       setShowMessages(true);
     }
   }, [openMessages, chatLocked]);
+
+  // The "Chat History" shortcut lands here with ?openHistory=<stamp>.
+  const openHistoryRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (openHistory && openHistory !== openHistoryRef.current && !chatLocked && chatOwner) {
+      openHistoryRef.current = openHistory;
+      setHistoryOpen(true);
+    }
+  }, [openHistory, chatLocked, chatOwner]);
 
   async function send(text?: string) {
     const msg = (text ?? input).trim();
