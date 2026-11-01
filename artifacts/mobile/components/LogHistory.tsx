@@ -1,6 +1,6 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -63,8 +63,11 @@ export default function LogHistory({
   insulinOptions = [],
   selectedInsulinLabel = null,
   onLogAdded,
+  openAddMenuKey,
 }: {
   colors: (typeof Colors)["light"];
+  /** Changes (a nonce) when the "Add Entry" shortcut opens this page: show today with the menu open. */
+  openAddMenuKey?: string;
   /** @deprecated Daily-only Log mode; prop retained for caregiver call sites. */
   restrictToDay?: boolean;
   /** The account's configured insulins — options for the Log Insulin popup. */
@@ -75,6 +78,10 @@ export default function LogHistory({
   onLogAdded?: () => void;
 }) {
   const [dayOffset, setDayOffset] = useState(0);
+  // The "Add Entry" shortcut always adds to today.
+  useEffect(() => {
+    if (openAddMenuKey) setDayOffset(0);
+  }, [openAddMenuKey]);
   // Help Mode: this Log view is toured as part of the INSULIN page's script (see utils/helpScripts);
   // it registers the page's scroll while mounted so off-screen anchors scroll into view.
   const helpScrollRef = useRef<import("react-native").ScrollView>(null);
@@ -213,6 +220,7 @@ export default function LogHistory({
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           }}
           addJustLogged={logBtnGreen || foodBtnGreen}
+          openAddMenuKey={openAddMenuKey}
         />
       </ScrollView>
 
@@ -339,7 +347,9 @@ function DayView({
   onAddInsulin,
   onAddFood,
   addJustLogged,
+  openAddMenuKey,
 }: {
+  openAddMenuKey?: string;
   day: Date;
   dayOffset: number;
   onPrev: () => void;
@@ -383,6 +393,10 @@ function DayView({
   const [selectedStick, setSelectedStick] = useState<FingerStickEntry | null>(null);
   const [fingerStickOpen, setFingerStickOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  // The "Add Entry" shortcut: open the menu as the page appears.
+  useEffect(() => {
+    if (openAddMenuKey) setAddMenuOpen(true);
+  }, [openAddMenuKey]);
 
   const { readings, status, bounds, retry } = useDayGlucoseReadings({
     enabled: true,

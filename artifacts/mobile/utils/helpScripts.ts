@@ -49,7 +49,7 @@ const home: HelpStep[] = [
     id: "home.shortcuts",
     anchor: "home.shortcuts",
     title: "My Shortcuts",
-    text: "The buttons you picked, one tap to Doctor Office, Logs, Messages and more. Change them on the Dashboard under Shortcuts. Only you see your shortcuts.",
+    text: "The buttons you picked, one tap to Add Entry, Doctor Office, Logs, Messages and more. The Help shortcut starts this tour. Change them on the Dashboard under Shortcuts. Only you see your shortcuts.",
   },
   {
     id: "home.rangeToggle",
@@ -298,7 +298,7 @@ const dashboard: HelpStep[] = [
     id: "dashboard.shortcuts",
     anchor: "dashboard.shortcuts",
     title: "Shortcuts",
-    text: "Pick up to 8 buttons for your Glucose screen, like Doctor Office, Logs, Messages or Handoff. Tap the green plus to add, the red minus to remove, and the arrows to change the order. Each person has their own, and you only see the ones you're allowed to use.",
+    text: "Pick up to 8 buttons for your Glucose screen, like Add Entry, Doctor Office, Logs, Messages, Settings or Help. Tap the green plus to add, the red minus to remove, and the arrows to change the order. Each person has their own, and you only see the ones you're allowed to use.",
   },
   {
     id: "dashboard.alerts",

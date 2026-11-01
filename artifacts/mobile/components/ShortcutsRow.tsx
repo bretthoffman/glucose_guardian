@@ -9,6 +9,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "@/context/ThemeContext";
 import { withAlpha } from "@/constants/theme";
 import { openShortcut, useShortcuts } from "@/hooks/useShortcuts";
+import { useHelp } from "@/context/HelpContext";
 
 export default function ShortcutsRow({
   padH,
@@ -20,6 +21,7 @@ export default function ShortcutsRow({
 }) {
   const { colors: c } = useTheme();
   const { shortcuts } = useShortcuts();
+  const { enterHelp } = useHelp();
   if (shortcuts.length === 0) return null;
   return (
     <View ref={anchorRef} collapsable={false} style={[styles.wrap, { paddingHorizontal: padH }]}>
@@ -32,7 +34,9 @@ export default function ShortcutsRow({
             key={s.id}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              openShortcut(s);
+              // Help starts the tour of this page (the Glucose screen); everything else opens its screen.
+              if (s.target.kind === "help") enterHelp();
+              else openShortcut(s);
             }}
             accessibilityRole="button"
             accessibilityLabel={`Open ${s.title}`}

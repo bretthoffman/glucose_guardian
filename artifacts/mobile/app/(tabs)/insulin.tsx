@@ -190,7 +190,7 @@ export default function InsulinScreen() {
   // Deep link from the home page's "Logs" shortcut: /(tabs)/insulin?tab=log. The `t` nonce makes a
   // repeat tap re-run this even though expo-router keeps the previous params; `effectiveTab` below
   // still guards availability, so a session without the log grant just lands on its allowed tab.
-  const linkParams = useLocalSearchParams<{ tab?: string; t?: string }>();
+  const linkParams = useLocalSearchParams<{ tab?: string; t?: string; add?: string }>();
   useEffect(() => {
     if (linkParams.tab === "log") setScreenTab("log");
     else if (linkParams.tab === "predict") setScreenTab("predict");
@@ -946,6 +946,7 @@ export default function InsulinScreen() {
       ) : effectiveTab === "log" ? (
         <LogHistory
           colors={colors}
+          openAddMenuKey={linkParams.add ? `${linkParams.t ?? ""}` : undefined}
           restrictToDay={caregiverSession}
           insulinOptions={availableInsulinOptions}
           selectedInsulinLabel={insulinTypeLabel}

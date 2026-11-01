@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-01",
+    date: "2026-11-01",
+    items: [
+      {
+        icon: "plus-circle",
+        title: "More shortcuts",
+        body: "Add Entry, Settings and Help can now be shortcuts. Add Entry opens straight to logging insulin, food or a finger stick. Set them up on the Dashboard under Shortcuts.",
+      },
+    ],
+  },
+  {
     id: "2026-10-31",
     date: "2026-10-31",
     items: [

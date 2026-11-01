@@ -249,6 +249,11 @@ export default function DashboardScreen() {
   // is still rendered behind its own gate, so a section this person can't see simply doesn't open.
   const linkParams = useLocalSearchParams<{ open?: string; t?: string }>();
   useEffect(() => {
+    if (linkParams.open === "settings") {
+      setOpenSection(null);
+      setSettingsOpen(true);
+      return;
+    }
     const key = linkParams.open as DashboardSectionKey | undefined;
     if (!key || key === "childView") return;
     setSettingsOpen(false);

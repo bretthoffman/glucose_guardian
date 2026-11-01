@@ -22,10 +22,15 @@ export type ShortcutIcon =
   | "bar-chart-2"
   | "settings"
   | "bell"
-  | "users";
+  | "users"
+  | "plus-circle"
+  | "user"
+  | "help-circle";
 
 export type ShortcutTarget =
-  | { kind: "insulin"; tab: "log" | "predict" }
+  | { kind: "insulin"; tab: "log" | "predict"; add?: boolean }
+  | { kind: "settings" }
+  | { kind: "help" }
   | { kind: "food" }
   | { kind: "chat"; open: "messages" | "history" }
   | { kind: "dashboard"; section: DashboardSectionKey };
@@ -43,6 +48,7 @@ export const DEFAULT_SHORTCUTS: string[] = [];
 
 /** Every shortcut, in the order the Add list shows them. */
 export const SHORTCUTS: ShortcutDef[] = [
+  { id: "addEntry", title: "Add Entry", icon: "plus-circle", color: "#5CB8FF", target: { kind: "insulin", tab: "log", add: true } },
   { id: "logs", title: "Logs", icon: "list", color: "#3B9BFF", target: { kind: "insulin", tab: "log" } },
   { id: "dose", title: "Dose Calculator", icon: "droplet", color: "#5CB8FF", target: { kind: "insulin", tab: "predict" } },
   { id: "food", title: "Log a Meal", icon: "camera", color: "#1FD18A", target: { kind: "food" } },
@@ -56,6 +62,8 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "insulinSettings", title: "Insulin Settings", icon: "settings", color: "#2F80FF", target: { kind: "dashboard", section: "insulin" } },
   { id: "notifications", title: "Notifications", icon: "bell", color: "#FF8A80", target: { kind: "dashboard", section: "notifications" } },
   { id: "emergency", title: "Emergency Contacts", icon: "users", color: "#F06292", target: { kind: "dashboard", section: "emergency" } },
+  { id: "settings", title: "Settings", icon: "user", color: "#9AA9C0", target: { kind: "settings" } },
+  { id: "help", title: "Help", icon: "help-circle", color: "#FBBF24", target: { kind: "help" } },
 ];
 
 export interface ShortcutAccess {
@@ -90,6 +98,8 @@ export function canUseShortcut(def: ShortcutDef, a: ShortcutAccess): boolean {
     case "insulin":
       return t.tab === "log" ? a.canOpenLogs : a.canUseCalculator;
     case "food":
+    case "settings":
+    case "help":
       return true;
     case "chat":
       return t.open === "messages" ? a.canChat : a.canChat && a.hasChatHistory;

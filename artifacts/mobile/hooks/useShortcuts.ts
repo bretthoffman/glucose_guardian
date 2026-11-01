@@ -107,7 +107,13 @@ export function openShortcut(s: ShortcutDef): void {
   const t = String(Date.now());
   switch (s.target.kind) {
     case "insulin":
-      router.push({ pathname: "/(tabs)/insulin", params: { tab: s.target.tab, t } });
+      router.push({ pathname: "/(tabs)/insulin", params: s.target.add ? { tab: "log", add: "1", t } : { tab: s.target.tab, t } });
+      return;
+    case "settings":
+      router.push({ pathname: "/(tabs)/dashboard", params: { open: "settings", t } });
+      return;
+    case "help":
+      // Help needs the Help context; ShortcutsRow starts it itself.
       return;
     case "food":
       router.push("/(tabs)/food");
