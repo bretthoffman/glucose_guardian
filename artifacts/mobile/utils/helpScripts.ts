@@ -214,7 +214,7 @@ const food: HelpStep[] = [
     anchor: "food.estimate",
     title: "Estimate Carbs",
     text:
-      "Runs the lookup for what you typed. The result card shows the carbs (tap the number to correct it), a spike forecast, and buttons to calculate insulin for it or log it as a meal. Tap the heart to add it to your Favorites.",
+      "Runs the lookup for what you typed. The result card shows the carbs (tap the number to correct it), How many (ate 3 but the photo shows 1? Tap plus and the carbs triple), a spike forecast, and buttons to calculate insulin for it or log it as a meal. Tap the heart to add it to your Favorites.",
   },
   {
     id: "food.mealTip",

@@ -56,6 +56,7 @@ type QuickTab = "recent" | "favorites";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 import { CloseButton } from "@/components/CloseButton";
 import { capFirst } from "@/utils/capitalize";
+import { carbsForCount, carbsForOne, nameWithCount, scaleOptional } from "@/utils/foodQuantity";
 
 interface FoodResult {
   foodName: string;
@@ -77,6 +78,8 @@ interface FoodResult {
   servingsPerContainer?: number;
   /** A photo the AI couldn't read: the photo is kept and the carbs come from the rows the user types. */
   manual?: boolean;
+  /** Photo and search results: the portion the AI described for ONE ("1 waffle"), before "How many?". */
+  basePortion?: string;
 }
 
 /** One food the user typed in: on a photo the AI couldn't read, or one the AI missed. */
@@ -265,6 +268,14 @@ export default function FoodScreen() {
   const extraId = useRef(1);
   const newExtra = (): ExtraFood => ({ id: extraId.current++, name: "", carbs: "" });
   /** Added rows that hold something (a name or carbs). Blank rows are ignored. */
+  /** "How many?" / servings picker (text so the field can be cleared while typing). */
+  const [servingsText, setServingsText] = useState("1");
+  /** The count the card's numbers are currently scaled to (the field above may hold a half-typed value). */
+  const [servingsCount, setServingsCount] = useState(1);
+  function resetServings() {
+    setServingsText("1");
+    setServingsCount(1);
+  }
   const addedFoods = extraItems.filter((it) => it.name.trim() !== "" || typedCarbs(it.carbs) > 0);
   const addedCarbs = addedFoods.reduce((sum, it) => sum + typedCarbs(it.carbs), 0);
   /** The AI's number as shown (and maybe corrected) in the carb bubble. A manual photo has none. */
@@ -274,7 +285,7 @@ export default function FoodScreen() {
   const mealCarbs = Math.round((baseCarbs + addedCarbs) * 10) / 10;
   const mealName = !result
     ? ""
-    : [...(result.manual ? [] : [result.foodName]), ...addedFoods.map((it) => it.name.trim() || "Other food")].join(" + ") ||
+    : [...(result.manual ? [] : [nameWithCount(result.foodName, servingsCount)]), ...addedFoods.map((it) => it.name.trim() || "Other food")].join(" + ") ||
       "Meal photo";
   /** A manual photo can't be logged or dosed until some carbs are entered. */
   const mealReady = !!result && (!result.manual || mealCarbs > 0);
@@ -363,8 +374,6 @@ export default function FoodScreen() {
   // Camera screen (barcode detection + shutter) and the barcode lookup it drives.
   const [scannerOpen, setScannerOpen] = useState(false);
   const [barcodeLookup, setBarcodeLookup] = useState<BarcodeLookupState>("idle");
-  /** Servings picker for barcode results (text so the field can be cleared while typing). */
-  const [servingsText, setServingsText] = useState("1");
 
   function saveToQuickLookup() {
     if (!result || savedToQuick || !mealReady) return;
@@ -447,7 +456,16 @@ export default function FoodScreen() {
       const startCarbs =
         opts?.startCarbs != null && Number.isFinite(opts.startCarbs) && opts.startCarbs >= 0 ? opts.startCarbs : data.estimatedCarbs;
       const insulinUnits = mealInsulinUnits(startCarbs, carbRatio);
-      const finalResult = { ...data, estimatedCarbs: startCarbs, insulinUnits, fromPhoto: false };
+      const finalResult: FoodResult = {
+        ...data,
+        estimatedCarbs: startCarbs,
+        insulinUnits,
+        fromPhoto: false,
+        // "How many?" scales from this one-item value.
+        perServing: { carbs: startCarbs, fat: data.fatGrams, protein: data.proteinGrams },
+        basePortion: data.portion,
+      };
+      resetServings();
       setResult(finalResult);
       setEditedCarbs(formatCarbs(startCarbs));
       setSavedToQuick(isQuickFood(quickFoods, data.foodName) || (opts?.source != null && isQuickFood(quickFoods, opts.source)));
@@ -567,7 +585,7 @@ export default function FoodScreen() {
       setSavedToQuick(false);
       setQuickSource(null);
       setError("");
-      setServingsText("1");
+      resetServings();
       setResult(result);
       setExtraItems([]);
       setEditedCarbs(String(carbs));
@@ -580,20 +598,28 @@ export default function FoodScreen() {
     }
   }
 
-  /** Servings changed on a barcode result: scale the label's per-serving values across the card. */
+  /**
+   * "How many?" changed (servings on a barcode result): scale the carbs, fat, protein and insulin
+   * estimate. Carbs scale from what the card shows now, so a carb number the person corrected is kept.
+   */
   function applyServings(text: string) {
-    setServingsText(text);
-    if (!result?.fromBarcode || !result.perServing) return;
     const n = parseServings(text);
+    setServingsText(String(n));
+    if (!result || result.manual || !result.perServing) return;
     const per = result.perServing;
-    const carbs = Math.round(per.carbs * n * 10) / 10;
+    const carbs = carbsForCount(baseCarbs, servingsCount, n);
+    setServingsCount(n);
     setResult({
       ...result,
       estimatedCarbs: carbs,
       insulinUnits: Math.round((carbs / carbRatio) * 10) / 10,
-      fatGrams: per.fat != null ? Math.round(per.fat * n * 10) / 10 : undefined,
-      proteinGrams: per.protein != null ? Math.round(per.protein * n * 10) / 10 : undefined,
-      portion: `${n} serving${n === 1 ? "" : "s"}${result.servingText ? ` · ${result.servingText} each` : ""}`,
+      fatGrams: scaleOptional(per.fat, n),
+      proteinGrams: scaleOptional(per.protein, n),
+      portion: result.fromBarcode
+        ? `${n} serving${n === 1 ? "" : "s"}${result.servingText ? ` · ${result.servingText} each` : ""}`
+        : n > 1 && result.basePortion
+        ? `${n} × ${result.basePortion}`
+        : result.basePortion,
     });
     setEditedCarbs(String(carbs));
     void fetchGuidance(carbs);
@@ -679,7 +705,14 @@ export default function FoodScreen() {
         startManualEntry();
         return;
       }
-      setResult({ ...data, fromPhoto: true });
+      // "How many?" scales from this one-item value (a photo of one waffle when she ate three).
+      resetServings();
+      setResult({
+        ...data,
+        fromPhoto: true,
+        perServing: { carbs: data.estimatedCarbs ?? 0, fat: data.fatGrams, protein: data.proteinGrams },
+        basePortion: data.portion,
+      });
       setEditedCarbs((data.estimatedCarbs ?? 0).toString());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await fetchGuidance(data.estimatedCarbs);
@@ -706,7 +739,7 @@ export default function FoodScreen() {
     setQuickSource(null);
     setEditedCarbs("");
     setExtraItems([]);
-    setServingsText("1");
+    resetServings();
   }
 
   function logMeal() {
@@ -735,7 +768,9 @@ export default function FoodScreen() {
       // Only when the meal IS that one food: added foods must not inflate the favorite's carbs.
       if (!result.manual && addedFoods.length === 0) {
         const fav = findQuickFood(quickFoods, quickSource ?? result.foodName) ?? findQuickFood(quickFoods, result.foodName);
-        if (fav && fav.carbs !== carbs) updateQuickFoodCarbs(fav.name, carbs);
+        // A favorite keeps the carbs for ONE ("3 × Waffle" teaches it one waffle's carbs).
+        const one = carbsForOne(carbs, servingsCount);
+        if (fav && fav.carbs !== one) updateQuickFoodCarbs(fav.name, one);
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
@@ -1126,24 +1161,29 @@ export default function FoodScreen() {
               />
             )}
 
-            {/* Servings — barcode results only, and only when the package holds more than one serving
-                (or we can't tell). Carbs, fat, protein and the insulin estimate all scale with it. */}
-            {result.fromBarcode && (result.servingsPerContainer == null || result.servingsPerContainer > 1) && (
+            {/* "How many?" (servings on a barcode result: only when the package holds more than one, or
+                we can't tell). Carbs, fat, protein and the insulin estimate all scale with it. Hidden
+                once the meal is logged, so the logged number can't drift from the card. */}
+            {!result.manual && !!result.perServing && !logged &&
+              (!result.fromBarcode || result.servingsPerContainer == null || result.servingsPerContainer > 1) && (
               <View style={[styles.servingsRow, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
                 <ControlShade radius={12} />
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={[styles.servingsLabel, { color: colors.text }]}>Servings you're having</Text>
+                  <Text style={[styles.servingsLabel, { color: colors.text }]}>
+                    {result.fromBarcode ? "Servings you're having" : "How many?"}
+                  </Text>
                   <Text style={[styles.servingsHint, { color: colors.textMuted }]} numberOfLines={1}>
-                    {result.perServing ? `${result.perServing.carbs} g carbs per serving` : ""}
-                    {result.servingsPerContainer != null ? ` · about ${result.servingsPerContainer} in the package` : ""}
+                    {result.fromBarcode
+                      ? `${result.perServing?.carbs ?? ""} g carbs per serving${result.servingsPerContainer != null ? ` · about ${result.servingsPerContainer} in the package` : ""}`
+                      : `${formatCarbs(carbsForOne(baseCarbs, servingsCount))} g carbs each`}
                   </Text>
                 </View>
                 <View style={styles.stepper}>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="One fewer serving"
+                    accessibilityLabel={result.fromBarcode ? "One fewer serving" : "One fewer"}
                     hitSlop={6}
-                    onPress={() => applyServings(String(Math.max(1, parseServings(servingsText) - 1)))}
+                    onPress={() => applyServings(String(Math.max(1, servingsCount - 1)))}
                     style={({ pressed }) => [styles.stepBtn, { opacity: pressed ? 0.6 : 1 }]}
                   >
                     <Feather name="minus" size={16} color={colors.text} />
@@ -1158,13 +1198,13 @@ export default function FoodScreen() {
                     returnKeyType="done"
                     selectTextOnFocus
                     maxLength={2}
-                    accessibilityLabel="Number of servings"
+                    accessibilityLabel={result.fromBarcode ? "Number of servings" : "How many"}
                   />
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="One more serving"
+                    accessibilityLabel={result.fromBarcode ? "One more serving" : "One more"}
                     hitSlop={6}
-                    onPress={() => applyServings(String(Math.min(99, parseServings(servingsText) + 1)))}
+                    onPress={() => applyServings(String(Math.min(99, servingsCount + 1)))}
                     style={({ pressed }) => [styles.stepBtn, { opacity: pressed ? 0.6 : 1 }]}
                   >
                     <Feather name="plus" size={16} color={colors.text} />

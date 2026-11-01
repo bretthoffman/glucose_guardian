@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-01b",
+    date: "2026-11-01",
+    items: [
+      {
+        icon: "copy",
+        title: "How many?",
+        body: "Snapped one waffle but ate three? On the food result, tap plus under How many and the carbs, fat, protein and insulin estimate all multiply. It logs as 3 × Waffle.",
+      },
+    ],
+  },
+  {
     id: "2026-11-01",
     date: "2026-11-01",
     items: [
