@@ -3,7 +3,9 @@
  * logs and readings the phone already has, and when the sheet should pop up.
  *
  * - "caregiver": the school nurse or grandma, on their first open of the day. "Good morning, Holly.
- *   Here's Bella's morning." Covers the last 12 hours, so an overnight low is on it.
+ *   Here's Bella's morning." Covers today since midnight (the last 6 hours when it's opened before
+ *   6 AM, so an overnight low is still on it), plus the most recent long-acting dose from the last
+ *   24 hours, so they know the background insulin was given.
  * - "family": a parent opening the app after others logged while they were away. "While you were
  *   away." Covers the time since they last opened the app.
  */
@@ -24,12 +26,16 @@ export interface HandoffLog {
   detail?: string;
   authorName?: string;
   byYou: boolean;
+  /** Long-acting (background) insulin, e.g. Lantus or Tresiba. */
+  longActing?: boolean;
 }
 
 export interface HandoffItem {
   icon: "insulin" | "meal" | "stick" | "low" | "high";
   title: string;
   sub: string;
+  /** When it happened: the list is in true time order, newest first. */
+  atMs: number;
 }
 
 export interface HandoffSummary {
@@ -47,9 +53,35 @@ export interface HandoffSummary {
   noteOnly: boolean;
 }
 
+/** Fallback reach for "While you were away" when we don't know when they last opened the app. */
 export const CAREGIVER_WINDOW_MS = 12 * 60 * 60 * 1000;
+/** Before 6 AM, "since midnight" is too short to catch the night: show the last 6 hours instead. */
+export const EARLY_WINDOW_MS = 6 * 60 * 60 * 1000;
+/** The latest long-acting dose is always shown if it was given in the last 24 hours. */
+export const LONG_ACTING_REACH_MS = 24 * 60 * 60 * 1000;
 export const AWAY_MIN_MS = 90 * 60 * 1000;
 const MAX_ITEMS = 5;
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Local midnight at the start of the day that contains ms. */
+export function startOfDay(ms: number): number {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** Caregiver window start: since midnight, or the last 6 hours if that reaches back further. */
+export function caregiverSince(nowMs: number): number {
+  return Math.min(startOfDay(nowMs), nowMs - EARLY_WINDOW_MS);
+}
+
+/** "7:10 AM" today, "Yesterday 6:15 PM", or "Mon 6:15 PM" for older. */
+function dayTime(ms: number, nowMs: number, fmt: (ms: number) => string): string {
+  const today = startOfDay(nowMs);
+  if (ms >= today) return fmt(ms);
+  const yesterday = startOfDay(today - 1);
+  if (ms >= yesterday) return `Yesterday ${fmt(ms)}`;
+  return `${WEEKDAYS[new Date(ms).getDay()]} ${fmt(ms)}`;
+}
 
 function partOfDay(hour: number): { greet: string; span: string } {
   if (hour < 5) return { greet: "Hi", span: "night" };
@@ -70,7 +102,7 @@ export function firstName(name: string): string {
 }
 
 /** Low point under 70 in the window, and when it recovered to 80+ (if it did). */
-function lowItem(readings: HandoffReading[], fmt: (ms: number) => string): HandoffItem | null {
+function lowItem(readings: HandoffReading[], when: (ms: number) => string, fmt: (ms: number) => string): HandoffItem | null {
   let low: HandoffReading | null = null;
   for (const r of readings) if (r.glucose < 70 && (!low || r.glucose < low.glucose)) low = r;
   if (!low) return null;
@@ -79,12 +111,13 @@ function lowItem(readings: HandoffReading[], fmt: (ms: number) => string): Hando
   return {
     icon: "low",
     title: `Low, ${Math.round(low.glucose)}`,
-    sub: `${fmt(lowMs)}${back ? ` · back to ${Math.round(back.glucose)} by ${fmt(new Date(back.timestamp).getTime())}` : ""}`,
+    atMs: lowMs,
+    sub: `${when(lowMs)}${back ? ` · back to ${Math.round(back.glucose)} by ${fmt(new Date(back.timestamp).getTime())}` : ""}`,
   };
 }
 
 /** High point over 250 in the window, and when it came back under 180 (if it did). */
-function highItem(readings: HandoffReading[], fmt: (ms: number) => string): HandoffItem | null {
+function highItem(readings: HandoffReading[], when: (ms: number) => string, fmt: (ms: number) => string): HandoffItem | null {
   let high: HandoffReading | null = null;
   for (const r of readings) if (r.glucose > 250 && (!high || r.glucose > high.glucose)) high = r;
   if (!high) return null;
@@ -93,7 +126,8 @@ function highItem(readings: HandoffReading[], fmt: (ms: number) => string): Hand
   return {
     icon: "high",
     title: `Highest ${Math.round(high.glucose)}`,
-    sub: `${fmt(highMs)}${back ? ` · back under 180 by ${fmt(new Date(back.timestamp).getTime())}` : " · still coming down"}`,
+    atMs: highMs,
+    sub: `${when(highMs)}${back ? ` · back under 180 by ${fmt(new Date(back.timestamp).getTime())}` : " · still coming down"}`,
   };
 }
 
@@ -104,7 +138,7 @@ export function buildHandoffSummary(input: {
   greetAs?: string;
   childName: string;
   nowMs: number;
-  /** family: when they last opened the app. caregiver: ignored (12-hour window). */
+  /** family: when they last opened the app. caregiver: ignored (since midnight, see caregiverSince). */
   sinceMs?: number | null;
   readings: HandoffReading[];
   logs: HandoffLog[];
@@ -115,11 +149,13 @@ export function buildHandoffSummary(input: {
   noteOnly?: boolean;
 }): HandoffSummary {
   const { kind, nowMs, fmtTime } = input;
-  const sinceMs = kind === "caregiver" ? nowMs - CAREGIVER_WINDOW_MS : (input.sinceMs ?? nowMs - CAREGIVER_WINDOW_MS);
-  const inWindow = (ts: string) => {
+  const sinceMs = kind === "caregiver" ? caregiverSince(nowMs) : (input.sinceMs ?? nowMs - CAREGIVER_WINDOW_MS);
+  const inRange = (ts: string, fromMs: number) => {
     const t = new Date(ts).getTime();
-    return Number.isFinite(t) && t >= sinceMs && t <= nowMs + 5 * 60_000;
+    return Number.isFinite(t) && t >= fromMs && t <= nowMs + 5 * 60_000;
   };
+  const inWindow = (ts: string) => inRange(ts, sinceMs);
+  const when = (ms: number) => dayTime(ms, nowMs, fmtTime);
   const readings = input.readings
     .filter((r) => Number.isFinite(r.glucose) && inWindow(r.timestamp))
     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -127,15 +163,30 @@ export function buildHandoffSummary(input: {
     .filter((l) => inWindow(l.timestamp) && (kind === "caregiver" || !l.byYou))
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  const items: HandoffItem[] = logs.slice(0, MAX_ITEMS).map((l) => ({
-    icon: l.kind,
-    title: l.title,
-    sub: `${l.detail ? `${l.detail} · ` : ""}${fmtTime(new Date(l.timestamp).getTime())}${l.byYou ? " · by you" : l.authorName ? ` · ${firstName(l.authorName)}` : ""}`,
-  }));
-  const low = lowItem(readings, fmtTime);
-  const high = highItem(readings, fmtTime);
+  const shown = logs.slice(0, MAX_ITEMS);
+  // The caregiver always learns whether the background insulin was given, even if it was last night.
+  if (kind === "caregiver") {
+    const lastLong = input.logs
+      .filter((l) => l.kind === "insulin" && l.longActing && inRange(l.timestamp, nowMs - LONG_ACTING_REACH_MS))
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+    if (lastLong && !shown.includes(lastLong)) shown.push(lastLong);
+  }
+  const items: HandoffItem[] = shown.map((l) => {
+    const atMs = new Date(l.timestamp).getTime();
+    const detail = l.detail ?? (l.longActing ? "Long-acting" : undefined);
+    return {
+      icon: l.kind,
+      title: l.title,
+      atMs,
+      sub: `${detail ? `${detail} · ` : ""}${when(atMs)}${l.byYou ? " · by you" : l.authorName ? ` · ${firstName(l.authorName)}` : ""}`,
+    };
+  });
+  const low = lowItem(readings, when, fmtTime);
+  const high = highItem(readings, when, fmtTime);
   if (high) items.push(high);
   if (low) items.push(low);
+  // One list in true time order, newest first: lows and highs sit where they happened.
+  items.sort((a, b) => b.atMs - a.atMs);
 
   const hour = new Date(nowMs).getHours();
   const { greet, span } = partOfDay(hour);

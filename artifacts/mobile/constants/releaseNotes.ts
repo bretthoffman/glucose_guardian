@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-03",
+    date: "2026-11-03",
+    items: [
+      {
+        icon: "clock",
+        title: "A tidier morning catch-up",
+        body: "For guardian accounts only. The catch-up your caregivers see is now one list in time order, newest at the top, with lows and highs right where they happened. It covers today since midnight (the last 6 hours if it's opened before 6 AM), always shows the last long-acting dose, and marks anything from last night as Yesterday.",
+      },
+    ],
+  },
+  {
     id: "2026-11-01b",
     date: "2026-11-01",
     items: [

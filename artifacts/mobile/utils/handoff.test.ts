@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildHandoffSummary, firstName, joinNames, shouldShowHandoff, type HandoffLog } from "./handoff";
+import { buildHandoffSummary, caregiverSince, firstName, joinNames, shouldShowHandoff, type HandoffLog } from "./handoff";
 
 // Local times so the greeting doesn't depend on the test machine's zone.
 const at = (h: number, m = 0) => new Date(2026, 9, 29, h, m).getTime();
@@ -52,9 +52,9 @@ describe("handoff sheet contents", () => {
     expect(s.heading).toBe("While you were away");
     expect(s.timeLabel).toBe("3:10 PM");
     expect(s.sinceLine).toBe("Since you last opened the app at 7:20 AM");
-    expect(s.items.map((i) => i.title)).toEqual(["Lunch · 38g carbs", "Highest 262"]);
-    expect(s.items[0]!.sub).toBe("11:40 AM · Holly");
-    expect(s.items[1]!.sub).toBe("1:00 PM · back under 180 by 1:40 PM");
+    expect(s.items.map((i) => i.title)).toEqual(["Highest 262", "Lunch · 38g carbs"]);
+    expect(s.items[0]!.sub).toBe("1:00 PM · back under 180 by 1:40 PM");
+    expect(s.items[1]!.sub).toBe("11:40 AM · Holly");
     expect(s.inRangePct).toBe(50);
   });
 
@@ -79,6 +79,64 @@ describe("handoff sheet contents", () => {
       current: { glucose: 132 }, iob: { units: 2, remainingMin: 100 }, noteOnly: true,
     });
     expect(s).toMatchObject({ heading: "Good morning, Grandma. A note about Bella.", now: null, active: null, items: [], noteOnly: true });
+  });
+
+  it("early morning: one list in true time order, last night marked Yesterday, nothing from yesterday's dinner", () => {
+    // Brian's screenshot, opened at 5:23 AM on Oct 30.
+    const day2 = (h: number, m = 0) => new Date(2026, 9, 30, h, m).getTime();
+    const s = buildHandoffSummary({
+      kind: "caregiver", viewerName: "", childName: "Bella", nowMs: day2(5, 23), fmtTime: fmt,
+      readings: [
+        { glucose: 180, timestamp: iso(at(17, 30)) },
+        { glucose: 273, timestamp: iso(at(17, 38)) },
+        { glucose: 140, timestamp: iso(at(23, 40)) },
+        { glucose: 59, timestamp: iso(day2(2, 18)) },
+        { glucose: 95, timestamp: iso(day2(2, 50)) },
+      ],
+      logs: [
+        { timestamp: iso(day2(2, 29)), kind: "meal", title: "2 × Waffle cookies", detail: "24g carbs", authorName: "Brian", byYou: false },
+        { timestamp: iso(at(18, 15)), kind: "insulin", title: "Lantus 3 units", authorName: "Brian", byYou: false, longActing: true },
+        { timestamp: iso(at(17, 26)), kind: "insulin", title: "Lispro Junior 2 units", authorName: "Brian", byYou: false },
+      ],
+    });
+    // Window is 11:23 PM to now. Dinner (5:26 PM) and the 5:38 PM high are left out; Lantus stays, pinned.
+    expect(s.items.map((i) => i.title)).toEqual(["2 × Waffle cookies", "Low, 59", "Lantus 3 units"]);
+    expect(s.items[0]!.sub).toBe("24g carbs · 2:29 AM · Brian");
+    expect(s.items[1]!.sub).toBe("2:18 AM · back to 95 by 2:50 AM");
+    expect(s.items[2]!.sub).toBe("Long-acting · Yesterday 6:15 PM · Brian");
+  });
+
+  it("after 6 AM the caregiver window starts at midnight", () => {
+    expect(caregiverSince(at(5, 0))).toBe(at(5, 0) - 6 * 3600_000);
+    expect(caregiverSince(at(9, 0))).toBe(at(0, 0));
+    const s = buildHandoffSummary({
+      kind: "caregiver", viewerName: "", childName: "Bella", nowMs: at(9, 0), readings: [], fmtTime: fmt,
+      logs: [
+        { timestamp: iso(at(0, 0) - 30 * 60_000), kind: "meal", title: "Late snack", byYou: false },
+        { timestamp: iso(at(7, 0)), kind: "meal", title: "Cereal", byYou: false },
+      ],
+    });
+    expect(s.items.map((i) => i.title)).toEqual(["Cereal"]);
+  });
+
+  it("drops a long-acting dose older than 24 hours, and doesn't repeat one already in the list", () => {
+    const base = { kind: "caregiver" as const, viewerName: "", childName: "Bella", nowMs: at(20, 0), readings: [], fmtTime: fmt };
+    const old = buildHandoffSummary({ ...base, logs: [{ timestamp: iso(at(19, 0) - 24 * 3600_000), kind: "insulin", title: "Tresiba 8 units", byYou: false, longActing: true }] });
+    expect(old.items).toEqual([]);
+    const today = buildHandoffSummary({ ...base, logs: [{ timestamp: iso(at(19, 0)), kind: "insulin", title: "Tresiba 8 units", byYou: false, longActing: true }] });
+    expect(today.items.map((i) => [i.title, i.sub])).toEqual([["Tresiba 8 units", "Long-acting · 7:00 PM"]]);
+  });
+
+  it("While you were away marks older days", () => {
+    const s = buildHandoffSummary({
+      kind: "family", viewerName: "Brian", childName: "Bella", nowMs: at(9, 0), sinceMs: at(9, 0) - 40 * 3600_000, readings: [], fmtTime: fmt,
+      logs: [
+        { timestamp: iso(at(8, 0)), kind: "meal", title: "Toast", byYou: false },
+        { timestamp: iso(at(8, 0) - 24 * 3600_000), kind: "meal", title: "Oatmeal", byYou: false },
+        { timestamp: iso(at(20, 0) - 48 * 3600_000), kind: "meal", title: "Pizza", byYou: false },
+      ],
+    });
+    expect(s.items.map((i) => i.sub)).toEqual(["8:00 AM", "Yesterday 8:00 AM", "Tue 8:00 PM"]);
   });
 
   it("greets everyone picked by name, or nobody by name when it's for everyone", () => {

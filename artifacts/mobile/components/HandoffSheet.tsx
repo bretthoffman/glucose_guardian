@@ -87,6 +87,12 @@ function insulinTitle(e: InsulinLogEntry): string {
   return `${name} ${units} ${units === 1 ? "unit" : "units"}`;
 }
 
+/** Background insulin (Lantus, Tresiba, NPH...), by the insulin picked or a dose logged as basal. */
+function isLongActing(e: InsulinLogEntry): boolean {
+  const t = e.insulinType ? findInsulinByChipLabel(e.insulinType)?.type : undefined;
+  return e.type === "basal" || t === "long" || t === "ultra-long" || t === "intermediate";
+}
+
 function mealTitle(f: FoodLogEntry): string {
   return capFirst(f.foodName || "Meal");
 }
@@ -137,7 +143,7 @@ export function useHandoffLogs(viewer: { kind: HandoffKind; args: { code?: strin
     return [
       ...(insulinLog ?? [])
         .filter((e) => e.units > 0)
-        .map((e) => ({ timestamp: e.timestamp, kind: "insulin" as const, title: insulinTitle(e), authorName: e.authorName, byYou: mine(e) })),
+        .map((e) => ({ timestamp: e.timestamp, kind: "insulin" as const, title: insulinTitle(e), authorName: e.authorName, byYou: mine(e), longActing: isLongActing(e) })),
       ...(foodLog ?? []).map((f) => ({ timestamp: f.timestamp, kind: "meal" as const, title: mealTitle(f), detail: `${Math.round(f.estimatedCarbs)}g carbs`, authorName: f.authorName, byYou: mine(f) })),
       ...(fingerStickLog ?? []).map((f) => ({
         timestamp: f.timestamp,

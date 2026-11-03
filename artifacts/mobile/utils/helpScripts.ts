@@ -319,7 +319,7 @@ const dashboard: HelpStep[] = [
     anchor: "dashboard.handoff",
     title: "Handoff",
     text:
-      "When the school nurse or grandma first opens the app each day, they see a quick catch-up: the latest number, insulin still working, meals and any lows, greeted by their own name. It fills in by itself. Tap Handoff to see what they'll see, choose who gets the morning catch-up (someone switched off only sees a note you leave them), add a note for everyone or just one caregiver, and see when they read it. When you come back after a while and someone else logged, you'll see While you were away.",
+      "When the school nurse or grandma first opens the app each day, they see a quick catch-up greeted by their own name: the latest number, insulin still working, and one list in time order of today's meals, doses, lows and highs, plus the last long-acting dose. Anything from last night says Yesterday. It fills in by itself. Tap Handoff to see what they'll see, choose who gets the morning catch-up (someone switched off only sees a note you leave them), add a note for everyone or just one caregiver, and see when they read it. When you come back after a while and someone else logged, you'll see While you were away.",
   },
   {
     id: "dashboard.whatsNew",
