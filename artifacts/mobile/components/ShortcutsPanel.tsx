@@ -2,7 +2,7 @@
  * Dashboard → Shortcuts: pick the buttons on your own Glucose screen. Remove (red), add (green), and
  * move up or down to change the order. Up to MAX_SHORTCUTS. Saved per person (hooks/useShortcuts).
  */
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -10,7 +10,7 @@ import Colors, { COLORS } from "@/constants/colors";
 import { withAlpha } from "@/constants/theme";
 import { CardShade } from "@/components/Shade";
 import { useShortcuts } from "@/hooks/useShortcuts";
-import { MAX_SHORTCUTS, moveShortcut, type ShortcutDef } from "@/utils/shortcuts";
+import { MAX_SHORTCUTS, moveShortcut, shortcutIconFamily, type ShortcutDef } from "@/utils/shortcuts";
 
 type Palette = (typeof Colors)["light"];
 
@@ -145,7 +145,11 @@ function Row({ s: _s, colors, first, children }: { s: ShortcutDef; colors: Palet
 function ShortcutIcon({ s }: { s: ShortcutDef }) {
   return (
     <View style={[styles.icon, { backgroundColor: withAlpha(s.color, 0.18) }]}>
-      <Feather name={s.icon} size={16} color={s.color} />
+      {shortcutIconFamily(s.icon) === "mci" ? (
+        <MaterialCommunityIcons name={s.icon as "needle"} size={17} color={s.color} />
+      ) : (
+        <Feather name={s.icon as "list"} size={16} color={s.color} />
+      )}
     </View>
   );
 }

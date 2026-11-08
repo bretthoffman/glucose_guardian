@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-08",
+    date: "2026-11-08",
+    items: [
+      {
+        icon: "zap",
+        title: "Log Insulin and Finger Stick shortcuts",
+        body: "Two new shortcuts open straight to the form, no menu in between. Add them on the Dashboard under Shortcuts, and they show on your Glucose screen.",
+      },
+    ],
+  },
+  {
     id: "2026-11-03",
     date: "2026-11-03",
     items: [

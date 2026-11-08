@@ -946,7 +946,8 @@ export default function InsulinScreen() {
       ) : effectiveTab === "log" ? (
         <LogHistory
           colors={colors}
-          openAddMenuKey={linkParams.add ? `${linkParams.t ?? ""}` : undefined}
+          openAddMenuKey={linkParams.add ? `${linkParams.add}:${linkParams.t ?? ""}` : undefined}
+          openAddKind={linkParams.add === "insulin" || linkParams.add === "stick" ? linkParams.add : "menu"}
           restrictToDay={caregiverSession}
           insulinOptions={availableInsulinOptions}
           selectedInsulinLabel={insulinTypeLabel}

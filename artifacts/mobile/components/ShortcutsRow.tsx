@@ -2,13 +2,14 @@
  * "My Shortcuts" on the Glucose screen: the buttons this person picked on Dashboard → Shortcuts. Shows
  * nothing at all until they add one, so the screen looks as it always did. Set up only on the Dashboard.
  */
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "@/context/ThemeContext";
 import { withAlpha } from "@/constants/theme";
 import { openShortcut, useShortcuts } from "@/hooks/useShortcuts";
+import { shortcutIconFamily } from "@/utils/shortcuts";
 import { useHelp } from "@/context/HelpContext";
 
 export default function ShortcutsRow({
@@ -43,7 +44,11 @@ export default function ShortcutsRow({
             style={({ pressed }) => [styles.tile, { opacity: pressed ? 0.6 : 1 }]}
           >
             <View style={[styles.icon, { backgroundColor: withAlpha(s.color, 0.18) }]}>
-              <Feather name={s.icon} size={17} color={s.color} />
+              {shortcutIconFamily(s.icon) === "mci" ? (
+                <MaterialCommunityIcons name={s.icon as "needle"} size={18} color={s.color} />
+              ) : (
+                <Feather name={s.icon as "list"} size={17} color={s.color} />
+              )}
             </View>
             <Text
               style={[styles.label, { color: c.textSecondary }]}

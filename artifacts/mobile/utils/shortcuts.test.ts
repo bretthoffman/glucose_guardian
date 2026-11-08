@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dashboardSectionVisibility } from "./dashboardSections";
-import { availableShortcuts, cleanIds, moveShortcut, resolveShortcuts, type ShortcutAccess } from "./shortcuts";
+import { SHORTCUTS, availableShortcuts, cleanIds, moveShortcut, resolveShortcuts, shortcutIconFamily, type ShortcutAccess } from "./shortcuts";
 
 const parent = { isChildMode: false, caregiverSession: false, doctorSession: false, isParent: true, isAdult: false };
 const guardian: ShortcutAccess = {
@@ -14,9 +14,18 @@ const guardian: ShortcutAccess = {
 const ids = (xs: { id: string }[]) => xs.map((x) => x.id);
 
 describe("shortcuts", () => {
+  it("Log Insulin and Finger Stick go straight to their pop-ups; Add Entry opens the menu", () => {
+    const t = (id: string) => SHORTCUTS.find((s) => s.id === id)!.target;
+    expect(t("addEntry")).toEqual({ kind: "insulin", tab: "log", add: "menu" });
+    expect(t("logInsulin")).toEqual({ kind: "insulin", tab: "log", add: "insulin" });
+    expect(t("fingerStick")).toEqual({ kind: "insulin", tab: "log", add: "stick" });
+    expect(shortcutIconFamily("needle")).toBe("mci");
+    expect(shortcutIconFamily("list")).toBe("feather");
+  });
+
   it("a guardian can add every shortcut", () => {
     expect(ids(availableShortcuts(guardian))).toEqual([
-      "addEntry", "logs", "dose", "food", "messages", "chatHistory", "doctor", "doctorCode", "handoff",
+      "addEntry", "logInsulin", "fingerStick", "logs", "dose", "food", "messages", "chatHistory", "doctor", "doctorCode", "handoff",
       "careCircle", "a1c", "insulinSettings", "notifications", "emergency", "settings", "help",
     ]);
   });
@@ -27,11 +36,12 @@ describe("shortcuts", () => {
       canUseCalculator: false,
       dashboard: dashboardSectionVisibility({ ...parent, caregiverSession: true, isChildMode: true }),
     };
-    expect(ids(availableShortcuts(nurse))).toEqual(["addEntry", "logs", "food", "messages", "chatHistory", "notifications", "settings", "help"]);
+    expect(ids(availableShortcuts(nurse))).toEqual(["addEntry", "logInsulin", "fingerStick", "logs", "food", "messages", "chatHistory", "notifications", "settings", "help"]);
     // Without the chat grant: no Messages or chat history.
-    expect(ids(availableShortcuts({ ...nurse, canChat: false }))).toEqual(["addEntry", "logs", "food", "notifications", "settings", "help"]);
-    // Without the log grant: no Add Entry or Logs.
-    expect(ids(availableShortcuts({ ...nurse, canOpenLogs: false }))).not.toContain("addEntry");
+    expect(ids(availableShortcuts({ ...nurse, canChat: false }))).toEqual(["addEntry", "logInsulin", "fingerStick", "logs", "food", "notifications", "settings", "help"]);
+    // Without the log grant: none of the logging shortcuts.
+    const noLog = ids(availableShortcuts({ ...nurse, canOpenLogs: false }));
+    for (const id of ["addEntry", "logInsulin", "fingerStick", "logs"]) expect(noLog).not.toContain(id);
   });
 
   it("a personal account has no Handoff; the doctor gets none at all", () => {

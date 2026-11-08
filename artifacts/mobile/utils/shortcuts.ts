@@ -25,10 +25,20 @@ export type ShortcutIcon =
   | "users"
   | "plus-circle"
   | "user"
-  | "help-circle";
+  | "help-circle"
+  // MaterialCommunityIcons (Feather has no needle or blood drop); see shortcutIconFamily.
+  | "needle"
+  | "water-plus-outline";
+
+const MCI_ICONS: ShortcutIcon[] = ["needle", "water-plus-outline"];
+/** Which icon set draws this icon. */
+export function shortcutIconFamily(icon: ShortcutIcon): "feather" | "mci" {
+  return MCI_ICONS.includes(icon) ? "mci" : "feather";
+}
 
 export type ShortcutTarget =
-  | { kind: "insulin"; tab: "log" | "predict"; add?: boolean }
+  /** add: open the Log page for today with the Add menu open, or straight into one of its pop-ups. */
+  | { kind: "insulin"; tab: "log" | "predict"; add?: "menu" | "insulin" | "stick" }
   | { kind: "settings" }
   | { kind: "help" }
   | { kind: "food" }
@@ -48,7 +58,9 @@ export const DEFAULT_SHORTCUTS: string[] = [];
 
 /** Every shortcut, in the order the Add list shows them. */
 export const SHORTCUTS: ShortcutDef[] = [
-  { id: "addEntry", title: "Add Entry", icon: "plus-circle", color: "#5CB8FF", target: { kind: "insulin", tab: "log", add: true } },
+  { id: "addEntry", title: "Add Entry", icon: "plus-circle", color: "#5CB8FF", target: { kind: "insulin", tab: "log", add: "menu" } },
+  { id: "logInsulin", title: "Log Insulin", icon: "needle", color: "#5CB8FF", target: { kind: "insulin", tab: "log", add: "insulin" } },
+  { id: "fingerStick", title: "Finger Stick", icon: "water-plus-outline", color: "#FF8A80", target: { kind: "insulin", tab: "log", add: "stick" } },
   { id: "logs", title: "Logs", icon: "list", color: "#3B9BFF", target: { kind: "insulin", tab: "log" } },
   { id: "dose", title: "Dose Calculator", icon: "droplet", color: "#5CB8FF", target: { kind: "insulin", tab: "predict" } },
   { id: "food", title: "Log a Meal", icon: "camera", color: "#1FD18A", target: { kind: "food" } },

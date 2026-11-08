@@ -64,10 +64,13 @@ export default function LogHistory({
   selectedInsulinLabel = null,
   onLogAdded,
   openAddMenuKey,
+  openAddKind = "menu",
 }: {
   colors: (typeof Colors)["light"];
-  /** Changes (a nonce) when the "Add Entry" shortcut opens this page: show today with the menu open. */
+  /** Changes (a nonce) when an Add shortcut opens this page: show today with the menu or a pop-up open. */
   openAddMenuKey?: string;
+  /** What the shortcut opens: the Add menu (Add Entry), Log Insulin, or Finger Stick. */
+  openAddKind?: "menu" | "insulin" | "stick";
   /** @deprecated Daily-only Log mode; prop retained for caregiver call sites. */
   restrictToDay?: boolean;
   /** The account's configured insulins — options for the Log Insulin popup. */
@@ -221,6 +224,7 @@ export default function LogHistory({
           }}
           addJustLogged={logBtnGreen || foodBtnGreen}
           openAddMenuKey={openAddMenuKey}
+          openAddKind={openAddKind}
         />
       </ScrollView>
 
@@ -348,8 +352,10 @@ function DayView({
   onAddFood,
   addJustLogged,
   openAddMenuKey,
+  openAddKind = "menu",
 }: {
   openAddMenuKey?: string;
+  openAddKind?: "menu" | "insulin" | "stick";
   day: Date;
   dayOffset: number;
   onPrev: () => void;
@@ -393,9 +399,13 @@ function DayView({
   const [selectedStick, setSelectedStick] = useState<FingerStickEntry | null>(null);
   const [fingerStickOpen, setFingerStickOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
-  // The "Add Entry" shortcut: open the menu as the page appears.
+  // Add shortcuts: open the menu (Add Entry), or go straight to Log Insulin or Finger Stick.
   useEffect(() => {
-    if (openAddMenuKey) setAddMenuOpen(true);
+    if (!openAddMenuKey) return;
+    if (openAddKind === "insulin") onAddInsulin();
+    else if (openAddKind === "stick") setFingerStickOpen(true);
+    else setAddMenuOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openAddMenuKey]);
 
   const { readings, status, bounds, retry } = useDayGlucoseReadings({
