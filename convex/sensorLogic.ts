@@ -26,7 +26,7 @@ export const SENSOR_SPECS: Record<SensorKind, SensorSpec> = {
 };
 
 export const SENSOR_KINDS = Object.keys(SENSOR_SPECS) as SensorKind[];
-export const SENSOR_SITES = ["Left arm", "Right arm", "Left belly", "Right belly", "Left hip", "Right hip", "Other"];
+export const SENSOR_SITES = ["Left arm", "Right arm", "Left belly", "Right belly", "Left upper buttock", "Right upper buttock", "Left hip", "Right hip", "Other"];
 export const LOW_SUPPLY = 2;
 
 const HOUR = 3_600_000;
