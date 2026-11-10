@@ -14,11 +14,10 @@ import Colors, { COLORS } from "@/constants/colors";
 import { T } from "@/constants/theme";
 import { CGMChart } from "@/components/CGMChart";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
-import InsulinTypePicker from "@/components/InsulinTypePicker";
 import LogFoodModal from "@/components/LogFoodModal";
-import { AccentShade, CardShade, ControlShade } from "@/components/Shade";
+import LogInsulinModal from "@/components/LogInsulinModal";
+import { CardShade, ControlShade } from "@/components/Shade";
 import CalendarPicker from "@/components/CalendarPicker";
-import { TimeButton, TimeWheel } from "@/components/TimeWheel";
 import LogDetailModal, { type SelectedLog } from "@/components/LogDetailModal";
 import LogFingerStickModal, { FingerStickDetailModal } from "@/components/LogFingerStickModal";
 import { compareFingerStick, comparisonShort } from "@/utils/fingerStick";
@@ -27,27 +26,20 @@ import type { ChartEventMarker } from "@/utils/chartEventMarkers";
 import {
   INSULIN_TYPE_LABEL,
   findInsulinByChipLabel,
-  insulinChipLabel,
   type InsulinOption,
 } from "@/constants/insulin";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth } from "@/context/AuthContext";
 import type { FingerStickEntry, FoodLogEntry, InsulinLogEntry } from "@/context/AuthContext";
 import { useDayGlucoseReadings } from "@/hooks/useDayGlucoseReadings";
-import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import {
   doseAmountsEqual,
-  filterDoseInputText,
-  finalizeManualDoseInput,
   formatDoseAmount,
 } from "@/utils/doseOverride";
 import { filterFoodLogsForDay, filterInsulinLogsForDay } from "@/utils/logDayEntries";
-import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
 import { startOfLocalDay } from "@/utils/localDayBoundaries";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { useHelpAnchor, useHelpScroll } from "@/context/HelpContext";
-import { findRecentFastActing, isFastActingEntry, STACKING_WINDOW_MS } from "@/utils/insulinStacking";
-import { useStackingGuard } from "@/components/StackingWarningModal";
 
 function fmtTime(ts: string) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -103,8 +95,6 @@ export default function LogHistory({
     accessCodeRole,
     canAddLogs: !!accessCodePermissions?.log,
   });
-  const confirmLog = useCareLogConfirm();
-  const { askStacking, stackingModal } = useStackingGuard();
   const myUserId = account?.convexUserId ?? null;
   // An access-code session is accountless, so the CODE is this device's only identity for attribution.
   const myCode = caregiverCloudCode ?? null;
@@ -119,10 +109,6 @@ export default function LogHistory({
 
   // ── Log Insulin popup — button stays green until the next successful CGM sync ──
   const [logModalVisible, setLogModalVisible] = useState(false);
-  const [logUnitsText, setLogUnitsText] = useState("");
-  const [logTimeText, setLogTimeText] = useState("");
-  const [logTimeOpen, setLogTimeOpen] = useState(false);
-  const [logPendingLabel, setLogPendingLabel] = useState<string | null>(null);
   const [logLoggedAtTick, setLogLoggedAtTick] = useState<number | null>(null);
   const logBtnGreen = logLoggedAtTick !== null && logLoggedAtTick === cgmSyncSuccessTick;
 
@@ -131,59 +117,9 @@ export default function LogHistory({
   const [foodLoggedAtTick, setFoodLoggedAtTick] = useState<number | null>(null);
   const foodBtnGreen = foodLoggedAtTick !== null && foodLoggedAtTick === cgmSyncSuccessTick;
 
-  const parsedLogUnits = finalizeManualDoseInput(logUnitsText);
-  const parsedLogTime = parseTimeInputText(logTimeText);
-  const canLog =
-    parsedLogUnits != null &&
-    parsedLogUnits > 0 &&
-    parsedLogTime != null &&
-    (insulinOptions.length === 0 || logPendingLabel != null);
-
-  /** The entry logs to the day being viewed — the popup shows that date, locked. */
-  const logDateLabel = selectedDay.toLocaleDateString([], {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
-
   const openLogModal = () => {
-    const optionLabels = insulinOptions.map(insulinChipLabel);
-    const defaultLabel =
-      selectedInsulinLabel && optionLabels.includes(selectedInsulinLabel)
-        ? selectedInsulinLabel
-        : optionLabels[0] ?? null;
-    setLogPendingLabel(defaultLabel);
-    setLogUnitsText("");
-    setLogTimeText(formatTimeInputText(new Date()));
-    setLogTimeOpen(false);
     setLogModalVisible(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const handleLogInsulin = () => {
-    if (parsedLogUnits == null || parsedLogUnits <= 0 || parsedLogTime == null) return;
-    const entryTimestamp = combineDayAndTime(selectedDay, parsedLogTime.hours, parsedLogTime.minutes).toISOString();
-    // Caregiver sessions confirm before writing into the patient's profile; everyone else commits now.
-    const proceed = () => confirmLog(() => {
-      logInsulinDose({
-        timestamp: entryTimestamp,
-        units: parsedLogUnits,
-        type: "manual",
-        ...(logPendingLabel ? { insulinType: logPendingLabel } : {}),
-      });
-      setLogModalVisible(false);
-      setLogLoggedAtTick(cgmSyncSuccessTick);
-      onLogAdded?.();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    });
-    // ── Insulin-stacking guard. Only for a dose being recorded as happening NOW-ish — a backdated
-    // entry (yesterday's missed log) can't stack with anything current. Entries whose selected
-    // insulin is fast-acting (or unlabeled — warn-side) check for another fast-acting dose from
-    // anyone in the circle in the last 2 hours; see utils/insulinStacking. ──
-    const entryIsNowish = Math.abs(Date.now() - new Date(entryTimestamp).getTime()) <= STACKING_WINDOW_MS;
-    const entryIsFast = isFastActingEntry({ type: "manual", ...(logPendingLabel ? { insulinType: logPendingLabel } : {}) });
-    const recent = entryIsNowish && entryIsFast ? findRecentFastActing(insulinLog ?? []) : null;
-    askStacking(recent, insulinLog ?? [], proceed);
   };
 
   return (
@@ -228,91 +164,19 @@ export default function LogHistory({
         />
       </ScrollView>
 
-      {/* ── Combined insulin-type + units popup ── */}
-      <DashboardSectionModal
+      <LogInsulinModal
         visible={logModalVisible}
         onClose={() => setLogModalVisible(false)}
-        accessibilityLabel="Log insulin"
-      >
-        <View style={[styles.logModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.logModalTitle, { color: colors.text }]}>Log Insulin</Text>
-          <Text style={[styles.logModalSub, { color: colors.textSecondary }]}>
-            Record a dose for the day shown below. It appears in the log immediately.
-          </Text>
-          <InsulinTypePicker
-            options={insulinOptions}
-            selectedLabel={logPendingLabel}
-            onSelect={setLogPendingLabel}
-            colors={colors}
-          />
-          <View style={[styles.logWhenSection, { borderTopColor: colors.border }]}>
-            <View style={styles.logWhenRow}>
-              <Text style={[styles.logUnitsLabel, { color: colors.textSecondary }]}>Date</Text>
-              <View style={styles.logDateValueWrap}>
-                <Feather name="calendar" size={13} color={colors.textMuted} />
-                <Text style={[styles.logDateValue, { color: colors.text }]}>{logDateLabel}</Text>
-              </View>
-            </View>
-            <View style={styles.logWhenRow}>
-              <Text style={[styles.logUnitsLabel, { color: colors.textSecondary }]}>Time</Text>
-              <TimeButton
-                value={logTimeText}
-                open={logTimeOpen}
-                onPress={() => setLogTimeOpen((o) => !o)}
-                accessibilityLabel="Time the dose was taken"
-                colors={colors}
-              />
-            </View>
-            {logTimeOpen && (
-              <TimeWheel value={logTimeText} onChange={setLogTimeText} onDone={() => setLogTimeOpen(false)} colors={colors} />
-            )}
-            {!parsedLogTime && (
-              <Text style={[styles.logTimeError, { color: COLORS.danger }]}>
-                Enter a time like 5:38 PM or 17:38
-              </Text>
-            )}
-          </View>
-          <View style={[styles.logUnitsRow, { borderTopColor: colors.border }]}>
-            <Text style={[styles.logUnitsLabel, { color: colors.textSecondary }]}>Insulin taken</Text>
-            {/* Same look as the Suggested Dose badge on the Insulin page: purple outline, soft purple fill,
-                dark number, muted "units". */}
-            <View style={styles.logUnitsBadge}>
-              <TextInput
-                value={logUnitsText}
-                onChangeText={(t) => setLogUnitsText(filterDoseInputText(t))}
-                keyboardType="decimal-pad"
-                returnKeyType="done"
-                placeholder="0"
-                placeholderTextColor={colors.textMuted}
-                style={[styles.logUnitsInput, { color: colors.text }]}
-                maxLength={8}
-                accessibilityLabel="Insulin units taken"
-              />
-              <Text style={[styles.logUnitsUnit, { color: colors.textMuted }]}>units</Text>
-            </View>
-          </View>
-          <View style={styles.logModalFooter}>
-            <Pressable
-              accessibilityRole="button"
-              disabled={!canLog}
-              style={({ pressed }) => [
-                styles.logSubmitBtn,
-                {
-                  backgroundColor: canLog ? COLORS.primary : colors.backgroundTertiary,
-                  opacity: pressed ? 0.8 : 1,
-                },
-              ]}
-              onPress={handleLogInsulin}
-            >
-              {canLog && <AccentShade radius={10} />}
-              <Feather name="check" size={14} color={canLog ? "#fff" : colors.textMuted} />
-              <Text style={[styles.logSubmitBtnText, { color: canLog ? "#fff" : colors.textMuted }]}>Log</Text>
-            </Pressable>
-          </View>
-        </View>
-        {/* Above this popup, so it shows on top of it. */}
-        {stackingModal}
-      </DashboardSectionModal>
+        day={selectedDay}
+        insulinOptions={insulinOptions}
+        selectedInsulinLabel={selectedInsulinLabel}
+        colors={colors}
+        onLogged={() => {
+          setLogModalVisible(false);
+          setLogLoggedAtTick(cgmSyncSuccessTick);
+          onLogAdded?.();
+        }}
+      />
 
       {/* ── Log Food popup — text-only meal lookup logging to the viewed day ── */}
       <LogFoodModal
@@ -891,66 +755,4 @@ const styles = StyleSheet.create({
   eventRowTitle: { fontSize: 13.5, fontWeight: "600", flexShrink: 1 },
   eventSub: { fontSize: 11.5, fontWeight: "400", marginTop: 2 },
   eventRight: { fontSize: 11.5, fontWeight: "500", flexShrink: 0 },
-
-  logModalCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
-  logModalTitle: { fontSize: 18, fontWeight: "700" },
-  logModalSub: { fontSize: 12, fontWeight: "400", lineHeight: 17, marginTop: -6 },
-  logWhenSection: { borderTopWidth: 1, paddingTop: 12, marginTop: 2, gap: 10 },
-  logWhenRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  logDateValueWrap: { flexDirection: "row", alignItems: "center", gap: 6 },
-  logDateValue: { fontSize: 14, fontWeight: "600" },
-  logTimeInput: {
-    borderWidth: 1.5,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 15,
-    fontWeight: "600",
-    minWidth: 110,
-    textAlign: "center",
-  },
-  logTimeError: { fontSize: 11, fontWeight: "500", textAlign: "right" },
-  logUnitsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    borderTopWidth: 1,
-    paddingTop: 14,
-    marginTop: 2,
-  },
-  logUnitsLabel: { fontSize: 13, fontWeight: "600" },
-  // Mirrors `doseTotalBadge` / `doseTotalInput` / `doseTotalUnit` in DoseCalculatorBits.
-  logUnitsBadge: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 4,
-    borderWidth: 1.5,
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.primary + "26",
-    paddingHorizontal: 18,
-    paddingVertical: 5,
-    borderRadius: 14,
-    minWidth: 88,
-    justifyContent: "center",
-  },
-  logUnitsInput: {
-    fontSize: 22,
-    fontWeight: "700",
-    minWidth: 52,
-    textAlign: "center",
-    padding: 0,
-    margin: 0,
-  },
-  logUnitsUnit: { fontSize: 13, fontWeight: "600" },
-  logModalFooter: { flexDirection: "row", justifyContent: "flex-end" },
-  logSubmitBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 22,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  logSubmitBtnText: { fontSize: 14, fontWeight: "700" },
 });

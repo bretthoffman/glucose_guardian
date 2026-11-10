@@ -56,6 +56,7 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { CardShade, ScreenShade, TintShade } from "@/components/Shade";
 import ShortcutsRow from "@/components/ShortcutsRow";
+import QuickLogSheets, { type QuickLogKind } from "@/components/QuickLogSheets";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 import { CloseButton } from "@/components/CloseButton";
 
@@ -270,6 +271,8 @@ export default function HomeScreen() {
   const [chartCursorActive, setChartCursorActive] = useState(false);
   // ── Popups opened from the glucose gauge: circle → recent readings, trend pill → insights ──
   const [recentReadingsVisible, setRecentReadingsVisible] = useState(false);
+  // Log shortcuts (Add Entry, Log Insulin, Finger Stick) pop up over this screen.
+  const [quickLog, setQuickLog] = useState<{ kind: QuickLogKind; nonce: number } | null>(null);
   const [insightsVisible, setInsightsVisible] = useState(false);
 
   // ── Log markers on the trend chart + the tapped log's detail popup — the SAME marker system,
@@ -1272,7 +1275,11 @@ export default function HomeScreen() {
 
           {/* The shortcuts this person picked on Dashboard, Shortcuts (nothing until they add one). The
               old corner "Logs" button is gone; Logs lives on the Insulin tab or as a shortcut. */}
-          <ShortcutsRow padH={Math.round(T.space.lg * padScale)} anchorRef={helpShortcuts} />
+          <ShortcutsRow
+            padH={Math.round(T.space.lg * padScale)}
+            anchorRef={helpShortcuts}
+            onQuickLog={(kind) => setQuickLog({ kind, nonce: Date.now() })}
+          />
 
           {/* No top padding and no divider on the chart block: the gauge block above already ends with
               its own padding, so the range toggle sits directly beneath the gauge and the two halves
@@ -1426,6 +1433,8 @@ export default function HomeScreen() {
           onClose={() => setHomeSelectedLog(null)}
         />
       )}
+
+      <QuickLogSheets request={quickLog} />
 
       {/* ── Recent Readings popup — opened by tapping inside the gauge circle ── */}
       <DashboardSectionModal

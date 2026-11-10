@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-09",
+    date: "2026-11-09",
+    items: [
+      {
+        icon: "layers",
+        title: "Log without leaving your glucose",
+        body: "The Log Insulin, Finger Stick and Add Entry shortcuts now pop up right on your Glucose screen. Log it or close it, and you're still looking at your numbers.",
+      },
+    ],
+  },
+  {
     id: "2026-11-08",
     date: "2026-11-08",
     items: [
