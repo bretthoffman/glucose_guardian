@@ -17,7 +17,8 @@ export type PushCategory =
   | "fallFast"
   | "careLog"
   | "messages"
-  | "doctor";
+  | "doctor"
+  | "sensor";
 
 export interface PushPrefs {
   glucoseUrgent: boolean;

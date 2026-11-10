@@ -41,6 +41,7 @@ export type DashboardSectionKey =
   | "shortcuts"
   | "carePlan"
   | "dayRecap"
+  | "sensor"
   | "childView";
 
 export interface DashboardRoleFlags {
@@ -91,6 +92,8 @@ export interface DashboardSectionVisibility {
   showCarePlan: boolean;
   /** Day Recap: a caregiver code sends the family a recap of its hours. */
   showDayRecap: boolean;
+  /** Sensor countdown: everyone who sees the readings (not the doctor, not guardian-device child mode). */
+  showSensor: boolean;
 }
 
 export function dashboardSectionVisibility(role: DashboardRoleFlags): DashboardSectionVisibility {
@@ -118,6 +121,7 @@ export function dashboardSectionVisibility(role: DashboardRoleFlags): DashboardS
       !role.doctorSession &&
       (!!role.careCode || (role.isParent && !role.isAdult && !role.isChildMode && !role.caregiverSession && !viewingChild)),
     showDayRecap: !!role.careCode && !role.doctorSession,
+    showSensor: !role.doctorSession && !guardianDeviceChildMode,
   };
 }
 
@@ -141,6 +145,7 @@ const GROUPS: { title: string; rows: Entry[] }[] = [
       { key: "insulin", title: "Insulin Settings", gate: "showPatientSections" },
       { key: "activity", title: "Activity Log", gate: "showActivityLog" },
       { key: "summary", title: "A1C", gate: "showPatientSections" },
+      { key: "sensor", title: "Sensor", gate: "showSensor" },
       { key: "shortcuts", title: "Shortcuts", gate: "showShortcuts" },
       { key: "downloadLogs", title: "Download Patient Logs", gate: "showDownloadLogs" },
     ],

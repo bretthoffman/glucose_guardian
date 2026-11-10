@@ -404,7 +404,7 @@ async function libreFetchConnections(
 }
 
 type LibreGraphResult =
-  | { ok: true; entries: ReadingRecord[] }
+  | { ok: true; entries: ReadingRecord[]; sensorStartMs?: number }
   | { ok: false; sessionExpired: boolean; category: FailureCategory };
 
 async function libreFetchGraph(
@@ -424,7 +424,8 @@ async function libreFetchGraph(
   }
   const graphData = (await graphResp.json()) as {
     data?: {
-      connection?: { glucoseMeasurement?: Record<string, unknown> };
+      connection?: { glucoseMeasurement?: Record<string, unknown>; sensor?: { a?: unknown } };
+      activeSensors?: { sensor?: { a?: unknown } }[];
       graphData?: Record<string, unknown>[];
     };
   };
@@ -442,7 +443,22 @@ async function libreFetchGraph(
     const entry = normalizeLibreReading(current);
     if (entry) entries.push(entry);
   }
-  return { ok: true, entries };
+  return { ok: true, entries, sensorStartMs: libreSensorStartMs(graphData?.data) };
+}
+
+/**
+ * When the current Libre sensor was started: LibreLinkUp's `sensor.a` (seconds since 1970) on the
+ * connection, else the newest of `activeSensors`. Undefined when missing or not a sane time.
+ */
+export function libreSensorStartMs(data: { connection?: { sensor?: { a?: unknown } }; activeSensors?: { sensor?: { a?: unknown } }[] } | undefined): number | undefined {
+  const sane = (a: unknown) => {
+    const n = typeof a === "number" ? a : typeof a === "string" ? Number(a) : NaN;
+    return Number.isFinite(n) && n > 1_500_000_000 && n < 4_000_000_000 ? n * 1000 : undefined;
+  };
+  const fromConn = sane(data?.connection?.sensor?.a);
+  if (fromConn) return fromConn;
+  const all = (data?.activeSensors ?? []).map((s) => sane(s?.sensor?.a)).filter((x): x is number => x != null);
+  return all.length ? Math.max(...all) : undefined;
 }
 
 /**
@@ -525,6 +541,7 @@ export function makeLibreAdapter(deps?: { fetch?: FetchLike }): ProviderAdapter<
           entries: graph.entries,
           readKind: "readings",
           connectionCount: conn.connectionCount,
+          sensorStartMs: graph.sensorStartMs,
         };
       } catch {
         return { ok: false, sessionExpired: false, category: "network_timeout" };

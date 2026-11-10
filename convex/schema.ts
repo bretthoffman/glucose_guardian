@@ -901,6 +901,35 @@ const schoolRecaps = defineTable({
   .index("by_code", ["code", "createdAt"]);
 
 /**
+ * CGM sensors (convex/sensor.ts): one row per sensor put on, newest is the current one. Shared by the
+ * whole circle so everyone sees the same countdown. Libre rows come in by themselves from the readings;
+ * Dexcom rows come from the family (asked at connect, a New sensor tap, or a confirmed reading gap).
+ */
+const sensorSessions = defineTable({
+  patientUserId: v.id("users"),
+  kind: v.union(v.literal("g7"), v.literal("g7_15"), v.literal("g6"), v.literal("libre14"), v.literal("libre15")),
+  startedAt: v.number(),
+  endedAt: v.optional(v.number()),
+  /** Stopped before its time (failed or fell off): the app points to the maker's replacement page. */
+  endedEarly: v.optional(v.boolean()),
+  /** Where it went on ("Left arm"), for rotating sites. */
+  site: v.optional(v.string()),
+  source: v.union(v.literal("manual"), v.literal("detected"), v.literal("libre")),
+  setByName: v.string(),
+  /** The setter's clock (minutes east of UTC), for the 8 PM night-before reminder. */
+  tzOffsetMinutes: v.number(),
+  reminderId: v.optional(v.id("_scheduled_functions")),
+  createdAt: v.number(),
+}).index("by_patient", ["patientUserId", "startedAt"]);
+
+/** Sensors left in the box, per circle (counts down with each new sensor; absent = not tracked). */
+const sensorSupplies = defineTable({
+  patientUserId: v.id("users"),
+  sensorsLeft: v.number(),
+  updatedAt: v.number(),
+}).index("by_patient", ["patientUserId"]);
+
+/**
  * Each person's Glucose-screen shortcuts, in their order. Keyed like chat history: "u:<userId>" for
  * an account, "c:<CODE>" for an access-code session. Ids are the app's shortcut keys (utils/shortcuts).
  */
@@ -1036,6 +1065,8 @@ const pushPrefs = v.object({
   careLog: v.boolean(),
   messages: v.boolean(),
   doctor: v.boolean(),
+  /** The night-before "sensor ends tomorrow" reminder. Absent = on. */
+  sensor: v.optional(v.boolean()),
 });
 
 /**
@@ -1118,6 +1149,8 @@ export default defineSchema({
   assistantChats,
   userShortcuts,
   carePlans,
+  sensorSessions,
+  sensorSupplies,
   schoolRecaps,
   handoffNotes,
   careMessages,

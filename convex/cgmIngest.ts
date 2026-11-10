@@ -517,7 +517,18 @@ async function processConnection(
       { now: params.now, limits, state, creds: target.creds, session: target.session },
       {
         login: (c) => adapter.login(c),
-        read: (s, plan) => adapter.read(s, plan),
+        read: async (s, plan) => {
+          const r = await adapter.read(s, plan);
+          // The sensor countdown rides along; it can never hold up or fail the readings.
+          if (r.ok && r.sensorStartMs) {
+            try {
+              await ctx.runMutation(internal.sensor.recordLibreStart, { userId: params.userId, startedAt: r.sensorStartMs });
+            } catch {
+              /* best-effort */
+            }
+          }
+          return r;
+        },
         persistSession: async (s) => {
           await ctx.runMutation(internal.cgmIngest.updateLibreSession, {
             userId: params.userId,

@@ -28,6 +28,7 @@ export type ShortcutIcon =
   | "help-circle"
   | "clipboard"
   | "send"
+  | "target"
   // MaterialCommunityIcons (Feather has no needle, blood drop or timer); see shortcutIconFamily.
   | "needle"
   | "water-plus-outline"
@@ -60,7 +61,7 @@ export const MAX_SHORTCUTS = 8;
 
 /** Dashboard pop-ups that open right over the Glucose screen (components/ShortcutPanelSheets); the
  * rest still switch to the Dashboard and open there. */
-export const OVER_GLUCOSE_SECTIONS = ["summary", "doctor", "careCircle", "handoff", "carePlan", "dayRecap"] as const;
+export const OVER_GLUCOSE_SECTIONS = ["summary", "doctor", "careCircle", "handoff", "carePlan", "dayRecap", "sensor"] as const;
 export type OverGlucoseSection = (typeof OVER_GLUCOSE_SECTIONS)[number];
 export function overGlucoseSection(def: ShortcutDef): OverGlucoseSection | null {
   const t = def.target;
@@ -75,6 +76,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "logInsulin", title: "Log Insulin", icon: "needle", color: "#5CB8FF", target: { kind: "insulin", tab: "log", add: "insulin" } },
   { id: "fingerStick", title: "Finger Stick", icon: "water-plus-outline", color: "#FF8A80", target: { kind: "insulin", tab: "log", add: "stick" } },
   { id: "treatedLow", title: "Treated a Low", icon: "timer-outline", color: "#FF7A76", target: { kind: "insulin", tab: "log", add: "low" } },
+  { id: "sensor", title: "Sensor", icon: "target", color: "#5CB8FF", target: { kind: "dashboard", section: "sensor" } },
   { id: "carePlan", title: "Care Plan", icon: "clipboard", color: "#8FC9FF", target: { kind: "dashboard", section: "carePlan" } },
   { id: "dayRecap", title: "Day Recap", icon: "send", color: "#7DE3B9", target: { kind: "dashboard", section: "dayRecap" } },
   { id: "logs", title: "Logs", icon: "list", color: "#3B9BFF", target: { kind: "insulin", tab: "log" } },
@@ -119,6 +121,7 @@ const DASHBOARD_GATE: Partial<Record<DashboardSectionKey, keyof DashboardSection
   emergency: "showPatientSections",
   carePlan: "showCarePlan",
   dayRecap: "showDayRecap",
+  sensor: "showSensor",
 };
 
 export function canUseShortcut(def: ShortcutDef, a: ShortcutAccess): boolean {

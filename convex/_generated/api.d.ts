@@ -57,6 +57,8 @@ import type * as profilePhoto from "../profilePhoto.js";
 import type * as push from "../push.js";
 import type * as pushLogic from "../pushLogic.js";
 import type * as schoolRecap from "../schoolRecap.js";
+import type * as sensor from "../sensor.js";
+import type * as sensorLogic from "../sensorLogic.js";
 import type * as shortcuts from "../shortcuts.js";
 
 import type {
@@ -115,6 +117,8 @@ declare const fullApi: ApiFromModules<{
   push: typeof push;
   pushLogic: typeof pushLogic;
   schoolRecap: typeof schoolRecap;
+  sensor: typeof sensor;
+  sensorLogic: typeof sensorLogic;
   shortcuts: typeof shortcuts;
 }>;
 

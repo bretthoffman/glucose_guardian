@@ -13,6 +13,7 @@ import DoctorOfficePanel from "@/components/DoctorOfficePanel";
 import HandoffPanel from "@/components/HandoffPanel";
 import LabResultsSection from "@/components/LabResultsSection";
 import CarePlanPanel from "@/components/CarePlanPanel";
+import SensorPanel from "@/components/SensorPanel";
 import { DayRecapPanel } from "@/components/DayRecap";
 import { useShortcutAccess } from "@/hooks/useShortcuts";
 import { CardShade } from "@/components/Shade";
@@ -23,7 +24,7 @@ export default function ShortcutPanelSheets({
   request,
   onTreatLow,
 }: {
-  request: { section: OverGlucoseSection; nonce: number } | null;
+  request: { section: OverGlucoseSection; nonce: number; connect?: boolean } | null;
   /** The Care Plan's "Treated it" button: close this and open Treated a Low over the Glucose screen. */
   onTreatLow?: () => void;
 }) {
@@ -77,6 +78,10 @@ export default function ShortcutPanelSheets({
               : undefined
           }
         />
+      </DashboardSectionModal>
+
+      <DashboardSectionModal visible={open === "sensor"} onClose={close} accessibilityLabel="Sensor">
+        <SensorPanel key={request?.nonce} colors={colors} onClose={close} startIn={request?.connect ? "connect" : undefined} />
       </DashboardSectionModal>
 
       <DashboardSectionModal visible={open === "dayRecap"} onClose={close} accessibilityLabel="Day Recap">

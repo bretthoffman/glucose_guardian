@@ -43,7 +43,7 @@ const home: HelpStep[] = [
     anchor: "home.cgmChip",
     title: "Your CGM connection",
     text:
-      "This chip is the link to your CGM, Dexcom or FreeStyle Libre. Green means connected, and it shows how many new readings arrived and when. If it ever says attention is needed, tapping it opens the connection screen where you can sign in again or switch devices.",
+      "This chip is the link to your CGM, Dexcom or FreeStyle Libre. Green means connected, and it shows how many new readings arrived and when. The last line counts down the sensor: days left, warming up, the last day in orange, and the 12-hour grace period in red. If it ever says attention is needed, tapping it opens the connection screen where you can sign in again or switch devices.",
   },
   {
     id: "home.shortcuts",
@@ -319,6 +319,13 @@ const dashboard: HelpStep[] = [
     title: "Care Team",
     text:
       "Care Circle is where you invite a co-guardian and make access codes for grandparents, sitters, the school nurse, or your child's own phone (a Child code). For the nurse you can set school hours by spinning the time wheel. Doctor Office connects your doctor's portal so they see the same numbers.",
+  },
+  {
+    id: "dashboard.sensor",
+    anchor: "dashboard.sensor",
+    title: "Sensor",
+    text:
+      "Counts down your CGM sensor: days left, the warm-up, the last day and Dexcom's 12-hour grace period. Libre fills it in by itself. For Dexcom, tap New sensor when you put one on, or say Yes when the app asks after the warm-up. Pick where it went on to rotate spots, keep count of sensors left in the box, and tap Sensor stopped early if it fails, for the maker's free replacement page. Everyone in the circle sees the same countdown and gets a reminder the evening before it ends.",
   },
   {
     id: "dashboard.carePlan",

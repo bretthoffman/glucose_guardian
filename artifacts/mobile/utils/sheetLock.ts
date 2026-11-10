@@ -4,7 +4,7 @@
  */
 import { useSyncExternalStore } from "react";
 
-type SheetName = "handoff" | "dayRecap";
+type SheetName = "handoff" | "dayRecap" | "sensor";
 let holder: SheetName | null = null;
 const listeners = new Set<() => void>();
 

@@ -29,6 +29,9 @@ import { SettingsModal } from "@/components/SettingsModal";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import HandoffPanel from "@/components/HandoffPanel";
 import CarePlanPanel from "@/components/CarePlanPanel";
+import SensorPanel from "@/components/SensorPanel";
+import { useSensor } from "@/hooks/useSensor";
+import { shortLeft } from "../../../../convex/sensorLogic";
 import { DayRecapPanel } from "@/components/DayRecap";
 import { useCareCode } from "@/hooks/useCareCode";
 import ShortcutsPanel from "@/components/ShortcutsPanel";
@@ -96,6 +99,7 @@ const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Fea
   shortcuts: "grid",
   carePlan: "clipboard",
   dayRecap: "send",
+  sensor: "target",
   childView: "eye",
 };
 
@@ -115,6 +119,7 @@ const SECTION_COLORS: Record<DashboardSectionKey, string> = {
   shortcuts: "#5CB8FF",
   carePlan: "#8FC9FF",
   dayRecap: "#7DE3B9",
+  sensor: "#5CB8FF",
   childView: COLORS.primary,
 };
 
@@ -208,7 +213,24 @@ export default function DashboardScreen() {
   // the section-card grid so cards and the inline guards/popups can never drift apart). These booleans
   // gate BOTH the inline content (analytics/trend + the section popups) and the matching grid cards.
   const careCode = useCareCode();
-  const { showPatientSections, showNotifications, showDoctorCareTeam, showAccessManagement, showHandoff, showShortcuts, showCarePlan, showDayRecap } = dashboardSectionVisibility({
+  // The Sensor row's "7d 23h left" (or grace / ended) on the right.
+  const { status: sensorStatusNow } = useSensor();
+  const sensorRowText = sensorStatusNow
+    ? sensorStatusNow.phase === "warmup"
+      ? "Warming up"
+      : sensorStatusNow.phase === "grace"
+        ? `Grace · ${shortLeft(sensorStatusNow.msLeft)}`
+        : sensorStatusNow.phase === "expired"
+          ? "Ended"
+          : `${shortLeft(sensorStatusNow.msLeft)} left`
+    : null;
+  const sensorRowTone =
+    sensorStatusNow?.phase === "grace" || sensorStatusNow?.phase === "expired"
+      ? COLORS.danger
+      : sensorStatusNow?.phase === "lastDay"
+        ? COLORS.warning
+        : colors.textSecondary;
+  const { showPatientSections, showNotifications, showDoctorCareTeam, showAccessManagement, showHandoff, showShortcuts, showCarePlan, showDayRecap, showSensor } = dashboardSectionVisibility({
     isChildMode,
     caregiverSession,
     doctorSession,
@@ -237,6 +259,7 @@ export default function DashboardScreen() {
   const helpWhatsNew = useHelpAnchor("dashboard.whatsNew");
   const helpHandoff = useHelpAnchor("dashboard.handoff");
   const helpCarePlan = useHelpAnchor("dashboard.carePlan");
+  const helpSensor = useHelpAnchor("dashboard.sensor");
   const helpDayRecap = useHelpAnchor("dashboard.dayRecap");
   const helpShortcutsRow = useHelpAnchor("dashboard.shortcuts");
   const groupAnchor: Record<string, (node: View | null) => void> = {
@@ -928,12 +951,21 @@ export default function DashboardScreen() {
                   key={row.key}
                   {...common}
                   onPress={onPress}
+                  detail={
+                    row.key === "sensor" && sensorRowText ? (
+                      <Text style={{ fontSize: 13.5, color: sensorRowTone }} numberOfLines={1}>
+                        {sensorRowText}
+                      </Text>
+                    ) : undefined
+                  }
                   anchorRef={
                     row.key === "handoff"
                       ? helpHandoff
                       : row.key === "shortcuts"
                         ? helpShortcutsRow
-                        : row.key === "carePlan"
+                        : row.key === "sensor"
+                          ? helpSensor
+                          : row.key === "carePlan"
                           ? helpCarePlan
                           : row.key === "dayRecap"
                             ? helpDayRecap
@@ -1158,6 +1190,13 @@ export default function DashboardScreen() {
                 colors={colors}
               />
               )}
+              <ToggleRow
+                label="Sensor Reminders"
+                description="The evening before a sensor ends, so there's time to pack a spare"
+                value={pushPrefs.sensor}
+                onToggle={(v) => void updatePushPrefs({ sensor: v })}
+                colors={colors}
+              />
               {!messagesLocked && (
               <ToggleRow
                 label="Message Alerts"
@@ -2108,6 +2147,16 @@ export default function DashboardScreen() {
             accessibilityLabel="Shortcuts"
           >
             <ShortcutsPanel colors={colors} />
+          </DashboardSectionModal>
+        )}
+
+        {showSensor && (
+          <DashboardSectionModal
+            visible={openSection === "sensor"}
+            onClose={() => setOpenSection(null)}
+            accessibilityLabel="Sensor"
+          >
+            <SensorPanel colors={colors} onClose={() => setOpenSection(null)} />
           </DashboardSectionModal>
         )}
 

@@ -95,7 +95,14 @@ export type LoginOutcome<Session> =
 export type ReadKind = "readings" | "no_shared_patient" | "connected_no_data";
 
 export type ReadOutcome =
-  | { ok: true; entries: ReadingRecord[]; readKind?: ReadKind; connectionCount?: number }
+  | {
+      ok: true;
+      entries: ReadingRecord[];
+      readKind?: ReadKind;
+      connectionCount?: number;
+      /** Libre only: when the current sensor was started (ms), for the sensor countdown. */
+      sensorStartMs?: number;
+    }
   | { ok: false; sessionExpired: boolean; category: FailureCategory };
 
 /** Anomaly bounds match the existing client + api-server paths so stored rows are identical. */

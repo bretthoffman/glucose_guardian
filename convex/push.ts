@@ -51,6 +51,7 @@ const pushPrefsPayload = v.object({
   careLog: v.boolean(),
   messages: v.boolean(),
   doctor: v.boolean(),
+  sensor: v.optional(v.boolean()),
 });
 
 /**

@@ -25,12 +25,12 @@ describe("shortcuts", () => {
 
   it("A1C, Doctor Office, Care Circle, Handoff, Care Plan and Day Recap open over the Glucose screen", () => {
     const over = SHORTCUTS.filter((s) => overGlucoseSection(s)).map((s) => s.id);
-    expect(over).toEqual(["carePlan", "dayRecap", "doctor", "handoff", "careCircle", "a1c"]);
+    expect(over).toEqual(["sensor", "carePlan", "dayRecap", "doctor", "handoff", "careCircle", "a1c"]);
   });
 
   it("a guardian can add every shortcut", () => {
     expect(ids(availableShortcuts(guardian))).toEqual([
-      "addEntry", "logInsulin", "fingerStick", "treatedLow", "carePlan", "logs", "dose", "food", "messages", "chatHistory", "doctor", "doctorCode", "handoff",
+      "addEntry", "logInsulin", "fingerStick", "treatedLow", "sensor", "carePlan", "logs", "dose", "food", "messages", "chatHistory", "doctor", "doctorCode", "handoff",
       "careCircle", "a1c", "insulinSettings", "notifications", "emergency", "settings", "help",
     ]);
   });
@@ -42,11 +42,11 @@ describe("shortcuts", () => {
       dashboard: dashboardSectionVisibility({ ...parent, caregiverSession: true, isChildMode: true, careCode: true }),
     };
     expect(ids(availableShortcuts(nurse))).toEqual([
-      "addEntry", "logInsulin", "fingerStick", "treatedLow", "carePlan", "dayRecap", "logs", "food", "messages", "chatHistory", "notifications", "settings", "help",
+      "addEntry", "logInsulin", "fingerStick", "treatedLow", "sensor", "carePlan", "dayRecap", "logs", "food", "messages", "chatHistory", "notifications", "settings", "help",
     ]);
     // Without the chat grant: no Messages or chat history.
     expect(ids(availableShortcuts({ ...nurse, canChat: false }))).toEqual([
-      "addEntry", "logInsulin", "fingerStick", "treatedLow", "carePlan", "dayRecap", "logs", "food", "notifications", "settings", "help",
+      "addEntry", "logInsulin", "fingerStick", "treatedLow", "sensor", "carePlan", "dayRecap", "logs", "food", "notifications", "settings", "help",
     ]);
     // Without the log grant: none of the logging shortcuts.
     const noLog = ids(availableShortcuts({ ...nurse, canOpenLogs: false }));

@@ -28,6 +28,27 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-11",
+    date: "2026-11-11",
+    items: [
+      {
+        icon: "target",
+        title: "Sensor countdown",
+        body: "See how long your CGM sensor has left, right under Dexcom or Libre at the top of the Glucose screen, including the warm-up, the last day and Dexcom's 12-hour grace period. Libre fills it in by itself. For Dexcom, tap New sensor on the Dashboard under Sensor, or say Yes when the app spots a new one.",
+      },
+      {
+        icon: "bell",
+        title: "A reminder the night before",
+        body: "Everyone in the care circle gets a reminder the evening before a sensor ends, so there's a spare in the bag. Turn it off for your phone under Notifications.",
+      },
+      {
+        icon: "package",
+        title: "Sensors left, spots, and failed sensors",
+        body: "Keep count of sensors left in the box and get a nudge to reorder, pick where each one went on so you can rotate spots, and if one stops early, the app takes you to the free replacement page.",
+      },
+    ],
+  },
+  {
     id: "2026-11-10",
     date: "2026-11-10",
     items: [

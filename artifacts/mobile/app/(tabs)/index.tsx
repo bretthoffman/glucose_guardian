@@ -59,6 +59,8 @@ import ShortcutsRow from "@/components/ShortcutsRow";
 import QuickLogSheets, { type QuickLogKind } from "@/components/QuickLogSheets";
 import ShortcutPanelSheets from "@/components/ShortcutPanelSheets";
 import RecheckTimerCard from "@/components/RecheckTimerCard";
+import { useSensor } from "@/hooks/useSensor";
+import { sensorBadge } from "../../../../convex/sensorLogic";
 import type { OverGlucoseSection } from "@/utils/shortcuts";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 import { CloseButton } from "@/components/CloseButton";
@@ -245,7 +247,11 @@ export default function HomeScreen() {
   // prompt. Nothing is auto-sent — the popup offers Dismiss / Send to chat, it is gated by the
   // "Send Alerts to Chat on open" toggle, and a pending wait-window confirm SUPERSEDES it (the
   // dropped popup never comes back — no stacking). ──
-  const { alertMsg, alertPrompt, alertTs } = useLocalSearchParams<{ alertMsg?: string; alertPrompt?: string; alertTs?: string }>();
+  const { alertMsg, alertPrompt, alertTs, askSensor } = useLocalSearchParams<{ alertMsg?: string; alertPrompt?: string; alertTs?: string; askSensor?: string }>();
+  // The sensor countdown's small line under "Dexcom" (and the viewer's own Sensor chip).
+  const { status: sensorStatusNow, spec: sensorSpec } = useSensor();
+  const sensorLine = sensorBadge(sensorStatusNow);
+  const sensorLineColor = sensorLine?.tone === "danger" ? "#FF6B66" : sensorLine?.tone === "warn" ? "#FFB25C" : undefined;
   const shownAlertTsRef = useRef<string | null>(null);
   const waitGate =
     !!account?.convexUserId && !caregiverSession && !isViewingLinkedPatient && profile?.accountRole === "adult";
@@ -277,7 +283,11 @@ export default function HomeScreen() {
   // Log shortcuts (Add Entry, Log Insulin, Finger Stick) pop up over this screen.
   const [quickLog, setQuickLog] = useState<{ kind: QuickLogKind; nonce: number } | null>(null);
   // So do the A1C, Doctor Office, Care Circle and Handoff shortcuts.
-  const [panel, setPanel] = useState<{ section: OverGlucoseSection; nonce: number } | null>(null);
+  const [panel, setPanel] = useState<{ section: OverGlucoseSection; nonce: number; connect?: boolean } | null>(null);
+  // Right after connecting Dexcom: ask when this sensor went on.
+  useEffect(() => {
+    if (askSensor) setPanel({ section: "sensor", nonce: Date.now(), connect: true });
+  }, [askSensor]);
   const [insightsVisible, setInsightsVisible] = useState(false);
 
   // ── Log markers on the trend chart + the tapped log's detail popup — the SAME marker system,
@@ -1182,8 +1192,38 @@ export default function HomeScreen() {
                   {syncResultLabel(lastSyncResult, lastSyncTime)}
                 </Text>
               ) : null}
+              {isConnected && sensorLine ? (
+                <Text
+                  style={[styles.cgmChipSub, { color: sensorLineColor ?? c.textMuted }, sensorLine.tone !== "muted" && { fontWeight: T.font.semibold }]}
+                  numberOfLines={1}
+                >
+                  {sensorLine.text}
+                </Text>
+              ) : null}
             </View>
           </Pressable>
+          )}
+          {/* Co-guardians, caregivers and the nurse don't get the CGM chip, but do see the sensor
+              countdown in the same spot; it opens the Sensor pop-up. */}
+          {(isViewingLinkedPatient || isCgmViewerOnly) && sensorLine && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Sensor: ${sensorLine.text}`}
+              onPress={() => setPanel({ section: "sensor", nonce: Date.now() })}
+              style={[styles.cgmChip, { backgroundColor: c.card, borderColor: c.border }]}
+            >
+              <View style={{ flexShrink: 1 }}>
+                <Text style={[styles.cgmChipText, { color: c.textSecondary }]} numberOfLines={1}>
+                  {sensorSpec?.short ?? "Sensor"}
+                </Text>
+                <Text
+                  style={[styles.cgmChipSub, { color: sensorLineColor ?? c.textMuted }, sensorLine.tone !== "muted" && { fontWeight: T.font.semibold }]}
+                  numberOfLines={1}
+                >
+                  {sensorLine.text}
+                </Text>
+              </View>
+            </Pressable>
           )}
         </View>
 

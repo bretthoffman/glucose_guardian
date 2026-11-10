@@ -172,7 +172,8 @@ export default function CGMSetupScreen() {
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace("/(tabs)");
+      // Dexcom doesn't share when the sensor went on, so the Glucose screen asks (Libre fills it in).
+      router.replace(selectedType === "dexcom" ? { pathname: "/(tabs)", params: { askSensor: String(Date.now()) } } : "/(tabs)");
     } catch {
       Alert.alert("Error", "Could not connect. Check your internet connection.");
     } finally {

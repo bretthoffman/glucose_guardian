@@ -225,7 +225,7 @@ export function DayRecapPrompt() {
   const holder = useSheetHolder();
   const [closedId, setClosedId] = useState<string | null>(null);
 
-  const ready = !isLoading && !accessLock && !!profile && !whatsNewBusy && holder !== "handoff";
+  const ready = !isLoading && !accessLock && !!profile && !whatsNewBusy && holder !== "handoff" && holder !== "sensor";
   const open = !!recap && !recap.seenByMe && closedId !== recap.id && ready && !sheetHeldByOther("dayRecap");
   useEffect(() => {
     holdSheet("dayRecap", open);

@@ -48,6 +48,8 @@ interface RowProps {
   onPress?: () => void;
   /** Trailing control (a Switch, say) in place of the chevron. */
   right?: React.ReactNode;
+  /** Short status before the chevron ("7d 23h left"). */
+  detail?: React.ReactNode;
   last?: boolean;
   /** Help Mode spotlight anchor (useHelpAnchor) for just this row. */
   anchorRef?: (node: View | null) => void;
@@ -62,7 +64,7 @@ export function DashboardRow({ anchorRef, ...props }: RowProps) {
   );
 }
 
-function DashboardRowBody({ title, icon, color, colors, onPress, right, last }: Omit<RowProps, "anchorRef">) {
+function DashboardRowBody({ title, icon, color, colors, onPress, right, detail, last }: Omit<RowProps, "anchorRef">) {
   const body = (
     <>
       <View style={[styles.iconTile, { backgroundColor: withAlpha(color, 0.18) }]}>
@@ -71,6 +73,7 @@ function DashboardRowBody({ title, icon, color, colors, onPress, right, last }: 
       <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.4}>
         {title}
       </Text>
+      {detail}
       {right ?? <Feather name="chevron-right" size={19} color={colors.textMuted} />}
       {/* Inset hairline: starts where the title starts, like the mockup — the tiles stay uncut. */}
       {!last && <View style={[styles.separator, { backgroundColor: colors.border }]} />}

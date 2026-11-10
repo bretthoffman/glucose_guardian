@@ -23,6 +23,8 @@ export interface PushPrefs {
   careLog: boolean;
   messages: boolean;
   doctor: boolean;
+  /** The night-before "sensor ends tomorrow" reminder. */
+  sensor: boolean;
 }
 
 export const DEFAULT_PUSH_PREFS: PushPrefs = {
@@ -34,6 +36,7 @@ export const DEFAULT_PUSH_PREFS: PushPrefs = {
   careLog: true,
   messages: true,
   doctor: true,
+  sensor: true,
 };
 
 /**
@@ -52,6 +55,7 @@ export function normalizePushPrefs(
     careLog: remote.careLog !== false,
     messages: remote.messages !== false,
     doctor: remote.doctor !== false,
+    sensor: remote.sensor !== false,
   };
 }
 

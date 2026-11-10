@@ -31,6 +31,7 @@ describe("dashboardSectionVisibility", () => {
       showChildView: false, // retired: Care Circle's Child code covers a child's own phone
       showCarePlan: true, // the guardian writes it
       showDayRecap: false, // caregiver codes send it
+      showSensor: true,
     });
   });
 
@@ -88,6 +89,7 @@ describe("dashboardSectionVisibility", () => {
     expect(keys({ ...patientParent, caregiverViewingChild: true })).toEqual([
       "insulin",
       "summary",
+      "sensor",
       "shortcuts",
       "notifications",
       "thresholds",
@@ -124,6 +126,7 @@ describe("availableDashboardSections", () => {
     expect(keys(patientParent)).toEqual([
       "insulin",
       "summary",
+      "sensor",
       "shortcuts",
       "notifications",
       "thresholds",
@@ -141,7 +144,7 @@ describe("availableDashboardSections", () => {
   });
 
   it("returns only Shortcuts and Notifications in a caregiver session (device-own alert prefs; emergency locked inside)", () => {
-    expect(keys({ ...patientParent, caregiverSession: true })).toEqual(["shortcuts", "notifications"]);
+    expect(keys({ ...patientParent, caregiverSession: true })).toEqual(["sensor", "shortcuts", "notifications"]);
   });
 
   it("leaves only the Child View switch in child view (so it can be turned off)", () => {
@@ -163,6 +166,7 @@ describe("availableDashboardSections", () => {
     expect(keys({ ...patientParent, isParent: false, isAdult: false })).toEqual([
       "insulin",
       "summary",
+      "sensor",
       "shortcuts",
       "notifications",
       "thresholds",
@@ -211,7 +215,7 @@ describe("dashboardGroups", () => {
     // A caregiver code session sees only Shortcuts and Notifications, so only their groups survive.
     const groups = dashboardGroups({ ...patientParent, caregiverSession: true });
     expect(groups.map((g) => g.title)).toEqual(["Glucose & Dosing", "Alerts & Notifications"]);
-    expect(groups.map((g) => g.rows.map((r) => r.key))).toEqual([["shortcuts"], ["notifications"]]);
+    expect(groups.map((g) => g.rows.map((r) => r.key))).toEqual([["sensor", "shortcuts"], ["notifications"]]);
   });
 
   it("never emits an empty group", () => {
