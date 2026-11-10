@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-11b",
+    date: "2026-11-11",
+    items: [
+      {
+        icon: "trending-up",
+        title: "Meal high heads-up",
+        body: "If a meal kept you or your child high the last few times, even after extra insulin, the calculator now says so and that it may need a higher dose up front. It never picks a number or changes the dose. Tap See what happened to see those times, and ask your doctor how much. Turn it off or choose what counts as high in Dashboard, Insulin Settings.",
+      },
+    ],
+  },
+  {
     id: "2026-11-11",
     date: "2026-11-11",
     items: [

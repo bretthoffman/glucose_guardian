@@ -5,6 +5,7 @@
  * mealtime (short-acting) insulin — displayed, not changeable. IOB/COB aware like the main
  * calculator, so a dose logged here immediately nets out of the next suggestion everywhere.
  */
+import MealHighNote from "@/components/MealHighNote";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -371,6 +372,17 @@ export default function FoodInsulinModal({
                 />
               )}
             </View>
+
+            {!!foodName && (
+              <MealHighNote
+                foodName={foodName}
+                colors={colors}
+                bg={doseBg.n}
+                target={targetGlucose}
+                falling={dose.trendLabel.startsWith("Falling")}
+                activeUnits={dose.activeInsulinUnits}
+              />
+            )}
 
             <View style={[styles.totalRow, { borderTopColor: colors.border }]}>
               <View style={styles.totalLabelWrap}>

@@ -936,6 +936,17 @@ const sensorSupplies = defineTable({
 }).index("by_patient", ["patientUserId"]);
 
 /**
+ * Meal high heads-up settings, per circle (convex/mealHigh.ts). Absent = on, at 250 mg/dL. Only the
+ * family changes it; it never touches the dose math.
+ */
+const mealHighPrefs = defineTable({
+  patientUserId: v.id("users"),
+  enabled: v.boolean(),
+  high: v.number(),
+  updatedAt: v.number(),
+}).index("by_patient", ["patientUserId"]);
+
+/**
  * Each person's Glucose-screen shortcuts, in their order. Keyed like chat history: "u:<userId>" for
  * an account, "c:<CODE>" for an access-code session. Ids are the app's shortcut keys (utils/shortcuts).
  */
@@ -1157,6 +1168,7 @@ export default defineSchema({
   carePlans,
   sensorSessions,
   sensorSupplies,
+  mealHighPrefs,
   schoolRecaps,
   handoffNotes,
   careMessages,

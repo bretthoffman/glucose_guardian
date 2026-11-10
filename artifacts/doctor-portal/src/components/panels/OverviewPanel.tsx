@@ -12,6 +12,7 @@ import {
   Settings2,
   Sparkles,
   Syringe,
+  TrendingUp,
   Utensils,
   Camera,
   MessageSquare,
@@ -38,6 +39,7 @@ import {
   TREND_LABEL,
 } from "@/lib/glucose-metrics";
 import { GlucoseChart } from "@/components/GlucoseChart";
+import { MealHighsList, useMealHighs } from "@/components/MealHighsCard";
 
 // ── Customizable widget registry ─────────────────────────────────────────────
 const STORAGE_KEY = "gg_overview_widgets";
@@ -59,6 +61,7 @@ const WIDGETS: WidgetDef[] = [
   { id: "dose", label: "Dose Calculation", group: "wide" },
   { id: "ratios", label: "Ratios & Factors", group: "module" },
   { id: "patterns", label: "Detected Patterns", group: "module" },
+  { id: "mealHighs", label: "Meals That Stay High", group: "module" },
   { id: "readings", label: "Recent Readings", group: "module" },
   { id: "food", label: "Food Log", group: "module" },
   { id: "insulinLog", label: "Insulin Log (Today)", group: "module" },
@@ -188,6 +191,7 @@ export function OverviewPanel({
   const [, setLocation] = useLocation();
   const [visible, setVisible] = useState<Record<string, boolean>>(loadVisible);
   const [customizeOpen, setCustomizeOpen] = useState(false);
+  const mealHighs = useMealHighs(accessCode);
   const customizeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -393,6 +397,13 @@ export function OverviewPanel({
             </ul>
           </SectionCard>
         );
+      case "mealHighs":
+        if (!mealHighs) return null;
+        return (
+          <SectionCard title="Meals That Stay High" icon={TrendingUp}>
+            <MealHighsList data={mealHighs} />
+          </SectionCard>
+        );
       case "readings":
         return (
           <SectionCard title="Recent Readings" icon={Stethoscope} action={fullView("chart", "View all")}>
@@ -534,7 +545,8 @@ export function OverviewPanel({
   }
 
   const kpis = WIDGETS.filter((w) => w.group === "kpi" && visible[w.id]);
-  const modules = WIDGETS.filter((w) => w.group === "module" && visible[w.id]);
+  // "Meals That Stay High" only once its list has loaded (not on a pass, or before it's deployed).
+  const modules = WIDGETS.filter((w) => w.group === "module" && visible[w.id] && (w.id !== "mealHighs" || !!mealHighs));
   const showChart = !!visible["cgm"];
   // Full-width sections (the dose formula reads left to right, so it can't sit in a column).
   const wides = WIDGETS.filter((w) => w.group === "wide" && visible[w.id]);

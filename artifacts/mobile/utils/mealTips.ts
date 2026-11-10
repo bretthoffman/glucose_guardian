@@ -9,6 +9,7 @@
  *
  * Wording rules: ideas to add, never foods to forbid; no shame words; no insulin advice.
  */
+import { mealWords, sameMeal } from "../../../convex/mealHighLogic";
 export interface TipReading {
   glucose: number;
   timestamp: string;
@@ -25,27 +26,8 @@ export const TIP_WINDOW_MIN = 150;
 /** Compare against at most this many past meals like this one. */
 export const TIP_LOOKBACK = 3;
 
-const STOP = new Set(["with", "and", "the", "a", "of", "on", "in", "some", "plus", "w", "&", "side", "small", "large", "big"]);
-
-/** Meaningful words in a meal name: "Waffles with syrup + Berries" → ["waffle", "syrup", "berrie"]. */
-export function mealWords(name: string): string[] {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z\s]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !STOP.has(w))
-    .map((w) => (w.endsWith("s") ? w.slice(0, -1) : w));
-}
-
-/** Same meal? At least half of the smaller meal's words match. */
-export function sameMeal(a: string, b: string): boolean {
-  const wa = new Set(mealWords(a));
-  const wb = new Set(mealWords(b));
-  if (wa.size === 0 || wb.size === 0) return false;
-  let shared = 0;
-  for (const w of wa) if (wb.has(w)) shared++;
-  return shared / Math.min(wa.size, wb.size) >= 0.5;
-}
+/** Shared with the meal high heads-up (convex/mealHighLogic) so both match meals the same way. */
+export { mealWords, sameMeal };
 
 /** The last few past meals like this one (newest first), skipping anything in the last 3 hours. */
 export function similarPastMeals(foodName: string, log: TipMeal[], nowMs: number): TipMeal[] {

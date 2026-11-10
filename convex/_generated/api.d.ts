@@ -42,6 +42,8 @@ import type * as guardianPin_validate from "../guardianPin/validate.js";
 import type * as handoff from "../handoff.js";
 import type * as identity from "../identity.js";
 import type * as labResults from "../labResults.js";
+import type * as mealHigh from "../mealHigh.js";
+import type * as mealHighLogic from "../mealHighLogic.js";
 import type * as patientCgm from "../patientCgm.js";
 import type * as patientCgmSync from "../patientCgmSync.js";
 import type * as patientDexcomSecrets from "../patientDexcomSecrets.js";
@@ -102,6 +104,8 @@ declare const fullApi: ApiFromModules<{
   handoff: typeof handoff;
   identity: typeof identity;
   labResults: typeof labResults;
+  mealHigh: typeof mealHigh;
+  mealHighLogic: typeof mealHighLogic;
   patientCgm: typeof patientCgm;
   patientCgmSync: typeof patientCgmSync;
   patientDexcomSecrets: typeof patientDexcomSecrets;

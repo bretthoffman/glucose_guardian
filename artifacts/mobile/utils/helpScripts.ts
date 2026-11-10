@@ -230,6 +230,13 @@ const food: HelpStep[] = [
       "If this meal went over 250 within a couple of hours more than once before, a tip shows here with one-tap protein ideas. Tapping one adds it, with its carbs, to the meal. Tips are ideas, not rules, at most one a day, and parents choose who sees them in Dashboard, A1C.",
   },
   {
+    id: "food.mealHigh",
+    anchor: "food.mealHigh",
+    title: "Meal high heads-up",
+    text:
+      "If this meal kept you high the last few times, even after extra insulin, this note shows. The calculator then explains what happened and that the meal may need a higher dose up front. It never picks a number or changes the dose. Ask your doctor how much. Turn it off in Dashboard, Insulin Settings.",
+  },
+  {
     id: "food.quick",
     anchor: "food.quick",
     title: "Quick Lookup",
@@ -298,7 +305,7 @@ const dashboard: HelpStep[] = [
     anchor: "dashboard.glucose",
     title: "Glucose and dosing",
     text:
-      "Insulin Settings holds the carb ratio, target, correction factor, time-of-day overrides, and which insulins you use as a pen or a vial. Activity Log lists every entry. A1C estimates A1C from the last 14, 30 or 90 days of sensor readings and shows how much the sensor was worn. In A1C you can also add lab results by snapping a photo of the report or typing them in, see Ways to help, and choose who sees meal tips.",
+      "Insulin Settings holds the carb ratio, target, correction factor, time-of-day overrides, which insulins you use as a pen or a vial, and the Meal high heads-up switch. Activity Log lists every entry. A1C estimates A1C from the last 14, 30 or 90 days of sensor readings and shows how much the sensor was worn. In A1C you can also add lab results by snapping a photo of the report or typing them in, see Ways to help, and choose who sees meal tips.",
   },
   {
     id: "dashboard.shortcuts",

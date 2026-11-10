@@ -26,6 +26,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ProfileChip from "@/components/ProfileChip";
 import TreatmentProposalCard from "@/components/TreatmentProposalCard";
 import { SettingsModal } from "@/components/SettingsModal";
+import MealHighSettings from "@/components/MealHighSettings";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import HandoffPanel from "@/components/HandoffPanel";
 import CarePlanPanel from "@/components/CarePlanPanel";
@@ -1930,6 +1931,7 @@ export default function DashboardScreen() {
             {askOpened && <StartInsulinPrompt supply={askOpened} colors={colors} onDone={() => setAskOpened(null)} />}
           </View>
 
+          <MealHighSettings colors={colors} />
         </View>
         </DashboardSectionModal>
         </>)}

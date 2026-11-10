@@ -375,6 +375,29 @@ async function route(method: string, path: string, query: URLSearchParams, body:
     const to = Date.parse(query.get("to") ?? "");
     return json(200, { accessCode: p.code, from: iso(from), to: iso(to), ...logsBetween(p, from, to) });
   }
+  if (sub === "/meal-highs") {
+    // A sample of the list the real portal builds from the family's logs and readings.
+    const day = 24 * 60 * MIN;
+    const at = (daysAgo: number, hour: number) => {
+      const d = new Date(now - daysAgo * day);
+      d.setHours(hour, 30, 0, 0);
+      return d.getTime();
+    };
+    const ev = (t: number, carbs: number, units: number, extra: number, later: number) => ({
+      at: t, carbs, mealUnits: units, extra: [{ at: t + 130 * MIN, units: extra }], laterBg: later, outcome: "stayedHigh",
+    });
+    return json(200, {
+      accessCode: p.code,
+      enabled: true,
+      high: 250,
+      lookbackDays: 45,
+      patterns: [
+        { foodName: "Pancakes with syrup", events: [ev(at(2, 7), 48, 3, 1.5, 291), ev(at(9, 7), 45, 2.5, 1, 274)], stayedHigh: 2, avgLater: 283, avgCarbs: 46, avgMealUnits: 2.75, avgExtraUnits: 1.25, lastAt: at(2, 7) },
+        { foodName: "Waffles", events: [ev(at(4, 8), 38, 2.5, 1, 266), ev(at(11, 8), 38, 2.5, 1, 262)], stayedHigh: 2, avgLater: 264, avgCarbs: 38, avgMealUnits: 2.5, avgExtraUnits: 1, lastAt: at(4, 8) },
+        { foodName: "Mac and cheese", events: [ev(at(6, 18), 52, 3, 1.5, 271), ev(at(13, 18), 52, 3, 1.5, 268)], stayedHigh: 2, avgLater: 270, avgCarbs: 52, avgMealUnits: 3, avgExtraUnits: 1.5, lastAt: at(6, 18) },
+      ],
+    });
+  }
   const photo = sub.match(/^\/food-photos\/(.+)$/);
   if (photo) {
     const meal = mealById(p, decodeURIComponent(photo[1]!));

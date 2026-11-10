@@ -1234,6 +1234,39 @@ router.get(
   },
 );
 
+/**
+ * Meals that kept the patient high even after extra insulin (convex/mealHigh.forDoctor): the same
+ * list the app's calculator warns from. Read-only; 503 until the backend function is deployed.
+ */
+router.get(
+  "/patient/:accessCode/meal-highs",
+  requireDoctorAuth,
+  requireDoctorPatientLink(),
+  (req, res) => {
+    void (async () => {
+      try {
+        const code =
+          (req as DoctorAuthedRequest).doctorAccessCode ??
+          normalizeDoctorAccessCode(routeParam(req.params.accessCode));
+        const client = createConvexDoctorAccountsClient();
+        const result = await client.query(api.mealHigh.forDoctor, {
+          serverSecret: getConvexDoctorApiSecret(),
+          accessCode: code,
+        });
+        if (!result) {
+          res.status(404).json({ error: "Patient not found" });
+          return;
+        }
+        res.set("Cache-Control", "private, no-store");
+        res.json({ accessCode: code, ...result });
+      } catch (e) {
+        console.error("[doctor] GET /patient/:accessCode/meal-highs", e);
+        res.status(503).json({ error: "Meal patterns not available yet" });
+      }
+    })();
+  },
+);
+
 /** Formats the portal displays — the backend only accepts these at upload; checked again here. */
 const FOOD_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 

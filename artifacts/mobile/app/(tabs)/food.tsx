@@ -31,6 +31,7 @@ import { getEffectiveTrend, trendTone } from "@/utils/trend";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
 import FoodInsulinModal from "@/components/FoodInsulinModal";
 import MealTipCard from "@/components/MealTipCard";
+import MealHighNote from "@/components/MealHighNote";
 import { apiUrl } from "@/utils/api-base-url";
 import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { AccentShade, CardShade, ControlShade, ScreenShade, TintShade } from "@/components/Shade";
@@ -371,6 +372,7 @@ export default function FoodScreen() {
   const helpQuick = useHelpAnchor("food.quick");
   const helpSeeAll = useHelpAnchor("food.seeAll");
   const helpMealTip = useHelpAnchor("food.mealTip");
+  const helpMealHigh = useHelpAnchor("food.mealHigh");
   // Camera screen (barcode detection + shutter) and the barcode lookup it drives.
   const [scannerOpen, setScannerOpen] = useState(false);
   const [barcodeLookup, setBarcodeLookup] = useState<BarcodeLookupState>("idle");
@@ -1160,6 +1162,7 @@ export default function FoodScreen() {
                 }
               />
             )}
+            {!result.manual && !!result.foodName && <MealHighNote compact foodName={result.foodName} colors={colors} anchorRef={helpMealHigh} />}
 
             {/* "How many?" (servings on a barcode result: only when the package holds more than one, or
                 we can't tell). Carbs, fat, protein and the insulin estimate all scale with it. Hidden
