@@ -20,6 +20,8 @@
  *    doctor's session and guardian-device child mode; each person's list is their own.
  *  - Handoff (the catch-up caregivers see, and the parent's optional note) → `showHandoff`: Care Circle's
  *    gate, guardian (parent) accounts only. A personal account manages its own care, so it has none.
+ *  - Care Plan → `showCarePlan`: guardian (parent) accounts write it; caregiver codes (and a nurse account
+ *    viewing a child) read it. Day Recap → `showDayRecap`: caregiver codes send the family a recap.
  *  - Child View Mode → `showChildView`: RETIRED for turning on. A child's own phone uses a Child
  *    code from Care Circle instead. The switch only appears while a phone still has child mode ON,
  *    so that phone can always turn it off; nobody can turn it on anymore.
@@ -37,6 +39,8 @@ export type DashboardSectionKey =
   | "careCircle"
   | "handoff"
   | "shortcuts"
+  | "carePlan"
+  | "dayRecap"
   | "childView";
 
 export interface DashboardRoleFlags {
@@ -49,6 +53,8 @@ export interface DashboardRoleFlags {
   caregiverViewingChild?: boolean;
   /** Any food or insulin entries at all — the Activity Log row only exists when there is a log. */
   hasLogEntries?: boolean;
+  /** A caregiver code session (the school nurse, grandma; not a kid code), or a nurse account viewing a child. */
+  careCode?: boolean;
 }
 
 export interface DashboardSectionVisibility {
@@ -81,6 +87,10 @@ export interface DashboardSectionVisibility {
    * off again while everything else is hidden.
    */
   showChildView: boolean;
+  /** Care Plan: the guardians write it; caregiver codes read it. */
+  showCarePlan: boolean;
+  /** Day Recap: a caregiver code sends the family a recap of its hours. */
+  showDayRecap: boolean;
 }
 
 export function dashboardSectionVisibility(role: DashboardRoleFlags): DashboardSectionVisibility {
@@ -104,6 +114,10 @@ export function dashboardSectionVisibility(role: DashboardRoleFlags): DashboardS
     showActivityLog: !!role.hasLogEntries && !guardianDeviceChildMode,
     showDownloadLogs: role.doctorSession,
     showChildView: role.isParent && !role.caregiverSession && role.isChildMode,
+    showCarePlan:
+      !role.doctorSession &&
+      (!!role.careCode || (role.isParent && !role.isAdult && !role.isChildMode && !role.caregiverSession && !viewingChild)),
+    showDayRecap: !!role.careCode && !role.doctorSession,
   };
 }
 
@@ -143,6 +157,8 @@ const GROUPS: { title: string; rows: Entry[] }[] = [
     title: "Care Team",
     rows: [
       { key: "careCircle", title: "Care Circle", gate: "showAccessManagement" },
+      { key: "carePlan", title: "Care Plan", gate: "showCarePlan" },
+      { key: "dayRecap", title: "Day Recap", gate: "showDayRecap" },
       { key: "handoff", title: "Handoff", gate: "showHandoff" },
       { key: "doctor", title: "Doctor Office", gate: "showDoctorCareTeam" },
       { key: "doctorCode", title: "Doctor Code", gate: "showDoctorCareTeam" },

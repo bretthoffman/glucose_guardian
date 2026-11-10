@@ -37,6 +37,8 @@ import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/util
 import { SettingsModal } from "@/components/SettingsModal";
 import AccessCodeScanner from "@/components/AccessCodeScanner";
 import { ScreenShade } from "@/components/Shade";
+import { DashboardSectionModal } from "@/components/DashboardSectionModal";
+import CarePlanPanel from "@/components/CarePlanPanel";
 
 interface Kid {
   code: string;
@@ -81,6 +83,8 @@ export default function NurseMenu() {
   const [kids, setKids] = useState<Kid[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  /** The child whose Care Plan is open (by their code), from the card's Care Plan button. */
+  const [planCode, setPlanCode] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
   const [adding, setAdding] = useState(false);
@@ -242,6 +246,7 @@ export default function NurseMenu() {
             const locked = kid.accessState.state !== "ok";
             const value = locked ? null : kid.latestGlucose;
             const color = ringColor(value, kid.thresholds);
+            const isLow = value != null && value < kid.thresholds.low;
             const fullName = [kid.name, kid.lastName].filter(Boolean).join(" ");
             const initials = fullName.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
             // Same active-carbs / active-insulin math the dose calculator uses, decaying live via nowMs.
@@ -272,7 +277,6 @@ export default function NurseMenu() {
                     <Text style={[styles.ringValue, { color: colors.text }]}>{value != null ? value : "--"}</Text>
                     <Text style={[styles.ringUnit, { color: colors.textMuted }]}>mg/dL</Text>
                   </View>
-                  <Feather name="chevron-right" size={20} color={colors.textMuted} />
                 </View>
 
                 {/* Active carbs / insulin taking effect on this access code — hidden while locked. */}
@@ -309,6 +313,40 @@ export default function NurseMenu() {
                     </View>
                   </View>
                 )}
+                {/* View opens the child (same as tapping the card); Care Plan opens the family's plan,
+                    red while the child is low so the low steps are one tap away. */}
+                <View style={styles.cardButtons}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${kid.name}`}
+                    onPress={() => openKid(kid)}
+                    style={({ pressed }) => [styles.cardBtn, { backgroundColor: COLORS.primary, opacity: pressed ? 0.85 : 1 }]}
+                  >
+                    <Feather name="activity" size={15} color="#fff" />
+                    <Text style={[styles.cardBtnText, { color: "#fff" }]} numberOfLines={1}>
+                      View {kid.name}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${kid.name}'s Care Plan`}
+                    disabled={locked}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setPlanCode(kid.code);
+                    }}
+                    style={({ pressed }) => [
+                      styles.cardBtn,
+                      isLow
+                        ? { backgroundColor: COLORS.danger }
+                        : { backgroundColor: COLORS.primary + "1F", borderWidth: 1, borderColor: COLORS.primary + "66" },
+                      { opacity: locked ? 0.45 : pressed ? 0.85 : 1 },
+                    ]}
+                  >
+                    <Feather name="clipboard" size={15} color={isLow ? "#fff" : COLORS.primaryLight} />
+                    <Text style={[styles.cardBtnText, { color: isLow ? "#fff" : COLORS.primaryLight }]}>Care Plan</Text>
+                  </Pressable>
+                </View>
               </Pressable>
             );
           })
@@ -401,6 +439,11 @@ export default function NurseMenu() {
         </Pressable>
       </Modal>
 
+      {/* A child's Care Plan, read straight from the menu (no need to open the child). */}
+      <DashboardSectionModal visible={planCode != null} onClose={() => setPlanCode(null)} accessibilityLabel="Care Plan">
+        {planCode != null && <CarePlanPanel colors={colors} code={planCode} onClose={() => setPlanCode(null)} />}
+      </DashboardSectionModal>
+
       <SettingsModal
         visible={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -424,6 +467,9 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 13, fontWeight: "400", textAlign: "center", lineHeight: 19 },
   card: { borderWidth: 1, borderRadius: 18, padding: 16 },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 14 },
+  cardButtons: { flexDirection: "row", gap: 10, marginTop: 14 },
+  cardBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, height: 44, borderRadius: 12, paddingHorizontal: 8 },
+  cardBtnText: { fontSize: 15, fontWeight: "700", flexShrink: 1 },
   activeRow: { flexDirection: "row", alignItems: "flex-start", marginTop: 14, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
   activeCol: { flex: 1, gap: 3 },
   activeDivider: { width: StyleSheet.hairlineWidth, alignSelf: "stretch", marginHorizontal: 12 },

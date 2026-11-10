@@ -52,6 +52,7 @@ import {
 import { computeActiveInsulin } from "@/utils/onBoard";
 import { toLocalDate } from "@/utils/pens";
 import { getEffectiveTrend } from "@/utils/trend";
+import { holdSheet, sheetHeldByOther } from "@/utils/sheetLock";
 
 const STORE_PREFIX = "gg.handoff.v1:";
 /** Let launch settle (What's new, first render) before the sheet slides up. */
@@ -219,6 +220,9 @@ export function HandoffPrompt() {
   const build = useHandoffSummaryBuilder(viewer);
   const logs = useHandoffLogs(viewer);
   const [shown, setShown] = useState<{ summary: HandoffSummary; note: HandoffNote | null; otherName: string | null } | null>(null);
+  useEffect(() => {
+    holdSheet("handoff", !!shown);
+  }, [shown]);
   const busy = useRef(false);
   const latest = useRef({ build, logs, forMe, viewer });
   latest.current = { build, logs, forMe, viewer };
@@ -260,8 +264,11 @@ export function HandoffPrompt() {
         noteCreatedAt: note?.createdAt ?? null,
         catchUp,
       });
+      // The Day Recap sheet is up: try again on the next open rather than stacking on it.
+      if (show && sheetHeldByOther("handoff")) return;
       if (show) {
         await new Promise((r) => setTimeout(r, SHOW_DELAY_MS));
+        if (sheetHeldByOther("handoff")) return;
         // "Message Holly": the note's author, else whoever else logged most recently.
         const lastOther = l
           .filter((x) => !x.byYou && x.authorName)

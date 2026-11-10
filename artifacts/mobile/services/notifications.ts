@@ -303,6 +303,43 @@ export async function syncPenReminders(
   }
 }
 
+/**
+ * The recheck timer after a treated low: one phone notification at `at`. Returns its id (null when
+ * notifications aren't allowed; the countdown card on the Glucose screen still shows).
+ */
+export async function scheduleRecheckReminder(params: { at: number; childName: string; minutes: number }): Promise<string | null> {
+  if (isWeb) return null;
+  try {
+    const perm = await Notifications.getPermissionsAsync();
+    if (perm.status !== "granted") return null;
+    if (params.at <= Date.now()) return null;
+    return await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `Time to recheck ${params.childName}`,
+        body: `${params.minutes} minutes since the low was treated. Check the number now.`,
+        data: { kind: "recheck_timer" },
+        sound: true,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: new Date(params.at),
+        ...(Platform.OS === "android" ? { channelId: "default" } : {}),
+      },
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function cancelScheduledNotification(id: string | null | undefined): Promise<void> {
+  if (isWeb || !id) return;
+  try {
+    await Notifications.cancelScheduledNotificationAsync(id);
+  } catch {
+    /* already fired or gone */
+  }
+}
+
 export function handleNotificationResponse(
   response: Notifications.NotificationResponse
 ) {
@@ -328,7 +365,8 @@ export function handleNotificationResponse(
     router.push("/(tabs)/chat");
     return;
   }
-  if (kind === "care_log") {
+  if (kind === "care_log" || kind === "recheck_timer" || kind === "school_recap") {
+    // The Glucose page shows the recheck countdown and the day recap sheet.
     router.push("/(tabs)");
     return;
   }

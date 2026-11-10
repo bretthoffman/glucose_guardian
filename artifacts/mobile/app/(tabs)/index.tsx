@@ -58,6 +58,7 @@ import { CardShade, ScreenShade, TintShade } from "@/components/Shade";
 import ShortcutsRow from "@/components/ShortcutsRow";
 import QuickLogSheets, { type QuickLogKind } from "@/components/QuickLogSheets";
 import ShortcutPanelSheets from "@/components/ShortcutPanelSheets";
+import RecheckTimerCard from "@/components/RecheckTimerCard";
 import type { OverGlucoseSection } from "@/utils/shortcuts";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 import { CloseButton } from "@/components/CloseButton";
@@ -1285,6 +1286,11 @@ export default function HomeScreen() {
             onQuickLog={(kind) => setQuickLog({ kind, nonce: Date.now() })}
             onPanel={(section) => setPanel({ section, nonce: Date.now() })}
           />
+          {/* The recheck countdown after a treated low (only while a timer is running on this phone). */}
+          <RecheckTimerCard
+            padH={Math.round(T.space.lg * padScale)}
+            onRecheck={() => setQuickLog({ kind: "stick", nonce: Date.now() })}
+          />
 
           {/* No top padding and no divider on the chart block: the gauge block above already ends with
               its own padding, so the range toggle sits directly beneath the gauge and the two halves
@@ -1440,7 +1446,7 @@ export default function HomeScreen() {
       )}
 
       <QuickLogSheets request={quickLog} />
-      <ShortcutPanelSheets request={panel} />
+      <ShortcutPanelSheets request={panel} onTreatLow={() => setQuickLog({ kind: "low", nonce: Date.now() })} />
 
       {/* ── Recent Readings popup — opened by tapping inside the gauge circle ── */}
       <DashboardSectionModal

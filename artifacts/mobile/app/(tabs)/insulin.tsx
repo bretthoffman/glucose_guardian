@@ -52,6 +52,7 @@ import { runPrediction, type PredictionResult, type StrengthLabel } from "@/util
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import InsulinTypePicker from "@/components/InsulinTypePicker";
 import { activeFractionRemaining, computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
+import { withoutLowTreatments } from "@/utils/lowTreatment";
 import {
   defaultInsulinChipLabel,
   findInsulinByChipLabel,
@@ -343,8 +344,9 @@ export default function InsulinScreen() {
     () => computeActiveInsulin(insulinLog ?? [], Date.now()),
     [insulinLog, clockTick],
   );
+  // Carbs given to treat a low are left out: the calculator must never cover them with insulin.
   const activeCarbs = useMemo(
-    () => computeActiveCarbs(foodLog ?? [], Date.now()),
+    () => computeActiveCarbs(withoutLowTreatments(foodLog ?? []), Date.now()),
     [foodLog, clockTick],
   );
   /**

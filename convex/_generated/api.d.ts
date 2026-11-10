@@ -13,6 +13,8 @@ import type * as auth from "../auth.js";
 import type * as careCircle from "../careCircle.js";
 import type * as careLogs from "../careLogs.js";
 import type * as careMessages from "../careMessages.js";
+import type * as carePlan from "../carePlan.js";
+import type * as carePlanLogic from "../carePlanLogic.js";
 import type * as careSchedule from "../careSchedule.js";
 import type * as caregiverAccounts from "../caregiverAccounts.js";
 import type * as cgm_config from "../cgm/config.js";
@@ -54,6 +56,7 @@ import type * as predictionReferences from "../predictionReferences.js";
 import type * as profilePhoto from "../profilePhoto.js";
 import type * as push from "../push.js";
 import type * as pushLogic from "../pushLogic.js";
+import type * as schoolRecap from "../schoolRecap.js";
 import type * as shortcuts from "../shortcuts.js";
 
 import type {
@@ -68,6 +71,8 @@ declare const fullApi: ApiFromModules<{
   careCircle: typeof careCircle;
   careLogs: typeof careLogs;
   careMessages: typeof careMessages;
+  carePlan: typeof carePlan;
+  carePlanLogic: typeof carePlanLogic;
   careSchedule: typeof careSchedule;
   caregiverAccounts: typeof caregiverAccounts;
   "cgm/config": typeof cgm_config;
@@ -109,6 +114,7 @@ declare const fullApi: ApiFromModules<{
   profilePhoto: typeof profilePhoto;
   push: typeof push;
   pushLogic: typeof pushLogic;
+  schoolRecap: typeof schoolRecap;
   shortcuts: typeof shortcuts;
 }>;
 

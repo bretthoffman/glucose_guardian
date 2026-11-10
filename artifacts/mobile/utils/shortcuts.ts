@@ -26,11 +26,14 @@ export type ShortcutIcon =
   | "plus-circle"
   | "user"
   | "help-circle"
-  // MaterialCommunityIcons (Feather has no needle or blood drop); see shortcutIconFamily.
+  | "clipboard"
+  | "send"
+  // MaterialCommunityIcons (Feather has no needle, blood drop or timer); see shortcutIconFamily.
   | "needle"
-  | "water-plus-outline";
+  | "water-plus-outline"
+  | "timer-outline";
 
-const MCI_ICONS: ShortcutIcon[] = ["needle", "water-plus-outline"];
+const MCI_ICONS: ShortcutIcon[] = ["needle", "water-plus-outline", "timer-outline"];
 /** Which icon set draws this icon. */
 export function shortcutIconFamily(icon: ShortcutIcon): "feather" | "mci" {
   return MCI_ICONS.includes(icon) ? "mci" : "feather";
@@ -38,7 +41,7 @@ export function shortcutIconFamily(icon: ShortcutIcon): "feather" | "mci" {
 
 export type ShortcutTarget =
   /** add: open the Log page for today with the Add menu open, or straight into one of its pop-ups. */
-  | { kind: "insulin"; tab: "log" | "predict"; add?: "menu" | "insulin" | "stick" }
+  | { kind: "insulin"; tab: "log" | "predict"; add?: "menu" | "insulin" | "stick" | "low" }
   | { kind: "settings" }
   | { kind: "help" }
   | { kind: "food" }
@@ -57,7 +60,7 @@ export const MAX_SHORTCUTS = 8;
 
 /** Dashboard pop-ups that open right over the Glucose screen (components/ShortcutPanelSheets); the
  * rest still switch to the Dashboard and open there. */
-export const OVER_GLUCOSE_SECTIONS = ["summary", "doctor", "careCircle", "handoff"] as const;
+export const OVER_GLUCOSE_SECTIONS = ["summary", "doctor", "careCircle", "handoff", "carePlan", "dayRecap"] as const;
 export type OverGlucoseSection = (typeof OVER_GLUCOSE_SECTIONS)[number];
 export function overGlucoseSection(def: ShortcutDef): OverGlucoseSection | null {
   const t = def.target;
@@ -71,6 +74,9 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "addEntry", title: "Add Entry", icon: "plus-circle", color: "#5CB8FF", target: { kind: "insulin", tab: "log", add: "menu" } },
   { id: "logInsulin", title: "Log Insulin", icon: "needle", color: "#5CB8FF", target: { kind: "insulin", tab: "log", add: "insulin" } },
   { id: "fingerStick", title: "Finger Stick", icon: "water-plus-outline", color: "#FF8A80", target: { kind: "insulin", tab: "log", add: "stick" } },
+  { id: "treatedLow", title: "Treated a Low", icon: "timer-outline", color: "#FF7A76", target: { kind: "insulin", tab: "log", add: "low" } },
+  { id: "carePlan", title: "Care Plan", icon: "clipboard", color: "#8FC9FF", target: { kind: "dashboard", section: "carePlan" } },
+  { id: "dayRecap", title: "Day Recap", icon: "send", color: "#7DE3B9", target: { kind: "dashboard", section: "dayRecap" } },
   { id: "logs", title: "Logs", icon: "list", color: "#3B9BFF", target: { kind: "insulin", tab: "log" } },
   { id: "dose", title: "Dose Calculator", icon: "droplet", color: "#5CB8FF", target: { kind: "insulin", tab: "predict" } },
   { id: "food", title: "Log a Meal", icon: "camera", color: "#1FD18A", target: { kind: "food" } },
@@ -111,6 +117,8 @@ const DASHBOARD_GATE: Partial<Record<DashboardSectionKey, keyof DashboardSection
   insulin: "showPatientSections",
   notifications: "showNotifications",
   emergency: "showPatientSections",
+  carePlan: "showCarePlan",
+  dayRecap: "showDayRecap",
 };
 
 export function canUseShortcut(def: ShortcutDef, a: ShortcutAccess): boolean {

@@ -49,7 +49,13 @@ const home: HelpStep[] = [
     id: "home.shortcuts",
     anchor: "home.shortcuts",
     title: "My Shortcuts",
-    text: "The buttons you picked, one tap to Log Insulin, Finger Stick, Add Entry, Doctor Office, Logs, Messages and more. The Help shortcut starts this tour. Change them on the Dashboard under Shortcuts. Only you see your shortcuts.",
+    text: "The buttons you picked, one tap to Log Insulin, Finger Stick, Treated a Low, Care Plan, Add Entry, Doctor Office, Logs, Messages and more. The Help shortcut starts this tour. Change them on the Dashboard under Shortcuts. Only you see your shortcuts.",
+  },
+  {
+    id: "home.recheck",
+    anchor: "home.recheck",
+    title: "Recheck timer",
+    text: "After you log a treated low, this counts down to the recheck. Your phone also reminds you when it's time. Recheck now opens the finger stick form, and Cancel timer stops it.",
   },
   {
     id: "home.rangeToggle",
@@ -298,7 +304,7 @@ const dashboard: HelpStep[] = [
     id: "dashboard.shortcuts",
     anchor: "dashboard.shortcuts",
     title: "Shortcuts",
-    text: "Pick up to 8 buttons for your Glucose screen, like Log Insulin, Finger Stick, Add Entry, Doctor Office, Logs, Messages, Settings or Help. Log Insulin, Finger Stick, Add Entry, A1C, Doctor Office, Care Circle and Handoff pop up right on your Glucose screen, so closing them keeps you there. Tap the green plus to add, the red minus to remove, and the arrows to change the order. Each person has their own, and you only see the ones you're allowed to use.",
+    text: "Pick up to 8 buttons for your Glucose screen, like Log Insulin, Finger Stick, Treated a Low, Care Plan, Add Entry, Doctor Office, Logs, Messages, Settings or Help. Most of them pop up right on your Glucose screen, so closing them keeps you there. Tap the green plus to add, the red minus to remove, and the arrows to change the order. Each person has their own, and you only see the ones you're allowed to use.",
   },
   {
     id: "dashboard.alerts",
@@ -313,6 +319,20 @@ const dashboard: HelpStep[] = [
     title: "Care Team",
     text:
       "Care Circle is where you invite a co-guardian and make access codes for grandparents, sitters, the school nurse, or your child's own phone (a Child code). For the nurse you can set school hours by spinning the time wheel. Doctor Office connects your doctor's portal so they see the same numbers.",
+  },
+  {
+    id: "dashboard.carePlan",
+    anchor: "dashboard.carePlan",
+    title: "Care Plan",
+    text:
+      "Write down what caregivers should do: if low, if high, where the glucagon and supplies are, and any notes. Put one step per line. You can also pick how long to wait before rechecking a low. Who to call comes from Emergency Contacts. The school nurse, grandma and anyone with a caregiver code see it right away, with Call buttons. Caregivers can open it from here, from a Care Plan shortcut, or from the nurse's list of students.",
+  },
+  {
+    id: "dashboard.dayRecap",
+    anchor: "dashboard.dayRecap",
+    title: "Day Recap",
+    text:
+      "Send the family a recap of your hours: time in range, lows, the highest number, and everything logged, with a short note if you want. Send it now, or have it go out when your school hours end. You'll see when the parents read it.",
   },
   {
     id: "dashboard.handoff",

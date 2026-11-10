@@ -28,6 +28,9 @@ import TreatmentProposalCard from "@/components/TreatmentProposalCard";
 import { SettingsModal } from "@/components/SettingsModal";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import HandoffPanel from "@/components/HandoffPanel";
+import CarePlanPanel from "@/components/CarePlanPanel";
+import { DayRecapPanel } from "@/components/DayRecap";
+import { useCareCode } from "@/hooks/useCareCode";
 import ShortcutsPanel from "@/components/ShortcutsPanel";
 import { DashboardGroup, DashboardRow } from "@/components/DashboardGroupList";
 import { WhatsNewHistoryModal } from "@/components/WhatsNew";
@@ -91,6 +94,8 @@ const SECTION_ICONS: Record<DashboardSectionKey, React.ComponentProps<typeof Fea
   careCircle: "share-2",
   handoff: "repeat",
   shortcuts: "grid",
+  carePlan: "clipboard",
+  dayRecap: "send",
   childView: "eye",
 };
 
@@ -108,6 +113,8 @@ const SECTION_COLORS: Record<DashboardSectionKey, string> = {
   careCircle: COLORS.success,
   handoff: "#A78BFA",
   shortcuts: "#5CB8FF",
+  carePlan: "#8FC9FF",
+  dayRecap: "#7DE3B9",
   childView: COLORS.primary,
 };
 
@@ -200,13 +207,15 @@ export default function DashboardScreen() {
   // Which Dashboard management sections are available for the current role (pure helper, shared with
   // the section-card grid so cards and the inline guards/popups can never drift apart). These booleans
   // gate BOTH the inline content (analytics/trend + the section popups) and the matching grid cards.
-  const { showPatientSections, showNotifications, showDoctorCareTeam, showAccessManagement, showHandoff, showShortcuts } = dashboardSectionVisibility({
+  const careCode = useCareCode();
+  const { showPatientSections, showNotifications, showDoctorCareTeam, showAccessManagement, showHandoff, showShortcuts, showCarePlan, showDayRecap } = dashboardSectionVisibility({
     isChildMode,
     caregiverSession,
     doctorSession,
     isParent,
     isAdult,
     caregiverViewingChild: isCaregiverViewingChild,
+    careCode: !!careCode,
   });
 
   // The single section popup that is open (null = none). Mutually exclusive with the Settings popup.
@@ -227,6 +236,8 @@ export default function DashboardScreen() {
   const helpCare = useHelpAnchor("dashboard.care");
   const helpWhatsNew = useHelpAnchor("dashboard.whatsNew");
   const helpHandoff = useHelpAnchor("dashboard.handoff");
+  const helpCarePlan = useHelpAnchor("dashboard.carePlan");
+  const helpDayRecap = useHelpAnchor("dashboard.dayRecap");
   const helpShortcutsRow = useHelpAnchor("dashboard.shortcuts");
   const groupAnchor: Record<string, (node: View | null) => void> = {
     "Glucose & Dosing": helpGlucose,
@@ -882,6 +893,7 @@ export default function DashboardScreen() {
           isAdult,
           caregiverViewingChild: isCaregiverViewingChild,
           hasLogEntries: combinedEntries.length > 0,
+          careCode: !!careCode,
         }).map((group) => (
           <DashboardGroup key={group.title} title={group.title} colors={colors} anchorRef={groupAnchor[group.title]}>
             {group.rows.map((row, i) => {
@@ -916,7 +928,17 @@ export default function DashboardScreen() {
                   key={row.key}
                   {...common}
                   onPress={onPress}
-                  anchorRef={row.key === "handoff" ? helpHandoff : row.key === "shortcuts" ? helpShortcutsRow : undefined}
+                  anchorRef={
+                    row.key === "handoff"
+                      ? helpHandoff
+                      : row.key === "shortcuts"
+                        ? helpShortcutsRow
+                        : row.key === "carePlan"
+                          ? helpCarePlan
+                          : row.key === "dayRecap"
+                            ? helpDayRecap
+                            : undefined
+                  }
                 />
               );
             })}
@@ -2086,6 +2108,26 @@ export default function DashboardScreen() {
             accessibilityLabel="Shortcuts"
           >
             <ShortcutsPanel colors={colors} />
+          </DashboardSectionModal>
+        )}
+
+        {showCarePlan && (
+          <DashboardSectionModal
+            visible={openSection === "carePlan"}
+            onClose={() => setOpenSection(null)}
+            accessibilityLabel="Care Plan"
+          >
+            <CarePlanPanel colors={colors} onClose={() => setOpenSection(null)} />
+          </DashboardSectionModal>
+        )}
+
+        {showDayRecap && (
+          <DashboardSectionModal
+            visible={openSection === "dayRecap"}
+            onClose={() => setOpenSection(null)}
+            accessibilityLabel="Day Recap"
+          >
+            <DayRecapPanel colors={colors} />
           </DashboardSectionModal>
         )}
 

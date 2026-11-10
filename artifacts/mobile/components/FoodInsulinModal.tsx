@@ -34,6 +34,7 @@ import {
   roundToQuarterUnits,
 } from "@/utils/doseOverride";
 import { computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
+import { withoutLowTreatments } from "@/utils/lowTreatment";
 import { getEffectiveTrend } from "@/utils/trend";
 import { AccentShade, CardShade } from "@/components/Shade";
 import { findRecentFastActing } from "@/utils/insulinStacking";
@@ -128,7 +129,8 @@ export default function FoodInsulinModal({
   const activeCarbs = useMemo(
     // THIS meal's log (if any) is set aside: its carbs live in the editable input instead. Matching
     // by the entry's timestamp — written by this device and preserved verbatim through sync.
-    () => computeActiveCarbs((foodLog ?? []).filter((f) => f.timestamp !== excludeLogTimestamp), Date.now()),
+    // Carbs given to treat a low are left out: the calculator must never cover them with insulin.
+    () => computeActiveCarbs(withoutLowTreatments(foodLog ?? []).filter((f) => f.timestamp !== excludeLogTimestamp), Date.now()),
     [foodLog, excludeLogTimestamp, visible],
   );
 

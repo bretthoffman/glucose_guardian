@@ -14,6 +14,7 @@ import EmergencyWaitPrompt from "@/components/EmergencyWaitPrompt";
 import HelpOverlay from "@/components/HelpOverlay";
 import { WhatsNewPrompt } from "@/components/WhatsNew";
 import { HandoffPrompt } from "@/components/HandoffSheet";
+import { DayRecapPrompt } from "@/components/DayRecap";
 import PenReminders from "@/components/PenReminders";
 import { SharedPhotoSync } from "@/hooks/useSharedChildPhoto";
 import { showsCountdown } from "@/utils/insulinForms";
@@ -169,6 +170,8 @@ export default function TabLayout() {
       {/* Handoff — catches the next person up (waits for What's new). Under the lock screen on purpose:
           outside a caregiver's hours the lock covers it. */}
       <HandoffPrompt />
+      {/* Day Recap from the school nurse, for the parents (never stacks on Handoff or What's new). */}
+      <DayRecapPrompt />
       {/* Out-of-schedule / removed-access lock — overlays the tabs for caregiver + viewer sessions. */}
       <AccessLockScreen />
       {/* Adult wait-window "confirm you are okay" prompt — mounted here so it fires on any tab. */}

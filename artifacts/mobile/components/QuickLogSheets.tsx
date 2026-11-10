@@ -3,7 +3,8 @@
  * Glucose screen (no trip to the Log page):
  * - Log Insulin → the Log Insulin pop-up
  * - Finger Stick → the Finger Stick pop-up
- * - Add Entry → a small menu (Insulin Log, Food Log, Finger Stick), then that pop-up
+ * - Treated a Low → log what was given and start the recheck timer (TreatLowModal)
+ * - Add Entry → a small menu (Insulin Log, Food Log, Finger Stick, Treated a Low), then that pop-up
  *
  * They're the same pop-ups as on the Log page (caregiver confirmation and the stacking check
  * included), logging to today.
@@ -18,6 +19,7 @@ import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import LogFingerStickModal from "@/components/LogFingerStickModal";
 import LogFoodModal from "@/components/LogFoodModal";
 import LogInsulinModal from "@/components/LogInsulinModal";
+import TreatLowModal from "@/components/TreatLowModal";
 import { CardShade } from "@/components/Shade";
 import { DOSE_INSULIN_TYPE_STORAGE_KEY } from "@/constants/storage-keys";
 import { defaultInsulinChipLabel, findInsulinByChipLabel, type InsulinOption } from "@/constants/insulin";
@@ -25,7 +27,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { startOfLocalDay } from "@/utils/localDayBoundaries";
 
-export type QuickLogKind = "menu" | "insulin" | "stick";
+export type QuickLogKind = "menu" | "insulin" | "stick" | "low";
 type Sheet = QuickLogKind | "food" | null;
 
 /** iOS can't present a pop-up while another is still sliding away. */
@@ -85,7 +87,8 @@ export default function QuickLogSheets({ request }: { request: { kind: QuickLogK
           <View style={[styles.list, { borderColor: colors.border }]}>
             <MenuRow icon="needle" color={COLORS.primary} label="Insulin Log" onPress={() => pick("insulin")} colors={colors} />
             <MenuRow icon="silverware-fork-knife" color={COLORS.accent} label="Food Log" onPress={() => pick("food")} colors={colors} />
-            <MenuRow icon="water-plus-outline" color={COLORS.primary} label="Finger Stick" onPress={() => pick("stick")} colors={colors} last />
+            <MenuRow icon="water-plus-outline" color={COLORS.primary} label="Finger Stick" onPress={() => pick("stick")} colors={colors} />
+            <MenuRow icon="timer-outline" color={COLORS.danger} label="Treated a Low" onPress={() => pick("low")} colors={colors} last />
           </View>
         </View>
       </DashboardSectionModal>
@@ -99,6 +102,7 @@ export default function QuickLogSheets({ request }: { request: { kind: QuickLogK
         colors={colors}
         onLogged={close}
       />
+      <TreatLowModal visible={sheet === "low"} onClose={close} colors={colors} />
       <LogFoodModal visible={sheet === "food"} onClose={close} selectedDay={day} colors={colors} onLogged={logged} />
       {/* Stays open after logging to show how the meter compared with the CGM; Done closes it. */}
       <LogFingerStickModal visible={sheet === "stick"} onClose={close} selectedDay={day} colors={colors} />
@@ -114,7 +118,7 @@ function MenuRow({
   colors,
   last,
 }: {
-  icon: "needle" | "silverware-fork-knife" | "water-plus-outline";
+  icon: "needle" | "silverware-fork-knife" | "water-plus-outline" | "timer-outline";
   color: string;
   label: string;
   onPress: () => void;

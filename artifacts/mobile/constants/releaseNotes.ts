@@ -28,6 +28,27 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-10",
+    date: "2026-11-10",
+    items: [
+      {
+        icon: "clipboard",
+        title: "Care Plan",
+        body: "Parents, write down what caregivers should do for a low or a high, where the glucagon is, and who to call. Find it on the Dashboard. The school nurse, grandma and everyone with a caregiver code see it right away, with Call buttons.",
+      },
+      {
+        icon: "clock",
+        title: "Treated a Low, with a recheck timer",
+        body: "Log what was given for a low in one tap, and a countdown starts on the Glucose screen. Your phone reminds you when it's time to recheck. Find it in Add Entry or add it as a shortcut. Everyone in the circle sees that the low was treated.",
+      },
+      {
+        icon: "send",
+        title: "Day Recap from the school nurse",
+        body: "Caregivers can send the family a recap of the school day, now or when school hours end, with a short note. Parents get a notification and a summary: time in range, lows, meals and doses. Nurses also get View and Care Plan buttons on each student.",
+      },
+    ],
+  },
+  {
     id: "2026-11-09",
     date: "2026-11-09",
     items: [

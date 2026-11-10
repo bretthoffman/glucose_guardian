@@ -29,7 +29,19 @@ describe("dashboardSectionVisibility", () => {
       showActivityLog: false, // no entries yet
       showDownloadLogs: false,
       showChildView: false, // retired: Care Circle's Child code covers a child's own phone
+      showCarePlan: true, // the guardian writes it
+      showDayRecap: false, // caregiver codes send it
     });
+  });
+
+  it("Care Plan: guardians write it, caregiver codes read it; Day Recap is the caregiver's", () => {
+    const nurse = { ...patientParent, caregiverSession: true, isChildMode: true, careCode: true };
+    expect(dashboardSectionVisibility(nurse)).toMatchObject({ showCarePlan: true, showDayRecap: true, showHandoff: false });
+    // A kid code (same session flags, no careCode) gets neither.
+    expect(dashboardSectionVisibility({ ...nurse, careCode: false })).toMatchObject({ showCarePlan: false, showDayRecap: false });
+    // A personal account and the doctor don't have them.
+    expect(dashboardSectionVisibility({ ...patientParent, isParent: false, isAdult: true }).showCarePlan).toBe(false);
+    expect(dashboardSectionVisibility({ ...patientParent, doctorSession: true }).showCarePlan).toBe(false);
   });
 
   it("hides patient sections, access, and Doctor & Care Team in a read-only caregiver session", () => {
@@ -117,6 +129,7 @@ describe("availableDashboardSections", () => {
       "thresholds",
       "emergency",
       "careCircle",
+      "carePlan",
       "handoff",
       "doctor",
       "doctorCode",

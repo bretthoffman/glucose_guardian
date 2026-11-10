@@ -863,6 +863,44 @@ const handoffNotes = defineTable({
  * (grandma, the school nurse, Child Mode). Nobody else can list or read it.
  */
 /**
+ * The Care Plan (convex/carePlan.ts): what the family wants caregivers to do for a low or a high,
+ * where the glucagon and supplies are, and any notes. One per circle; the family edits it, caregiver
+ * codes (the school nurse, grandma) read it. Free text the family writes from their doctor's plan.
+ */
+const carePlans = defineTable({
+  patientUserId: v.id("users"),
+  low: v.string(),
+  high: v.string(),
+  supplies: v.string(),
+  notes: v.string(),
+  /** Minutes until the recheck after a treated low (the caregiver's timer). Absent = 15. */
+  recheckMinutes: v.optional(v.number()),
+  updatedAt: v.number(),
+  updatedByName: v.string(),
+}).index("by_patient", ["patientUserId"]);
+
+/**
+ * Day recaps (convex/schoolRecap.ts): a caregiver code (the school nurse) sends the family a recap of
+ * its hours, now or when its school hours end, with an optional note. Only the window and the note are
+ * stored; each parent's phone builds the numbers from the readings and logs it already has.
+ */
+const schoolRecaps = defineTable({
+  patientUserId: v.id("users"),
+  code: v.string(),
+  fromName: v.string(),
+  note: v.string(),
+  windowStartMs: v.number(),
+  windowEndMs: v.number(),
+  sendAt: v.number(),
+  sentAt: v.optional(v.number()),
+  scheduledId: v.optional(v.id("_scheduled_functions")),
+  createdAt: v.number(),
+  seen: v.array(v.object({ userId: v.id("users"), name: v.string(), at: v.number() })),
+})
+  .index("by_patient", ["patientUserId", "createdAt"])
+  .index("by_code", ["code", "createdAt"]);
+
+/**
  * Each person's Glucose-screen shortcuts, in their order. Keyed like chat history: "u:<userId>" for
  * an account, "c:<CODE>" for an access-code session. Ids are the app's shortcut keys (utils/shortcuts).
  */
@@ -1079,6 +1117,8 @@ export default defineSchema({
   labResults,
   assistantChats,
   userShortcuts,
+  carePlans,
+  schoolRecaps,
   handoffNotes,
   careMessages,
   pushTokens,

@@ -7,6 +7,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useMutation, useQuery } from "convex/react";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCareCode } from "@/hooks/useCareCode";
 import { useAuth } from "@/context/AuthContext";
 import { useChatOwner } from "@/hooks/useChatHistory";
 import { api } from "@/utils/convex-auth-client";
@@ -24,6 +25,7 @@ const CACHE_PREFIX = "@gluco_guardian_shortcuts:";
 export function useShortcutAccess(): ShortcutAccess {
   const auth = useAuth();
   const chatOwner = useChatOwner();
+  const careCode = useCareCode();
   const { profile, isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions, isCaregiverViewingChild } = auth;
   return useMemo(() => {
     const isParent = profile?.accountRole === "parent" || profile?.accountRole === undefined;
@@ -42,9 +44,10 @@ export function useShortcutAccess(): ShortcutAccess {
         isParent,
         isAdult,
         caregiverViewingChild: isCaregiverViewingChild,
+        careCode: !!careCode,
       }),
     };
-  }, [profile?.accountRole, isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions, isCaregiverViewingChild, chatOwner]);
+  }, [profile?.accountRole, isChildMode, caregiverSession, doctorSession, accessCodeRole, accessCodePermissions, isCaregiverViewingChild, chatOwner, careCode]);
 }
 
 /** Saved ids (null = never set), plus a setter that saves to the server and the phone. */
