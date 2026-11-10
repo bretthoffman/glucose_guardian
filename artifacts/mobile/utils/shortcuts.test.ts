@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dashboardSectionVisibility } from "./dashboardSections";
-import { SHORTCUTS, availableShortcuts, cleanIds, moveShortcut, resolveShortcuts, shortcutIconFamily, type ShortcutAccess } from "./shortcuts";
+import { SHORTCUTS, availableShortcuts, cleanIds, moveShortcut, overGlucoseSection, resolveShortcuts, shortcutIconFamily, type ShortcutAccess } from "./shortcuts";
 
 const parent = { isChildMode: false, caregiverSession: false, doctorSession: false, isParent: true, isAdult: false };
 const guardian: ShortcutAccess = {
@@ -21,6 +21,11 @@ describe("shortcuts", () => {
     expect(t("fingerStick")).toEqual({ kind: "insulin", tab: "log", add: "stick" });
     expect(shortcutIconFamily("needle")).toBe("mci");
     expect(shortcutIconFamily("list")).toBe("feather");
+  });
+
+  it("A1C, Doctor Office, Care Circle and Handoff open over the Glucose screen; the others don't", () => {
+    const over = SHORTCUTS.filter((s) => overGlucoseSection(s)).map((s) => s.id);
+    expect(over).toEqual(["doctor", "handoff", "careCircle", "a1c"]);
   });
 
   it("a guardian can add every shortcut", () => {

@@ -298,7 +298,7 @@ const dashboard: HelpStep[] = [
     id: "dashboard.shortcuts",
     anchor: "dashboard.shortcuts",
     title: "Shortcuts",
-    text: "Pick up to 8 buttons for your Glucose screen, like Log Insulin, Finger Stick, Add Entry, Doctor Office, Logs, Messages, Settings or Help. Log Insulin, Finger Stick and Add Entry pop up right on your Glucose screen, so closing them keeps you there. Tap the green plus to add, the red minus to remove, and the arrows to change the order. Each person has their own, and you only see the ones you're allowed to use.",
+    text: "Pick up to 8 buttons for your Glucose screen, like Log Insulin, Finger Stick, Add Entry, Doctor Office, Logs, Messages, Settings or Help. Log Insulin, Finger Stick, Add Entry, A1C, Doctor Office, Care Circle and Handoff pop up right on your Glucose screen, so closing them keeps you there. Tap the green plus to add, the red minus to remove, and the arrows to change the order. Each person has their own, and you only see the ones you're allowed to use.",
   },
   {
     id: "dashboard.alerts",

@@ -57,6 +57,8 @@ import { NO_AUTO_CONTENT_INSETS } from "@/utils/scrollInsets";
 import { CardShade, ScreenShade, TintShade } from "@/components/Shade";
 import ShortcutsRow from "@/components/ShortcutsRow";
 import QuickLogSheets, { type QuickLogKind } from "@/components/QuickLogSheets";
+import ShortcutPanelSheets from "@/components/ShortcutPanelSheets";
+import type { OverGlucoseSection } from "@/utils/shortcuts";
 import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext";
 import { CloseButton } from "@/components/CloseButton";
 
@@ -273,6 +275,8 @@ export default function HomeScreen() {
   const [recentReadingsVisible, setRecentReadingsVisible] = useState(false);
   // Log shortcuts (Add Entry, Log Insulin, Finger Stick) pop up over this screen.
   const [quickLog, setQuickLog] = useState<{ kind: QuickLogKind; nonce: number } | null>(null);
+  // So do the A1C, Doctor Office, Care Circle and Handoff shortcuts.
+  const [panel, setPanel] = useState<{ section: OverGlucoseSection; nonce: number } | null>(null);
   const [insightsVisible, setInsightsVisible] = useState(false);
 
   // ── Log markers on the trend chart + the tapped log's detail popup — the SAME marker system,
@@ -1279,6 +1283,7 @@ export default function HomeScreen() {
             padH={Math.round(T.space.lg * padScale)}
             anchorRef={helpShortcuts}
             onQuickLog={(kind) => setQuickLog({ kind, nonce: Date.now() })}
+            onPanel={(section) => setPanel({ section, nonce: Date.now() })}
           />
 
           {/* No top padding and no divider on the chart block: the gauge block above already ends with
@@ -1435,6 +1440,7 @@ export default function HomeScreen() {
       )}
 
       <QuickLogSheets request={quickLog} />
+      <ShortcutPanelSheets request={panel} />
 
       {/* ── Recent Readings popup — opened by tapping inside the gauge circle ── */}
       <DashboardSectionModal

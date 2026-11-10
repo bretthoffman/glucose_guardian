@@ -54,6 +54,16 @@ export interface ShortcutDef {
 }
 
 export const MAX_SHORTCUTS = 8;
+
+/** Dashboard pop-ups that open right over the Glucose screen (components/ShortcutPanelSheets); the
+ * rest still switch to the Dashboard and open there. */
+export const OVER_GLUCOSE_SECTIONS = ["summary", "doctor", "careCircle", "handoff"] as const;
+export type OverGlucoseSection = (typeof OVER_GLUCOSE_SECTIONS)[number];
+export function overGlucoseSection(def: ShortcutDef): OverGlucoseSection | null {
+  const t = def.target;
+  if (t.kind !== "dashboard") return null;
+  return (OVER_GLUCOSE_SECTIONS as readonly string[]).includes(t.section) ? (t.section as OverGlucoseSection) : null;
+}
 export const DEFAULT_SHORTCUTS: string[] = [];
 
 /** Every shortcut, in the order the Add list shows them. */

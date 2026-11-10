@@ -9,7 +9,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "@/context/ThemeContext";
 import { withAlpha } from "@/constants/theme";
 import { openShortcut, useShortcuts } from "@/hooks/useShortcuts";
-import { shortcutIconFamily } from "@/utils/shortcuts";
+import { overGlucoseSection, shortcutIconFamily, type OverGlucoseSection } from "@/utils/shortcuts";
 import type { QuickLogKind } from "@/components/QuickLogSheets";
 import { useHelp } from "@/context/HelpContext";
 
@@ -17,12 +17,15 @@ export default function ShortcutsRow({
   padH,
   anchorRef,
   onQuickLog,
+  onPanel,
 }: {
   /** Side padding, matching the card it sits in. */
   padH: number;
   anchorRef?: (node: View | null) => void;
   /** Add Entry, Log Insulin and Finger Stick open their pop-ups right here (QuickLogSheets). */
   onQuickLog?: (kind: QuickLogKind) => void;
+  /** A1C, Doctor Office, Care Circle and Handoff open right here too (ShortcutPanelSheets). */
+  onPanel?: (section: OverGlucoseSection) => void;
 }) {
   const { colors: c } = useTheme();
   const { shortcuts } = useShortcuts();
@@ -39,10 +42,11 @@ export default function ShortcutsRow({
             key={s.id}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              // Help starts the tour of this page (the Glucose screen); the log shortcuts pop up over
-              // it; everything else opens its screen.
+              // Help starts the tour of this page (the Glucose screen); the log shortcuts and some
+              // Dashboard pop-ups open over it; everything else opens its screen.
               if (s.target.kind === "help") enterHelp();
               else if (s.target.kind === "insulin" && s.target.add && onQuickLog) onQuickLog(s.target.add);
+              else if (overGlucoseSection(s) && onPanel) onPanel(overGlucoseSection(s)!);
               else openShortcut(s);
             }}
             accessibilityRole="button"

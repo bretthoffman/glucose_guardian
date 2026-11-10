@@ -33,8 +33,8 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     items: [
       {
         icon: "layers",
-        title: "Log without leaving your glucose",
-        body: "The Log Insulin, Finger Stick and Add Entry shortcuts now pop up right on your Glucose screen. Log it or close it, and you're still looking at your numbers.",
+        title: "Shortcuts open right on your Glucose screen",
+        body: "Log Insulin, Finger Stick, Add Entry, A1C, Doctor Office, Care Circle and Handoff now pop up over your Glucose screen. Close it, and you're still looking at your numbers.",
       },
     ],
   },
