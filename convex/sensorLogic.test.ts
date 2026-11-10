@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clockAt, longLeft, newSensorGap, reminderAt, sensorBadge, sensorStatus, shortLeft, startFromGap } from "./sensorLogic";
+import { clockAt, longLeft, newSensorGap, parseSensorLabel, reminderAt, SENSOR_GTINS, sensorBadge, sensorStatus, shortLeft, startFromGap } from "./sensorLogic";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -62,5 +62,26 @@ describe("sensor countdown", () => {
     expect(at(10 * DAY + 3 * HOUR)).toEqual({ text: "Grace period · 9h left", tone: "danger" });
     expect(at(11 * DAY)).toEqual({ text: "Sensor ended", tone: "danger" });
     expect(sensorBadge(null)).toBeNull();
+  });
+});
+
+describe("sensor barcode", () => {
+  // Brian's G7 applicator, Nov 10 2026.
+  const want = { gtin: "00386270003935", serial: "823366645062", madeOn: "2026-05-01", expiresOn: "2027-10-31", pairingCode: "2165" };
+
+  it("reads it written out", () => {
+    expect(parseSensorLabel("(01)00386270003935(21)823366645062(11)260501(17)271031(240)2165")).toEqual(want);
+  });
+
+  it("reads it raw, the way a phone camera hands it over", () => {
+    const GS = "\u001d";
+    expect(parseSensorLabel(`]d201003862700039352182336664506${"2"}${GS}1126050117271031240${"2165"}`)).toEqual(want);
+    expect(parseSensorLabel(`0100386270003935218233666450622${GS}10LOT42${GS}17271031`)).toMatchObject({ serial: "8233666450622", lot: "LOT42", expiresOn: "2027-10-31" });
+  });
+
+  it("ignores codes that aren't sensor labels", () => {
+    expect(parseSensorLabel("HOLLY001")).toBeNull();
+    expect(parseSensorLabel("https://example.com")).toBeNull();
+    expect(SENSOR_GTINS["00386270003935"]).toBe("g7");
   });
 });

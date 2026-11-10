@@ -325,7 +325,7 @@ const dashboard: HelpStep[] = [
     anchor: "dashboard.sensor",
     title: "Sensor",
     text:
-      "Counts down your CGM sensor: days left, the warm-up, the last day and Dexcom's 12-hour grace period. Libre fills it in by itself. For Dexcom, tap New sensor when you put one on, or say Yes when the app asks after the warm-up. Pick where it went on to rotate spots, keep count of sensors left in the box, and tap Sensor stopped early if it fails, for the maker's free replacement page. Everyone in the circle sees the same countdown and gets a reminder the evening before it ends.",
+      "Counts down your CGM sensor: days left, the warm-up, the last day and Dexcom's 12-hour grace period. Libre fills it in by itself. For Dexcom, tap New sensor when you put one on, or say Yes when the app asks after the warm-up. Tap Scan the sensor and point the camera at the square code on the applicator or box to save its serial number and pairing code. Pick where it went on to rotate spots, keep count of sensors left in the box, and tap Sensor stopped early if it fails, for the maker's free replacement page. Everyone in the circle sees the same countdown and gets a reminder the evening before it ends.",
   },
   {
     id: "dashboard.carePlan",

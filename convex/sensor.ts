@@ -20,6 +20,18 @@ import { careAccessAllowed, type CareAccess } from "./careSchedule";
 import { childNameFor, normalizeCode } from "./carePlan";
 import { clockAt, LOW_SUPPLY, reminderAt, SENSOR_SPECS, type SensorKind } from "./sensorLogic";
 
+const labelArgs = {
+  gtin: v.optional(v.string()),
+  serial: v.optional(v.string()),
+  pairingCode: v.optional(v.string()),
+  expiresOn: v.optional(v.string()),
+};
+function cleanLabel(a: { gtin?: string; serial?: string; pairingCode?: string; expiresOn?: string }) {
+  const t = (x: string | undefined, n: number) => (x?.trim() ? x.trim().slice(0, n) : undefined);
+  const exp = a.expiresOn && /^\d{4}-\d{2}-\d{2}$/.test(a.expiresOn) ? a.expiresOn : undefined;
+  return { gtin: t(a.gtin, 14), serial: t(a.serial, 20), pairingCode: t(a.pairingCode, 12), expiresOn: exp };
+}
+
 const kindArg = v.union(v.literal("g7"), v.literal("g7_15"), v.literal("g6"), v.literal("libre14"), v.literal("libre15"));
 const DAY = 24 * 3_600_000;
 
@@ -86,7 +98,18 @@ async function scheduleReminder(ctx: MutationCtx, row: Doc<"sensorSessions">) {
 async function startSensor(
   ctx: MutationCtx,
   patientUserId: Id<"users">,
-  fields: { kind: SensorKind; startedAt: number; site?: string; source: "manual" | "detected" | "libre"; setByName: string; tzOffsetMinutes: number },
+  fields: {
+    kind: SensorKind;
+    startedAt: number;
+    site?: string;
+    source: "manual" | "detected" | "libre";
+    setByName: string;
+    tzOffsetMinutes: number;
+    gtin?: string;
+    serial?: string;
+    pairingCode?: string;
+    expiresOn?: string;
+  },
 ) {
   const cur = await currentSession(ctx, patientUserId);
   if (cur && !cur.endedAt) {
@@ -138,6 +161,10 @@ export const current = query({
             endedAt: cur.endedAt ?? null,
             endedEarly: !!cur.endedEarly,
             site: cur.site ?? null,
+            serial: cur.serial ?? null,
+            // The pairing code only for people who can change the sensor.
+            pairingCode: viewer.canEdit ? cur.pairingCode ?? null : null,
+            expiresOn: cur.expiresOn ?? null,
             source: cur.source,
             setByName: cur.setByName,
           }
@@ -150,7 +177,7 @@ export const current = query({
 
 /** A new sensor went on (from the New sensor sheet, the question after connecting, or a confirmed gap). */
 export const start = mutation({
-  args: { ...viewerArgs, kind: kindArg, startedAt: v.number(), site: v.optional(v.string()), detected: v.optional(v.boolean()), tzOffsetMinutes: v.number() },
+  args: { ...viewerArgs, kind: kindArg, startedAt: v.number(), site: v.optional(v.string()), detected: v.optional(v.boolean()), tzOffsetMinutes: v.number(), ...labelArgs },
   handler: async (ctx, a) => {
     const viewer = await sensorViewer(ctx, a);
     if (!viewer?.canEdit) throw new ConvexError("You can't change the sensor from here");
@@ -162,13 +189,14 @@ export const start = mutation({
       source: a.detected ? "detected" : "manual",
       setByName: viewer.name,
       tzOffsetMinutes: Math.round(a.tzOffsetMinutes),
+      ...cleanLabel(a),
     });
   },
 });
 
 /** Fix the current sensor's type, start time or site. */
 export const update = mutation({
-  args: { ...viewerArgs, kind: v.optional(kindArg), startedAt: v.optional(v.number()), site: v.optional(v.string()), tzOffsetMinutes: v.number() },
+  args: { ...viewerArgs, kind: v.optional(kindArg), startedAt: v.optional(v.number()), site: v.optional(v.string()), tzOffsetMinutes: v.number(), ...labelArgs },
   handler: async (ctx, a) => {
     const viewer = await sensorViewer(ctx, a);
     if (!viewer?.canEdit) throw new ConvexError("You can't change the sensor from here");
@@ -179,6 +207,7 @@ export const update = mutation({
       ...(a.kind ? { kind: a.kind } : {}),
       ...(a.startedAt != null ? { startedAt: a.startedAt } : {}),
       ...(a.site !== undefined ? { site: cleanSite(a.site) } : {}),
+      ...(a.serial || a.gtin ? cleanLabel(a) : {}),
       tzOffsetMinutes: Math.round(a.tzOffsetMinutes),
       setByName: viewer.name,
     });

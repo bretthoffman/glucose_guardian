@@ -46,6 +46,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         title: "Sensors left, spots, and failed sensors",
         body: "Keep count of sensors left in the box and get a nudge to reorder, pick where each one went on so you can rotate spots, and if one stops early, the app takes you to the free replacement page.",
       },
+      {
+        icon: "camera",
+        title: "Scan the sensor",
+        body: "When you start a new sensor, tap Scan the sensor and point the camera at the square code on the applicator or box. The app picks the sensor type and saves the serial number and pairing code, so they're right there if you need a replacement or have to pair it again. It also warns you if the sensor is past its date.",
+      },
     ],
   },
   {

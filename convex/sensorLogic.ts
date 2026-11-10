@@ -163,3 +163,72 @@ export function sensorBadge(status: SensorStatus | null): { text: string; tone: 
       return { text: "Sensor ended", tone: "danger" };
   }
 }
+
+/**
+ * What a sensor's square barcode (GS1 DataMatrix) holds: product number (01), serial (21), made on
+ * (11), expires (17), lot (10), and Dexcom's 4-digit pairing code (240). Scanners hand it over either
+ * raw (fields split by the GS character, maybe a "]d2" prefix) or written out "(01)...(21)...".
+ */
+export interface SensorLabel {
+  gtin?: string;
+  serial?: string;
+  lot?: string;
+  madeOn?: string;
+  expiresOn?: string;
+  pairingCode?: string;
+}
+
+const FIXED_AI: Record<string, number> = { "01": 14, "11": 6, "17": 6 };
+const VAR_AI = ["21", "10", "240"];
+
+function gs1Date(yymmdd: string): string | undefined {
+  if (!/^\d{6}$/.test(yymmdd)) return undefined;
+  const dd = yymmdd.slice(4, 6) === "00" ? "01" : yymmdd.slice(4, 6);
+  return `20${yymmdd.slice(0, 2)}-${yymmdd.slice(2, 4)}-${dd}`;
+}
+
+export function parseSensorLabel(raw: string): SensorLabel | null {
+  const out: SensorLabel = {};
+  const put = (ai: string, v: string) => {
+    const val = v.trim();
+    if (!val) return;
+    if (ai === "01" && /^\d{14}$/.test(val)) out.gtin = val;
+    else if (ai === "21") out.serial = val.slice(0, 20);
+    else if (ai === "10") out.lot = val.slice(0, 20);
+    else if (ai === "11") out.madeOn = gs1Date(val);
+    else if (ai === "17") out.expiresOn = gs1Date(val);
+    else if (ai === "240") out.pairingCode = val.slice(0, 30);
+  };
+  const text = raw.trim();
+  if (text.startsWith("(")) {
+    for (const m of text.matchAll(/\((\d{2,4})\)([^(]*)/g)) put(m[1]!, m[2]!);
+  } else {
+    let s = text.replace(/^\][A-Za-z]\d/, "");
+    while (s.length > 0) {
+      if (s[0] === "\u001d") {
+        s = s.slice(1);
+        continue;
+      }
+      const two = s.slice(0, 2);
+      const three = s.slice(0, 3);
+      if (FIXED_AI[two]) {
+        put(two, s.slice(2, 2 + FIXED_AI[two]!));
+        s = s.slice(2 + FIXED_AI[two]!);
+      } else if (VAR_AI.includes(three) || VAR_AI.includes(two)) {
+        const ai = VAR_AI.includes(three) ? three : two;
+        const rest = s.slice(ai.length);
+        const end = rest.indexOf("\u001d");
+        put(ai, end < 0 ? rest : rest.slice(0, end));
+        s = end < 0 ? "" : rest.slice(end + 1);
+      } else {
+        break; // a field we don't know: stop rather than misread the rest
+      }
+    }
+  }
+  return out.gtin || out.serial ? out : null;
+}
+
+/** Product numbers we've confirmed from real sensors. Unknown ones: the app asks which sensor it is. */
+export const SENSOR_GTINS: Record<string, SensorKind> = {
+  "00386270003935": "g7", // Dexcom G7 (10 day), US applicator
+};

@@ -914,6 +914,12 @@ const sensorSessions = defineTable({
   endedEarly: v.optional(v.boolean()),
   /** Where it went on ("Left arm"), for rotating sites. */
   site: v.optional(v.string()),
+  /** From scanning the sensor's barcode: product number, serial (for replacement claims), Dexcom's
+   * pairing code, and its expiration date (YYYY-MM-DD). */
+  gtin: v.optional(v.string()),
+  serial: v.optional(v.string()),
+  pairingCode: v.optional(v.string()),
+  expiresOn: v.optional(v.string()),
   source: v.union(v.literal("manual"), v.literal("detected"), v.literal("libre")),
   setByName: v.string(),
   /** The setter's clock (minutes east of UTC), for the 8 PM night-before reminder. */

@@ -2,7 +2,8 @@
  * The Sensor pop-up (Dashboard → Sensor, a Sensor shortcut, or right after connecting Dexcom):
  * - the countdown card: days left, the 12-hour grace period (G7), warm-up, when it went on and ends,
  *   where it went on, sensors left in the box;
- * - New sensor / Change: type, when it went on, where;
+ * - New sensor / Change: type, when it went on, where, or scan the square code on the applicator or box
+ *   to fill in the type and save the serial number, pairing code and expiration;
  * - Sensor stopped early: marks it and points to the maker's free replacement page.
  * Everything is shared with the circle (convex/sensor).
  */
@@ -13,13 +14,14 @@ import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import Colors, { COLORS } from "@/constants/colors";
 import { AccentShade, CardShade } from "@/components/Shade";
+import SensorScanner from "@/components/SensorScanner";
 import { TimeButton, TimeWheel } from "@/components/TimeWheel";
 import { useAuth } from "@/context/AuthContext";
 import { useSensor } from "@/hooks/useSensor";
 import { api } from "@/utils/convex-auth-client";
 import { startOfLocalDay } from "@/utils/localDayBoundaries";
 import { combineDayAndTime, formatTimeInputText, parseTimeInputText } from "@/utils/logTime";
-import { LOW_SUPPLY, longLeft, SENSOR_SITES, SENSOR_SPECS, type SensorKind } from "../../../convex/sensorLogic";
+import { LOW_SUPPLY, longLeft, SENSOR_GTINS, SENSOR_SITES, SENSOR_SPECS, type SensorKind, type SensorLabel } from "../../../convex/sensorLogic";
 
 type Palette = (typeof Colors)["light"];
 type View_ = "card" | "new" | "edit" | "ended";
@@ -37,6 +39,15 @@ function fmtDay(ms: number): string {
 }
 function fmtClock(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+/** "2027-10-31" → "Oct 31, 2027" (read as a calendar date, not shifted by time zone). */
+function fmtDate(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y!, (m ?? 1) - 1, d ?? 1).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
+function isPast(ymd: string): boolean {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y!, (m ?? 1) - 1, (d ?? 1) + 1).getTime() <= Date.now();
 }
 
 export default function SensorPanel({
@@ -104,8 +115,16 @@ export default function SensorPanel({
           <Text style={[styles.kicker, { color: COLORS.danger }]}>SENSOR STOPPED EARLY</Text>
           <Text style={[styles.big, { color: colors.text }]}>Sorry about that.</Text>
           <Text style={[styles.sub, { color: colors.textSecondary }]}>
-            {brand === "dexcom" ? "Dexcom" : "Abbott"} usually replaces sensors that stop early, free. Have the sensor's serial number handy (it's on the box or in their app).
+            {brand === "dexcom" ? "Dexcom" : "Abbott"} usually replaces sensors that stop early, free.{" "}
+            {last.serial ? "They'll ask for the serial number:" : "Have the sensor's serial number handy (it's on the box or in their app)."}
           </Text>
+          {!!last.serial && (
+            <View style={[styles.serialBox, { backgroundColor: colors.backgroundTertiary }]}>
+              <Text style={[styles.label, { color: colors.textMuted }]}>SERIAL NUMBER</Text>
+              <Text selectable style={[styles.serialText, { color: colors.text }]}>{last.serial}</Text>
+              <Text style={[styles.hint, { color: colors.textMuted }]}>Press and hold to copy</Text>
+            </View>
+          )}
           <Pressable
             accessibilityRole="link"
             onPress={() => void Linking.openURL(REPLACEMENT[brand].url)}
@@ -146,6 +165,11 @@ export default function SensorPanel({
             {sensor.source === "libre" ? "From your Libre account" : `Set by ${sensor.setByName}`}
             {sensor.site ? ` · ${sensor.site}` : ""}
           </Text>
+          {(!!sensor.serial || !!sensor.pairingCode) && (
+            <Text selectable style={[styles.hint, { color: colors.textMuted, marginTop: -6 }]}>
+              {[sensor.serial ? `Serial ${sensor.serial}` : null, sensor.pairingCode ? `Pairing code ${sensor.pairingCode}` : null].filter(Boolean).join(" · ")}
+            </Text>
+          )}
         </View>
       ) : (
         <View style={{ gap: 6 }}>
@@ -269,7 +293,29 @@ function SensorForm({
   const [site, setSite] = useState<string | null>(mode === "edit" ? initial.site : null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [label, setLabel] = useState<SensorLabel | null>(null);
+  /** The scanned code named a sensor type this list doesn't have (or none): they pick it below. */
+  const [unknownType, setUnknownType] = useState(false);
   useEffect(() => setError(null), [kind, dayMs, timeText]);
+
+  const onScanned = (l: SensorLabel) => {
+    setScanOpen(false);
+    setLabel(l);
+    const k = l.gtin ? SENSOR_GTINS[l.gtin] : undefined;
+    if (k && kinds.includes(k)) {
+      setKind(k);
+      setUnknownType(false);
+    } else setUnknownType(true);
+  };
+  const labelFields = label
+    ? {
+        ...(label.gtin ? { gtin: label.gtin } : {}),
+        ...(label.serial ? { serial: label.serial } : {}),
+        ...(label.pairingCode ? { pairingCode: label.pairingCode } : {}),
+        ...(label.expiresOn ? { expiresOn: label.expiresOn } : {}),
+      }
+    : {};
 
   const parsed = parseTimeInputText(timeText);
   const startedAt = parsed ? combineDayAndTime(new Date(dayMs), parsed.hours, parsed.minutes).getTime() : null;
@@ -283,8 +329,8 @@ function SensorForm({
     if (!valid || startedAt == null) return;
     setSaving(true);
     try {
-      if (mode === "edit") await update({ ...args, kind, startedAt, site: site ?? "", tzOffsetMinutes: tz() });
-      else await start({ ...args, kind, startedAt, ...(site ? { site } : {}), tzOffsetMinutes: tz() });
+      if (mode === "edit") await update({ ...args, kind, startedAt, site: site ?? "", tzOffsetMinutes: tz(), ...labelFields });
+      else await start({ ...args, kind, startedAt, ...(site ? { site } : {}), tzOffsetMinutes: tz(), ...labelFields });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onDone();
     } catch {
@@ -307,6 +353,43 @@ function SensorForm({
           {connect ? "So the app can count down the days and remind everyone before it ends." : "Everyone in the care circle sees the same countdown."}
         </Text>
       </View>
+
+      {label ? (
+        <View style={[styles.scanned, { backgroundColor: COLORS.primary + "1A" }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Feather name="check-circle" size={16} color={COLORS.primaryLight} />
+            <Text style={[styles.scannedTitle, { color: colors.text, flex: 1 }]}>Sensor scanned</Text>
+            <Pressable accessibilityRole="button" onPress={() => setScanOpen(true)} hitSlop={8}>
+              <Text style={[styles.scanAgain, { color: COLORS.primaryLight }]}>Scan again</Text>
+            </Pressable>
+          </View>
+          {!!label.serial && <Text selectable style={[styles.scannedLine, { color: colors.text }]}>Serial {label.serial}</Text>}
+          {!!label.pairingCode && <Text style={[styles.scannedLine, { color: colors.text }]}>Pairing code {label.pairingCode}</Text>}
+          {!!label.expiresOn && (
+            <Text style={[styles.scannedLine, { color: isPast(label.expiresOn) ? COLORS.danger : colors.textSecondary }]}>
+              {isPast(label.expiresOn) ? `Expired ${fmtDate(label.expiresOn)}. Don't use an expired sensor.` : `Use by ${fmtDate(label.expiresOn)}`}
+            </Text>
+          )}
+          {unknownType && <Text style={[styles.hint, { color: colors.textSecondary }]}>Pick which sensor this is below.</Text>}
+        </View>
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Scan the sensor's code"
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            setScanOpen(true);
+          }}
+          style={({ pressed }) => [styles.scanBtn, { borderColor: COLORS.primary + "55", backgroundColor: COLORS.primary + "12", opacity: pressed ? 0.8 : 1 }]}
+        >
+          <Feather name="camera" size={18} color={COLORS.primaryLight} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.scanTitle, { color: colors.text }]}>Scan the sensor</Text>
+            <Text style={[styles.hint, { color: colors.textSecondary }]}>Saves the serial number and pairing code (optional)</Text>
+          </View>
+          <Feather name="chevron-right" size={17} color={colors.textMuted} />
+        </Pressable>
+      )}
 
       <Text style={[styles.label, { color: colors.textSecondary }]}>WHICH SENSOR</Text>
       <View style={styles.wrap}>
@@ -387,6 +470,8 @@ function SensorForm({
           <Text style={[styles.link, { color: colors.textSecondary }]}>{connect ? "Not sure, skip for now" : "Cancel"}</Text>
         </Pressable>
       )}
+      {/* Nested here (inside the pop-up's modal): iOS can't show two sibling modals at once. */}
+      <SensorScanner visible={scanOpen} onClose={() => setScanOpen(false)} onScanned={onScanned} />
     </View>
   );
 }
@@ -422,4 +507,12 @@ const styles = StyleSheet.create({
   dayText: { flex: 1, textAlign: "center", fontSize: 15.5, fontWeight: "700" },
   preview: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
   previewText: { fontSize: 13.5, fontWeight: "600" },
+  scanBtn: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11 },
+  scanTitle: { fontSize: 15, fontWeight: "700" },
+  scanned: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, gap: 4 },
+  scannedTitle: { fontSize: 14.5, fontWeight: "700" },
+  scanAgain: { fontSize: 13.5, fontWeight: "700" },
+  scannedLine: { fontSize: 13.5, fontWeight: "600" },
+  serialBox: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, gap: 3 },
+  serialText: { fontSize: 18, fontWeight: "800", letterSpacing: 0.6 },
 });

@@ -64,6 +64,29 @@ describe("sensor countdown", () => {
     expect(ended.sensor.endedAt).not.toBeNull();
   });
 
+  it("a scanned sensor keeps its serial and expiration; only people who can change it see the pairing code", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-10T12:30:00Z"));
+    const t = convexTest(schema, modules);
+    const { brian } = await setup(t);
+    const startedAt = Date.parse("2026-11-10T12:12:00Z");
+    await t.mutation(sensor.start, {
+      ...brian, kind: "g7", startedAt, tzOffsetMinutes: -300,
+      gtin: "00386270003935", serial: "823366645062", pairingCode: "2165", expiresOn: "2027-10-31",
+    });
+    expect((await t.query(sensor.current, brian)).sensor).toMatchObject({ serial: "823366645062", pairingCode: "2165", expiresOn: "2027-10-31" });
+    expect((await t.query(sensor.current, { code: "HOLLY001" })).sensor.pairingCode).toBe("2165");
+    const grandma = (await t.query(sensor.current, { code: "GRANDMA1" })).sensor;
+    expect(grandma.serial).toBe("823366645062");
+    expect(grandma.pairingCode).toBeNull();
+    // Changing the time alone keeps the scanned details.
+    await t.mutation(sensor.update, { ...brian, startedAt: startedAt - 60_000, tzOffsetMinutes: -300 });
+    expect((await t.query(sensor.current, brian)).sensor.serial).toBe("823366645062");
+    // A bad date is dropped rather than stored.
+    await t.mutation(sensor.start, { ...brian, kind: "g7", startedAt: Date.now(), tzOffsetMinutes: -300, serial: "X1", expiresOn: "soon" });
+    expect((await t.query(sensor.current, brian)).sensor).toMatchObject({ serial: "X1", expiresOn: null });
+  });
+
   it("the evening before, the circle is reminded, with a reorder nudge when the box is nearly empty", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-11-08T12:30:00Z"));
