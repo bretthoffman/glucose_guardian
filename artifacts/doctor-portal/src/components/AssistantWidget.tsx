@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Send, Sparkles, X } from "lucide-react";
+import { Send, X } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
 import { ApiError, customFetch } from "@doctor-portal/api-client-react";
 import { Input } from "@/components/ui/input";
 import { useCurrentDoctor } from "@/auth/use-current-doctor";
@@ -98,9 +99,9 @@ export function AssistantWidget({
           onClick={() => setOpen(true)}
           title={`Ask Glucose Guardian about ${patientName}'s care`}
           aria-label="Ask Glucose Guardian"
-          className="w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-xl shadow-primary/25 flex items-center justify-center hover:scale-105 transition-transform self-end"
+          className="w-14 h-14 rounded-full bg-card border border-border shadow-xl shadow-primary/25 flex items-center justify-center hover:scale-105 transition-transform self-end"
         >
-          <Sparkles className="w-6 h-6" />
+          <BrandLogo className="w-9 h-9" />
         </button>
       </div>
     );
@@ -110,9 +111,7 @@ export function AssistantWidget({
     <div className="fixed bottom-6 right-6 z-40 w-[380px] max-w-[calc(100vw-2rem)] h-[540px] max-h-[calc(100vh-5rem)] bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex items-center gap-2.5 bg-secondary/40">
-        <span className="w-8 h-8 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
-          <Sparkles className="w-4 h-4 text-primary" />
-        </span>
+        <BrandLogo className="w-8 h-8" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground leading-tight">Glucose Guardian</p>
           <p className="text-[11px] text-muted-foreground truncate">
@@ -131,11 +130,9 @@ export function AssistantWidget({
       {/* Conversation */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2.5">
         <div className="flex items-start gap-2">
-          <span className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center shrink-0 mt-0.5">
-            <Sparkles className="w-3 h-3 text-primary" />
-          </span>
+          <BrandLogo className="w-6 h-6 mt-0.5" />
           <div className="bg-secondary/50 border border-border rounded-2xl rounded-tl-sm px-3 py-2 text-sm text-foreground max-w-[85%]">
-            {timeOfDay()}, {doctorName} — how can I help you with {patientName}'s data today?
+            {timeOfDay()}, {doctorName}. How can I help you with {patientName}'s data today?
           </div>
         </div>
 
@@ -148,9 +145,7 @@ export function AssistantWidget({
             </div>
           ) : (
             <div key={i} className="flex items-start gap-2">
-              <span className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center shrink-0 mt-0.5">
-                <Sparkles className="w-3 h-3 text-primary" />
-              </span>
+              <BrandLogo className="w-6 h-6 mt-0.5" />
               <div className="bg-secondary/50 border border-border rounded-2xl rounded-tl-sm px-3 py-2 text-sm text-foreground max-w-[85%] whitespace-pre-wrap">
                 {t.content}
               </div>
@@ -160,9 +155,7 @@ export function AssistantWidget({
 
         {busy && (
           <div className="flex items-start gap-2">
-            <span className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center shrink-0 mt-0.5">
-              <Sparkles className="w-3 h-3 text-primary" />
-            </span>
+            <BrandLogo className="w-6 h-6 mt-0.5" />
             <div className="bg-secondary/50 border border-border rounded-2xl rounded-tl-sm px-3.5 py-2.5 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce [animation-delay:0ms]" />
               <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce [animation-delay:120ms]" />
