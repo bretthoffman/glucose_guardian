@@ -202,34 +202,6 @@ function formatLastSync(date: Date | null): string {
   return `${Math.floor(diff / 3600)}h ago`;
 }
 
-function syncResultLabel(
-  result: SyncResult | null,
-  fallbackTime: Date | null,
-): string {
-  if (!result) {
-    return formatLastSync(fallbackTime);
-  }
-  const when = formatLastSync(result.at);
-  switch (result.status) {
-    case "ok":
-      return result.count != null ? `${result.count} new · ${when}` : when;
-    case "zero":
-      return `0 readings · ${when}`;
-    case "no_shared_patient":
-      return `No shared patient · ${when}`;
-    case "connected_no_data":
-      return `Connected · no data · ${when}`;
-    case "sharing_not_enabled":
-      return `Sharing off · ${when}`;
-    case "session_expired":
-      return `Session expired · ${when}`;
-    case "app_signin":
-      return `Sign in needed · ${when}`;
-    case "error":
-      return `Sync failed · ${when}`;
-  }
-}
-
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   // ── iPad PORTRAIT only: the phone-sized gauge/chart cover barely half the tall screen, so both
@@ -1187,11 +1159,6 @@ export default function HomeScreen() {
               >
                 {isConnected ? (cgmConnection.type === "dexcom" ? "Dexcom" : "Libre") : "Connect CGM"}
               </Text>
-              {isConnected && (lastSyncResult || lastSyncTime) ? (
-                <Text style={[styles.cgmChipSub, { color: c.textMuted }]} numberOfLines={1}>
-                  {syncResultLabel(lastSyncResult, lastSyncTime)}
-                </Text>
-              ) : null}
               {isConnected && sensorLine ? (
                 <Text
                   style={[styles.cgmChipSub, { color: sensorLineColor ?? c.textMuted }, sensorLine.tone !== "muted" && { fontWeight: T.font.semibold }]}
