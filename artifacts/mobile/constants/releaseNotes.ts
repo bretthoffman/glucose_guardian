@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-12",
+    date: "2026-11-12",
+    items: [
+      {
+        icon: "activity",
+        title: "Tidier Glucose screen",
+        body: "The Dexcom or Libre chip at the top no longer repeats when readings last came in. That still shows under the arrow, where it says Updated. The sensor countdown stays on the chip.",
+      },
+    ],
+  },
+  {
     id: "2026-11-11b",
     date: "2026-11-11",
     items: [

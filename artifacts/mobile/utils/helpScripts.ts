@@ -43,7 +43,7 @@ const home: HelpStep[] = [
     anchor: "home.cgmChip",
     title: "Your CGM connection",
     text:
-      "This chip is the link to your CGM, Dexcom or FreeStyle Libre. Green means connected, and it shows how many new readings arrived and when. The last line counts down the sensor: days left, warming up, the last day in orange, and the 12-hour grace period in red. If it ever says attention is needed, tapping it opens the connection screen where you can sign in again or switch devices.",
+      "This chip is the link to your CGM, Dexcom or FreeStyle Libre. Green means connected, and a small spinner means the app is pulling new readings right now. The line under the name counts down the sensor: days left, warming up, the last day in orange, and the 12-hour grace period in red. Tapping the chip opens the connection screen where you can sign in again or switch devices.",
   },
   {
     id: "home.shortcuts",
