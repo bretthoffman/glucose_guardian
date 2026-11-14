@@ -7,7 +7,13 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { AppState } from "react-native";
 import type { Id } from "../../../convex/_generated/dataModel";
+
+/** Viewers ask for a fresh CGM pull on open, on return to the app, and this often while open. */
+const VIEWER_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+/** Never more often than this from one phone (the server throttles per connection too). */
+const VIEWER_SYNC_MIN_GAP_MS = 60 * 1000;
 import { GLUCOSE_HISTORY_STORAGE_KEY, GLUCOSE_SETTINGS_STORAGE_KEY } from "@/constants/storage-keys";
 import { useAuth } from "@/context/AuthContext";
 import { api, createConvexAuthClient } from "@/utils/convex-auth-client";
@@ -459,6 +465,41 @@ export function GlucoseProvider({ children }: { children: React.ReactNode }) {
       if (id) clearInterval(id);
     };
   }, [authLoading, caregiverSession, caregiverCloudCode, caregiverCodeKind]);
+
+  // ── FRESH PULLS for viewers. The owner's Glucose screen asks the server for an expedited CGM pull
+  // when the app opens, comes back to the front, and every 5 minutes; everyone else used to wait for
+  // the server's own 5-minute cycle, so a caregiver could sit on the previous reading for minutes
+  // while the owner already saw the new one. Viewers now ask too (same server-side 1-minute throttle,
+  // shared per connection), and the new reading arrives through their live subscription above.
+  const viewerSyncArgs = React.useMemo(() => {
+    if (authLoading) return null;
+    if (viewerCode) return { code: viewerCode as string };
+    if (linkViewActive) return { userId: account!.convexUserId as string, passwordHash: account!.passwordHash };
+    return null;
+  }, [authLoading, viewerCode, linkViewActive, account?.convexUserId, account?.passwordHash]);
+  const lastViewerSyncRef = useRef(0);
+  useEffect(() => {
+    if (!viewerSyncArgs) return;
+    const ask = () => {
+      const now = Date.now();
+      if (now - lastViewerSyncRef.current < VIEWER_SYNC_MIN_GAP_MS) return;
+      lastViewerSyncRef.current = now;
+      createConvexAuthClient()
+        .action(api.cgmIngest.requestExpeditedSyncForViewer, viewerSyncArgs)
+        .catch(() => {
+          /* offline, or the backend isn't updated yet: the server's own cycle still delivers */
+        });
+    };
+    ask();
+    const id = setInterval(ask, VIEWER_SYNC_INTERVAL_MS);
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") ask();
+    });
+    return () => {
+      clearInterval(id);
+      sub.remove();
+    };
+  }, [viewerSyncArgs]);
 
   /**
    * THE SERVER OWNS THE DOSE SETTINGS; this device only caches them.

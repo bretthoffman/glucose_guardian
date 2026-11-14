@@ -18,6 +18,8 @@ import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { normalizeCode } from "./carePlan";
+import { careAccessAllowed, type CareAccess } from "./careSchedule";
 import { ingestConfig, PROVIDER_LIMITS, RETRY_CONFIG } from "./cgm/config";
 import {
   decideSchedule,
@@ -172,6 +174,64 @@ export const authConnection = internalQuery({
       .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .unique();
     return { userId: user._id, provider: conn?.type ?? null };
+  },
+});
+
+/**
+ * INTERNAL: the CGM connection a VIEWER is watching, so their phone can ask for a fresh pull too:
+ * - an active caregiver / kid access code (or a nurse account viewing by that code) that may see
+ *   readings right now (its schedule window), or
+ * - a signed-in co-guardian, through their active care link.
+ * Returns the PATIENT's id + provider. The viewer never gets the credentials, only the readings
+ * (through their own subscription), so nothing new is exposed.
+ */
+export const viewerConnection = internalQuery({
+  args: {
+    code: v.optional(v.string()),
+    userId: v.optional(v.string()),
+    passwordHash: v.optional(v.string()),
+    clerkSubject: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ userId: Id<"users">; provider: Provider | null } | null> => {
+    let patientUserId: Id<"users"> | null = null;
+    if (args.code) {
+      const code = normalizeCode(args.code);
+      if (code.length !== 8) return null;
+      const row = await ctx.db
+        .query("careAccessCodes")
+        .withIndex("by_code", (q) => q.eq("code", code))
+        .first();
+      if (!row || row.status !== "active" || !row.permissions.viewReadings) return null;
+      if (!careAccessAllowed(row.access as CareAccess, Date.now())) return null;
+      patientUserId = row.patientUserId;
+    } else {
+      let user = null;
+      if (args.clerkSubject) {
+        user = await ctx.db
+          .query("users")
+          .withIndex("by_clerkId", (q) => q.eq("clerkId", args.clerkSubject))
+          .unique();
+      }
+      if (!user && args.userId && args.passwordHash) {
+        const id = ctx.db.normalizeId("users", args.userId);
+        if (id) {
+          const candidate = await ctx.db.get(id);
+          if (candidate && candidate.passwordHash === args.passwordHash) user = candidate;
+        }
+      }
+      if (!user) return null;
+      const link = await ctx.db
+        .query("careLinks")
+        .withIndex("by_member", (q) => q.eq("memberUserId", user._id).eq("status", "active"))
+        .first();
+      if (!link) return null;
+      patientUserId = link.patientUserId;
+    }
+    const conn = await ctx.db
+      .query("patientCgmConnections")
+      .withIndex("by_userId", (q) => q.eq("userId", patientUserId!))
+      .unique();
+    return { userId: patientUserId, provider: conn?.type ?? null };
   },
 });
 
@@ -767,5 +827,39 @@ export const requestExpeditedSync = action({
       inserted: result.inserted,
       readings,
     };
+  },
+});
+
+/**
+ * The viewer's version of requestExpeditedSync: a caregiver code, a nurse viewing by code, or a
+ * co-guardian opening the app asks for a fresh pull of the PATIENT's CGM, so they see a new reading as
+ * soon as the owner's phone would. Same claim + lease + `expeditedMinIntervalMs` throttle as the
+ * owner's trigger (shared per connection), so extra phones never mean extra provider calls inside
+ * that window. Readings reach the viewer through their own subscription; nothing is returned but a
+ * status, and provider errors stay the owner's to see.
+ */
+export const requestExpeditedSyncForViewer = action({
+  args: { code: v.optional(v.string()), userId: v.optional(v.string()), passwordHash: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ status: "ok" | "unauthorized" | "not_connected"; inserted: number }> => {
+    const now = Date.now();
+    const identity = args.code ? null : await ctx.auth.getUserIdentity();
+    const conn = await ctx.runQuery(internal.cgmIngest.viewerConnection, {
+      code: args.code,
+      userId: args.userId,
+      passwordHash: args.passwordHash,
+      clerkSubject: identity?.subject,
+    });
+    if (!conn) return { status: "unauthorized", inserted: 0 };
+    if (!conn.provider) return { status: "not_connected", inserted: 0 };
+    await ctx.runMutation(internal.cgmIngest.ensureState, { userId: conn.userId, provider: conn.provider, now });
+    const result = await processConnection(ctx, {
+      userId: conn.userId,
+      provider: conn.provider,
+      leaseOwner: `viewer-${now}-${Math.floor(Math.random() * 1e9)}`,
+      now,
+      force: true,
+      minSinceAttemptMs: ingestConfig.expeditedMinIntervalMs,
+    });
+    return { status: "ok", inserted: result.inserted };
   },
 });

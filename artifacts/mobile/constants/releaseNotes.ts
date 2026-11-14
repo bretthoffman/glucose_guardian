@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-14",
+    date: "2026-11-14",
+    items: [
+      {
+        icon: "zap",
+        title: "New readings for everyone, right away",
+        body: "Caregivers, the school nurse and co-guardians now get each new reading as fast as the main account does. Opening the app pulls the newest number from Dexcom or Libre, instead of showing the last one for a few minutes.",
+      },
+    ],
+  },
+  {
     id: "2026-11-12",
     date: "2026-11-12",
     items: [
