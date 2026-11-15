@@ -10,6 +10,15 @@ export function emailConfigured(): boolean {
   return !!process.env.RESEND_API_KEY;
 }
 
+/**
+ * Doctor alert + weekly digest emails are opt-in ON TOP of the key: they send only while the
+ * DOCTOR_ALERT_EMAILS env var is exactly "on" (toggle live with `npx convex env set|remove`,
+ * no redeploy). Sign-up verification codes need only RESEND_API_KEY and ignore this switch.
+ */
+export function alertEmailsEnabled(): boolean {
+  return process.env.DOCTOR_ALERT_EMAILS === "on" && emailConfigured();
+}
+
 export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   const key = process.env.RESEND_API_KEY;
   if (!key) return false;

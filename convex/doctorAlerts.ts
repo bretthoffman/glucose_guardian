@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { sendEmail } from "./email";
+import { alertEmailsEnabled, sendEmail } from "./email";
 import {
   internalAction,
   internalMutation,
@@ -14,9 +14,9 @@ import {
  * Doctor alert engine: a 5-minute cron scans every linked patient for urgent lows/highs and
  * stale data (with per-kind cooldowns so doctors aren't spammed), and `doctor.decideOrder`
  * appends caregiver-decision alerts as they happen. The portal polls `list` for its bell badge;
- * when RESEND_API_KEY is configured, new alerts are also emailed to the doctor, and a Monday
- * cron sends a per-doctor weekly patient digest. Without the key, everything except email still
- * works — alerts land in the portal.
+ * when DOCTOR_ALERT_EMAILS=on (and RESEND_API_KEY is set), new alerts are also emailed to the
+ * doctor, and a Monday cron sends a per-doctor weekly patient digest. Without that switch,
+ * everything except email still works — alerts land in the portal.
  */
 
 function requireDoctorApiSecret(provided: string) {
@@ -186,7 +186,7 @@ export const scan = internalMutation({
   },
 });
 
-// ── Email delivery (Resend; skipped silently when RESEND_API_KEY is unset) ──
+// ── Email delivery (Resend; sends only while DOCTOR_ALERT_EMAILS=on — see email.ts) ──
 
 export const getForEmail = internalQuery({
   args: { ids: v.array(v.id("doctorAlerts")) },
@@ -218,7 +218,7 @@ export const scanAndNotify = internalAction({
   args: {},
   handler: async (ctx) => {
     const { created } = await ctx.runMutation(internal.doctorAlerts.scan, {});
-    if (!created.length || !process.env.RESEND_API_KEY) return;
+    if (!created.length || !alertEmailsEnabled()) return;
 
     const rows = await ctx.runQuery(internal.doctorAlerts.getForEmail, { ids: created });
     const byEmail = new Map<string, typeof rows>();
@@ -242,7 +242,7 @@ export const scanAndNotify = internalAction({
   },
 });
 
-// ── Weekly digest (Mondays; requires RESEND_API_KEY) ─────────────────────────
+// ── Weekly digest (Mondays; sends only while DOCTOR_ALERT_EMAILS=on) ─────────
 
 export const digestData = internalQuery({
   args: {},
@@ -330,7 +330,7 @@ export const digestData = internalQuery({
 export const weeklyDigest = internalAction({
   args: {},
   handler: async (ctx) => {
-    if (!process.env.RESEND_API_KEY) return;
+    if (!alertEmailsEnabled()) return;
     const doctors = await ctx.runQuery(internal.doctorAlerts.digestData, {});
     for (const d of doctors) {
       if (!d.patients.length) continue;
