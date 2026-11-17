@@ -1,7 +1,8 @@
 /**
  * Dashboard → Doctor Office: the Visit Summary PDF. Pick a range, choose what to include, preview
- * it (the phone's print preview), then Download PDF opens the share menu with the file (Save to
- * Files, Mail, Messages, AirDrop, print). No doctor info is collected or needed. The math and layout live in
+ * it (a full-screen viewer like tapping a PDF; binaries without the WebView native module fall
+ * back to the phone's print preview), then Download PDF opens the share menu with the file (Save
+ * to Files, Mail, Messages, AirDrop, print). No doctor info is collected or needed. The math and layout live in
  * utils/visitSummary and utils/visitSummaryHtml. Read-only: nothing here writes logs or touches
  * dose settings.
  */
@@ -16,6 +17,7 @@ import { useQuery } from "convex/react";
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 
 import { BrandShade } from "@/components/Shade";
+import { ReportPreviewModal, reportViewerAvailable } from "@/components/ReportPreviewModal";
 import Colors, { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useGlucose } from "@/context/GlucoseContext";
@@ -159,6 +161,7 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
 
   const [everyMeal, setEveryMeal] = useState(false);
   const [building, setBuilding] = useState<null | "preview" | "download">(null);
+  const [previewDoc, setPreviewDoc] = useState<null | { pdfUri?: string; html?: string }>(null);
   const [sections, setSections] = useState<SectionChoices>(ALL_SECTIONS_ON);
   useEffect(() => {
     AsyncStorage.getItem(SECTIONS_KEY)
@@ -182,8 +185,8 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
   const lastPdf = useRef<{ key: string; file: string; at: number } | null>(null);
   const pdfKey = JSON.stringify({ range, sections, everyMeal, idKey, pass: passStatus?.state, from: fetched?.fromMs, n: readings.length, f: foodLog.length, i: insulinLog.length, s: fingerStickLog?.length ?? 0 });
 
-  async function buildPdf(): Promise<string> {
-    if (lastPdf.current && lastPdf.current.key === pdfKey && Date.now() - lastPdf.current.at < 5 * 60_000) return lastPdf.current.file;
+  /** Assembles the report and returns its HTML plus the meta the filename is built from. */
+  async function buildReportHtml() {
     const rows = await ensureReadings(range);
     if (!rows) throw new Error("readings");
     const data = buildVisitSummary({
@@ -208,6 +211,12 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
     };
     const code = await passCodeForPdf();
     const html = buildVisitSummaryHtml(data, meta, { sections, includeEveryMeal: everyMeal, portal: { code, url: PORTAL_URL } });
+    return { html, meta };
+  }
+
+  async function buildPdf(): Promise<string> {
+    if (lastPdf.current && lastPdf.current.key === pdfKey && Date.now() - lastPdf.current.at < 5 * 60_000) return lastPdf.current.file;
+    const { html, meta } = await buildReportHtml();
     // Letter size. iOS takes margins here; Android uses the @page margin in the HTML.
     const { uri } = await Print.printToFileAsync({
       html,
@@ -227,9 +236,20 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setBuilding("preview");
     try {
-      const file = await buildPdf();
-      // The phone's print preview: every page, pinch to zoom. Nothing prints unless they tap Print.
-      await Print.printAsync({ uri: file });
+      if (reportViewerAvailable) {
+        // Full-screen in-app viewer, like tapping a PDF file. Android WebViews can't render
+        // PDFs, so Android shows the same report HTML; it looks the same.
+        if (Platform.OS === "android") {
+          const { html } = await buildReportHtml();
+          setPreviewDoc({ html });
+        } else {
+          setPreviewDoc({ pdfUri: await buildPdf() });
+        }
+      } else {
+        // Binaries from before the WebView module shipped: the phone's print preview — every
+        // page, pinch to zoom. Nothing prints unless they tap Print.
+        await Print.printAsync({ uri: await buildPdf() });
+      }
     } catch (e) {
       // Closing the print preview without printing can reject on some phones; that's not an error.
       if (!lastPdf.current || lastPdf.current.key !== pdfKey) {
@@ -372,6 +392,14 @@ export default function DoctorOfficePanel({ colors }: { colors: Palette }) {
           ? "Only the glucose overview is on. Tap a section above to add it."
           : "Preview shows every page first. Download lets you save it to Files or send it by email, text, or your patient portal (like MyChart)."}
       </Text>
+      <ReportPreviewModal
+        visible={previewDoc != null}
+        title={`${patientName}'s Visit Summary`}
+        pdfUri={previewDoc?.pdfUri}
+        html={previewDoc?.html}
+        colors={colors}
+        onClose={() => setPreviewDoc(null)}
+      />
     </View>
   );
 }
