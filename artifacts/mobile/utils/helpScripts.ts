@@ -132,7 +132,7 @@ const insulin: HelpStep[] = [
     anchor: "insulin.predict",
     title: "Predict",
     text:
-      "Draws an AI projection of the next few hours from your own history with similar meals and doses. It only runs when you tap it, and it never changes the suggested dose.",
+      "Draws an AI projection of the next few hours from your own history with similar meals and doses. It only runs when you tap it, and it never changes the suggested dose. It unlocks after your first 7 days with logs, so it has enough of your history to be accurate.",
   },
   {
     id: "insulin.tookDose",

@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-17b",
+    date: "2026-11-17",
+    items: [
+      {
+        icon: "trending-up",
+        title: "Predictions unlock with your logs",
+        body: "The Predict button on the Insulin page now turns on after your first 7 days with logs. Predictions are built from your own history, so this keeps them accurate from the start. The section shows how many days are left. If you have been logging for a week already, nothing changes for you.",
+      },
+    ],
+  },
+  {
     id: "2026-11-17",
     date: "2026-11-17",
     items: [

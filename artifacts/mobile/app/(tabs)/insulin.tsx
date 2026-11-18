@@ -49,6 +49,7 @@ import LogFingerStickModal from "@/components/LogFingerStickModal";
 import PensCard from "@/components/PensCard";
 import DosePredictionChart from "@/components/DosePredictionChart";
 import { runPrediction, type PredictionResult, type StrengthLabel } from "@/utils/predictionClient";
+import { PREDICTION_UNLOCK_DAYS, distinctLogDayCount, predictionDaysRemaining } from "@/utils/predictionUnlock";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 import InsulinTypePicker from "@/components/InsulinTypePicker";
 import { activeFractionRemaining, computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
@@ -159,7 +160,7 @@ export default function InsulinScreen() {
   // iPad: the calc-window contents (labels, values, operators, breakdown text) render ~50% larger.
   const calcScale = Platform.OS === "ios" && (Platform as unknown as { isPad?: boolean }).isPad === true ? 1.5 : 1;
   const { targetGlucose, carbRatio, correctionFactor, doseSettingsByTime, history, cgmSyncSuccessTick } = useGlucose();
-  const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions, messagingIdentity } = useAuth();
+  const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, fingerStickLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions, messagingIdentity } = useAuth();
   const confirmLog = useCareLogConfirm();
   const { askStacking, stackingModal } = useStackingGuard();
   // "Enter finger stick" shortcut from a "verify with a finger stick" dose warning. Informational
@@ -621,6 +622,23 @@ export default function InsulinScreen() {
   const effectiveDose = manualDoseOverride ?? systemRecommendedDose;
   const doseJustLogged = doseLoggedAtTick !== null && doseLoggedAtTick === cgmSyncSuccessTick;
 
+  // ── Predict unlock gate: predictions are matched against the profile's own history, so a new
+  // profile sees the section locked until 7 distinct local days carry at least one log of any kind
+  // (utils/predictionUnlock). Pooled logs, so every device in the circle sees the same state, and a
+  // backfilled Add Entry day counts the moment it's saved. Deleting logs can re-lock — that's fine. ──
+  const predictDaysLeft = useMemo(
+    () =>
+      predictionDaysRemaining(
+        distinctLogDayCount([
+          ...(insulinLog ?? []).map((e) => e.timestamp),
+          ...(foodLog ?? []).map((e) => e.timestamp),
+          ...(fingerStickLog ?? []).map((e) => e.timestamp),
+        ]),
+      ),
+    [insulinLog, foodLog, fingerStickLog],
+  );
+  const predictLocked = predictDaysLeft > 0;
+
   // ── Prediction chart: an AI projection of the next 90 min IF this dose is taken now (bolus only).
   // Estimate-only — never feeds the calculator. Runs ONLY on an explicit Predict tap and holds that
   // result until Predict is tapped again, even if the calculator inputs change. ──
@@ -631,7 +649,7 @@ export default function InsulinScreen() {
   const predictRunRef = useRef(0);
 
   const runPredict = useCallback(async () => {
-    if (isBasalMode || !doseBg || effectiveDose <= 0) return;
+    if (predictLocked || isBasalMode || !doseBg || effectiveDose <= 0) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const runId = ++predictRunRef.current;
     // Clear the old graph immediately so "Predict Again" drops to the loading state (the stale curve
@@ -667,7 +685,7 @@ export default function InsulinScreen() {
         if (predictRunRef.current === runId) setDrawing(false);
       }, 6000);
     }
-  }, [isBasalMode, doseBg, effectiveDose, showPrediction, messagingIdentity, carbInput, history, effSettings, selectedInsulinOption]);
+  }, [predictLocked, isBasalMode, doseBg, effectiveDose, showPrediction, messagingIdentity, carbInput, history, effSettings, selectedInsulinOption]);
 
   // The snapshot is stale once the data being submitted (BG, carbs, or dose) no longer exactly
   // matches what was last predicted — the only condition under which Predict may run again.
@@ -692,10 +710,11 @@ export default function InsulinScreen() {
     setPredictedInputs(null);
   }, []);
 
-  // Predict is blocked while computing, while drawing, and while an IDENTICAL prediction is on screen.
-  // An unavailable result leaves it enabled so it can be retried.
+  // Predict is blocked while locked (not enough logged days yet), while computing, while drawing,
+  // and while an IDENTICAL prediction is on screen. An unavailable result leaves it enabled so it
+  // can be retried.
   const predictDisabled =
-    effectiveDose <= 0 || predicting || drawing || (prediction?.ok === true && !predictionStale);
+    predictLocked || effectiveDose <= 0 || predicting || drawing || (prediction?.ok === true && !predictionStale);
 
   // Push a field's in-progress draft into its committed value. No-op when the field isn't being
   // edited, so it's safe to call defensively from anywhere.
@@ -1329,8 +1348,20 @@ export default function InsulinScreen() {
 
             {/* Graph — appears only after a Predict tap. While the model works we show a "building"
                 placeholder; the result holds until Predict is tapped again (never auto-updates). If
-                the AI prediction can't be produced we say so — there is no local-math fallback. */}
-            {showPrediction && (
+                the AI prediction can't be produced we say so — there is no local-math fallback.
+                While LOCKED the graph area shows the unlock message instead: the section stays
+                visible (button greyed via predictDisabled) but can't run until 7 days have logs. */}
+            {predictLocked ? (
+              <View key="locked" style={[styles.predictBuilding, { borderColor: colors.border, opacity: 0.75 }]}>
+                <Feather name="lock" size={18} color={colors.textMuted} />
+                <Text style={[styles.predictLockedText, { color: colors.textSecondary }]} maxFontSizeMultiplier={1.4}>
+                  Log 7 days to unlock accurate predictions
+                </Text>
+                <Text style={[styles.predictLockedSub, { color: colors.textMuted }]} maxFontSizeMultiplier={1.4}>
+                  {predictDaysLeft} of {PREDICTION_UNLOCK_DAYS} days remaining
+                </Text>
+              </View>
+            ) : showPrediction && (
               <View key="graph-area">
                 {predicting ? (
                   <View style={[styles.predictBuilding, { borderColor: colors.border }]}>
@@ -1949,6 +1980,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   predictBuildingText: { fontSize: 13, fontWeight: "500" },
+  predictLockedText: { fontSize: 13, fontWeight: "600", textAlign: "center", paddingHorizontal: 24 },
+  predictLockedSub: { fontSize: 12, fontWeight: "500" },
   predictUnavailableSub: { fontSize: 12, fontWeight: "400", textAlign: "center", lineHeight: 17, paddingHorizontal: 24 },
   strengthPill: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 10, paddingHorizontal: 2 },
   strengthDot: { width: 9, height: 9, borderRadius: 4.5 },
