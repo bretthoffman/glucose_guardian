@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { APP_MAP } from "../app-map";
 import { buildCareNowSection, buildLiveCgmSection, buildSystemPrompt, dayPart, localTimeOfDay } from "./chat";
 
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
@@ -124,5 +125,28 @@ describe("chat knows who's with the child", () => {
     expect(buildCareNowSection({ ...ctx, careNow: { scheduledNow: [] } }, "Bella", true)).toBe("");
     const p = buildSystemPrompt({ ...ctx, careNow: { lastLog: { ...holly, minutesAgo: 25 } } });
     expect(p).toContain("WHO'S WITH BELLA");
+  });
+});
+
+describe("the app map (app-map.ts)", () => {
+  it("rides every system prompt, before the volatile health snapshot (cacheable stable prefix)", () => {
+    const p = buildSystemPrompt(ctx);
+    const at = p.indexOf("THE APP (");
+    expect(at).toBeGreaterThan(-1);
+    expect(at).toBeLessThan(p.indexOf("CURRENT HEALTH SNAPSHOT"));
+    // The personality rule that tells the model how to use the section.
+    expect(p).toContain("THE APP ITSELF");
+  });
+
+  it("covers all five tabs and hands unknowns to Help Mode instead of guessing", () => {
+    for (const tab of ["Glucose:", "Insulin:", "Food:", "Chat:", "Dashboard:"]) expect(APP_MAP).toContain(tab);
+    expect(APP_MAP).toContain("Care Circle");
+    expect(APP_MAP).toContain("Help Mode");
+    expect(APP_MAP).toContain("Never invent features");
+  });
+
+  it("stays extremely lightweight (the whole point of the design)", () => {
+    // ~500 tokens. If this fails, cut detail; the deep how-to belongs to Help Mode, not the map.
+    expect(APP_MAP.length).toBeLessThan(2000);
   });
 });

@@ -1,6 +1,8 @@
 import { Router, type IRouter } from "express";
 import OpenAI from "openai";
 
+import { APP_MAP } from "../app-map";
+
 const router: IRouter = Router();
 
 interface GlucoseReading {
@@ -466,6 +468,9 @@ YOUR CORE PERSONALITY:
 - If what the person says doesn't match the sensor (e.g. "she's still dropping" while the readings are flat or rising), gently say what the sensor shows and how it has moved, then advise for the real situation. Sensors lag a finger stick by 5 to 15 minutes, so if they're worried, a finger stick settles it.
 - FORMATTING: Plain sentences only. No markdown. No asterisks. No bold. No bullets. No numbered lists. No formulas with equals signs.
 - PUNCTUATION: Never use dashes between words or clauses (no "—", no "–", no " - "). Use a period or a comma instead. Hyphenated words like "fast-acting" are fine.
+- THE APP ITSELF: you also know how Glucose Guardian is laid out (THE APP section below). When asked where something is or how to do something in the app, give the tap path in one or two sentences, in the same voice as everything else, then return to the health conversation.
+
+${APP_MAP}
 
 CURRENT HEALTH SNAPSHOT:
 ${glucoseStatus ? `• ${glucoseStatus}` : "• No glucose reading available yet — ask them to sync"}${liveSection}${timeSection}${careNowSection}
