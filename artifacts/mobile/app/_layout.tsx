@@ -23,7 +23,7 @@ import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { convex } from "@/utils/convex-auth-client";
 import UpdatePrompt from "@/components/UpdatePrompt";
 import { BrandLoading } from "@/components/BrandLogo";
-import { HelpProvider } from "@/context/HelpContext";
+import { HelpProvider, useHelp } from "@/context/HelpContext";
 import {
   registerNotificationCategories,
   handleNotificationResponse,
@@ -37,6 +37,8 @@ function RootLayoutNav() {
   const { isLoggedIn, isLoading, isSignedIn, caregiverSession, doctorSession, alertPrefs } = useAuth();
   const { colors } = useTheme();
   const segments = useSegments();
+  const { autoStartFirstEntry, markFirstEntrySeen } = useHelp();
+  const sawAuthScreens = useRef(false);
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
   const permissionsRequested = useRef(false);
@@ -77,6 +79,22 @@ function RootLayoutNav() {
       router.replace("/(tabs)");
     }
   }, [isSignedIn, isLoggedIn, isLoading, caregiverSession, doctorSession, segments]);
+
+  // First-entry Help Mode: reaching the app THROUGH the sign-in/sign-up screens means this device
+  // just signed in (new account, access code, caregiver and doctor sessions alike). The first time
+  // that ever happens on a device, Help Mode opens itself; a device that cold-starts already inside
+  // the app predates the feature (or has toured) and is seeded as seen without showing anything.
+  // Both calls no-op once the device's flag is set, so order and repeats are harmless.
+  useEffect(() => {
+    if (isLoading) return;
+    if (segments[0] === "auth" || segments[0] === "onboarding") {
+      sawAuthScreens.current = true;
+      return;
+    }
+    if (!isLoggedIn || !(isSignedIn || caregiverSession || doctorSession)) return;
+    if (sawAuthScreens.current) autoStartFirstEntry();
+    else markFirstEntrySeen();
+  }, [segments, isLoading, isLoggedIn, isSignedIn, caregiverSession, doctorSession, autoStartFirstEntry, markFirstEntrySeen]);
 
   useEffect(() => {
     if (isWeb || !isLoggedIn || permissionsRequested.current) return;

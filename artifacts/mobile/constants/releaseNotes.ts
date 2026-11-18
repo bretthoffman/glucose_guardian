@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-17",
+    date: "2026-11-17",
+    items: [
+      {
+        icon: "help-circle",
+        title: "Help Mode, now smoother",
+        body: "In Help Mode the whole screen now dims around the one thing being explained, including the area by the tabs at the bottom. The explanation window also stays out of the way of what it is pointing at. And when someone signs in on a device for the very first time, the walkthrough now opens by itself, so new family members can learn the app right away.",
+      },
+    ],
+  },
+  {
     id: "2026-11-14",
     date: "2026-11-14",
     items: [

@@ -38,3 +38,11 @@ export const FOOD_QUICK_TAB_STORAGE_KEY = "@gluco_guardian_food_quick_tab";
  * Favorites start empty — the old `QUICK_FOODS_STORAGE_KEY` list is no longer shown.
  */
 export const FAVORITE_FOODS_STORAGE_KEY = "@gluco_guardian_favorite_foods";
+
+/**
+ * Device-level: set once this device has had its automatic first-entry Help Mode walkthrough (or
+ * predates the feature — devices that cold-start already signed in are seeded silently). While set,
+ * Help Mode never opens by itself again on this device; the Dashboard's Help button still works.
+ * Intentionally NOT cleared on sign-out: "first time" is per DEVICE, not per account.
+ */
+export const HELP_INTRO_SEEN_STORAGE_KEY = "@gluco_guardian_help_intro_seen";

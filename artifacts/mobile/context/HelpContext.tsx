@@ -3,9 +3,16 @@
  *
  * Entered from the Dashboard's Help button. While on, opening any tab page starts that page's
  * scripted tour (utils/helpScripts): one element at a time is spotlit by the overlay
- * (components/HelpOverlay, mounted over the tabs but under the tab bar) while everything else dims.
- * Tapping anywhere advances; the tab bar stays live so pages can be switched mid-tour; the ✕ pill
- * exits back to the normal app.
+ * (components/HelpOverlay) while everything else dims — including the screen around and below the
+ * tab bar, whose exact frame the bar reports here (_reportTabBar) so only the pill itself stays
+ * lit and live for switching pages mid-tour. Tapping anywhere advances; the ✕ pill exits back to
+ * the normal app.
+ *
+ * First entry: the first time a device ever reaches the app THROUGH the sign-in/sign-up screens
+ * (new account, access code, caregiver and doctor sessions alike), Help Mode opens itself on a
+ * welcome card (`intro`) — once per device, tracked in AsyncStorage. A device that cold-starts
+ * already signed in predates the feature (or has toured) and is seeded as seen silently instead.
+ * app/_layout.tsx drives both calls off the route segments.
  *
  * SAFETY: the overlay intercepts every touch on page content, so nothing in Help Mode can reach a
  * real control — no logs, no saves, no account changes. The only page state a tour may move is
@@ -19,8 +26,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions } from "react-native";
 import type { ScrollView, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { usePathname } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { HELP_INTRO_SEEN_STORAGE_KEY } from "@/constants/storage-keys";
 import { HELP_PAGE_FOR_PATH, HELP_SCRIPTS, type HelpPageId, type HelpStep } from "@/utils/helpScripts";
 
 export type SpotlightRect = { x: number; y: number; width: number; height: number };
@@ -38,6 +47,16 @@ interface HelpContextValue {
   /** Window coordinates of the spotlit element; null while measuring. */
   rect: SpotlightRect | null;
   advance: () => void;
+  /** True while the automatic first-entry welcome card shows (helpMode on, no tour started yet). */
+  intro: boolean;
+  /** Leaves the welcome card and starts the tour of the page currently on screen. */
+  beginFromIntro: () => void;
+  /** The floating tab bar's window frame (reported by the bar); null while the bar is hidden. */
+  tabBarRect: SpotlightRect | null;
+  /** First entry THROUGH sign-in/sign-up: open Help Mode automatically, once ever per device. */
+  autoStartFirstEntry: () => void;
+  /** App started already signed in: mark the device toured without showing anything. */
+  markFirstEntrySeen: () => void;
   /** Effects of the ACTIVE step — pages render view-only state from these. */
   activeEffects: readonly string[];
   /** True while a tour runs on the given page — pages use it to gate their effect handling. */
@@ -48,6 +67,7 @@ interface HelpContextValue {
   /** Removes only if this exact handle is still the page's current one (see useHelpScroll). */
   _unregisterScroll: (page: HelpPageId, handle: ScrollHandle) => void;
   _reportPath: (path: string) => void;
+  _reportTabBar: (rect: SpotlightRect | null) => void;
 }
 
 type ScrollHandle = { ref: React.RefObject<ScrollView | null>; getOffset: () => number };
@@ -66,6 +86,8 @@ export function HelpProvider({ children }: { children: React.ReactNode }) {
   const [helpMode, setHelpMode] = useState(false);
   const [tour, setTour] = useState<Tour | null>(null);
   const [rect, setRect] = useState<SpotlightRect | null>(null);
+  const [intro, setIntro] = useState(false);
+  const [tabBarRect, setTabBarRect] = useState<SpotlightRect | null>(null);
   const anchors = useRef(new Map<string, View>());
   const scrolls = useRef(new Map<HelpPageId, ScrollHandle>());
   const runToken = useRef(0);
@@ -82,6 +104,20 @@ export function HelpProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const _unregisterScroll = useCallback((page: HelpPageId, handle: ScrollHandle) => {
     if (scrolls.current.get(page) === handle) scrolls.current.delete(page);
+  }, []);
+  const _reportTabBar = useCallback((r: SpotlightRect | null) => {
+    setTabBarRect((prev) => {
+      // The bar re-measures freely (layout, settle timer); identical frames keep the same object so
+      // nothing re-renders.
+      if (
+        prev && r &&
+        Math.abs(prev.x - r.x) < 1 && Math.abs(prev.y - r.y) < 1 &&
+        Math.abs(prev.width - r.width) < 1 && Math.abs(prev.height - r.height) < 1
+      ) {
+        return prev;
+      }
+      return r;
+    });
   }, []);
 
   const measure = useCallback(async (id: string, token: number): Promise<SpotlightRect | null> => {
@@ -143,6 +179,7 @@ export function HelpProvider({ children }: { children: React.ReactNode }) {
   const startTour = useCallback(
     (page: HelpPageId) => {
       Haptics.selectionAsync().catch(() => {});
+      setIntro(false); // any tour replaces the first-entry welcome card
       setTour({ page, index: 0 });
       void activate(page, 0);
     },
@@ -174,6 +211,7 @@ export function HelpProvider({ children }: { children: React.ReactNode }) {
   const enterHelp = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setHelpMode(true);
+    setIntro(false); // manual entry goes straight to the current page's tour
     clearTour();
     // The Help button lives on the Dashboard, so turning Help on starts the page you're on (the
     // Dashboard tour); its last step points to the tabs below.
@@ -184,7 +222,48 @@ export function HelpProvider({ children }: { children: React.ReactNode }) {
   const exitHelp = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setHelpMode(false);
+    setIntro(false);
     clearTour();
+  }, [clearTour]);
+
+  /** The first-entry welcome card's "tap anywhere": tour the page already on screen. */
+  const beginFromIntro = useCallback(() => {
+    const page = lastPath.current ? HELP_PAGE_FOR_PATH[lastPath.current] : undefined;
+    if (page) startTour(page); // startTour clears the intro card
+    else setIntro(false); // not on a scripted page somehow: fall back to the standard idle card
+  }, [startTour]);
+
+  /**
+   * One automatic Help Mode per device, EVER (see the header). The in-memory guard makes the two
+   * entry points below safe to call in any order and any number of times per app session; the
+   * AsyncStorage flag makes that stick across launches.
+   */
+  const introHandled = useRef(false);
+
+  const markFirstEntrySeen = useCallback(() => {
+    if (introHandled.current) return;
+    introHandled.current = true;
+    AsyncStorage.setItem(HELP_INTRO_SEEN_STORAGE_KEY, "1").catch(() => {});
+  }, []);
+
+  const autoStartFirstEntry = useCallback(() => {
+    if (introHandled.current) return;
+    introHandled.current = true;
+    void (async () => {
+      try {
+        if (await AsyncStorage.getItem(HELP_INTRO_SEEN_STORAGE_KEY)) return;
+        await AsyncStorage.setItem(HELP_INTRO_SEEN_STORAGE_KEY, "1");
+      } catch {
+        return; // storage unreadable: skip, rather than risk auto-opening on every launch
+      }
+      // Let the tab pages mount and report their path and the first screen settle, then open on
+      // the welcome card. No haptic: nothing the user did triggered this.
+      setTimeout(() => {
+        setHelpMode(true);
+        clearTour();
+        setIntro(true);
+      }, 1100);
+    })();
   }, [clearTour]);
 
   // Route changes drive tours: landing on a scripted page starts (or restarts) its tour from the
@@ -214,14 +293,20 @@ export function HelpProvider({ children }: { children: React.ReactNode }) {
       stepCount: script?.length ?? 0,
       rect,
       advance,
+      intro,
+      beginFromIntro,
+      tabBarRect,
+      autoStartFirstEntry,
+      markFirstEntrySeen,
       activeEffects: step?.effects ?? [],
       isTouring,
       _registerAnchor,
       _registerScroll,
       _unregisterScroll,
       _reportPath,
+      _reportTabBar,
     }),
-    [helpMode, enterHelp, exitHelp, tour, step, script, rect, advance, isTouring, _registerAnchor, _registerScroll, _unregisterScroll, _reportPath],
+    [helpMode, enterHelp, exitHelp, tour, step, script, rect, advance, intro, beginFromIntro, tabBarRect, autoStartFirstEntry, markFirstEntrySeen, isTouring, _registerAnchor, _registerScroll, _unregisterScroll, _reportPath, _reportTabBar],
   );
 
   return <HelpContext.Provider value={value}>{children}</HelpContext.Provider>;

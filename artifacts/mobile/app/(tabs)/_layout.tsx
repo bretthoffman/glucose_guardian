@@ -1,10 +1,11 @@
 import { Tabs } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useMemo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
+import { useHelp } from "@/context/HelpContext";
 import { useMessages } from "@/context/MessagesContext";
 import { useTheme } from "@/context/ThemeContext";
 import { T, withAlpha, type ThemeColors } from "@/constants/theme";
@@ -69,7 +70,31 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
     (!doctorSession && !caregiverSession && doctorMessages.some((m) => m.sender === "doctor" && !m.read)) ||
     careUnread > 0;
   // A Caregiver (nurse) account on its menu (not viewing a child) has no tabs — hide the whole bar.
-  if (isCaregiverAccount && !isViewingLinkedPatient) return null;
+  const barHidden = isCaregiverAccount && !isViewingLinkedPatient;
+
+  // Help Mode dims the screen around the bar's EXACT frame, so the bar reports it: onLayout catches
+  // size changes, this effect catches position-only moves (insets, rotation) plus hidden/shown
+  // flips, and a cleared frame while hidden lets the dim run all the way to the screen's bottom.
+  const { _reportTabBar } = useHelp();
+  const { width: winW, height: winH } = useWindowDimensions();
+  const barRef = useRef<View>(null);
+  const reportBar = useCallback(() => {
+    barRef.current?.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) _reportTabBar({ x, y, width, height });
+    });
+  }, [_reportTabBar]);
+  useEffect(() => {
+    if (barHidden) {
+      _reportTabBar(null);
+      return;
+    }
+    reportBar();
+    const settle = setTimeout(reportBar, 350);
+    return () => clearTimeout(settle);
+  }, [barHidden, winW, winH, insets.bottom, reportBar, _reportTabBar]);
+  useEffect(() => () => _reportTabBar(null), [_reportTabBar]);
+
+  if (barHidden) return null;
   // Hide Insulin for a child-view-mode owner account, or for an access-code session (kid / caregiver)
   // whose grants include neither the dose calculator nor logging — nothing to show there.
   const hideInsulinTab =
@@ -86,7 +111,7 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
 
   return (
     <View style={[styles.wrap, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]} pointerEvents="box-none">
-      <View style={styles.bar}>
+      <View style={styles.bar} ref={barRef} onLayout={reportBar} collapsable={false}>
         {routes.map((route) => {
           const focused = state.routes[state.index]?.key === route.key;
           const meta = TAB_META[route.name]!;
