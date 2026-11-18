@@ -452,9 +452,39 @@ export default function FoodScreen() {
       const res = await fetch(apiUrl("/api/food/estimate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ foodName: q }),
+        // allowNotFound: this app version renders an honest "I don't know" (older servers ignore it).
+        body: JSON.stringify({ foodName: q, allowNotFound: true }),
       });
-      const data: FoodResult = await res.json();
+      const data: FoodResult & { found?: boolean } = await res.json();
+      if (data?.found === false) {
+        // The lookup truly doesn't know this food, and the AI declined to guess.
+        if (opts?.startCarbs != null && Number.isFinite(opts.startCarbs) && opts.startCarbs >= 0) {
+          // A Quick Lookup row with saved carbs: the saved number IS the answer — normal card.
+          const carbs = opts.startCarbs;
+          resetServings();
+          setResult({
+            foodName: capFirst(opts.source ?? q),
+            estimatedCarbs: carbs,
+            confidence: "high",
+            tips: "Your saved carbs for this food.",
+            insulinUnits: mealInsulinUnits(carbs, carbRatio),
+            fromPhoto: false,
+            perServing: { carbs },
+          });
+          setEditedCarbs(formatCarbs(carbs));
+          setSavedToQuick(opts.source != null && isQuickFood(quickFoods, opts.source));
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          await fetchGuidance(carbs);
+        } else {
+          // Manual card with the typed name carried into the first row — the carbs come from the
+          // user, never from a pre-filled guess.
+          setResult({ foodName: q, estimatedCarbs: 0, confidence: "low", manual: true, fromPhoto: false });
+          setEditedCarbs("0");
+          setExtraItems([{ ...newExtra(), name: capFirst(q) }]);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        }
+        return;
+      }
       const startCarbs =
         opts?.startCarbs != null && Number.isFinite(opts.startCarbs) && opts.startCarbs >= 0 ? opts.startCarbs : data.estimatedCarbs;
       const insulinUnits = mealInsulinUnits(startCarbs, carbRatio);
@@ -1020,9 +1050,13 @@ export default function FoodScreen() {
 
             {result.manual ? (
               <View style={{ gap: 4 }}>
-                <Text style={[styles.manualTitle, { color: colors.text }]}>Couldn't estimate carbs</Text>
+                <Text style={[styles.manualTitle, { color: colors.text }]}>
+                  {result.fromPhoto ? "Couldn't estimate carbs" : "I don't know this one yet"}
+                </Text>
                 <Text style={[styles.manualSub, { color: colors.textMuted }]}>
-                  Your photo is saved with the meal. Type each food and its carbs below.
+                  {result.fromPhoto
+                    ? "Your photo is saved with the meal. Type each food and its carbs below."
+                    : "Type its carbs from the label below, or scan the barcode or take a photo and I'll read it."}
                 </Text>
               </View>
             ) : (

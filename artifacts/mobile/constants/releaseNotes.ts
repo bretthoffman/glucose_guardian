@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-17c",
+    date: "2026-11-17",
+    items: [
+      {
+        icon: "search",
+        title: "Smarter food lookup",
+        body: "Typing a food now uses the same AI that reads your food photos, so unusual foods and amounts like 2 slices of pizza get real estimates, with fat, protein and how fast the carbs hit. And when the app truly does not know a food, it now says so and asks you to type the carbs from the label, instead of quietly suggesting a number. Photo estimates stopped guessing too.",
+      },
+    ],
+  },
+  {
     id: "2026-11-17b",
     date: "2026-11-17",
     items: [
