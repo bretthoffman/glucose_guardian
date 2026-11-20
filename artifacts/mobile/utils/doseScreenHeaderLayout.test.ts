@@ -11,6 +11,10 @@ describe("dose screen header", () => {
     expect(src).not.toContain("TYPE.pageTitle");
     expect(src).not.toContain("screenToggle");
     expect(src).not.toContain("ScreenTab");
+    // The 2026-11-20 redesign: no page title, no header dropdown — the insulin strip is the one
+    // insulin surface.
+    expect(src).not.toMatch(/>Calculator</);
+    expect(src).not.toContain("insulinDropdown");
     // The day record renders on app/(tabs)/logs.tsx only — never inside the dose screen again.
     expect(src).not.toContain("LogHistory");
   });

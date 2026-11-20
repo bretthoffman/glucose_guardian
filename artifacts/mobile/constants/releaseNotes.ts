@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-20c",
+    date: "2026-11-20",
+    items: [
+      {
+        icon: "droplet",
+        title: "A simpler Insulin page",
+        body: "The Insulin page is now one clean flow. Pick your insulin in the row at the top, where each pen or vial shows its days left, and tap the arrow there to open My Insulin, including Start new insulin and History. Carbs is the only box to fill in. Your live glucose flows into the math on its own, under Correct BG, and tapping that card lets you type a meter number instead. The carbs and insulin still working are two small bars that are always there, one under Carbs and one by the dose buttons.",
+      },
+    ],
+  },
+  {
     id: "2026-11-20b",
     date: "2026-11-20",
     items: [

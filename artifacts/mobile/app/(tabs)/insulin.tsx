@@ -50,12 +50,14 @@ import DosePredictionChart from "@/components/DosePredictionChart";
 import { runPrediction, type PredictionResult, type StrengthLabel } from "@/utils/predictionClient";
 import { PREDICTION_UNLOCK_DAYS, distinctLogDayCount, predictionDaysRemaining } from "@/utils/predictionUnlock";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
-import InsulinTypePicker from "@/components/InsulinTypePicker";
+import { activePens, penStatus, toLocalDate } from "@/utils/pens";
+import { showsCountdown } from "@/utils/insulinForms";
 import { activeFractionRemaining, computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import { withoutLowTreatments } from "@/utils/lowTreatment";
 import {
   defaultInsulinChipLabel,
   findInsulinByChipLabel,
+  insulinChipLabel,
   insulinDisplayLabel,
   isBolusInsulin,
   type InsulinOption,
@@ -157,7 +159,7 @@ export default function InsulinScreen() {
   // iPad: the calc-window contents (labels, values, operators, breakdown text) render ~50% larger.
   const calcScale = Platform.OS === "ios" && (Platform as unknown as { isPad?: boolean }).isPad === true ? 1.5 : 1;
   const { targetGlucose, carbRatio, correctionFactor, doseSettingsByTime, history, cgmSyncSuccessTick } = useGlucose();
-  const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, fingerStickLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions, messagingIdentity } = useAuth();
+  const { isMinor, alertPrefs, profile, account, foodLog, insulinLog, fingerStickLog, penLog, logInsulinDose, caregiverSession, doctorSession, isChildMode, accessCodeRole, accessCodePermissions, messagingIdentity } = useAuth();
   const confirmLog = useCareLogConfirm();
   const { askStacking, stackingModal } = useStackingGuard();
   // "Enter finger stick" shortcut from a "verify with a finger stick" dose warning. Informational
@@ -172,15 +174,9 @@ export default function InsulinScreen() {
   const isAccessCodeSession = accessCodeRole != null;
   const canUseCalculator = !isAccessCodeSession || !!accessCodePermissions?.useCalculator;
   const canLog = !isAccessCodeSession || !!accessCodePermissions?.log;
-  /**
-   * The on-board bars' shared label fit. Each bar reports the scale (≤ 1) its label needs to fit its
-   * slot at the current text size; both labels then render at the smaller of the two, floored at 75%,
-   * so the pair always match instead of the longer one shrinking alone.
-   */
-  const [barFit, setBarFit] = useState<[number, number]>([1, 1]);
-  const sharedBarScale = Math.max(0.75, Math.min(1, barFit[0], barFit[1]));
-  const reportCarbsFit = useCallback((need: number) => setBarFit((prev) => (prev[0] === need ? prev : [need, prev[1]])), []);
-  const reportInsulinFit = useCallback((need: number) => setBarFit((prev) => (prev[1] === need ? prev : [prev[0], need])), []);
+  // Both on-board bars are full-width in their cards now, so no shared label-fit machinery: each
+  // label gets the whole row and OnBoardBar's own shrink-to-fit is the only sizing.
+  const noopMeasure = useCallback(() => {}, []);
   const [carbInput, setCarbInput] = useState("");
   /**
    * "ACTIVE CARBS" overlay on the carbs field — shows AUTOMATICALLY whenever a logged meal's carbs
@@ -231,8 +227,8 @@ export default function InsulinScreen() {
   // ── Insulin type selection (persisted; validated against the profile's configured insulins) ──
   const [insulinTypeLabel, setInsulinTypeLabel] = useState<string | null>(null);
   const [insulinTypeReady, setInsulinTypeReady] = useState(false);
-  const [insulinModalVisible, setInsulinModalVisible] = useState(false);
-  const [pendingInsulinLabel, setPendingInsulinLabel] = useState<string | null>(null);
+  // My Insulin (the full pens card) lives in a sheet now, opened from the insulin strip's chevron.
+  const [pensSheetOpen, setPensSheetOpen] = useState(false);
   // Which colored operation card is expanded in "Your Dose Breakdown" (null = collapsed by default).
   const [expandedCard, setExpandedCard] = useState<DoseCardKey | null>(null);
   // Prediction graph is revealed on demand by the first Predict tap.
@@ -363,7 +359,23 @@ export default function InsulinScreen() {
   }, [activeCarbsOverlayVisible]);
   const activeInsulinFraction = activeFractionRemaining(activeInsulin.remainingMin, activeInsulin.remainingWindowMin);
   /** The strip is all-or-nothing: either side being active brings BOTH bars in. */
-  const showOnBoard = activeCarbsFraction > 0 || activeInsulinFraction > 0;
+  /**
+   * Soonest-due open pen/vial per insulin, for the strip chips' countdown readout. `activePens`
+   * sorts soonest-first, so the first pen seen for a label is that chip's status; forms whose
+   * countdown is switched off in Insulin Settings stay blank, exactly like PensCard. `clockTick`
+   * (30s) keeps "today" fresh across midnight.
+   */
+  const chipPenStatus = useMemo(() => {
+    const today = toLocalDate(new Date());
+    const map = new Map<string, ReturnType<typeof penStatus>>();
+    for (const pen of activePens(penLog ?? [], today)) {
+      if (profile && !showsCountdown(profile, pen.insulinLabel, pen.form)) continue;
+      if (!map.has(pen.insulinLabel)) map.set(pen.insulinLabel, penStatus(pen, today));
+    }
+    return map;
+    // clockTick re-runs this on the 30s tick so the day label can roll over.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [penLog, profile, clockTick]);
 
   /** Most recent logged basal dose — the titration baseline. Log is stored newest-first. */
   const lastBasalEntry = useMemo(() => {
@@ -491,7 +503,8 @@ export default function InsulinScreen() {
         // While the post-bolus hold is active the correction contributes NOTHING to the dose, and
         // the card says so — a full correction figure over a 0u suggestion reads as a broken sum.
         value: dose.correctionHeldUnits > 0 ? 0 : dose.correctionInsulin + dose.resistanceBump + dose.trendAdjustment,
-        sub: dose.correctionHeldUnits > 0 ? `on hold ~${dose.correctionHoldRemainingMin}m` : doseBg ? `${doseBg.label} mg/dL` : "—",
+        // "manual" marks a typed meter reading (the override lives in this card's breakdown now).
+        sub: dose.correctionHeldUnits > 0 ? `on hold ~${dose.correctionHoldRemainingMin}m` : doseBg ? `${doseBg.label}${bgManual ? " manual" : " mg/dL"}` : "—",
         icon: "trending-up",
       },
       { key: "carb", label: "Carb Dose", color: COLORS.success, value: dose.carbInsulin, sub: `${carbsNum} g`, icon: "coffee" },
@@ -513,7 +526,7 @@ export default function InsulinScreen() {
       { key: "activeCarbs", label: "Active Carbs", color: COLORS.warning, value: dose.activeCarbInsulin, sub: `${activeCarbs.totalGrams} g`, icon: "clock" },
       { key: "activeInsulin", label: "Active Insulin", color: CARD_PURPLE, value: dose.activeInsulinUnits, sub: fmtU(dose.activeInsulinUnits), icon: "droplet" },
     ];
-  }, [dose, doseBg, carbInput, activeCarbs]);
+  }, [dose, doseBg, bgManual, carbInput, activeCarbs]);
 
   const explainInput = useMemo(() => ({
     bg: doseBg?.n ?? 0,
@@ -881,30 +894,81 @@ export default function InsulinScreen() {
         }}
       >
 
-      {/* ── Title + insulin-type dropdown (top-right) ── */}
-      <View style={styles.titleRow}>
-        <Text style={[styles.pageTitle, { color: colors.text, flex: 1 }]} numberOfLines={1}>Calculator</Text>
-        <Pressable
-          ref={helpSelector}
-          accessibilityRole="button"
-          accessibilityLabel="Choose insulin type"
-          style={({ pressed }) => [
-            styles.insulinDropdown,
-            { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.8 : 1 },
-          ]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setPendingInsulinLabel(insulinTypeLabel);
-            setInsulinModalVisible(true);
-          }}
-        >
-          <ControlShade radius={12} />
-          <Feather name="droplet" size={13} color={COLORS.primary} />
-          <Text numberOfLines={1} style={[styles.insulinDropdownText, { color: colors.text }]}>
-            {selectedInsulinOption ? `Insulin: ${selectedInsulinOption.name}` : "Select insulin"}
-          </Text>
-          <Feather name="chevron-down" size={15} color={colors.textMuted} />
-        </Pressable>
+      {/* ── Insulin strip: the page's ONE insulin surface. Tap a chip to switch the insulin being
+          dosed (the same selection the old dropdown set — a long-acting chip flips the page to the
+          basal view exactly as before); each chip carries its soonest open pen/vial countdown, and
+          the chevron opens My Insulin (start new, edit, History) as a sheet. ── */}
+      <View style={styles.insulinStripRow}>
+        <View ref={helpSelector} collapsable={false} style={styles.insulinStripBody}>
+          <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]} maxFontSizeMultiplier={1.3}>Insulin</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.insulinStripChips}>
+            {availableInsulinOptions.length === 0 ? (
+              <Text style={[styles.insulinStripEmpty, { color: colors.textMuted }]}>Add your insulins in Insulin Settings</Text>
+            ) : (
+              availableInsulinOptions.map((o) => {
+                const label = insulinChipLabel(o);
+                const selected = label === insulinTypeLabel;
+                const pen = chipPenStatus.get(label);
+                const penColor =
+                  pen == null
+                    ? colors.textMuted
+                    : pen.tone === "ok"
+                      ? COLORS.primaryLight
+                      : pen.tone === "soon"
+                        ? COLORS.warning
+                        : COLORS.danger;
+                return (
+                  <Pressable
+                    key={label}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Dose with ${o.name}${pen ? `, ${pen.label}` : ""}`}
+                    onPress={() => {
+                      if (label === insulinTypeLabel) return;
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      commitInsulinTypeLabel(label);
+                    }}
+                    style={({ pressed }) => [
+                      styles.insulinChip,
+                      selected
+                        ? { backgroundColor: COLORS.primary }
+                        : { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 },
+                      { opacity: pressed ? 0.8 : 1 },
+                    ]}
+                  >
+                    {selected ? <AccentShade radius={12} /> : <ControlShade radius={12} />}
+                    <Feather name="droplet" size={12} color={selected ? "#fff" : COLORS.primary} />
+                    <Text numberOfLines={1} style={[styles.insulinChipText, { color: selected ? "#fff" : colors.text }]}>
+                      {o.name}
+                    </Text>
+                    {pen && (
+                      <View style={styles.insulinChipPen}>
+                        <View style={[styles.insulinChipDot, { borderColor: selected ? "#fff" : penColor }]} />
+                        <Text style={[styles.insulinChipDays, { color: selected ? "#fff" : penColor }]} maxFontSizeMultiplier={1.2}>
+                          {pen.tone === "ok" || pen.tone === "soon" ? `${pen.daysLeft}d` : "due"}
+                        </Text>
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })
+            )}
+          </ScrollView>
+        </View>
+        {!doctorSession && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open My Insulin"
+            hitSlop={10}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setPensSheetOpen(true);
+            }}
+            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 2 })}
+          >
+            <Feather name="chevron-right" size={18} color={colors.textMuted} />
+          </Pressable>
+        )}
       </View>
 
       <View ref={helpInputs} collapsable={false} style={[styles.doseCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -986,53 +1050,25 @@ export default function InsulinScreen() {
             )}
           </View>
 
-          <View style={styles.doseInputDivider} />
-
-          {/* Current BG — big tappable number + target */}
-          <View style={styles.doseInputGroup}>
-            <View style={styles.doseInputHead}>
-              <Feather name="droplet" size={14} color={COLORS.primary} />
-              <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.3}>CURRENT BG</Text>
-              {latest && !bgManual && bgDraft == null && (
-                <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}><TintShade color={COLORS.success} radius={6} />
-                  <Text style={[styles.liveTagText, { color: COLORS.success }]}>LIVE</Text>
-                </View>
-              )}
-            </View>
-            <View style={styles.doseValueRow}>
-              <TextInput
-                style={[styles.doseBigInput, { color: bgManual ? COLORS.primary : colors.text }]}
-                value={bgDraft ?? (bgManual ? bgInput : doseBg?.label ?? "")}
-                onFocus={beginBgEdit}
-                onChangeText={(v) => {
-                  const c = v.replace(/[^0-9]/g, "");
-                  bgDraftRef.current = c;
-                  setBgDraft(c);
-                }}
-                onBlur={commitBg}
-                keyboardType="numeric"
-                placeholder="—"
-                placeholderTextColor={colors.textMuted}
-              />
-              <Text style={[styles.doseUnit, { color: colors.textMuted }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>mg/dL</Text>
-              {bgManual && latest && (
-                <Pressable
-                  onPress={() => {
-                    bgDraftRef.current = null;
-                    setBgDraft(null);
-                    setBgInput(String(latest.glucose));
-                    setBgManual(false);
-                    Keyboard.dismiss();
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  style={{ padding: 4 }}
-                >
-                  <Feather name="refresh-cw" size={15} color={COLORS.primary} />
-                </Pressable>
-              )}
-            </View>
-          </View>
         </View>
+        )}
+
+        {!isBasalMode && (
+          /* The carbs on-board gauge lives WITH the carbs input now — always on, empty at 0 g, so
+             the feature is discoverable before the first log. Same OnBoardBar as always; live BG
+             left this card for the header pill and the Correct BG piece below (which also holds
+             the meter override). */
+          <View ref={helpOnBoard} collapsable={false}>
+            <OnBoardBar
+              fraction={activeCarbsFraction}
+              label={`${activeCarbs.totalGrams} g carbs still active`}
+              windowMin={activeCarbs.remainingWindowMin}
+              color={COLORS.warning}
+              colors={colors}
+              fontScale={1}
+              onMeasure={noopMeasure}
+            />
+          </View>
         )}
 
         {!isBasalMode && dose && (
@@ -1042,39 +1078,6 @@ export default function InsulinScreen() {
           />
         )}
       </View>
-
-      {/* ── What's still on board — its own strip between the inputs and the breakdown. Shown as a
-          PAIR: if either carbs or insulin is active, both bars appear (the empty one reads "0 g",
-          which is information too — it says nothing is pending on that side). When neither is active
-          the whole strip is absent and the page looks exactly as it did before. ── */}
-      {!isBasalMode && showOnBoard && (
-        <View key="on-board" ref={helpOnBoard} collapsable={false} style={styles.onBoardStrip}>
-          {/* Both labels render at ONE size: the size that fits the longer of the two (see barFit).
-              Otherwise the longer insulin label shrank alone at large text sizes and the pair mismatched. */}
-          <View style={styles.onBoardCell}>
-            <OnBoardBar
-              fraction={activeCarbsFraction}
-              label={`${activeCarbs.totalGrams} g carbs still active`}
-              windowMin={activeCarbs.remainingWindowMin}
-              color={COLORS.warning}
-              colors={colors}
-              fontScale={sharedBarScale}
-              onMeasure={reportCarbsFit}
-            />
-          </View>
-          <View style={styles.onBoardCell}>
-            <OnBoardBar
-              fraction={activeInsulinFraction}
-              label={`${fmtU(activeInsulin.totalUnits)} insulin still active`}
-              windowMin={activeInsulin.remainingWindowMin}
-              color={CARD_PURPLE}
-              colors={colors}
-              fontScale={sharedBarScale}
-              onMeasure={reportInsulinFit}
-            />
-          </View>
-        </View>
-      )}
 
       {!isBasalMode && dose && doseBg && (
         <>
@@ -1133,6 +1136,55 @@ export default function InsulinScreen() {
                   {ex.lines.map((line, li) => (
                     <Text key={li} style={[styles.breakdownLine, { color: colors.textSecondary, fontSize: 13.5 * calcScale, lineHeight: 20 * calcScale }]}>{line}</Text>
                   ))}
+                  {expandedCard === "correction" && (
+                    /* The meter override moved here from the old Current BG tile — same state and
+                       commit path (bgManual / bgInput / commitBg), now beside the math it feeds. */
+                    <>
+                      <View style={[styles.bgOverrideRow, { borderTopColor: colors.separator }]}>
+                        <Text style={[styles.bgOverrideLabel, { color: colors.textSecondary }]} maxFontSizeMultiplier={1.3}>BG used</Text>
+                        <TextInput
+                          style={[styles.bgOverrideInput, { color: bgManual ? COLORS.primary : colors.text, borderColor: colors.border, backgroundColor: colors.backgroundTertiary }]}
+                          value={bgDraft ?? (bgManual ? bgInput : doseBg?.label ?? "")}
+                          onFocus={beginBgEdit}
+                          onChangeText={(v) => {
+                            const c = v.replace(/[^0-9]/g, "");
+                            bgDraftRef.current = c;
+                            setBgDraft(c);
+                          }}
+                          onBlur={commitBg}
+                          keyboardType="numeric"
+                          placeholder="—"
+                          placeholderTextColor={colors.textMuted}
+                        />
+                        <Text style={[styles.doseUnit, { color: colors.textMuted }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>mg/dL</Text>
+                        {latest && !bgManual && bgDraft == null ? (
+                          <View style={[styles.liveTag, { backgroundColor: COLORS.success + "22" }]}>
+                            <TintShade color={COLORS.success} radius={6} />
+                            <Text style={[styles.liveTagText, { color: COLORS.success }]}>LIVE</Text>
+                          </View>
+                        ) : bgManual && latest ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Back to the live sensor reading"
+                            onPress={() => {
+                              bgDraftRef.current = null;
+                              setBgDraft(null);
+                              setBgInput(String(latest.glucose));
+                              setBgManual(false);
+                              Keyboard.dismiss();
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            }}
+                            style={{ padding: 4 }}
+                          >
+                            <Feather name="refresh-cw" size={15} color={COLORS.primary} />
+                          </Pressable>
+                        ) : null}
+                      </View>
+                      <Text style={[styles.bgOverrideHint, { color: colors.textMuted }]}>
+                        Type a meter number to use it instead of the sensor.
+                      </Text>
+                    </>
+                  )}
                 </View>
               );
             })()}
@@ -1294,6 +1346,20 @@ export default function InsulinScreen() {
                 ) : null}
               </View>
             )}
+
+            {/* Insulin on board, right under the button that adds to it: log a dose and this
+                fills, then drains over the insulin's window. Always on — empty at 0 u. */}
+            <View>
+              <OnBoardBar
+                fraction={activeInsulinFraction}
+                label={`${fmtU(activeInsulin.totalUnits)} insulin still active`}
+                windowMin={activeInsulin.remainingWindowMin}
+                color={CARD_PURPLE}
+                colors={colors}
+                fontScale={1}
+                onMeasure={noopMeasure}
+              />
+            </View>
           </View>
         </>
         )}
@@ -1399,14 +1465,6 @@ export default function InsulinScreen() {
           </>
         )}
 
-      {/* Pen / vial countdown ("My Insulin") — under Suggested Dose (Bolus and Basal). */}
-      {!doctorSession && (
-        <PensCard
-          colors={colors}
-          canEdit={canLog}
-          choice={{ insulinTypes: profile?.insulinTypes, insulinPens: profile?.insulinPens, insulinVials: profile?.insulinVials }}
-        />
-      )}
 
       {history.length === 0 && (
         <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -1431,47 +1489,18 @@ export default function InsulinScreen() {
     </ScrollView>
       )}
 
-      {/* ── Insulin type picker popup ── */}
+      {/* ── My Insulin sheet — the full pens card (start new, edit, History), opened from the
+          insulin strip's chevron. The card component is unchanged; only its home moved. ── */}
       <DashboardSectionModal
-        visible={insulinModalVisible}
-        onClose={() => setInsulinModalVisible(false)}
-        accessibilityLabel="Insulin type selection"
+        visible={pensSheetOpen}
+        onClose={() => setPensSheetOpen(false)}
+        accessibilityLabel="My Insulin"
       >
-        <View style={[styles.insulinModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.insulinModalTitle, { color: colors.text }]}>Insulin Type</Text>
-          <Text style={[styles.insulinModalSub, { color: colors.textSecondary }]}>
-            Choose which of your insulins this dose uses. The calculator adjusts for how it acts.
-          </Text>
-          <InsulinTypePicker
-            options={availableInsulinOptions}
-            selectedLabel={pendingInsulinLabel}
-            onSelect={setPendingInsulinLabel}
-            colors={colors}
-          />
-          <View style={styles.insulinModalFooter}>
-            <Pressable
-              accessibilityRole="button"
-              disabled={!pendingInsulinLabel}
-              style={({ pressed }) => [
-                styles.insulinApplyBtn,
-                {
-                  backgroundColor: pendingInsulinLabel ? COLORS.primary : colors.backgroundTertiary,
-                  opacity: pressed ? 0.8 : 1,
-                },
-              ]}
-              onPress={() => {
-                if (!pendingInsulinLabel) return;
-                commitInsulinTypeLabel(pendingInsulinLabel);
-                setInsulinModalVisible(false);
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              }}
-            >
-              <Text style={[styles.insulinApplyBtnText, { color: pendingInsulinLabel ? "#fff" : colors.textMuted }]}>
-                Apply
-              </Text>
-            </Pressable>
-          </View>
-        </View>
+        <PensCard
+          colors={colors}
+          canEdit={canLog}
+          choice={{ insulinTypes: profile?.insulinTypes, insulinPens: profile?.insulinPens, insulinVials: profile?.insulinVials }}
+        />
       </DashboardSectionModal>
 
       <LogFingerStickModal
@@ -1670,15 +1699,22 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10 },
 
   // ── Title row + insulin dropdown ──
-  titleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 10 },
-  pageTitle: { fontSize: 16, fontWeight: "700" },
+  insulinStripRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  insulinStripBody: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0 },
+  insulinStripChips: { flexDirection: "row", alignItems: "center", gap: 7, paddingRight: 4 },
+  insulinStripEmpty: { fontSize: 12, fontWeight: "500" },
+  // The chip is the old header dropdown's visual language (card fill, hairline border, droplet,
+  // ControlShade) with the old Dose/Log toggle's selected treatment (solid primary + AccentShade).
+  insulinChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 12, overflow: "hidden" },
+  insulinChipText: { fontSize: 12.5, fontWeight: "600", maxWidth: 110 },
+  insulinChipPen: { flexDirection: "row", alignItems: "center", gap: 4 },
+  insulinChipDot: { width: 9, height: 9, borderRadius: 5, borderWidth: 2 },
+  insulinChipDays: { fontSize: 11, fontWeight: "700" },
+  bgOverrideRow: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, paddingTop: 10, marginTop: 10 },
+  bgOverrideLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
+  bgOverrideInput: { minWidth: 64, textAlign: "center", fontSize: 15, fontWeight: "700", borderWidth: 1, borderRadius: 10, paddingVertical: 6, paddingHorizontal: 10 },
+  bgOverrideHint: { fontSize: 11, fontWeight: "400", marginTop: 6 },
   pageSub: { fontSize: 12.5, fontWeight: "500", marginTop: 2 },
-  insulinDropdown: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, maxWidth: 200, flexShrink: 1,
-  },
-  insulinDropdownText: { fontSize: 12.5, fontWeight: "600", flexShrink: 1 },
-
   // ── "How your dose is calculated" op cards ──
   // The head is a section of its own: SECTION_GAP above it (from whatever precedes — the dose card or
   // the on-board bars) and SECTION_GAP below it (calcUnified's top margin).
@@ -1733,13 +1769,6 @@ const styles = StyleSheet.create({
   doseHint: { fontSize: 12, fontWeight: "500", marginTop: 1 },
   // Laid out as a ROW so each bar sits under the column it belongs to — carbs left, insulin right,
   // mirroring the CARBS | CURRENT BG split in the card above.
-  onBoardStrip: {
-    flexDirection: "row", gap: 10, paddingHorizontal: T.space.md,
-    // SECTION_GAP above (its own margin) and SECTION_GAP below (the calc head's). When the strip isn't
-    // rendered the calc head's own margin stands alone, so the layout without bars is identical.
-    marginTop: SECTION_GAP,
-  },
-  onBoardCell: { flex: 1 },
   onBoardCellInner: { width: "100%", position: "relative" },
   /**
    * The window length, e.g. "6H": inside the bar at its right end, italic, upright. It used to sit
@@ -1853,10 +1882,4 @@ const styles = StyleSheet.create({
   strengthText: { fontSize: 12, fontWeight: "500", flex: 1 },
   predictStaleHint: { fontSize: 12, fontWeight: "500", fontStyle: "italic", marginTop: 6, paddingHorizontal: 2 },
 
-  insulinModalCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
-  insulinModalTitle: { fontSize: 18, fontWeight: "700" },
-  insulinModalSub: { fontSize: 12, fontWeight: "400", lineHeight: 17, marginTop: -6 },
-  insulinModalFooter: { flexDirection: "row", justifyContent: "flex-end", marginTop: 4 },
-  insulinApplyBtn: { paddingHorizontal: 22, paddingVertical: 10, borderRadius: 10 },
-  insulinApplyBtnText: { fontSize: 14, fontWeight: "700" },
 });

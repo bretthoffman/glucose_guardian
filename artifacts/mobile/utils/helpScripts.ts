@@ -92,21 +92,21 @@ const insulin: HelpStep[] = [
     anchor: "insulin.selector",
     title: "Which insulin",
     text:
-      "Pick the insulin you're dosing. A rapid (mealtime) insulin shows the carb calculator below; a long-acting one switches this page to the once-a-day basal view instead.",
+      "Pick which insulin you're dosing by tapping it. Each one shows its open pen or vial's days left, amber when a change is close, and the arrow opens My Insulin, where you start a new pen or vial, fix dates, and see History. Picking a long-acting insulin switches this page to the once-a-day basal view.",
   },
   {
     id: "insulin.inputs",
     anchor: "insulin.inputs",
-    title: "The inputs",
+    title: "Carbs",
     text:
-      "Carbs you're about to eat. Tap to type them. Current BG fills in live from the sensor (the LIVE tag); you can tap it to override with a meter reading. Guidance notes appear right below when they matter, like \"below target. Consider a small snack instead.\".",
+      "Carbs you're about to eat. Tap to type them. Your live glucose feeds the math on its own now; it shows under Correct BG below, where you can also type a meter reading instead. Guidance notes appear right here when they matter, like \"below target. Consider a small snack instead.\".",
   },
   {
     id: "insulin.onBoard",
     anchor: "insulin.onBoard",
     title: "Still active",
     text:
-      "After you log a dose or a meal, these bars show what's still working: insulin and carbs on board. They drain over the absorption window (the small \"6H\"), and the calculator automatically subtracts active insulin so doses never stack.",
+      "Carbs from logged meals drain along this bar as they absorb, over the window the small hour label shows. Its partner bar by the dose buttons shows insulin still working. The calculator counts both automatically so doses never stack, and both bars stay put even at zero.",
   },
   {
     id: "insulin.calc",
@@ -135,13 +135,6 @@ const insulin: HelpStep[] = [
     title: "I Just Took This Dose",
     text:
       "Logs the shown dose with one tap. It lands in the Log tab, counts as insulin on board, and syncs to your care circle and doctor. The button turns green once it's recorded. If insulin was already logged in the last 2 hours, you'll see Beware of insulin stacking first, with how much is still working, so you can cancel or go ahead.",
-  },
-  {
-    id: "insulin.pens",
-    anchor: "insulin.pens",
-    title: "My Insulin",
-    text:
-      "Opened a new pen or vial? Tap Start new insulin, pick it (like Humalog vial or Lantus pen) and where it lives (like Home or School), and Glucose Guardian counts down the days it's good for. You'll get a reminder 3 days before, the day before, and the day to change it, and the Insulin tab shows a dot when one is close. Tap one to edit it or mark it done, and History shows past pens and vials.",
   },
   {
     id: "insulin.disclaimer",

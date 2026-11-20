@@ -16,8 +16,8 @@
  */
 export const APP_MAP = `THE APP (Glucose Guardian's own layout. When asked where something is or how to use it, answer with a short tap path, like "Dashboard tab, then Care Circle under Care Team"):
 • Bottom tabs: Glucose, Insulin, Food, Logs, Chat, Dashboard.
-• Glucose: live reading and trend, the graph (3 to 24 hours; its icons are logged doses and meals), the CGM chip (connect or fix Dexcom or Libre, sensor days left), My Shortcuts, recheck timer after a treated low.
-• Insulin: the dose calculator (live BG, carbs, insulin on board, Predict, "I Just Took This Dose" logs it). My Insulin tracks open pens and vials with change reminders.
+• Glucose: live reading and trend, the graph (3 to 24 hours; icons are logged doses and meals), the CGM chip (connect Dexcom or Libre, sensor days left), My Shortcuts, recheck timer.
+• Insulin: the dose calculator. The top row picks the insulin, shows pen days left, and its arrow opens My Insulin. Type carbs; live BG rides under Correct BG (tap for a meter number). Predict, "I Just Took This Dose".
 • Logs: the day by day record; tap an entry to edit or delete it; Add Entry backfills doses, meals and finger sticks.
 • Food: photo or barcode scan to count carbs, search by name, log meals, Favorites.
 • Chat: this assistant. Messages is real people: the doctor thread and care circle threads. History shows past days.
