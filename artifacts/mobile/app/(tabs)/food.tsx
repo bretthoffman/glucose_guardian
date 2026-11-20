@@ -855,7 +855,10 @@ export default function FoodScreen() {
         contentContainerStyle={[
           styles.scroll,
           {
-            paddingTop: showGlucoseHeader ? 0 : tabGlucoseHeaderPaddingTop(insets.top),
+            // Band showing: the page's 10pt rhythm separates it from the scan card (this member
+            // wins over styles.scroll, which is why the gap lives HERE). Header hidden (keyboard):
+            // the content takes the full safe-area offset instead.
+            paddingTop: showGlucoseHeader ? 10 : tabGlucoseHeaderPaddingTop(insets.top),
             paddingBottom: bottomPadding + 80,
           },
         ]}
@@ -1675,9 +1678,9 @@ function StatBox({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   // iPad: cap + center the content column so it doesn't stretch across a 13" screen. No-op on phones.
-  // paddingTop matches the page's 10pt vertical rhythm (see scanCard/searchRow/quickTabs): the
-  // header band above must not touch the scan card.
-  scroll: { paddingTop: 10, paddingHorizontal: 20, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
+  // No paddingTop here: the ScrollView's inline contentContainerStyle member always sets it (10
+  // under the band, full safe-area offset when the header hides), and inline members win.
+  scroll: { paddingHorizontal: 20, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
   screenHeader: { paddingBottom: 10 },
   /** The scan panel (Take Photo): a tinted card with a round camera button and two lines of text. */
   // marginBottom 10, not 14: every gap in this column (band→scan, scan→search, search→estimate,
