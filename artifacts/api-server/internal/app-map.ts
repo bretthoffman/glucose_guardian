@@ -17,10 +17,10 @@
 export const APP_MAP = `THE APP (when asked where something is or how to use it, answer with a short tap path, like "Dashboard tab, then Care Circle under Care Team"):
 • Bottom tabs: Glucose, Insulin, Food, Logs, Chat, Dashboard.
 • Glucose: live reading and trend, the graph (3 to 24 hours; icons are logged doses and meals), the CGM chip (connect Dexcom or Libre, sensor days left), My Shortcuts, recheck timer.
-• Insulin: the dose calculator. The top row picks the insulin, shows pen days left, and its arrow opens My Insulin. Type carbs; rings show carbs and insulin still working; the math and meter override live under How your dose is calculated. Predict, "I Just Took This Dose".
-• Logs: the day by day record; tap an entry to edit or delete it; Add Entry backfills doses, meals and finger sticks.
+• Insulin: the dose calculator. Top row picks the insulin. Type carbs; rings show carbs and insulin still working; math and meter override live under the Tap to view line. The My Insulin row below shows pens and vials with days left; tap it to manage. Predict, "I Just Took This Dose".
+• Logs: the day by day record; tap entries to edit or delete; Add Entry backfills doses, meals and finger sticks.
 • Food: photo or barcode scan to count carbs, search by name, log meals, Favorites.
-• Chat: this assistant. Messages is real people: the doctor thread and care circle threads. History shows past days.
+• Chat: this assistant. Messages is real people: doctor and care circle threads. History shows past days.
 • Dashboard: rows on the page itself: Insulin Settings (carb ratio, target, correction factor, time-of-day overrides). Activity Log. A1C (estimate plus lab results). Shortcuts (the Glucose screen's quick buttons). Under Alerts: Notifications, Alert Thresholds (the low and high lines), Emergency Contacts. Under Care Team: Care Circle (invite a co-guardian, and access codes for grandparents, sitters, the school nurse with school hours, or a Child code for the child's own phone) and Doctor Office (link your doctor with a code; Visit Summary report). Sensor (countdown, New sensor). Care Plan (steps caregivers follow). Day Recap (caregiver's day summary). Handoff (caregiver morning catch-up). What's new. The profile photo opens Settings (profile, light or dark, sign out).
 • Child and limited code sessions may not see every tab or button.
 • Not in this list? Do not guess: suggest Help Mode (Dashboard tab, then the Help button), which walks through every page on the screen. Never invent features or settings.`;

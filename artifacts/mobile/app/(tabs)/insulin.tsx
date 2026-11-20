@@ -51,7 +51,7 @@ import DosePredictionChart from "@/components/DosePredictionChart";
 import { runPrediction, type PredictionResult, type StrengthLabel } from "@/utils/predictionClient";
 import { PREDICTION_UNLOCK_DAYS, distinctLogDayCount, predictionDaysRemaining } from "@/utils/predictionUnlock";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
-import { activePens, penStatus, toLocalDate } from "@/utils/pens";
+import { activePens, penStatus, penTitle, toLocalDate } from "@/utils/pens";
 import { showsCountdown } from "@/utils/insulinForms";
 import { activeFractionRemaining, computeActiveCarbs, computeActiveInsulin, formatAgeShort } from "@/utils/onBoard";
 import { withoutLowTreatments } from "@/utils/lowTreatment";
@@ -218,6 +218,7 @@ export default function InsulinScreen() {
   const helpSuggest = useHelpAnchor("insulin.suggest");
   const helpPredict = useHelpAnchor("insulin.predict");
   const helpTookDose = useHelpAnchor("insulin.tookDose");
+  const helpMyInsulin = useHelpAnchor("insulin.myInsulin");
   const helpDisclaimer = useHelpAnchor("insulin.disclaimer");
   useHelpScroll("insulin", scrollRef);
   const pendingScrollRef = useRef(false);
@@ -361,22 +362,23 @@ export default function InsulinScreen() {
   const activeInsulinFraction = activeFractionRemaining(activeInsulin.remainingMin, activeInsulin.remainingWindowMin);
   /** The strip is all-or-nothing: either side being active brings BOTH bars in. */
   /**
-   * Soonest-due open pen/vial per insulin, for the strip chips' countdown readout. `activePens`
-   * sorts soonest-first, so the first pen seen for a label is that chip's status; forms whose
-   * countdown is switched off in Insulin Settings stay blank, exactly like PensCard. `clockTick`
-   * (30s) keeps "today" fresh across midnight.
+   * Every open pen/vial with its status, soonest due first, for the My Insulin strip under the
+   * dose card. Forms whose countdown is switched off in Insulin Settings are skipped, exactly
+   * like PensCard. `clockTick` (30s) keeps "today" fresh across midnight.
    */
-  const chipPenStatus = useMemo(() => {
+  const stripPens = useMemo(() => {
     const today = toLocalDate(new Date());
-    const map = new Map<string, ReturnType<typeof penStatus>>();
-    for (const pen of activePens(penLog ?? [], today)) {
-      if (profile && !showsCountdown(profile, pen.insulinLabel, pen.form)) continue;
-      if (!map.has(pen.insulinLabel)) map.set(pen.insulinLabel, penStatus(pen, today));
-    }
-    return map;
-    // clockTick re-runs this on the 30s tick so the day label can roll over.
+    return activePens(penLog ?? [], today)
+      .filter((p) => !profile || showsCountdown(profile, p.insulinLabel, p.form))
+      .map((p) => ({ pen: p, status: penStatus(p, today) }));
+    // clockTick re-runs this on the 30s tick so the day labels can roll over.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [penLog, profile, clockTick]);
+
+  const openPensSheet = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPensSheetOpen(true);
+  }, []);
 
   /** Most recent logged basal dose — the titration baseline. Log is stored newest-first. */
   const lastBasalEntry = useMemo(() => {
@@ -909,21 +911,12 @@ export default function InsulinScreen() {
               availableInsulinOptions.map((o) => {
                 const label = insulinChipLabel(o);
                 const selected = label === insulinTypeLabel;
-                const pen = chipPenStatus.get(label);
-                const penColor =
-                  pen == null
-                    ? colors.textMuted
-                    : pen.tone === "ok"
-                      ? COLORS.primaryLight
-                      : pen.tone === "soon"
-                        ? COLORS.warning
-                        : COLORS.danger;
                 return (
                   <Pressable
                     key={label}
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
-                    accessibilityLabel={`Dose with ${o.name}${pen ? `, ${pen.label}` : ""}`}
+                    accessibilityLabel={`Dose with ${o.name}`}
                     onPress={() => {
                       if (label === insulinTypeLabel) return;
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -942,34 +935,12 @@ export default function InsulinScreen() {
                     <Text numberOfLines={1} style={[styles.insulinChipText, { color: selected ? "#fff" : colors.text }]}>
                       {o.name}
                     </Text>
-                    {pen && (
-                      <View style={styles.insulinChipPen}>
-                        <View style={[styles.insulinChipDot, { borderColor: selected ? "#fff" : penColor }]} />
-                        <Text style={[styles.insulinChipDays, { color: selected ? "#fff" : penColor }]} maxFontSizeMultiplier={1.2}>
-                          {pen.tone === "ok" || pen.tone === "soon" ? `${pen.daysLeft}d` : "due"}
-                        </Text>
-                      </View>
-                    )}
                   </Pressable>
                 );
               })
             )}
           </ScrollView>
         </View>
-        {!doctorSession && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open My Insulin"
-            hitSlop={10}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setPensSheetOpen(true);
-            }}
-            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 2 })}
-          >
-            <Feather name="chevron-right" size={18} color={colors.textMuted} />
-          </Pressable>
-        )}
       </View>
 
       <View ref={helpInputs} collapsable={false} style={[styles.doseCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -1113,9 +1084,11 @@ export default function InsulinScreen() {
               setExpandedCard(null);
               setCalcOpen((v) => !v);
             }}
+            // Full-width row + generous hitSlop: the whole line is the button, not just the glyphs.
+            hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
             style={({ pressed }) => [styles.calcHeadRow, { opacity: pressed ? 0.7 : 1 }]}
           >
-            <Text style={[styles.calcHeadLabel, { color: colors.textSecondary }]}>HOW YOUR DOSE IS CALCULATED</Text>
+            <Text style={[styles.calcHeadLabel, { color: colors.textSecondary }]}>TAP TO VIEW HOW YOUR DOSE IS CALCULATED</Text>
             <Feather name="info" size={13} color={colors.textSecondary} />
           </Pressable>
           {/* ── One unified window, purple-outlined (the old Active Insulin card border): the four
@@ -1485,6 +1458,62 @@ export default function InsulinScreen() {
           </>
         )}
 
+      {/* ── My Insulin — every open pen/vial in a horizontal strip under the dose card (the
+          prediction window, when open, sits above this inside the card): countdown ring, the name
+          the family gave it, and days left. Tapping a chip or the arrow opens the full My Insulin
+          sheet (start new, edit, History). The strip up top stays a pure calculator selector. ── */}
+      {!doctorSession && (
+        <View ref={helpMyInsulin} collapsable={false} style={styles.pensStripRow}>
+          <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]} maxFontSizeMultiplier={1.3}>My Insulin</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.insulinStripChips} style={{ flex: 1 }}>
+            {stripPens.length === 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Start new insulin"
+                onPress={openPensSheet}
+                style={({ pressed }) => [styles.pensChip, { borderColor: colors.border, borderStyle: "dashed", opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Feather name="plus" size={13} color={COLORS.primaryLight} />
+                <Text numberOfLines={1} style={[styles.pensChipTitle, { color: colors.textSecondary }]}>Start new insulin</Text>
+              </Pressable>
+            ) : (
+              stripPens.map(({ pen, status }) => (
+                <Pressable
+                  key={pen.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${penTitle(pen)}, ${status.label}. Opens My Insulin.`}
+                  onPress={openPensSheet}
+                  style={({ pressed }) => [styles.pensChip, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.8 : 1 }]}
+                >
+                  <ControlShade radius={12} />
+                  <PenStripRing daysLeft={status.daysLeft} tone={status.tone} fraction={status.fraction} colors={colors} />
+                  <View style={{ minWidth: 0 }}>
+                    <Text numberOfLines={1} style={[styles.pensChipTitle, { color: colors.text }]}>{penTitle(pen)}</Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.pensChipSub,
+                        { color: status.tone === "ok" ? colors.textSecondary : status.tone === "soon" ? COLORS.warning : COLORS.danger },
+                      ]}
+                    >
+                      {status.label}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))
+            )}
+          </ScrollView>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open My Insulin"
+            hitSlop={10}
+            onPress={openPensSheet}
+            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 2 })}
+          >
+            <Feather name="chevron-right" size={18} color={colors.textMuted} />
+          </Pressable>
+        </View>
+      )}
 
       {history.length === 0 && (
         <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -1543,6 +1572,49 @@ const STRENGTH_META: Record<StrengthLabel, { text: string; color: string }> = {
 };
 
 /** The reference-strength readout under the prediction chart (combines the chosen matches' confidence). */
+/** Mini pen-countdown ring for the My Insulin strip — PenRing (components/PensCard) at chip scale. */
+function PenStripRing({
+  daysLeft,
+  tone,
+  fraction,
+  colors,
+}: {
+  daysLeft: number;
+  tone: "ok" | "soon" | "today" | "over";
+  fraction: number;
+  colors: (typeof Colors)["light"];
+}) {
+  const size = 26;
+  const stroke = 3.5;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const color = tone === "ok" ? COLORS.primaryLight : tone === "soon" ? COLORS.warning : COLORS.danger;
+  const overdue = tone === "today" || tone === "over";
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={overdue ? color : colors.border} strokeWidth={stroke} fill={overdue ? color + "22" : "none"} />
+        {!overdue && fraction > 0 && (
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            stroke={color}
+            strokeWidth={stroke}
+            fill="none"
+            strokeLinecap="round"
+            strokeDasharray={`${c * fraction} ${c}`}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        )}
+      </Svg>
+      <Text style={{ fontSize: 9, fontWeight: "800", color: tone === "ok" ? colors.text : color }} maxFontSizeMultiplier={1.2}>
+        {overdue ? "!" : String(daysLeft)}
+      </Text>
+    </View>
+  );
+}
+
 /**
  * On-board drain ring — active carbs or active insulin, in the pens' ring language (PenRing in
  * components/PensCard): the arc is the share still working and empties as the body absorbs; the
@@ -1684,9 +1756,11 @@ const styles = StyleSheet.create({
   // ControlShade) with the old Dose/Log toggle's selected treatment (solid primary + AccentShade).
   insulinChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 12, overflow: "hidden" },
   insulinChipText: { fontSize: 12.5, fontWeight: "600", maxWidth: 110 },
-  insulinChipPen: { flexDirection: "row", alignItems: "center", gap: 4 },
-  insulinChipDot: { width: 9, height: 9, borderRadius: 5, borderWidth: 2 },
-  insulinChipDays: { fontSize: 11, fontWeight: "700" },
+  // ── My Insulin strip (under the dose card): one chip per open pen/vial. ──
+  pensStripRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: SECTION_GAP },
+  pensChip: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 12, borderWidth: 1, overflow: "hidden" },
+  pensChipTitle: { fontSize: 12, fontWeight: "600", maxWidth: 150 },
+  pensChipSub: { fontSize: 10.5, fontWeight: "600", marginTop: 1 },
   bgOverrideRow: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, paddingTop: 10, marginTop: 10 },
   bgOverrideLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
   bgOverrideInput: { minWidth: 64, textAlign: "center", fontSize: 15, fontWeight: "700", borderWidth: 1, borderRadius: 10, paddingVertical: 6, paddingHorizontal: 10 },
@@ -1695,7 +1769,7 @@ const styles = StyleSheet.create({
   // ── "How your dose is calculated" op cards ──
   // The head is a section of its own: SECTION_GAP above it (from whatever precedes — the dose card or
   // the on-board bars) and SECTION_GAP below it (calcUnified's top margin).
-  calcHeadRow: { marginTop: SECTION_GAP, marginBottom: 0, flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start" },
+  calcHeadRow: { marginTop: SECTION_GAP, marginBottom: 0, flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
   calcHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
   /** The single purple-outlined window housing the four pieces + the opened explanation. */
   calcUnified: { marginTop: SECTION_GAP, borderWidth: 1.5, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 8 },

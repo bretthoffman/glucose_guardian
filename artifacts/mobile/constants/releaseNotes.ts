@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-20e",
+    date: "2026-11-20",
+    items: [
+      {
+        icon: "clock",
+        title: "My Insulin gets its own row",
+        body: "Your pens and vials now sit in their own My Insulin row under the dose buttons, each with its countdown ring, the name you gave it, and days left. Tap the row to manage them or start a new one. The picker at the top is now just for choosing which insulin you're dosing. The dose math line also says Tap to view now, with a bigger tap area.",
+      },
+    ],
+  },
+  {
     id: "2026-11-20d",
     date: "2026-11-20",
     items: [

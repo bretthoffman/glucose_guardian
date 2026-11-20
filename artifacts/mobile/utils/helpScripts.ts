@@ -92,7 +92,7 @@ const insulin: HelpStep[] = [
     anchor: "insulin.selector",
     title: "Which insulin",
     text:
-      "Pick which insulin you're dosing by tapping it. Each one shows its open pen or vial's days left, amber when a change is close, and the arrow opens My Insulin, where you start a new pen or vial, fix dates, and see History. Picking a long-acting insulin switches this page to the once-a-day basal view.",
+      "Pick which insulin you're dosing by tapping it. Picking a long-acting insulin switches this page to the once-a-day basal view. Your pens and vials themselves live in the My Insulin row further down.",
   },
   {
     id: "insulin.inputs",
@@ -113,7 +113,7 @@ const insulin: HelpStep[] = [
     anchor: "insulin.calc",
     title: "How your dose is calculated",
     text:
-      "The four pieces of the math: a correction for your current BG, the dose for the carbs, carbs still active, minus insulin still active. Tap any piece to see its exact numbers and the settings behind it. This window tucks away. Tap How your dose is calculated, or the info circle next to it, to open or close it any time.",
+      "The four pieces of the math: a correction for your current BG, the dose for the carbs, carbs still active, minus insulin still active. Tap any piece to see its exact numbers and the settings behind it. This window tucks away. Tap the Tap to view line, or its info circle, to open or close it any time.",
   },
   {
     id: "insulin.suggest",
@@ -135,6 +135,13 @@ const insulin: HelpStep[] = [
     title: "I Just Took This Dose",
     text:
       "Logs the shown dose with one tap. It lands in the Log tab, counts as insulin on board, and syncs to your care circle and doctor. The button turns green once it's recorded. If insulin was already logged in the last 2 hours, you'll see Beware of insulin stacking first, with how much is still working, so you can cancel or go ahead.",
+  },
+  {
+    id: "insulin.myInsulin",
+    anchor: "insulin.myInsulin",
+    title: "My Insulin",
+    text:
+      "Every pen and vial you've started, side by side: the countdown ring, the name you gave it, and its days left, amber when a change is close. Tap any of them, or the arrow, to open My Insulin, where you start a new pen or vial, fix dates, and see History.",
   },
   {
     id: "insulin.disclaimer",
