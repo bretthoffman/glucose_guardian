@@ -35,6 +35,7 @@ const TAB_META: Record<string, { label: string; icon: IconName }> = {
   index: { label: "Glucose", icon: "water" },
   insulin: { label: "Insulin", icon: "needle" },
   food: { label: "Food", icon: "silverware-fork-knife" },
+  logs: { label: "Logs", icon: "clipboard-text-outline" },
   chat: { label: "Chat", icon: "message-text-outline" },
   dashboard: { label: "Dashboard", icon: "chart-bar" },
 };
@@ -95,16 +96,22 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
   useEffect(() => () => _reportTabBar(null), [_reportTabBar]);
 
   if (barHidden) return null;
-  // Hide Insulin for a child-view-mode owner account, or for an access-code session (kid / caregiver)
-  // whose grants include neither the dose calculator nor logging — nothing to show there.
+  // Insulin (the dose calculator) hides for a child-view-mode owner account, or an access-code
+  // session without the calculator grant; Logs (the day record) likewise on the log grant. A
+  // session with only one grant sees only that tab — the same reachability the old combined
+  // Insulin page gave its Dose/Log views.
   const hideInsulinTab =
     (isChildMode && !caregiverSession) ||
-    (accessCodeRole != null && !accessCodePermissions?.useCalculator && !accessCodePermissions?.log);
+    (accessCodeRole != null && !accessCodePermissions?.useCalculator);
+  const hideLogsTab =
+    (isChildMode && !caregiverSession) ||
+    (accessCodeRole != null && !accessCodePermissions?.log);
   const hideFoodTab = !!doctorSession;
 
   const routes = state.routes.filter((r) => {
     if (!TAB_META[r.name]) return false;
     if (r.name === "insulin" && hideInsulinTab) return false;
+    if (r.name === "logs" && hideLogsTab) return false;
     if (r.name === "food" && hideFoodTab) return false;
     return true;
   });
@@ -188,6 +195,7 @@ export default function TabLayout() {
         <Tabs.Screen name="index" options={{ title: "Glucose" }} />
         <Tabs.Screen name="insulin" options={{ title: "Insulin" }} />
         <Tabs.Screen name="food" options={{ title: "Food" }} />
+        <Tabs.Screen name="logs" options={{ title: "Logs" }} />
         <Tabs.Screen name="chat" options={{ title: "Chat" }} />
         <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
       </Tabs>

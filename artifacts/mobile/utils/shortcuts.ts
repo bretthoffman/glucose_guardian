@@ -41,8 +41,10 @@ export function shortcutIconFamily(icon: ShortcutIcon): "feather" | "mci" {
 }
 
 export type ShortcutTarget =
-  /** add: open the Log page for today with the Add menu open, or straight into one of its pop-ups. */
-  | { kind: "insulin"; tab: "log" | "predict"; add?: "menu" | "insulin" | "stick" | "low" }
+  /** The dose calculator page. */
+  | { kind: "insulin" }
+  /** The Logs page; `add` opens it with the Add menu open, or straight into one of its pop-ups. */
+  | { kind: "logs"; add?: "menu" | "insulin" | "stick" | "low" }
   | { kind: "settings" }
   | { kind: "help" }
   | { kind: "food" }
@@ -72,15 +74,15 @@ export const DEFAULT_SHORTCUTS: string[] = [];
 
 /** Every shortcut, in the order the Add list shows them. */
 export const SHORTCUTS: ShortcutDef[] = [
-  { id: "addEntry", title: "Add Entry", icon: "plus-circle", color: "#5CB8FF", target: { kind: "insulin", tab: "log", add: "menu" } },
-  { id: "logInsulin", title: "Log Insulin", icon: "needle", color: "#5CB8FF", target: { kind: "insulin", tab: "log", add: "insulin" } },
-  { id: "fingerStick", title: "Finger Stick", icon: "water-plus-outline", color: "#FF8A80", target: { kind: "insulin", tab: "log", add: "stick" } },
-  { id: "treatedLow", title: "Treated a Low", icon: "timer-outline", color: "#FF7A76", target: { kind: "insulin", tab: "log", add: "low" } },
+  { id: "addEntry", title: "Add Entry", icon: "plus-circle", color: "#5CB8FF", target: { kind: "logs", add: "menu" } },
+  { id: "logInsulin", title: "Log Insulin", icon: "needle", color: "#5CB8FF", target: { kind: "logs", add: "insulin" } },
+  { id: "fingerStick", title: "Finger Stick", icon: "water-plus-outline", color: "#FF8A80", target: { kind: "logs", add: "stick" } },
+  { id: "treatedLow", title: "Treated a Low", icon: "timer-outline", color: "#FF7A76", target: { kind: "logs", add: "low" } },
   { id: "sensor", title: "Sensor", icon: "target", color: "#5CB8FF", target: { kind: "dashboard", section: "sensor" } },
   { id: "carePlan", title: "Care Plan", icon: "clipboard", color: "#8FC9FF", target: { kind: "dashboard", section: "carePlan" } },
   { id: "dayRecap", title: "Day Recap", icon: "send", color: "#7DE3B9", target: { kind: "dashboard", section: "dayRecap" } },
-  { id: "logs", title: "Logs", icon: "list", color: "#3B9BFF", target: { kind: "insulin", tab: "log" } },
-  { id: "dose", title: "Dose Calculator", icon: "droplet", color: "#5CB8FF", target: { kind: "insulin", tab: "predict" } },
+  { id: "logs", title: "Logs", icon: "list", color: "#3B9BFF", target: { kind: "logs" } },
+  { id: "dose", title: "Dose Calculator", icon: "droplet", color: "#5CB8FF", target: { kind: "insulin" } },
   { id: "food", title: "Log a Meal", icon: "camera", color: "#1FD18A", target: { kind: "food" } },
   { id: "messages", title: "Messages", icon: "message-circle", color: "#34D399", target: { kind: "chat", open: "messages" } },
   { id: "chatHistory", title: "Chat History", icon: "clock", color: "#60A5FA", target: { kind: "chat", open: "history" } },
@@ -98,9 +100,9 @@ export const SHORTCUTS: ShortcutDef[] = [
 
 export interface ShortcutAccess {
   doctorSession: boolean;
-  /** The Logs page (insulin tab, Log view): own account, or a code with the log grant. */
+  /** The Logs tab: own account, or a code with the log grant. */
   canOpenLogs: boolean;
-  /** The dose calculator (insulin tab, Dose view). */
+  /** The dose calculator (the Insulin tab). */
   canUseCalculator: boolean;
   /** Assistant chat and Messages (an access code needs the chat grant). */
   canChat: boolean;
@@ -129,7 +131,9 @@ export function canUseShortcut(def: ShortcutDef, a: ShortcutAccess): boolean {
   const t = def.target;
   switch (t.kind) {
     case "insulin":
-      return t.tab === "log" ? a.canOpenLogs : a.canUseCalculator;
+      return a.canUseCalculator;
+    case "logs":
+      return a.canOpenLogs;
     case "food":
     case "settings":
     case "help":

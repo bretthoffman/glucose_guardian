@@ -1,11 +1,10 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
   Keyboard,
   LayoutAnimation,
   PixelRatio,
@@ -41,7 +40,6 @@ import {
   roundToQuarterUnits,
 } from "@/utils/doseOverride";
 import { getEffectiveTrend } from "@/utils/trend";
-import LogHistory from "@/components/LogHistory";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
@@ -68,8 +66,6 @@ import { useHelpAnchor, useHelpPage, useHelpScroll } from "@/context/HelpContext
 import { findRecentFastActing } from "@/utils/insulinStacking";
 import { useStackingGuard } from "@/components/StackingWarningModal";
 import { CloseButton } from "@/components/CloseButton";
-
-type ScreenTab = "predict" | "log";
 
 // Accent hues for the calculator's operation cards. Literal hex (like the app's other accents) so
 // the same hue reads correctly in both light and dark; the card background/border are theme-tinted.
@@ -169,17 +165,12 @@ export default function InsulinScreen() {
   // Fresh insulin log for the stacking guard inside handleTookDose's zero-delay tick.
   const insulinLogRef = useRef(insulinLog);
   useEffect(() => { insulinLogRef.current = insulinLog; }, [insulinLog]);
-  // A child/caregiver access-code session only sees the tabs its grants allow (dose calculator /
-  // logging). Everyone else — owner, co-guardian, doctor, legacy caregiver code — sees both.
+  // Access-code grants: the calculator grant gates this page's content (the tab bar hides the tab
+  // too; this covers deep links), and the log grant still gates "I Just Took This Dose" below.
+  // The day record itself lives on the Logs tab now (app/(tabs)/logs.tsx).
   const isAccessCodeSession = accessCodeRole != null;
   const canUseCalculator = !isAccessCodeSession || !!accessCodePermissions?.useCalculator;
   const canLog = !isAccessCodeSession || !!accessCodePermissions?.log;
-  const availableTabs = [
-    ...(canUseCalculator ? (["predict"] as ScreenTab[]) : []),
-    ...(canLog ? (["log"] as ScreenTab[]) : []),
-  ];
-
-  const [screenTab, setScreenTab] = useState<ScreenTab>("predict");
   /**
    * The on-board bars' shared label fit. Each bar reports the scale (≤ 1) its label needs to fit its
    * slot at the current text size; both labels then render at the smaller of the two, floored at 75%,
@@ -189,19 +180,6 @@ export default function InsulinScreen() {
   const sharedBarScale = Math.max(0.75, Math.min(1, barFit[0], barFit[1]));
   const reportCarbsFit = useCallback((need: number) => setBarFit((prev) => (prev[0] === need ? prev : [need, prev[1]])), []);
   const reportInsulinFit = useCallback((need: number) => setBarFit((prev) => (prev[1] === need ? prev : [prev[0], need])), []);
-  // Deep link from the home page's "Logs" shortcut: /(tabs)/insulin?tab=log. The `t` nonce makes a
-  // repeat tap re-run this even though expo-router keeps the previous params; `effectiveTab` below
-  // still guards availability, so a session without the log grant just lands on its allowed tab.
-  const linkParams = useLocalSearchParams<{ tab?: string; t?: string; add?: string }>();
-  useEffect(() => {
-    if (linkParams.tab === "log") setScreenTab("log");
-    else if (linkParams.tab === "predict") setScreenTab("predict");
-  }, [linkParams.tab, linkParams.t]);
-  // The tab actually shown: fall back to the first allowed tab when the stored one isn't available
-  // (e.g. calculator grant off → default to Log; log grant off → only Dose).
-  const effectiveTabBase: ScreenTab = availableTabs.includes(screenTab) ? screenTab : (availableTabs[0] ?? "predict");
-
-
   const [carbInput, setCarbInput] = useState("");
   /**
    * "ACTIVE CARBS" overlay on the carbs field — shows AUTOMATICALLY whenever a logged meal's carbs
@@ -234,19 +212,9 @@ export default function InsulinScreen() {
   const cgmSyncTickRef = useRef(cgmSyncSuccessTick);
   // Scroll to the page bottom after a toggle/card reveals content downward, so it comes into view.
   const scrollRef = useRef<ScrollView>(null);
-  // ── Help Mode wiring. While this page's tour runs, the visible tab follows the SCRIPT (Dose
-  // steps first, then the steps tagged "insulin.logTab" show the Log tab) — view state only, and
-  // the user's real tab choice returns the moment the tour ends. Anchors are refs only. ──
-  const { activeEffects: helpEffects, isTouring } = useHelpPage();
-  const helpTouring = isTouring("insulin");
-  const effectiveTab: ScreenTab = helpTouring
-    ? helpEffects.includes("insulin.logTab") && availableTabs.includes("log")
-      ? "log"
-      : availableTabs.includes("predict")
-        ? "predict"
-        : effectiveTabBase
-    : effectiveTabBase;
-  const helpTabs = useHelpAnchor("insulin.tabs");
+  // ── Help Mode wiring: anchors are refs only; the page reports itself so tours start and stop
+  // on tab switches. ──
+  useHelpPage();
   const helpPill = useHelpAnchor("insulin.glucosePill");
   const helpSelector = useHelpAnchor("insulin.selector");
   const helpInputs = useHelpAnchor("insulin.inputs");
@@ -256,7 +224,7 @@ export default function InsulinScreen() {
   const helpPredict = useHelpAnchor("insulin.predict");
   const helpTookDose = useHelpAnchor("insulin.tookDose");
   const helpDisclaimer = useHelpAnchor("insulin.disclaimer");
-  useHelpScroll("insulin", scrollRef, { enabled: effectiveTab !== "log" });
+  useHelpScroll("insulin", scrollRef);
   const pendingScrollRef = useRef(false);
 
   // ── Insulin type selection (persisted; validated against the profile's configured insulins) ──
@@ -271,11 +239,6 @@ export default function InsulinScreen() {
 
   // ── "I just took this dose" — green until the next successful CGM sync ──
   const [doseLoggedAtTick, setDoseLoggedAtTick] = useState<number | null>(null);
-
-  // ── "+1" fly-away badge on the header Log toggle ──
-  const [plusOneActive, setPlusOneActive] = useState(false);
-  const plusOneOpacity = useRef(new Animated.Value(0)).current;
-  const plusOneShift = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
   useEffect(() => {
     let cancelled = false;
@@ -438,26 +401,6 @@ export default function InsulinScreen() {
     if (label) AsyncStorage.setItem(DOSE_INSULIN_TYPE_STORAGE_KEY, label).catch(() => {});
     else AsyncStorage.removeItem(DOSE_INSULIN_TYPE_STORAGE_KEY).catch(() => {});
   }, []);
-
-  const triggerLogPlusOne = useCallback(() => {
-    plusOneOpacity.setValue(0);
-    plusOneShift.setValue({ x: 0, y: 0 });
-    setPlusOneActive(true);
-    Animated.sequence([
-      Animated.timing(plusOneOpacity, { toValue: 1, duration: 140, useNativeDriver: true }),
-      Animated.delay(1500),
-      Animated.parallel([
-        Animated.timing(plusOneOpacity, { toValue: 0, duration: 450, useNativeDriver: true }),
-        Animated.timing(plusOneShift, {
-          toValue: { x: 18, y: -26 },
-          duration: 450,
-          useNativeDriver: true,
-        }),
-      ]),
-    ]).start(({ finished }) => {
-      if (finished) setPlusOneActive(false);
-    });
-  }, [plusOneOpacity, plusOneShift]);
 
   const latest = history[history.length - 1];
 
@@ -828,7 +771,6 @@ export default function InsulinScreen() {
           setCarbInput("");
         }
         setDoseLoggedAtTick(cgmSyncSuccessTick);
-        triggerLogPlusOne();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       });
       // ── Insulin-stacking guard: a fast-acting dose logged by ANYONE in the circle within the
@@ -845,7 +787,6 @@ export default function InsulinScreen() {
     insulinTypeLabel,
     logInsulinDose,
     cgmSyncSuccessTick,
-    triggerLogPlusOne,
     confirmLog,
     askStacking,
   ]);
@@ -903,77 +844,18 @@ export default function InsulinScreen() {
         borderBottomColor={colors.border}
         style={[styles.screenHeader, { backgroundColor: colors.background }]}
       >
-        <TabGlucoseHeaderRow
-          glucoseSlotRef={helpPill}
-          left={
-            <View ref={helpTabs} collapsable={false} style={[styles.screenToggle, { backgroundColor: colors.backgroundTertiary }]}>
-              <ControlShade radius={12} />
-              {availableTabs.map((t) => (
-                <Pressable
-                  key={t}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: effectiveTab === t }}
-                  style={[
-                    styles.screenToggleBtn,
-                    // Selected = violet on white, the same language as the chart's 3H/6H/12H/24H
-                    // toggle. (It used to be a card-colored pill, which on the lit track would read
-                    // as a dark hole.)
-                    effectiveTab === t && { backgroundColor: COLORS.primary },
-                  ]}
-                  onPress={() => {
-                    setScreenTab(t);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                >
-                  {effectiveTab === t && <AccentShade radius={10} />}
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.screenToggleText,
-                      { color: effectiveTab === t ? "#fff" : colors.textSecondary },
-                    ]}
-                  >
-                    {t === "predict" ? "💉 Dose" : "📋 Log"}
-                  </Text>
-                  {t === "log" && plusOneActive && (
-                    <Animated.Text
-                      pointerEvents="none"
-                      style={[
-                        styles.plusOneBadge,
-                        {
-                          opacity: plusOneOpacity,
-                          transform: plusOneShift.getTranslateTransform(),
-                        },
-                      ]}
-                    >
-                      +1
-                    </Animated.Text>
-                  )}
-                </Pressable>
-              ))}
-            </View>
-          }
-        />
+        {/* Empty left slot: the old Dose/Log toggle is gone — the day record lives on the Logs tab. */}
+        <TabGlucoseHeaderRow left={null} glucoseSlotRef={helpPill} />
       </TabGlucoseHeaderShell>
 
-      {availableTabs.length === 0 ? (
+      {!canUseCalculator ? (
         <View style={[styles.lockedCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Feather name="lock" size={26} color={colors.textMuted} />
-          <Text style={[styles.lockedTitle, { color: colors.text }]}>Insulin isn't available</Text>
+          <Text style={[styles.lockedTitle, { color: colors.text }]}>The dose calculator isn't available</Text>
           <Text style={[styles.lockedSub, { color: colors.textSecondary }]}>
-            Neither the dose calculator nor logging is turned on for you. Ask a parent to enable one.
+            The dose calculator isn't turned on for you. Ask a parent to enable it.
           </Text>
         </View>
-      ) : effectiveTab === "log" ? (
-        <LogHistory
-          colors={colors}
-          openAddMenuKey={linkParams.add ? `${linkParams.add}:${linkParams.t ?? ""}` : undefined}
-          openAddKind={linkParams.add === "insulin" || linkParams.add === "stick" ? linkParams.add : "menu"}
-          restrictToDay={caregiverSession}
-          insulinOptions={availableInsulinOptions}
-          selectedInsulinLabel={insulinTypeLabel}
-          onLogAdded={triggerLogPlusOne}
-        />
       ) : (
       <ScrollView
         ref={scrollRef}
@@ -1779,25 +1661,6 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 20, paddingTop: 10, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
 
   screenHeader: { paddingBottom: 10,},
-  screenToggle: {
-    flexDirection: "row",
-    flexShrink: 1,
-    minWidth: 0,
-    alignSelf: "stretch",
-    borderRadius: 12,
-    padding: 2,
-    gap: 2,
-  },
-  screenToggleBtn: {
-    flex: 1,
-    minWidth: 0,
-    borderRadius: 10,
-    paddingVertical: 7,
-    paddingHorizontal: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  screenToggleText: { fontSize: 13, fontWeight: "600", textAlign: "center" },
 
 
 
@@ -1987,15 +1850,6 @@ const styles = StyleSheet.create({
   strengthDot: { width: 9, height: 9, borderRadius: 4.5 },
   strengthText: { fontSize: 12, fontWeight: "500", flex: 1 },
   predictStaleHint: { fontSize: 12, fontWeight: "500", fontStyle: "italic", marginTop: 6, paddingHorizontal: 2 },
-
-  plusOneBadge: {
-    position: "absolute",
-    right: 4,
-    top: 7,
-    fontSize: 12,
-    fontWeight: "800",
-    color: COLORS.success,
-  },
 
   insulinModalCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
   insulinModalTitle: { fontSize: 18, fontWeight: "700" },

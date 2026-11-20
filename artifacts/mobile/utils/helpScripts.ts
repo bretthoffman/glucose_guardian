@@ -6,9 +6,9 @@
  * Steps whose anchor is not currently rendered (conditional UI — notices, on-board bars) are
  * skipped automatically, so scripts can cover everything a page CAN show.
  *
- * `effects` are declarative flags a page may react to while that step is active — e.g. the Insulin
- * page shows its Log tab for the steps tagged "insulin.logTab". Pages must treat them as VIEW state
- * only: help mode never writes data.
+ * `effects` are declarative flags a page may react to while that step is active (none are needed
+ * right now; the machinery stays for future conditional views). Pages must treat them as VIEW
+ * state only: help mode never writes data.
  */
 export type HelpStep = {
   id: string;
@@ -18,10 +18,11 @@ export type HelpStep = {
   effects?: readonly string[];
 };
 
-export type HelpPageId = "home" | "insulin" | "food" | "chat" | "dashboard";
+export type HelpPageId = "home" | "insulin" | "food" | "logs" | "chat" | "dashboard";
 
-/** Every effect a script may carry — pages switch on these; the test pins the set. */
-export const HELP_EFFECTS = ["insulin.logTab"] as const;
+/** Every effect a script may carry — pages switch on these; the test pins the set. Empty since the
+ * Log view became its own Logs tab (no in-page view state left to flip); the machinery stays. */
+export const HELP_EFFECTS = [] as const;
 
 const home: HelpStep[] = [
   {
@@ -81,16 +82,10 @@ const home: HelpStep[] = [
 
 const insulin: HelpStep[] = [
   {
-    id: "insulin.tabs",
-    anchor: "insulin.tabs",
-    title: "Dose and Log",
-    text: "Two tabs: Dose is the calculator, Log is the day-by-day record of insulin and meals. We'll tour both.",
-  },
-  {
     id: "insulin.glucosePill",
     anchor: "insulin.glucosePill",
     title: "Live reading",
-    text: "The current glucose and status ride along at the top of this page (and Food and Chat), so you never dose blind.",
+    text: "The current glucose and status ride along at the top of this page (and Food, Logs and Chat), so you never dose blind.",
   },
   {
     id: "insulin.selector",
@@ -154,43 +149,42 @@ const insulin: HelpStep[] = [
     title: "A reminder",
     text: "The calculator estimates. Your care team's instructions always come first.",
   },
+];
+
+/** The Logs tab — the day record, moved out of the Insulin page's old Dose/Log toggle (2026-11-20). */
+const logs: HelpStep[] = [
   {
-    id: "insulin.log.calendar",
-    anchor: "insulin.log.calendar",
-    title: "The Log tab",
-    text: "This is the day record. The calendar button jumps straight to any date.",
-    effects: HELP_EFFECTS.filter((e) => e === "insulin.logTab"),
+    id: "logs.calendar",
+    anchor: "logs.calendar",
+    title: "The Logs page",
+    text: "The day record of insulin, meals and finger sticks, one day at a time. The calendar button jumps straight to any date.",
   },
   {
-    id: "insulin.log.dayNav",
-    anchor: "insulin.log.dayNav",
+    id: "logs.dayNav",
+    anchor: "logs.dayNav",
     title: "Day by day",
     text: "Step between days with the arrows: Today, Yesterday, and back as far as your history goes.",
-    effects: ["insulin.logTab"],
   },
   {
-    id: "insulin.log.chart",
-    anchor: "insulin.log.chart",
+    id: "logs.chart",
+    anchor: "logs.chart",
     title: "The day's graph",
     text:
       "The full day, midnight to midnight, with the same zone colors as the Glucose page. Icons on the target line are that day's doses and meals. Tap one to open it. Pinch to zoom into a slice of the day.",
-    effects: ["insulin.logTab"],
   },
   {
-    id: "insulin.log.events",
-    anchor: "insulin.log.events",
+    id: "logs.events",
+    anchor: "logs.events",
     title: "Event Log",
     text:
       "Every entry for the day, insulin and meals together, newest first. Tap an entry to see its details, and to edit or delete it if your role allows. When you edit the time, spin the wheel to the right hour and minute.",
-    effects: ["insulin.logTab"],
   },
   {
-    id: "insulin.log.add",
-    anchor: "insulin.log.add",
+    id: "logs.add",
+    anchor: "logs.add",
     title: "Add Entry",
     text:
       "Log something after the fact onto whichever day you're viewing: an insulin dose, a meal, or a finger stick. Tap the time and spin the hour, minute and AM or PM, like the iPhone alarm. A finger stick shows next to the CGM reading from the same time, so you can see how close the sensor was.",
-    effects: ["insulin.logTab"],
   },
 ];
 
@@ -363,7 +357,7 @@ const dashboard: HelpStep[] = [
   },
 ];
 
-export const HELP_SCRIPTS: Record<HelpPageId, HelpStep[]> = { home, insulin, food, chat, dashboard };
+export const HELP_SCRIPTS: Record<HelpPageId, HelpStep[]> = { home, insulin, food, logs, chat, dashboard };
 
 /** Route pathname → script page (expo-router tabs). */
 export const HELP_PAGE_FOR_PATH: Record<string, HelpPageId> = {
@@ -371,6 +365,7 @@ export const HELP_PAGE_FOR_PATH: Record<string, HelpPageId> = {
   "/index": "home",
   "/insulin": "insulin",
   "/food": "food",
+  "/logs": "logs",
   "/chat": "chat",
   "/dashboard": "dashboard",
 };

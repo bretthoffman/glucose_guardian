@@ -45,7 +45,7 @@ export default function ShortcutsRow({
               // Help starts the tour of this page (the Glucose screen); the log shortcuts and some
               // Dashboard pop-ups open over it; everything else opens its screen.
               if (s.target.kind === "help") enterHelp();
-              else if (s.target.kind === "insulin" && s.target.add && onQuickLog) onQuickLog(s.target.add);
+              else if (s.target.kind === "logs" && s.target.add && onQuickLog) onQuickLog(s.target.add);
               else if (overGlucoseSection(s) && onPanel) onPanel(overGlucoseSection(s)!);
               else openShortcut(s);
             }}

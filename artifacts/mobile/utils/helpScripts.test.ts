@@ -3,8 +3,9 @@ import { HELP_EFFECTS, HELP_PAGE_FOR_PATH, HELP_SCRIPTS } from "./helpScripts";
 
 describe("help walkthrough scripts", () => {
   it("covers every tab page, the Dashboard included", () => {
-    expect(Object.keys(HELP_SCRIPTS).sort()).toEqual(["chat", "dashboard", "food", "home", "insulin"]);
+    expect(Object.keys(HELP_SCRIPTS).sort()).toEqual(["chat", "dashboard", "food", "home", "insulin", "logs"]);
     expect(HELP_PAGE_FOR_PATH["/dashboard"]).toBe("dashboard");
+    expect(HELP_PAGE_FOR_PATH["/logs"]).toBe("logs");
   });
 
   it("explains what recent updates added", () => {
@@ -35,10 +36,9 @@ describe("help walkthrough scripts", () => {
       for (const s of steps) for (const e of s.effects ?? []) expect(HELP_EFFECTS).toContain(e);
   });
 
-  it("the insulin Log-tab steps all carry the tab effect, and Dose steps never do", () => {
-    for (const s of HELP_SCRIPTS.insulin) {
-      const isLog = s.id.startsWith("insulin.log.");
-      expect((s.effects ?? []).includes("insulin.logTab")).toBe(isLog);
-    }
+  it("no step needs a view effect anymore (the Log view became its own Logs tab)", () => {
+    expect(HELP_EFFECTS).toHaveLength(0);
+    for (const steps of Object.values(HELP_SCRIPTS))
+      for (const s of steps) expect(s.effects ?? []).toHaveLength(0);
   });
 });

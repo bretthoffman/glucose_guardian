@@ -110,7 +110,10 @@ export function openShortcut(s: ShortcutDef): void {
   const t = String(Date.now());
   switch (s.target.kind) {
     case "insulin":
-      router.push({ pathname: "/(tabs)/insulin", params: s.target.add ? { tab: "log", add: s.target.add, t } : { tab: s.target.tab, t } });
+      router.push("/(tabs)/insulin");
+      return;
+    case "logs":
+      router.push({ pathname: "/(tabs)/logs", params: s.target.add ? { add: s.target.add, t } : { t } });
       return;
     case "settings":
       router.push({ pathname: "/(tabs)/dashboard", params: { open: "settings", t } });

@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-20",
+    date: "2026-11-20",
+    items: [
+      {
+        icon: "list",
+        title: "Logs is now its own tab",
+        body: "The day by day record of insulin, meals and finger sticks moved to its own Logs tab at the bottom of the app, between Food and Chat. Everything there works like before, including the day graph, Add Entry and editing. The Insulin page is now just the dose calculator, so the Dose and Log buttons at the top are gone.",
+      },
+    ],
+  },
+  {
     id: "2026-11-17c",
     date: "2026-11-17",
     items: [

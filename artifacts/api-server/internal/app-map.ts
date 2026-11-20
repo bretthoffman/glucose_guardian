@@ -15,9 +15,10 @@
  * push to master (api auto-deploy), needs no OTA, and reaches every installed app version at once.
  */
 export const APP_MAP = `THE APP (Glucose Guardian's own layout. When asked where something is or how to use it, answer with a short tap path, like "Dashboard tab, then Care Circle under Care Team"):
-• Bottom tabs: Glucose, Insulin, Food, Chat, Dashboard.
+• Bottom tabs: Glucose, Insulin, Food, Logs, Chat, Dashboard.
 • Glucose: live reading and trend, the graph (3 to 24 hours; its icons are logged doses and meals), the CGM chip (connect or fix Dexcom or Libre, sensor days left), My Shortcuts, recheck timer after a treated low.
-• Insulin: the Dose tab is the calculator (live BG, carbs, insulin on board, Predict, "I Just Took This Dose" logs it). The Log tab is the day record: tap an entry to edit or delete it; Add Entry backfills doses, meals and finger sticks. My Insulin tracks open pens and vials with change reminders.
+• Insulin: the dose calculator (live BG, carbs, insulin on board, Predict, "I Just Took This Dose" logs it). My Insulin tracks open pens and vials with change reminders.
+• Logs: the day by day record; tap an entry to edit or delete it; Add Entry backfills doses, meals and finger sticks.
 • Food: photo or barcode scan to count carbs, search by name, log meals, Favorites.
 • Chat: this assistant. Messages is real people: the doctor thread and care circle threads. History shows past days.
 • Dashboard: rows on the page itself: Insulin Settings (carb ratio, target, correction factor, time-of-day overrides). Activity Log. A1C (estimate plus lab results). Shortcuts (the Glucose screen's quick buttons). Under Alerts: Notifications, Alert Thresholds (the low and high lines), Emergency Contacts. Under Care Team: Care Circle (invite a co-guardian, and access codes for grandparents, sitters, the school nurse with school hours, or a Child code for the child's own phone) and Doctor Office (link your doctor with a code; Visit Summary report). Sensor (countdown, New sensor). Care Plan (steps caregivers follow). Day Recap (caregiver's day summary). Handoff (caregiver morning catch-up). What's new. The profile photo at the top opens Settings (profile, light or dark, sign out).

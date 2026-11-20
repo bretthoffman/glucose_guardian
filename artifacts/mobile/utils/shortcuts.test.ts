@@ -16,9 +16,9 @@ const ids = (xs: { id: string }[]) => xs.map((x) => x.id);
 describe("shortcuts", () => {
   it("Log Insulin and Finger Stick go straight to their pop-ups; Add Entry opens the menu", () => {
     const t = (id: string) => SHORTCUTS.find((s) => s.id === id)!.target;
-    expect(t("addEntry")).toEqual({ kind: "insulin", tab: "log", add: "menu" });
-    expect(t("logInsulin")).toEqual({ kind: "insulin", tab: "log", add: "insulin" });
-    expect(t("fingerStick")).toEqual({ kind: "insulin", tab: "log", add: "stick" });
+    expect(t("addEntry")).toEqual({ kind: "logs", add: "menu" });
+    expect(t("logInsulin")).toEqual({ kind: "logs", add: "insulin" });
+    expect(t("fingerStick")).toEqual({ kind: "logs", add: "stick" });
     expect(shortcutIconFamily("needle")).toBe("mci");
     expect(shortcutIconFamily("list")).toBe("feather");
   });

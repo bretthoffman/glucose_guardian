@@ -80,7 +80,7 @@ export default function LogHistory({
   // Help Mode: this Log view is toured as part of the INSULIN page's script (see utils/helpScripts);
   // it registers the page's scroll while mounted so off-screen anchors scroll into view.
   const helpScrollRef = useRef<import("react-native").ScrollView>(null);
-  const helpScrollProps = useHelpScroll("insulin", helpScrollRef);
+  const helpScrollProps = useHelpScroll("logs", helpScrollRef);
   /** True while the chart's touch-hold reading cursor is engaged — freezes page scroll. */
   const [chartCursorActive, setChartCursorActive] = useState(false);
 
@@ -253,12 +253,12 @@ function DayView({
   const isToday = dayOffset === 0;
   const label = isToday ? "Today" : dayOffset === 1 ? "Yesterday" : fmtDateFull(day);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  // Help Mode anchors (refs only — see utils/helpScripts "insulin.log.*").
-  const helpCalendar = useHelpAnchor("insulin.log.calendar");
-  const helpDayNav = useHelpAnchor("insulin.log.dayNav");
-  const helpDayChart = useHelpAnchor("insulin.log.chart");
-  const helpEvents = useHelpAnchor("insulin.log.events");
-  const helpAddEntry = useHelpAnchor("insulin.log.add");
+  // Help Mode anchors (refs only — see utils/helpScripts "logs.*").
+  const helpCalendar = useHelpAnchor("logs.calendar");
+  const helpDayNav = useHelpAnchor("logs.dayNav");
+  const helpDayChart = useHelpAnchor("logs.chart");
+  const helpEvents = useHelpAnchor("logs.events");
+  const helpAddEntry = useHelpAnchor("logs.add");
   const [selectedLog, setSelectedLog] = useState<SelectedLog | null>(null);
   const [selectedStick, setSelectedStick] = useState<FingerStickEntry | null>(null);
   const [fingerStickOpen, setFingerStickOpen] = useState(false);
