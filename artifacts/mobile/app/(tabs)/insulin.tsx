@@ -1464,7 +1464,6 @@ export default function InsulinScreen() {
           sheet (start new, edit, History). The strip up top stays a pure calculator selector. ── */}
       {!doctorSession && (
         <View ref={helpMyInsulin} collapsable={false} style={styles.pensStripRow}>
-          <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]} maxFontSizeMultiplier={1.3}>My Insulin</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.insulinStripChips} style={{ flex: 1 }}>
             {stripPens.length === 0 ? (
               <Pressable
