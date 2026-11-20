@@ -978,8 +978,10 @@ export default function InsulinScreen() {
         <View style={styles.doseInputRow}>
           {/* Carbs — big tappable number. While a logged meal's carbs are still active the field is
               REPLACED visually by the on-board grams (display only, never part of the math — the
-              active-carbs term below is what counts them); ✕ restores the editable field. */}
-          <View style={styles.doseInputGroup}>
+              active-carbs term below is what counts them); ✕ restores the editable field.
+              Spread: the column stretches to the rings half's height so label / value / hint line
+              up with label / rings / captions across the divider. */}
+          <View style={[styles.doseInputGroup, styles.doseInputGroupSpread]}>
             {activeCarbsOverlayVisible ? (
               <>
                 <View style={styles.doseInputHead}>
@@ -1808,6 +1810,8 @@ const styles = StyleSheet.create({
   doseCard: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 10 },
   doseInputRow: { flexDirection: "row", gap: 12, paddingVertical: 2 },
   doseInputGroup: { flex: 1, alignItems: "center", gap: 5 },
+  /** Bolus carbs half only: stretch to the rings half's height, bottom line level with captions. */
+  doseInputGroupSpread: { justifyContent: "space-between" },
   /** The ✕ on the ACTIVE CARBS overlay — floated up-right into the dose card's padding, clear of
    *  the centered title (whose accessibility growth is capped) at every text size. */
   overlayDismiss: { position: "absolute", top: -13, right: -11, zIndex: 2 },
