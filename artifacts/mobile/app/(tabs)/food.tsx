@@ -1675,10 +1675,14 @@ function StatBox({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   // iPad: cap + center the content column so it doesn't stretch across a 13" screen. No-op on phones.
-  scroll: { paddingHorizontal: 20, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
+  // paddingTop matches the page's 10pt vertical rhythm (see scanCard/searchRow/quickTabs): the
+  // header band above must not touch the scan card.
+  scroll: { paddingTop: 10, paddingHorizontal: 20, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
   screenHeader: { paddingBottom: 10 },
   /** The scan panel (Take Photo): a tinted card with a round camera button and two lines of text. */
-  scanCard: { alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 20, borderRadius: 20, borderWidth: 1, marginBottom: 14 },
+  // marginBottom 10, not 14: every gap in this column (band→scan, scan→search, search→estimate,
+  // tabs→list) is the same 10pt.
+  scanCard: { alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 20, borderRadius: 20, borderWidth: 1, marginBottom: 10 },
   scanIcon: { width: 72, height: 72, borderRadius: 36, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   scanTitle: { fontSize: 20, fontWeight: "700" },
   scanSub: { fontSize: 14, fontWeight: "400" },
