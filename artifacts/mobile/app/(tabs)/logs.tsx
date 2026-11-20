@@ -14,6 +14,7 @@ import { StyleSheet, Text, View } from "react-native";
 import Colors from "@/constants/colors";
 import { defaultInsulinChipLabel, findInsulinByChipLabel, type InsulinOption } from "@/constants/insulin";
 import { DOSE_INSULIN_TYPE_STORAGE_KEY } from "@/constants/storage-keys";
+import BrandHeaderLeft from "@/components/BrandHeaderLeft";
 import LogHistory from "@/components/LogHistory";
 import { ScreenShade } from "@/components/Shade";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
@@ -66,7 +67,7 @@ export default function LogsScreen() {
         borderBottomColor={colors.border}
         style={[styles.screenHeader, { backgroundColor: colors.background }]}
       >
-        <TabGlucoseHeaderRow left={null} />
+        <TabGlucoseHeaderRow left={<BrandHeaderLeft />} />
       </TabGlucoseHeaderShell>
       {canLog ? (
         <LogHistory

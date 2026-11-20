@@ -35,7 +35,9 @@ const TAB_META: Record<string, { label: string; icon: IconName }> = {
   index: { label: "Glucose", icon: "water" },
   insulin: { label: "Insulin", icon: "needle" },
   food: { label: "Food", icon: "silverware-fork-knife" },
-  logs: { label: "Logs", icon: "clipboard-text-outline" },
+  // calendar-text, not a clipboard/bubble shape: Chat's message icon sits right beside it, and the
+  // page itself is a calendar-driven day record.
+  logs: { label: "Logs", icon: "calendar-text" },
   chat: { label: "Chat", icon: "message-text-outline" },
   dashboard: { label: "Dashboard", icon: "chart-bar" },
 };

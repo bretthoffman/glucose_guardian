@@ -190,12 +190,6 @@ const logs: HelpStep[] = [
 
 const food: HelpStep[] = [
   {
-    id: "food.trend",
-    anchor: "food.trend",
-    title: "Trend at a glance",
-    text: "The same movement status as the Glucose page, so you can sanity-check before a meal.",
-  },
-  {
     id: "food.scan",
     anchor: "food.scan",
     title: "Scan or take a photo",

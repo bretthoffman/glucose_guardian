@@ -40,6 +40,7 @@ import {
   roundToQuarterUnits,
 } from "@/utils/doseOverride";
 import { getEffectiveTrend } from "@/utils/trend";
+import BrandHeaderLeft from "@/components/BrandHeaderLeft";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell } from "@/components/TabGlucoseHeaderRow";
 import { DashboardSectionModal } from "@/components/DashboardSectionModal";
 import { DoseRow, DoseWarningsList, EditableDoseTotalBadge } from "@/components/DoseCalculatorBits";
@@ -844,8 +845,9 @@ export default function InsulinScreen() {
         borderBottomColor={colors.border}
         style={[styles.screenHeader, { backgroundColor: colors.background }]}
       >
-        {/* Empty left slot: the old Dose/Log toggle is gone — the day record lives on the Logs tab. */}
-        <TabGlucoseHeaderRow left={null} glucoseSlotRef={helpPill} />
+        {/* The old Dose/Log toggle is gone (the day record lives on the Logs tab); the brand block
+            fills the slot, same as Chat. */}
+        <TabGlucoseHeaderRow left={<BrandHeaderLeft />} glucoseSlotRef={helpPill} />
       </TabGlucoseHeaderShell>
 
       {!canUseCalculator ? (

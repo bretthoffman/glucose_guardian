@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-20b",
+    date: "2026-11-20",
+    items: [
+      {
+        icon: "layout",
+        title: "A cleaner look up top",
+        body: "The Insulin, Logs and Food pages now show the Glucose Guardian logo and name at the top, just like Chat, and Food got the same lighter header band as the other pages. The extra glucose trend bubble on Food is gone, since the glucose pill in the corner already shows the live number and trend. The Logs tab also got a calendar style icon so it is easier to tell apart from Chat.",
+      },
+    ],
+  },
+  {
     id: "2026-11-20",
     date: "2026-11-20",
     items: [

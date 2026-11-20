@@ -22,12 +22,13 @@ import {
 import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
-import { T, glucoseTone, withAlpha } from "@/constants/theme";
+import { T, withAlpha } from "@/constants/theme";
 import { useGlucose } from "@/context/GlucoseContext";
 import { useAuth, type FoodLogEntry } from "@/context/AuthContext";
 import { useCareLogConfirm } from "@/hooks/useCareLogConfirm";
 
-import { getEffectiveTrend, trendTone } from "@/utils/trend";
+import { getEffectiveTrend } from "@/utils/trend";
+import BrandHeaderLeft from "@/components/BrandHeaderLeft";
 import TabGlucoseHeaderRow, { TabGlucoseHeaderShell, tabGlucoseHeaderPaddingTop } from "@/components/TabGlucoseHeaderRow";
 import FoodInsulinModal from "@/components/FoodInsulinModal";
 import MealTipCard from "@/components/MealTipCard";
@@ -209,13 +210,6 @@ function QuickFoodRow({
   );
 }
 
-const TREND_LABELS: Record<string, string> = {
-  rapidly_rising: "↑↑ Rising fast",
-  rising: "↑ Rising",
-  stable: "→ Stable",
-  falling: "↓ Falling",
-  rapidly_falling: "↓↓ Falling fast",
-};
 
 const MONSTER_FACE: Record<string, string> = {
   happy: "😊",
@@ -365,7 +359,6 @@ export default function FoodScreen() {
   useHelpPage();
   const helpScrollRef = useRef<import("react-native").ScrollView>(null);
   const helpScrollProps = useHelpScroll("food", helpScrollRef);
-  const helpTrendChip = useHelpAnchor("food.trend");
   const helpScan = useHelpAnchor("food.scan");
   const helpSearch = useHelpAnchor("food.search");
   const helpEstimate = useHelpAnchor("food.estimate");
@@ -394,13 +387,6 @@ export default function FoodScreen() {
   };
 
   const currentTrend = getEffectiveTrend(history).glucoseTrend;
-  // The trend's color, exactly as the Glucose page's trend pill picks it: fast → red, slow → amber,
-  // stable → the reading's own status color.
-  const trendStatusColor =
-    latestReading?.glucose != null
-      ? glucoseTone(latestReading.glucose, alertPrefs.lowThreshold, alertPrefs.highThreshold, alertPrefs.urgentHighThreshold)
-      : T.color.emerald;
-  const trendColor = trendTone(currentTrend, trendStatusColor);
 
   async function fetchGuidance(carbs: number) {
     setIsFetchingGuidance(true);
@@ -851,34 +837,15 @@ export default function FoodScreen() {
     >
       {/* Background shading — see components/Shade; the root keeps its own opaque color beneath. */}
       <ScreenShade />
-      {/* Food's header is NOT its own shaded section (unlike Insulin/Chat): no band, no divider. */}
+      {/* Same shaded header band as Insulin/Logs/Chat, with the shared brand block on the left.
+          (The old "Glucose trend" chip is gone — the glucose pill on the right already shows the
+          live number and trend.) */}
       {showGlucoseHeader && (
-        <TabGlucoseHeaderShell shade={false} style={{ paddingBottom: 14 }}>
-          <TabGlucoseHeaderRow
-            left={
-              history.length > 1 ? (
-                <View ref={helpTrendChip} collapsable={false} style={[styles.trendChip, { backgroundColor: colors.backgroundTertiary, borderColor: colors.border }]}>
-                  {/* Same control fill + shade as the other control-colored chips and buttons. */}
-                  <ControlShade radius={12} />
-                  <Feather name="activity" size={13} color={colors.textSecondary} />
-                  <Text style={[styles.trendChipText, { color: colors.textSecondary }]}>Glucose trend:</Text>
-                  {/* Only the STATUS is colored — a small pill in the trend's color, like the gauge's
-                      trend pill — while the chip around it stays neutral. */}
-                  <View
-                    style={[
-                      styles.trendStatusPill,
-                      { backgroundColor: withAlpha(trendColor, 0.14), borderColor: withAlpha(trendColor, 0.4) },
-                    ]}
-                  >
-                    <TintShade color={trendColor} radius={10} />
-                    <Text style={[styles.trendStatusText, { color: trendColor }]} numberOfLines={1}>
-                      {TREND_LABELS[currentTrend] ?? "→ Stable"}
-                    </Text>
-                  </View>
-                </View>
-              ) : null
-            }
-          />
+        <TabGlucoseHeaderShell
+          borderBottomColor={colors.border}
+          style={[styles.screenHeader, { backgroundColor: colors.background }]}
+        >
+          <TabGlucoseHeaderRow left={<BrandHeaderLeft />} />
         </TabGlucoseHeaderShell>
       )}
       <ScrollView
@@ -1709,20 +1676,7 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   // iPad: cap + center the content column so it doesn't stretch across a 13" screen. No-op on phones.
   scroll: { paddingHorizontal: 20, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
-  trendChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    alignSelf: "flex-start",
-    flexShrink: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  trendChipText: { fontSize: 12, fontWeight: "500" },
-  trendStatusPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1, marginLeft: 2 },
-  trendStatusText: { fontSize: 12, fontWeight: "600" },
+  screenHeader: { paddingBottom: 10 },
   /** The scan panel (Take Photo): a tinted card with a round camera button and two lines of text. */
   scanCard: { alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 20, borderRadius: 20, borderWidth: 1, marginBottom: 14 },
   scanIcon: { width: 72, height: 72, borderRadius: 36, alignItems: "center", justifyContent: "center", marginBottom: 8 },

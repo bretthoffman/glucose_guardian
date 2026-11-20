@@ -33,6 +33,7 @@ import { threadRoleLabel } from "@/utils/threadRoleLabel";
 import { AccentShade, CardShade, ControlShade, HeaderShade, ScreenShade } from "@/components/Shade";
 import { useHelpAnchor, useHelpPage } from "@/context/HelpContext";
 import { BrandMark } from "@/components/BrandLogo";
+import BrandHeaderLeft from "@/components/BrandHeaderLeft";
 import { CloseButton } from "@/components/CloseButton";
 import { capFirst } from "@/utils/capitalize";
 import ChatHistoryModal from "@/components/ChatHistoryModal";
@@ -692,21 +693,8 @@ export default function ChatScreen() {
           borderBottomColor={colors.border}
           style={[styles.header, { backgroundColor: colors.background }]}
         >
-          <TabGlucoseHeaderRow
-            left={
-              <View style={styles.headerLeft}>
-                <View style={[styles.avatarSmall, { backgroundColor: COLORS.primary + "20" }]}>
-                  <BrandMark size={styles.avatarLogo.width} />
-                </View>
-                <View style={styles.headerText}>
-                  <Text style={[styles.headerTitle, { color: colors.text }]}>Glucose Guardian</Text>
-                  <Text style={[styles.headerSub, { color: COLORS.success }]}>
-                    {speakingToParent ? `Managing ${name}'s care` : "Your AI diabetes companion"}
-                  </Text>
-                </View>
-              </View>
-            }
-          />
+          {/* The brand block is shared with Insulin, Logs and Food — components/BrandHeaderLeft. */}
+          <TabGlucoseHeaderRow left={<BrandHeaderLeft />} />
         </TabGlucoseHeaderShell>
       </View>
 
@@ -944,25 +932,8 @@ const styles = StyleSheet.create({
   header: {
     paddingBottom: 12,
   },
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    minWidth: 0,
-  },
-  headerText: { flex: 1, minWidth: 0 },
-  avatarSmall: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   avatarEmoji: { fontSize: 20 },
-  avatarLogo: { width: 28, height: 28 },
   avatarTinyLogo: { width: 18, height: 18 },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
-  headerSub: { fontSize: 11, fontWeight: "400" },
 
   // iPad: cap + center the message column so bubbles don't span a 13" screen. No-op on phones.
   list: { paddingHorizontal: 16, paddingTop: 12, gap: 10, width: "100%", maxWidth: T.layout.contentMaxWidth, alignSelf: "center" },
