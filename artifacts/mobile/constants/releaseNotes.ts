@@ -28,6 +28,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: "2026-11-20d",
+    date: "2026-11-20",
+    items: [
+      {
+        icon: "target",
+        title: "Insulin page polish",
+        body: "What's still working now shows as two small rings beside the carbs box, one for carbs and one for insulin, that empty out as your body absorbs them, with the time left underneath. And the dose math now tucks away. Tap How your dose is calculated, or the little info circle next to it, whenever you want to see the four pieces.",
+      },
+    ],
+  },
+  {
     id: "2026-11-20c",
     date: "2026-11-20",
     items: [

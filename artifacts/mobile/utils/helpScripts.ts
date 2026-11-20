@@ -104,16 +104,16 @@ const insulin: HelpStep[] = [
   {
     id: "insulin.onBoard",
     anchor: "insulin.onBoard",
-    title: "Still active",
+    title: "Still working",
     text:
-      "Carbs from logged meals drain along this bar as they absorb, over the window the small hour label shows. Its partner bar by the dose buttons shows insulin still working. The calculator counts both automatically so doses never stack, and both bars stay put even at zero.",
+      "These two rings show what's still working: amber is carbs from logged meals, purple is insulin. Each ring empties as your body absorbs, with the amount in the middle and the time left underneath. The calculator counts both automatically so doses never stack, and the rings stay put even at zero.",
   },
   {
     id: "insulin.calc",
     anchor: "insulin.calc",
     title: "How your dose is calculated",
     text:
-      "The four pieces of the math: a correction for your current BG, the dose for the carbs, carbs still active, minus insulin still active. Tap any piece to see its exact numbers and the settings behind it.",
+      "The four pieces of the math: a correction for your current BG, the dose for the carbs, carbs still active, minus insulin still active. Tap any piece to see its exact numbers and the settings behind it. This window tucks away. Tap How your dose is calculated, or the info circle next to it, to open or close it any time.",
   },
   {
     id: "insulin.suggest",

@@ -17,6 +17,7 @@ import {
   UIManager,
   View,
 } from "react-native";
+import Svg, { Circle } from "react-native-svg";
 import { useTheme } from "@/context/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors, { COLORS } from "@/constants/colors";
@@ -174,9 +175,6 @@ export default function InsulinScreen() {
   const isAccessCodeSession = accessCodeRole != null;
   const canUseCalculator = !isAccessCodeSession || !!accessCodePermissions?.useCalculator;
   const canLog = !isAccessCodeSession || !!accessCodePermissions?.log;
-  // Both on-board bars are full-width in their cards now, so no shared label-fit machinery: each
-  // label gets the whole row and OnBoardBar's own shrink-to-fit is the only sizing.
-  const noopMeasure = useCallback(() => {}, []);
   const [carbInput, setCarbInput] = useState("");
   /**
    * "ACTIVE CARBS" overlay on the carbs field — shows AUTOMATICALLY whenever a logged meal's carbs
@@ -210,8 +208,8 @@ export default function InsulinScreen() {
   // Scroll to the page bottom after a toggle/card reveals content downward, so it comes into view.
   const scrollRef = useRef<ScrollView>(null);
   // ── Help Mode wiring: anchors are refs only; the page reports itself so tours start and stop
-  // on tab switches. ──
-  useHelpPage();
+  // on tab switches. isTouring opens the collapsed math window while this page's tour runs. ──
+  const { isTouring } = useHelpPage();
   const helpPill = useHelpAnchor("insulin.glucosePill");
   const helpSelector = useHelpAnchor("insulin.selector");
   const helpInputs = useHelpAnchor("insulin.inputs");
@@ -233,6 +231,9 @@ export default function InsulinScreen() {
   const [expandedCard, setExpandedCard] = useState<DoseCardKey | null>(null);
   // Prediction graph is revealed on demand by the first Predict tap.
   const [showPrediction, setShowPrediction] = useState(false);
+  // The dose-math window is tucked away by default; the section title / info circle toggles it.
+  const [calcOpen, setCalcOpen] = useState(false);
+  const calcShown = calcOpen || isTouring("insulin");
 
   // ── "I just took this dose" — green until the next successful CGM sync ──
   const [doseLoggedAtTick, setDoseLoggedAtTick] = useState<number | null>(null);
@@ -1050,25 +1051,39 @@ export default function InsulinScreen() {
             )}
           </View>
 
-        </View>
-        )}
+          <View style={styles.doseInputDivider} />
 
-        {!isBasalMode && (
-          /* The carbs on-board gauge lives WITH the carbs input now — always on, empty at 0 g, so
-             the feature is discoverable before the first log. Same OnBoardBar as always; live BG
-             left this card for the header pill and the Correct BG piece below (which also holds
-             the meter override). */
-          <View ref={helpOnBoard} collapsable={false}>
-            <OnBoardBar
-              fraction={activeCarbsFraction}
-              label={`${activeCarbs.totalGrams} g carbs still active`}
-              windowMin={activeCarbs.remainingWindowMin}
-              color={COLORS.warning}
-              colors={colors}
-              fontScale={1}
-              onMeasure={noopMeasure}
-            />
+          {/* "Still working" — the two on-board drain rings (amber carbs, purple insulin) in the
+              pens' ring language, filling the half where live BG used to sit. Always present;
+              faint empty rings at zero, so the pair reads as a fixture, never a pop-in. Live BG
+              moved to the header pill and the Correct BG piece (which holds the meter override). */}
+          <View style={styles.doseInputGroup} ref={helpOnBoard} collapsable={false}>
+            <View style={styles.doseInputHead}>
+              <Feather name="clock" size={14} color={colors.textSecondary} />
+              <Text style={[styles.doseInputLabel, { color: colors.textSecondary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.3}>STILL WORKING</Text>
+            </View>
+            <View style={styles.ringsRow}>
+              <OnBoardRing
+                fraction={activeCarbsFraction}
+                amount={String(activeCarbs.totalGrams)}
+                unit="g"
+                kind="carbs"
+                remainingMin={activeCarbs.remainingMin}
+                color={COLORS.warning}
+                colors={colors}
+              />
+              <OnBoardRing
+                fraction={activeInsulinFraction}
+                amount={String(Math.round(activeInsulin.totalUnits * 100) / 100)}
+                unit="u"
+                kind="insulin"
+                remainingMin={activeInsulin.remainingMin}
+                color={CARD_PURPLE}
+                colors={colors}
+              />
+            </View>
           </View>
+        </View>
         )}
 
         {!isBasalMode && dose && (
@@ -1084,12 +1099,29 @@ export default function InsulinScreen() {
           {/* ── How your dose is calculated — ALWAYS on, floating between the two windows. Only the
               colored cards + the explanation window carry the card surface; the label/operators
               float on the page. ── */}
-          <View key="calc-head" style={styles.calcHeadRow}>
+          {/* Collapsible since 2026-11-20: the math window stays tucked away until this title or
+              its info circle is tapped (the Help tour opens it while running via calcShown). The
+              pattern/cap notes below are dose annotations, not math, so they show either way. */}
+          <Pressable
+            key="calc-head"
+            accessibilityRole="button"
+            accessibilityState={{ expanded: calcShown }}
+            accessibilityLabel="How your dose is calculated"
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setExpandedCard(null);
+              setCalcOpen((v) => !v);
+            }}
+            style={({ pressed }) => [styles.calcHeadRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
             <Text style={[styles.calcHeadLabel, { color: colors.textSecondary }]}>HOW YOUR DOSE IS CALCULATED</Text>
-          </View>
+            <Feather name="info" size={13} color={colors.textSecondary} />
+          </Pressable>
           {/* ── One unified window, purple-outlined (the old Active Insulin card border): the four
               tappable pieces live inside it, and when one is open the SAME window extends down to
               wrap the explanation. Each piece stays individually tappable and works as before. ── */}
+          {calcShown && (
           <View
             ref={helpCalc}
             collapsable={false}
@@ -1189,6 +1221,7 @@ export default function InsulinScreen() {
               );
             })()}
           </View>
+          )}
           {/* No active-insulin note here: the warning at the top of the page (and the on-board bar)
               already say it, so a second copy above the suggested dose was just noise. The pattern
               and safety-cap notes below are different messages and stay. */}
@@ -1347,19 +1380,6 @@ export default function InsulinScreen() {
               </View>
             )}
 
-            {/* Insulin on board, right under the button that adds to it: log a dose and this
-                fills, then drains over the insulin's window. Always on — empty at 0 u. */}
-            <View>
-              <OnBoardBar
-                fraction={activeInsulinFraction}
-                label={`${fmtU(activeInsulin.totalUnits)} insulin still active`}
-                windowMin={activeInsulin.remainingWindowMin}
-                color={CARD_PURPLE}
-                colors={colors}
-                fontScale={1}
-                onMeasure={noopMeasure}
-              />
-            </View>
           </View>
         </>
         )}
@@ -1524,123 +1544,80 @@ const STRENGTH_META: Record<StrengthLabel, { text: string; color: string }> = {
 
 /** The reference-strength readout under the prediction chart (combines the chosen matches' confidence). */
 /**
- * On-board decay bar — one for active carbs, one for active insulin.
- *
- * Fills from the LEFT (fully active) toward the RIGHT (nothing left), using
- * `activeFractionRemaining`, which is amount-based rather than time-based so it composes correctly
- * when several logs overlap (see the note on that helper). The amount sits inside the bar and the
- * plain-language remainder goes underneath, matching the muted caption style used elsewhere on this
- * screen.
- *
- * Renders NOTHING when there is nothing on board — the caller checks the same fraction, so the card
- * looks exactly as it did before whenever the calculator isn't carrying anything over.
+ * On-board drain ring — active carbs or active insulin, in the pens' ring language (PenRing in
+ * components/PensCard): the arc is the share still working and empties as the body absorbs; the
+ * amount sits in the middle with its unit, and "<kind> · <time left>" rides underneath. Renders a
+ * faint empty track at zero so the pair reads as a steady fixture, never a pop-in.
  */
-function OnBoardBar({
+function OnBoardRing({
   fraction,
-  label,
-  windowMin,
+  amount,
+  unit,
+  kind,
+  remainingMin,
   color,
   colors,
-  fontScale,
-  onMeasure,
 }: {
+  /** Share still active, 0–1 (amount-based: utils/onBoard activeFractionRemaining). */
   fraction: number;
-  /** Full text shown INSIDE the bar, e.g. "24 g carbs still active". */
-  label: string;
-  /**
-   * Total span the bar represents, in minutes — the carb absorption window or insulin DIA of whichever
-   * entry finishes last. Labels the whole bar and places the third-marks, so it reads as "3h of carbs,
-   * two-thirds still to go" rather than an unlabelled proportion.
-   */
-  windowMin: number;
+  /** The number in the ring's middle, e.g. "9" or "0.5". */
+  amount: string;
+  unit: string;
+  /** Caption word: "carbs" / "insulin". */
+  kind: string;
+  /** Minutes until the last entry finishes absorbing — the caption's time. */
+  remainingMin: number;
   color: string;
   colors: (typeof Colors)["light"];
-  /** The shared label scale (≤ 1) both bars render at — see `barFit` in the calculator. */
-  fontScale: number;
-  /** Reports the scale this label needs to fit its slot: min(1, slot / natural width). */
-  onMeasure: (need: number) => void;
 }) {
-  // Natural (unshrunk) label width and the slot it must fit in; both measured on layout.
-  const [naturalW, setNaturalW] = useState(0);
-  const [slotW, setSlotW] = useState(0);
-  useEffect(() => {
-    if (naturalW > 0 && slotW > 0) {
-      // Both boxes carry the same 8+8 horizontal padding; compare the text runs themselves.
-      const need = Math.min(1, Math.max(0.5, (slotW - 16) / Math.max(1, naturalW - 16)));
-      onMeasure(Math.round(need * 100) / 100);
-    }
-  }, [naturalW, slotW, onMeasure]);
-  // Visibility is the CALLER's decision now — the two bars show and hide as a pair, so this renders
-  // whatever it is given, including a genuinely empty bar for the side with nothing on board.
-  const pct =
-    fraction > 0
-      ? // Keep a sliver visible at the very end of a window so the bar never reads as empty while
-        // the calculator is still deducting something.
-        Math.max(6, Math.min(100, Math.round(fraction * 100)))
-      : 0;
-  // The track's own border grey/alpha — the label and ticks are chrome, not data, so they must not
-  // compete with the amount for attention.
-  const chrome = withAlpha(colors.textMuted, 0.45);
-  const hours = windowMin / 60;
-  const hoursLabel = hours > 0 ? `${Number.isInteger(hours) ? hours : hours.toFixed(1)}H` : null;
-
+  const size = 54;
+  const stroke = 6;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const active = fraction > 0;
+  // Same end-of-window sliver rule as the old bars: never read as empty while still deducting.
+  const frac = active ? Math.max(0.06, Math.min(1, fraction)) : 0;
+  const hours = remainingMin / 60;
+  const timeLabel = !active
+    ? null
+    : remainingMin < 60
+      ? `${Math.max(1, Math.round(remainingMin))}m`
+      : `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
   return (
-    <View style={styles.onBoardCellInner}>
-    <View
-      style={[
-        styles.onBoardTrack,
-        // Faint outline so the UNFILLED remainder is still legible as part of the bar rather than
-        // blending into the card. Same grey as the caption line this replaced.
-        { backgroundColor: colors.backgroundTertiary, borderColor: withAlpha(colors.textMuted, 0.45) },
-      ]}
-    >
-      <View style={[styles.onBoardFill, { width: `${pct}%`, backgroundColor: color + "2E" }]} />
-      {/* Leading edge. Deliberately a LIGHTER tint than the label: the edge sweeps right-to-left
-          across the text as the bar drains, and at full saturation the two identical colors merged
-          into an unreadable smudge where they overlapped. */}
-      <View style={[styles.onBoardFillEdge, { left: `${pct}%`, backgroundColor: withAlpha(color, 0.5) }]} />
-      {/* Half-width cells leave little room for "0.99 u insulin still active", so allow the label to
-          shrink a little rather than clip — truncation would hide the number, which is the point. */}
-      <Text
-        style={[styles.onBoardAmount, { color, fontSize: 10 * fontScale }]}
-        numberOfLines={1}
-        // Shrink-to-fit stays as a backstop for the frame before measurement lands.
-        adjustsFontSizeToFit
-        minimumFontScale={0.75}
-        maxFontSizeMultiplier={1.15}
-        onLayout={(e) => setSlotW(Math.round(e.nativeEvent.layout.width))}
-      >
-        {label}
+    <View style={styles.ringCell}>
+      <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+        <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
+          <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.border} strokeWidth={stroke} fill="none" />
+          {active && (
+            <Circle
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              stroke={color}
+              strokeWidth={stroke}
+              fill="none"
+              strokeLinecap="round"
+              strokeDasharray={`${c * frac} ${c}`}
+              transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            />
+          )}
+        </Svg>
+        <View style={{ alignItems: "center" }}>
+          <Text
+            style={[styles.ringAmount, { color: active ? color : colors.textMuted }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.6}
+            maxFontSizeMultiplier={1.2}
+          >
+            {amount}
+          </Text>
+          <Text style={[styles.ringUnit, { color: colors.textMuted }]} maxFontSizeMultiplier={1.2}>{unit}</Text>
+        </View>
+      </View>
+      <Text style={[styles.ringCaption, { color: active ? color : colors.textMuted }]} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+        {timeLabel ? `${kind} · ${timeLabel}` : kind}
       </Text>
-      {/* Invisible twin at full size, unbounded, so its width is the label's natural width. */}
-      <Text
-        style={[styles.onBoardAmount, styles.onBoardMeasure]}
-        numberOfLines={1}
-        maxFontSizeMultiplier={1.15}
-        onLayout={(e) => setNaturalW(Math.round(e.nativeEvent.layout.width))}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-      >
-        {label}
-      </Text>
-      {/* The window length ("6H") sits INSIDE the bar at its right end, italic and upright — it is
-          chrome, so it takes the same grey as the ticks. Being a flow sibling after the amount means
-          the amount shrinks to fit the space that is left, never runs under this label. */}
-      {hoursLabel && (
-        <Text style={[styles.onBoardWindowLabel, { color: chrome }]} numberOfLines={1} maxFontSizeMultiplier={1.15}>
-          {hoursLabel}
-        </Text>
-      )}
-      {/* Thirds of the WINDOW, drawn as short ticks biting in from the top and bottom edges rather
-          than full-height rules — a line across the bar would read as a boundary in the data. Drawn
-          after the fill so they stay visible on both the filled and the empty side. */}
-      {[1 / 3, 2 / 3].map((at) => (
-        <React.Fragment key={at}>
-          <View style={[styles.onBoardTickTop, { left: `${at * 100}%`, backgroundColor: chrome }]} />
-          <View style={[styles.onBoardTickBottom, { left: `${at * 100}%`, backgroundColor: chrome }]} />
-        </React.Fragment>
-      ))}
-    </View>
     </View>
   );
 }
@@ -1718,7 +1695,7 @@ const styles = StyleSheet.create({
   // ── "How your dose is calculated" op cards ──
   // The head is a section of its own: SECTION_GAP above it (from whatever precedes — the dose card or
   // the on-board bars) and SECTION_GAP below it (calcUnified's top margin).
-  calcHeadRow: { marginTop: SECTION_GAP, marginBottom: 0 },
+  calcHeadRow: { marginTop: SECTION_GAP, marginBottom: 0, flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start" },
   calcHeadLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
   /** The single purple-outlined window housing the four pieces + the opened explanation. */
   calcUnified: { marginTop: SECTION_GAP, borderWidth: 1.5, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 8 },
@@ -1769,32 +1746,12 @@ const styles = StyleSheet.create({
   doseHint: { fontSize: 12, fontWeight: "500", marginTop: 1 },
   // Laid out as a ROW so each bar sits under the column it belongs to — carbs left, insulin right,
   // mirroring the CARBS | CURRENT BG split in the card above.
-  onBoardCellInner: { width: "100%", position: "relative" },
-  /**
-   * The window length, e.g. "6H": inside the bar at its right end, italic, upright. It used to sit
-   * tilted above the bar's corner; now it is the trailing item of the track's row, so it adds no
-   * height to the cell and the amount label simply gets the width that remains.
-   */
-  onBoardWindowLabel: {
-    fontSize: 9,
-    fontWeight: "600",
-    fontStyle: "italic",
-    paddingLeft: 2,
-    paddingRight: 8,
-  },
-  onBoardTickTop: { position: "absolute", top: 0, width: 1, height: 4, marginLeft: -0.5 },
-  onBoardTickBottom: { position: "absolute", bottom: 0, width: 1, height: 4, marginLeft: -0.5 },
-  onBoardTrack: {
-    height: 22, borderRadius: 11, overflow: "hidden", position: "relative",
-    // A row: the amount on the left takes what is left after the window label at the right end.
-    flexDirection: "row", alignItems: "center",
-    borderWidth: 1, width: "100%",
-  },
-  onBoardFill: { position: "absolute", left: 0, top: 0, bottom: 0 },
-  onBoardFillEdge: { position: "absolute", top: 0, bottom: 0, width: 2, marginLeft: -2 },
-  onBoardAmount: { flex: 1, minWidth: 0, fontSize: 10, fontWeight: "800", paddingHorizontal: 8, letterSpacing: 0.1 },
-  /** The measuring twin: out of flow and unbounded (so it sizes to its content), invisible. */
-  onBoardMeasure: { position: "absolute", left: 0, top: 0, flex: 0, minWidth: undefined, opacity: 0 },
+  // ── "Still working" on-board rings (OnBoardRing) — pens' ring language, see PenRing. ──
+  ringsRow: { flexDirection: "row", alignItems: "flex-start", gap: 16, paddingTop: 2 },
+  ringCell: { alignItems: "center", gap: 4 },
+  ringAmount: { fontSize: 13, fontWeight: "800", lineHeight: 15 },
+  ringUnit: { fontSize: 8.5, fontWeight: "600", lineHeight: 10 },
+  ringCaption: { fontSize: 10.5, fontWeight: "600" },
   doseInput: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20, fontWeight: "700", textAlign: "center" },
   doseInputDivider: { width: 1, backgroundColor: "rgba(128,128,128,0.18)", marginVertical: 2 },
   liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
